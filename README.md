@@ -4,69 +4,159 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Features
 
-- **Semantic Code Navigation**: Find symbols, go to definitions, find references
-- **Framework Detection**: Automatically detects and understands Django, FastAPI, Flask patterns
-- **Extensible Plugin System**: Add custom analyzers for your project's specific patterns
-- **Fast & Cached**: Efficient caching layer for large codebases
-- **Type-Aware**: Full understanding of Python type hints and annotations
-- **Cross-File Intelligence**: Import graphs, dependency analysis, dead code detection
+- 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references
+- 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
+- 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
+- 🔄 **Auto-Update**: Automatically detects and reflects file changes
+- ⚙️ **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
+- 🔌 **Extensible Plugin System**: Add custom analyzers for your project patterns
+- 🚀 **Fast & Cached**: Intelligent caching with LRU eviction
+- 🎯 **Type-Aware**: Full understanding of Python type hints and annotations
 
-## Quick Start
+## Installation
 
-### Installation
+### From Source
 
 ```bash
-# Using uv (recommended)
-uv add python-code-intelligence-mcp
+# Clone the repository
+git clone https://github.com/hangie/python-code-intelligence-mcp.git
+cd python-code-intelligence-mcp
 
-# Or using pip
-pip install python-code-intelligence-mcp
+# Install with uv (recommended)
+uv sync
+
+# Or with pip
+pip install -e .
 ```
 
-### Basic Usage
+### Configure with Claude Code
 
 ```bash
-# Run in development mode
-uv run mcp dev src/pycodemcp/server.py
+# Add the MCP server globally (available in all projects)
+claude mcp add python-intelligence -s user -- uv run python ~/GitHub/python-code-intelligence-mcp/src/pycodemcp/server.py
 
-# Test with MCP Inspector
-uv run mcp inspector
+# Verify it's connected
+claude mcp list
 ```
 
 ### Configure with Claude Desktop
 
-Add to your Claude Desktop configuration:
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "python-intelligence": {
       "command": "uv",
-      "args": ["run", "mcp", "server", "/path/to/python-code-intelligence-mcp/src/pycodemcp/server.py"]
+      "args": ["run", "python", "/path/to/python-code-intelligence-mcp/src/pycodemcp/server.py"]
     }
   }
 }
 ```
 
+## Configuration
+
+The server can be configured to analyze packages in other locations. Create a `.pycodemcp.json` file in your project:
+
+```json
+{
+  "packages": [
+    "../my-shared-library",
+    "~/repos/company-utils",
+    "/absolute/path/to/package"
+  ],
+  "namespaces": {
+    "mycompany": [
+      "~/repos/mycompany-auth",
+      "~/repos/mycompany-api"
+    ]
+  }
+}
+```
+
+### Configuration Methods
+
+1. **Config File**: `.pycodemcp.json` in project root
+2. **pyproject.toml**: `[tool.pycodemcp]` section
+3. **Environment Variables**: 
+   - `PYCODEMCP_PACKAGES=/path1:/path2`
+   - `PYCODEMCP_NAMESPACE_company=~/repos/company-auth:~/repos/company-api`
+4. **Global Config**: `~/.config/pycodemcp/config.json`
+5. **Auto-Discovery**: Automatically finds sibling packages
+
 ## Core Tools
 
-- `find_symbol(name)` - Find all definitions of a symbol
-- `goto_definition(file, line, column)` - Jump to symbol definition
-- `find_references(file, line, column)` - Find all usages of a symbol
-- `get_type_info(file, line, column)` - Get type information at position
-- `find_imports(module)` - Find all imports of a module
-- `get_call_hierarchy(function)` - Get call graph for a function
+### Basic Navigation
+- **`find_symbol`** - Find class, function, or variable definitions
+- **`goto_definition`** - Jump to where a symbol is defined
+- **`find_references`** - Find all places where a symbol is used
+- **`get_type_info`** - Get type hints and docstrings
+- **`find_imports`** - Track module imports across the project
+- **`get_call_hierarchy`** - Analyze function call relationships
+
+### Multi-Project Tools
+- **`configure_packages`** - Set up additional package locations
+- **`find_symbol_multi`** - Search across multiple projects
+- **`configure_namespace_package`** - Set up distributed namespace packages
+- **`find_in_namespace`** - Search within namespace packages
+
+### Project Structure
+- **`list_project_structure`** - View Python project file organization
+
+## Advanced Features
+
+### Multi-Project Support
+
+Analyze your main project along with local dependencies:
+
+```python
+# Configure to analyze multiple packages
+configure_packages(
+    packages=["../my-lib", "~/repos/shared-utils"],
+    namespaces={"company": ["~/repos/company-*"]}
+)
+```
+
+### Namespace Packages
+
+Handle packages distributed across multiple repositories:
+
+```python
+# company.auth in repo A, company.api in repo B
+configure_namespace_package(
+    namespace="company",
+    repo_paths=["~/repos/company-auth", "~/repos/company-api"]
+)
+```
+
+### Auto-Update on File Changes
+
+The server uses file watching to automatically update when code changes:
+- Detects modifications in real-time
+- Invalidates cache for changed files
+- Maintains separate watchers per project
 
 ## Architecture
 
-The server is built with a layered, plugin-based architecture:
+```
+Python Code Intelligence MCP
+├── Core Server (FastMCP)
+├── Project Manager
+│   ├── Multi-project support (LRU cache)
+│   ├── Namespace resolver
+│   └── Configuration loader
+├── Analysis Engines
+│   ├── Jedi (semantic analysis)
+│   └── Tree-sitter (pattern matching)
+├── Caching Layer
+│   ├── File watchers (watchdog)
+│   └── Result cache (5min TTL)
+└── Plugin System
+    ├── Base plugin class
+    └── Framework plugins (Django, etc.)
+```
 
-1. **Core MCP Interface** - FastMCP server implementation
-2. **Analysis Engines** - Jedi for semantic analysis, Tree-sitter for pattern matching
-3. **Framework Plugins** - Auto-detects and loads Django, FastAPI, Flask plugins
-4. **Project Extensions** - Add your own custom patterns and tools
-
-## Extending
+## Plugin Development
 
 Create custom plugins for your project patterns:
 
@@ -74,9 +164,16 @@ Create custom plugins for your project patterns:
 from pycodemcp.plugins.base import AnalyzerPlugin
 
 class MyProjectPlugin(AnalyzerPlugin):
-    def find_api_endpoints(self):
-        """Find all API endpoints in your project"""
-        # Your custom logic here
+    def name(self) -> str:
+        return "MyProject"
+    
+    def detect(self) -> bool:
+        # Return True if this plugin should activate
+        return (self.project_path / "my_framework.conf").exists()
+    
+    def find_patterns(self, pattern_name: str):
+        # Find your custom patterns
+        pass
 ```
 
 ## Development
@@ -91,6 +188,9 @@ uv run pytest
 # Format code
 uv run black src/
 uv run ruff check src/
+
+# Test the server
+uv run mcp dev src/pycodemcp/server.py
 ```
 
 ## Contributing
