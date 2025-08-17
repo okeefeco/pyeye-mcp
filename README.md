@@ -144,6 +144,34 @@ The server can be configured to analyze packages in other locations. Create a `.
 ### Project Structure
 - **`list_project_structure`** - View Python project file organization
 
+### Framework-Specific Tools (Auto-Activated)
+
+#### Django (when Django is detected)
+- **`find_django_models`** - Find all Django models
+- **`find_django_views`** - Find all views
+- **`find_django_urls`** - Find URL patterns
+- **`find_django_templates`** - Find templates
+- **`find_django_migrations`** - Find migrations
+
+#### Pydantic (when Pydantic is detected)
+- **`find_pydantic_models`** - Discover all BaseModel classes
+- **`get_model_schema`** - Extract complete model schema
+- **`find_validators`** - Locate all validation methods
+- **`find_field_validators`** - Find field-specific validators
+- **`find_model_config`** - Extract model configurations
+- **`trace_model_inheritance`** - Map model inheritance hierarchies
+- **`find_computed_fields`** - Find computed_field and @property fields
+
+#### Flask (when Flask is detected)
+- **`find_flask_routes`** - Discover all route decorators with methods and endpoints
+- **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
+- **`find_flask_views`** - Find view functions and MethodView classes
+- **`find_flask_templates`** - Locate Jinja2 templates and render_template calls
+- **`find_flask_extensions`** - Identify Flask extensions (SQLAlchemy, Login, CORS, etc.)
+- **`find_flask_config`** - Find configuration files and app.config usage
+- **`find_error_handlers`** - Locate @app.errorhandler decorators
+- **`find_cli_commands`** - Find Flask CLI commands (@app.cli.command)
+
 ## Advanced Features
 
 ### Multi-Project Support
@@ -194,7 +222,7 @@ Python Code Intelligence MCP
 │   └── Result cache (5min TTL)
 └── Plugin System
     ├── Base plugin class
-    └── Framework plugins (Django, etc.)
+    └── Framework plugins (Django, Pydantic, Flask)
 ```
 
 ## Plugin Development

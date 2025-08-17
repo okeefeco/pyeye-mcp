@@ -52,6 +52,16 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 - `find_django_templates` - Find templates
 - `find_django_migrations` - Find migrations
 
+### Flask-Specific Tools (auto-activated when Flask detected)
+- `find_flask_routes` - Discover all route decorators with methods and endpoints
+- `find_flask_blueprints` - Locate Blueprint definitions and registrations
+- `find_flask_views` - Find view functions and MethodView classes
+- `find_flask_templates` - Locate Jinja2 templates and render_template calls
+- `find_flask_extensions` - Identify Flask extensions (SQLAlchemy, Login, CORS, etc.)
+- `find_flask_config` - Find configuration files and app.config usage
+- `find_error_handlers` - Locate @app.errorhandler decorators
+- `find_cli_commands` - Find Flask CLI commands (@app.cli.command)
+
 ## Configuration
 
 The server supports configuration via:
@@ -93,14 +103,14 @@ uv run ruff check src/
 - Namespace package resolution
 - Auto-updating on file changes
 - Configuration system with multiple sources
-- Plugin architecture with Django and Pydantic plugins
+- Plugin architecture with Django, Pydantic, and Flask plugins
 - Comprehensive documentation
-- **NEW**: Deep Pydantic model intelligence with 7 specialized tools
+- **NEW**: Flask framework intelligence with 8 specialized tools for routes, blueprints, templates, and more
 
 ## Next Steps / Improvements
 
 Potential enhancements to consider:
-- Add more framework plugins (FastAPI, Flask)
+- Add more framework plugins (FastAPI)
 - Implement Tree-sitter for pattern matching
 - Add test coverage
 - Publish to PyPI for easier installation
@@ -113,8 +123,8 @@ Potential enhancements to consider:
 - Each Claude instance gets its own MCP server instance (not shared)
 - File watchers automatically update when code changes
 - Configuration is loaded from multiple sources with precedence
-- Plugins auto-activate based on project detection (Django, Pydantic)
-- Pydantic plugin provides deep model understanding beyond basic navigation
+- Plugins auto-activate based on project detection (Django, Pydantic, Flask)
+- Framework plugins provide deep understanding beyond basic navigation
 
 ## File Structure
 
@@ -130,5 +140,6 @@ src/pycodemcp/
 └── plugins/
     ├── base.py          # Plugin base class
     ├── django.py        # Django framework plugin
-    └── pydantic.py      # Pydantic models plugin (NEW)
+    ├── pydantic.py      # Pydantic models plugin
+    └── flask.py         # Flask framework plugin (NEW)
 ```

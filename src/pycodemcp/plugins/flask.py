@@ -1,0 +1,547 @@
+"""Flask framework plugin for code intelligence."""
+
+from typing import List, Dict, Any
+import logging
+import ast
+from .base import AnalyzerPlugin
+
+logger = logging.getLogger(__name__)
+
+
+class FlaskPlugin(AnalyzerPlugin):
+    """Plugin for Flask-specific code intelligence."""
+
+    def name(self) -> str:
+        """Return the plugin name."""
+        return "Flask"
+
+    def detect(self) -> bool:
+        """Detect if this is a Flask project."""
+        # Check for common Flask entry points
+        common_files = ["app.py", "application.py", "wsgi.py", "run.py"]
+        for file_name in common_files:
+            file_path = self.project_path / file_name
+            if file_path.exists():
+                try:
+                    content = file_path.read_text()
+                    if "from flask import" in content or "import flask" in content:
+                        return True
+                except Exception:
+                    pass
+
+        # Check for Flask in requirements
+        requirements_files = [
+            "requirements.txt",
+            "requirements/base.txt",
+            "Pipfile",
+            "pyproject.toml",
+        ]
+        for req_file in requirements_files:
+            req_path = self.project_path / req_file
+            if req_path.exists():
+                try:
+                    content = req_path.read_text().lower()
+                    if "flask" in content:
+                        return True
+                except Exception:
+                    pass
+
+        # Check for Flask imports in any Python files
+        for py_file in self.project_path.glob("**/*.py"):
+            if py_file.is_file():
+                try:
+                    content = py_file.read_text()
+                    if "from flask import" in content or "import flask" in content:
+                        return True
+                except Exception:
+                    pass
+
+        return False
+
+    def register_tools(self) -> Dict[str, callable]:
+        """Register Flask-specific tools."""
+        return {
+            "find_flask_routes": self.find_routes,
+            "find_flask_blueprints": self.find_blueprints,
+            "find_flask_views": self.find_views,
+            "find_flask_templates": self.find_templates,
+            "find_flask_extensions": self.find_extensions,
+            "find_flask_config": self.find_config,
+            "find_error_handlers": self.find_error_handlers,
+            "find_cli_commands": self.find_cli_commands,
+        }
+
+    def find_routes(self) -> List[Dict[str, Any]]:
+        """Find all Flask routes in the project."""
+        routes = []
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "@" in content and "route" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.FunctionDef):
+                            # Check for route decorators
+                            for decorator in node.decorator_list:
+                                route_path = None
+                                methods = ["GET"]  # Default method
+
+                                # Handle @app.route() or @blueprint.route()
+                                if isinstance(decorator, ast.Call):
+                                    if isinstance(decorator.func, ast.Attribute):
+                                        if decorator.func.attr == "route":
+                                            # Extract route path
+                                            if decorator.args and isinstance(
+                                                decorator.args[0], ast.Constant
+                                            ):
+                                                route_path = decorator.args[0].value
+                                            elif decorator.args and isinstance(
+                                                decorator.args[0], ast.Str
+                                            ):
+                                                route_path = decorator.args[0].s
+
+                                            # Extract methods if specified
+                                            for keyword in decorator.keywords:
+                                                if keyword.arg == "methods":
+                                                    if isinstance(keyword.value, ast.List):
+                                                        methods = []
+                                                        for elt in keyword.value.elts:
+                                                            if isinstance(
+                                                                elt, (ast.Str, ast.Constant)
+                                                            ):
+                                                                value = (
+                                                                    elt.s
+                                                                    if isinstance(elt, ast.Str)
+                                                                    else elt.value
+                                                                )
+                                                                methods.append(value)
+
+                                if route_path:
+                                    routes.append(
+                                        {
+                                            "name": node.name,
+                                            "file": str(py_file),
+                                            "line": node.lineno,
+                                            "path": route_path,
+                                            "methods": methods,
+                                            "type": "route",
+                                        }
+                                    )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return routes
+
+    def find_blueprints(self) -> List[Dict[str, Any]]:
+        """Find all Flask blueprints in the project."""
+        blueprints = []
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "Blueprint" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Assign):
+                            # Check for Blueprint instantiation
+                            if isinstance(node.value, ast.Call):
+                                if (
+                                    isinstance(node.value.func, ast.Name)
+                                    and node.value.func.id == "Blueprint"
+                                ):
+                                    # Get blueprint name
+                                    if node.targets and isinstance(node.targets[0], ast.Name):
+                                        bp_name = None
+                                        url_prefix = None
+
+                                        # Extract blueprint name from args
+                                        if node.value.args and isinstance(
+                                            node.value.args[0], (ast.Str, ast.Constant)
+                                        ):
+                                            bp_name = (
+                                                node.value.args[0].s
+                                                if isinstance(node.value.args[0], ast.Str)
+                                                else node.value.args[0].value
+                                            )
+
+                                        # Extract url_prefix if specified
+                                        for keyword in node.value.keywords:
+                                            if keyword.arg == "url_prefix":
+                                                if isinstance(
+                                                    keyword.value, (ast.Str, ast.Constant)
+                                                ):
+                                                    url_prefix = (
+                                                        keyword.value.s
+                                                        if isinstance(keyword.value, ast.Str)
+                                                        else keyword.value.value
+                                                    )
+
+                                        blueprints.append(
+                                            {
+                                                "name": node.targets[0].id,
+                                                "blueprint_name": bp_name,
+                                                "file": str(py_file),
+                                                "line": node.lineno,
+                                                "url_prefix": url_prefix,
+                                                "type": "blueprint",
+                                            }
+                                        )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return blueprints
+
+    def find_views(self) -> List[Dict[str, Any]]:
+        """Find all Flask view functions and classes."""
+        views = []
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "flask" in content.lower():
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        # Find MethodView classes
+                        if isinstance(node, ast.ClassDef):
+                            for base in node.bases:
+                                if isinstance(base, ast.Name) and base.id == "MethodView":
+                                    views.append(
+                                        {
+                                            "name": node.name,
+                                            "file": str(py_file),
+                                            "line": node.lineno,
+                                            "type": "method_view",
+                                        }
+                                    )
+                                elif isinstance(base, ast.Attribute) and base.attr == "MethodView":
+                                    views.append(
+                                        {
+                                            "name": node.name,
+                                            "file": str(py_file),
+                                            "line": node.lineno,
+                                            "type": "method_view",
+                                        }
+                                    )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return views
+
+    def find_templates(self) -> List[Dict[str, Any]]:
+        """Find all Flask templates and render_template calls."""
+        templates = []
+        render_calls = []
+
+        # Find template files
+        template_dirs = ["templates", "*/templates", "app/templates"]
+        for pattern in template_dirs:
+            for template_dir in self.project_path.glob(pattern):
+                if template_dir.is_dir():
+                    for template_file in template_dir.rglob("*.html"):
+                        templates.append(
+                            {
+                                "file": str(template_file),
+                                "name": str(template_file.relative_to(template_dir)),
+                                "type": "template",
+                            }
+                        )
+                    for template_file in template_dir.rglob("*.jinja2"):
+                        templates.append(
+                            {
+                                "file": str(template_file),
+                                "name": str(template_file.relative_to(template_dir)),
+                                "type": "template",
+                            }
+                        )
+
+        # Find render_template calls
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "render_template" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Call):
+                            if (
+                                isinstance(node.func, ast.Name)
+                                and node.func.id == "render_template"
+                            ):
+                                if node.args and isinstance(node.args[0], (ast.Str, ast.Constant)):
+                                    template_name = (
+                                        node.args[0].s
+                                        if isinstance(node.args[0], ast.Str)
+                                        else node.args[0].value
+                                    )
+                                    render_calls.append(
+                                        {
+                                            "template": template_name,
+                                            "file": str(py_file),
+                                            "line": node.lineno,
+                                            "type": "render_call",
+                                        }
+                                    )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return {"templates": templates, "render_calls": render_calls}
+
+    def find_extensions(self) -> List[Dict[str, Any]]:
+        """Find Flask extensions in use."""
+        extensions = []
+        common_extensions = [
+            "flask_sqlalchemy",
+            "flask_migrate",
+            "flask_login",
+            "flask_wtf",
+            "flask_cors",
+            "flask_mail",
+            "flask_restful",
+            "flask_marshmallow",
+            "flask_jwt_extended",
+            "flask_socketio",
+            "flask_admin",
+            "flask_limiter",
+        ]
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                for ext in common_extensions:
+                    if f"from {ext}" in content or f"import {ext}" in content:
+                        # Parse to get more details
+                        tree = ast.parse(content)
+                        for node in ast.walk(tree):
+                            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                                if isinstance(node, ast.ImportFrom):
+                                    if node.module and ext in node.module:
+                                        extensions.append(
+                                            {
+                                                "extension": ext,
+                                                "file": str(py_file),
+                                                "line": node.lineno,
+                                                "type": "import",
+                                            }
+                                        )
+                                elif isinstance(node, ast.Import):
+                                    for alias in node.names:
+                                        if ext in alias.name:
+                                            extensions.append(
+                                                {
+                                                    "extension": ext,
+                                                    "file": str(py_file),
+                                                    "line": node.lineno,
+                                                    "type": "import",
+                                                }
+                                            )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        # Remove duplicates
+        seen = set()
+        unique_extensions = []
+        for ext in extensions:
+            key = (ext["extension"], ext["file"])
+            if key not in seen:
+                seen.add(key)
+                unique_extensions.append(ext)
+
+        return unique_extensions
+
+    def find_config(self) -> List[Dict[str, Any]]:
+        """Find Flask configuration files and app.config usage."""
+        configs = []
+
+        # Look for config files
+        config_patterns = ["config.py", "settings.py", "*/config.py", "*/settings.py"]
+        for pattern in config_patterns:
+            for config_file in self.project_path.glob(pattern):
+                if config_file.is_file():
+                    configs.append({"file": str(config_file), "type": "config_file"})
+
+        # Find app.config usage
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "app.config" in content or "current_app.config" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        # Look for config access patterns
+                        if isinstance(node, ast.Attribute):
+                            if isinstance(node.value, ast.Name):
+                                if (
+                                    node.value.id in ["app", "current_app"]
+                                    and node.attr == "config"
+                                ):
+                                    configs.append(
+                                        {
+                                            "file": str(py_file),
+                                            "line": node.lineno if hasattr(node, "lineno") else 0,
+                                            "type": "config_access",
+                                        }
+                                    )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return configs
+
+    def find_error_handlers(self) -> List[Dict[str, Any]]:
+        """Find error handler functions."""
+        handlers = []
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "errorhandler" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.FunctionDef):
+                            for decorator in node.decorator_list:
+                                # Check for @app.errorhandler()
+                                if isinstance(decorator, ast.Call):
+                                    if isinstance(decorator.func, ast.Attribute):
+                                        if decorator.func.attr == "errorhandler":
+                                            error_code = None
+                                            if decorator.args:
+                                                if isinstance(decorator.args[0], ast.Constant):
+                                                    error_code = decorator.args[0].value
+                                                elif isinstance(decorator.args[0], ast.Num):
+                                                    error_code = decorator.args[0].n
+                                                elif isinstance(decorator.args[0], ast.Name):
+                                                    error_code = decorator.args[0].id
+
+                                            handlers.append(
+                                                {
+                                                    "name": node.name,
+                                                    "file": str(py_file),
+                                                    "line": node.lineno,
+                                                    "error_code": error_code,
+                                                    "type": "error_handler",
+                                                }
+                                            )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return handlers
+
+    def find_cli_commands(self) -> List[Dict[str, Any]]:
+        """Find Flask CLI commands."""
+        commands = []
+
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "@" in content and "cli" in content:
+                    tree = ast.parse(content)
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.FunctionDef):
+                            for decorator in node.decorator_list:
+                                # Check for @app.cli.command() or @click.command()
+                                if isinstance(decorator, ast.Call):
+                                    if isinstance(decorator.func, ast.Attribute):
+                                        if decorator.func.attr == "command":
+                                            # Check if it's app.cli.command
+                                            if isinstance(decorator.func.value, ast.Attribute):
+                                                if decorator.func.value.attr == "cli":
+                                                    command_name = node.name
+                                                    # Try to get custom command name
+                                                    if decorator.args and isinstance(
+                                                        decorator.args[0], (ast.Str, ast.Constant)
+                                                    ):
+                                                        command_name = (
+                                                            decorator.args[0].s
+                                                            if isinstance(
+                                                                decorator.args[0], ast.Str
+                                                            )
+                                                            else decorator.args[0].value
+                                                        )
+
+                                                    commands.append(
+                                                        {
+                                                            "name": command_name,
+                                                            "function": node.name,
+                                                            "file": str(py_file),
+                                                            "line": node.lineno,
+                                                            "type": "cli_command",
+                                                        }
+                                                    )
+                                elif isinstance(decorator, ast.Name):
+                                    # Handle @click.command without parentheses
+                                    if decorator.id == "command":
+                                        commands.append(
+                                            {
+                                                "name": node.name,
+                                                "function": node.name,
+                                                "file": str(py_file),
+                                                "line": node.lineno,
+                                                "type": "cli_command",
+                                            }
+                                        )
+
+            except Exception as e:
+                logger.warning(f"Error parsing {py_file}: {e}")
+
+        return commands
+
+    def get_framework_components(self) -> Dict[str, List[str]]:
+        """Get Flask framework components."""
+        components = {
+            "routes": [],
+            "blueprints": [],
+            "templates": [],
+            "static": [],
+            "models": [],
+            "forms": [],
+        }
+
+        # Find route files
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "@" in content and "route" in content:
+                    components["routes"].append(str(py_file))
+            except Exception:
+                pass
+
+        # Find blueprint files
+        for py_file in self.project_path.rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                if "Blueprint" in content:
+                    components["blueprints"].append(str(py_file))
+            except Exception:
+                pass
+
+        # Find template directories
+        for template_dir in self.project_path.glob("**/templates"):
+            if template_dir.is_dir():
+                components["templates"].append(str(template_dir))
+
+        # Find static directories
+        for static_dir in self.project_path.glob("**/static"):
+            if static_dir.is_dir():
+                components["static"].append(str(static_dir))
+
+        # Find models (SQLAlchemy)
+        for models_file in self.project_path.rglob("models.py"):
+            components["models"].append(str(models_file))
+
+        # Find forms (WTForms)
+        for forms_file in self.project_path.rglob("forms.py"):
+            components["forms"].append(str(forms_file))
+
+        return components

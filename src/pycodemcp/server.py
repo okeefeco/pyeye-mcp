@@ -10,6 +10,7 @@ from .project_manager import get_project_manager
 from .config import ProjectConfig
 from .plugins.pydantic import PydanticPlugin
 from .plugins.django import DjangoPlugin
+from .plugins.flask import FlaskPlugin
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +29,7 @@ def initialize_plugins(project_path: str = "."):
     _plugins = []
     
     # Try to activate each plugin
-    plugin_classes = [PydanticPlugin, DjangoPlugin]
+    plugin_classes = [PydanticPlugin, DjangoPlugin, FlaskPlugin]
     
     for plugin_class in plugin_classes:
         try:

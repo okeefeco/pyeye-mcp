@@ -285,6 +285,36 @@ Search within namespace packages.
 
 **Returns:** Locations where import is found
 
+### Framework-Specific Tools
+
+The server automatically detects and activates framework-specific tools when it identifies framework usage in your project.
+
+#### Django Tools (Auto-activated)
+- **`find_django_models`** - Find all Django models with inheritance
+- **`find_django_views`** - Find function and class-based views
+- **`find_django_urls`** - Find URL patterns and configurations
+- **`find_django_templates`** - Find Django templates
+- **`find_django_migrations`** - Find migration files by app
+
+#### Pydantic Tools (Auto-activated)
+- **`find_pydantic_models`** - Discover all BaseModel classes with fields
+- **`get_model_schema`** - Extract complete model schema including validators
+- **`find_validators`** - Locate all validation methods (root, model validators)
+- **`find_field_validators`** - Find field-specific validators
+- **`find_model_config`** - Extract model configurations
+- **`trace_model_inheritance`** - Map model inheritance hierarchies
+- **`find_computed_fields`** - Find computed_field and @property fields
+
+#### Flask Tools (Auto-activated)
+- **`find_flask_routes`** - Discover all route decorators with methods and endpoints
+- **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
+- **`find_flask_views`** - Find view functions and MethodView classes
+- **`find_flask_templates`** - Locate Jinja2 templates and render_template calls
+- **`find_flask_extensions`** - Identify Flask extensions (SQLAlchemy, Login, CORS, etc.)
+- **`find_flask_config`** - Find configuration files and app.config usage
+- **`find_error_handlers`** - Locate @app.errorhandler decorators
+- **`find_cli_commands`** - Find Flask CLI commands (@app.cli.command)
+
 ## Architecture
 
 ### Component Overview
@@ -322,7 +352,7 @@ Search within namespace packages.
 ├──────────────────────────────────────────────────────┤
 │                 Plugin System                        │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │  Django  │ │ FastAPI  │ │  Custom  │ ...       │
+│  │  Django  │ │ Pydantic │ │  Flask   │ ...       │
 │  └──────────┘ └──────────┘ └──────────┘           │
 └──────────────────────────────────────────────────────┘
 ```
@@ -474,7 +504,9 @@ from pycodemcp.plugins.myframework import MyFrameworkPlugin
 def load_plugins(project_path: str):
     plugins = [
         DjangoPlugin(project_path),
-        FastAPIPlugin(project_path),
+        PydanticPlugin(project_path),
+        FlaskPlugin(project_path),
+        FastAPIPlugin(project_path),  # Coming soon
         MyFrameworkPlugin(project_path),  # Your plugin
     ]
     
