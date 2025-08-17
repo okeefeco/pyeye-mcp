@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional, List, Set
 import logging
 from .cache import CodebaseWatcher, ProjectCache
+from .namespace_resolver import NamespaceResolver
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ class ProjectManager:
         
         # Project dependencies - maps project to its dependencies
         self.dependencies: Dict[Path, Set[Path]] = {}
+        
+        # Namespace resolver for distributed packages
+        self.namespace_resolver = NamespaceResolver()
         
     def get_project(self, project_path: str, include_paths: List[str] = None) -> jedi.Project:
         """Get or create a Jedi project.

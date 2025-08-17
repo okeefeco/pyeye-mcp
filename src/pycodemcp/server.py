@@ -369,6 +369,129 @@ def get_call_hierarchy(
 
 
 @mcp.tool()
+def configure_namespace_package(
+    namespace: str,
+    repo_paths: List[str]
+) -> Dict[str, Any]:
+    """Configure a namespace package spread across multiple repositories.
+    
+    Args:
+        namespace: Package namespace (e.g., "mycompany.services")
+        repo_paths: List of repository paths containing parts of this namespace
+        
+    Returns:
+        Configuration details and discovered structure
+        
+    Example:
+        configure_namespace_package(
+            namespace="mycompany",
+            repo_paths=[
+                "~/repos/mycompany-auth",
+                "~/repos/mycompany-api", 
+                "~/repos/mycompany-utils"
+            ]
+        )
+    """
+    manager = get_project_manager()
+    resolver = manager.namespace_resolver
+    
+    # Discover namespace packages
+    discovered = resolver.discover_namespaces(repo_paths)
+    
+    # Register the namespace
+    if namespace in discovered:
+        resolver.register_namespace(namespace, [str(p) for p in discovered[namespace]])
+        
+    # Build structure map
+    structure = resolver.build_namespace_map(repo_paths)
+    
+    # Configure Jedi projects for all paths
+    all_paths = []
+    for ns_paths in discovered.values():
+        all_paths.extend([str(p) for p in ns_paths])
+        
+    # Create a unified project with all namespace paths
+    if all_paths:
+        # Use first path as main, rest as includes
+        manager.get_project(all_paths[0], all_paths[1:] if len(all_paths) > 1 else None)
+        
+    return {
+        "namespace": namespace,
+        "discovered_namespaces": {k: [str(p) for p in v] for k, v in discovered.items()},
+        "structure": structure,
+        "status": "configured"
+    }
+
+
+@mcp.tool()
+def find_in_namespace(
+    import_path: str,
+    namespace_repos: List[str]
+) -> Dict[str, Any]:
+    """Find a module/class within a namespace package spread across repos.
+    
+    Args:
+        import_path: Full import path (e.g., "mycompany.auth.models.User")
+        namespace_repos: Repository paths to search
+        
+    Returns:
+        Locations where the import is found
+        
+    Example:
+        find_in_namespace(
+            "mycompany.auth.models.User",
+            ["~/repos/mycompany-auth", "~/repos/mycompany-core"]
+        )
+    """
+    manager = get_project_manager()
+    resolver = manager.namespace_resolver
+    
+    # Discover namespaces if not already done
+    resolver.discover_namespaces(namespace_repos)
+    
+    # Resolve the import
+    resolved_paths = resolver.resolve_import(import_path, namespace_repos)
+    
+    results = {
+        "import_path": import_path,
+        "found_at": [],
+        "namespace_structure": {}
+    }
+    
+    # For each resolved path, find the specific symbol
+    parts = import_path.split('.')
+    symbol_name = parts[-1] if parts else None
+    
+    for path in resolved_paths:
+        # Get the project for this path
+        project_root = path.parent
+        while project_root.parent != project_root and any(project_root.glob("*.py")):
+            project_root = project_root.parent
+            
+        project = manager.get_project(str(project_root))
+        
+        # Search for the symbol
+        if symbol_name:
+            try:
+                search_results = project.search(symbol_name, all_scopes=True)
+                for result in search_results:
+                    if result.module_path == path or str(result.module_path).startswith(str(path.parent)):
+                        results["found_at"].append({
+                            "file": str(result.module_path),
+                            "line": result.line,
+                            "type": result.type,
+                            "description": result.description
+                        })
+            except Exception as e:
+                logger.error(f"Error searching in {path}: {e}")
+                
+    # Add namespace structure
+    results["namespace_structure"] = resolver.build_namespace_map(namespace_repos)
+    
+    return results
+
+
+@mcp.tool()
 def find_symbol_multi(
     name: str, 
     project_paths: List[str], 
