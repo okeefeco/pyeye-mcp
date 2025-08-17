@@ -23,6 +23,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 
 ## MCP Tools Available
 
+### Core Navigation Tools
 1. `configure_packages` - Set up additional package locations
 2. `find_symbol` - Find class/function/variable definitions
 3. `goto_definition` - Jump to symbol definition
@@ -34,6 +35,22 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 9. `configure_namespace_package` - Set up distributed namespaces
 10. `find_in_namespace` - Search within namespace packages
 11. `list_project_structure` - View project file organization
+
+### Pydantic-Specific Tools (auto-activated when Pydantic detected)
+12. `find_pydantic_models` - Discover all BaseModel classes with fields
+13. `get_model_schema` - Extract complete model schema
+14. `find_validators` - Locate all validation methods
+15. `find_field_validators` - Find field-specific validators
+16. `find_model_config` - Extract model configurations
+17. `trace_model_inheritance` - Map model inheritance hierarchies
+18. `find_computed_fields` - Find computed_field and @property fields
+
+### Django-Specific Tools (auto-activated when Django detected)
+- `find_django_models` - Find all Django models
+- `find_django_views` - Find all views
+- `find_django_urls` - Find URL patterns
+- `find_django_templates` - Find templates
+- `find_django_migrations` - Find migrations
 
 ## Configuration
 
@@ -76,8 +93,9 @@ uv run ruff check src/
 - Namespace package resolution
 - Auto-updating on file changes
 - Configuration system with multiple sources
-- Plugin architecture with Django example
+- Plugin architecture with Django and Pydantic plugins
 - Comprehensive documentation
+- **NEW**: Deep Pydantic model intelligence with 7 specialized tools
 
 ## Next Steps / Improvements
 
@@ -95,13 +113,14 @@ Potential enhancements to consider:
 - Each Claude instance gets its own MCP server instance (not shared)
 - File watchers automatically update when code changes
 - Configuration is loaded from multiple sources with precedence
-- The Django plugin is an example - more can be added
+- Plugins auto-activate based on project detection (Django, Pydantic)
+- Pydantic plugin provides deep model understanding beyond basic navigation
 
 ## File Structure
 
 ```
 src/pycodemcp/
-├── server.py              # Main MCP server with 11 tools
+├── server.py              # Main MCP server with 11+ tools
 ├── project_manager.py     # Multi-project management with LRU
 ├── namespace_resolver.py  # Distributed package handling
 ├── config.py             # Configuration system
@@ -110,5 +129,6 @@ src/pycodemcp/
 │   └── jedi_analyzer.py # Jedi wrapper for analysis
 └── plugins/
     ├── base.py          # Plugin base class
-    └── django.py        # Django framework plugin
+    ├── django.py        # Django framework plugin
+    └── pydantic.py      # Pydantic models plugin (NEW)
 ```
