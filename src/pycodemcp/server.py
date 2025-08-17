@@ -12,6 +12,7 @@ from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
 from .plugins.pydantic import PydanticPlugin
 from .project_manager import get_project_manager
+from .validation import validate_mcp_inputs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +90,7 @@ def get_jedi_project(project_path: str | list[str] | dict[str, Any] = ".") -> je
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
@@ -146,6 +148,7 @@ def configure_packages(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
@@ -202,6 +205,7 @@ def find_symbol(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
@@ -250,6 +254,7 @@ def goto_definition(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def find_references(
     file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
 ) -> list[dict[str, Any]]:
@@ -304,6 +309,7 @@ def find_references(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def get_type_info(file: str, line: int, column: int, project_path: str = ".") -> dict[str, Any]:
     """Get type information at a specific position.
 
@@ -360,6 +366,7 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Find all imports of a specific module in the project.
 
@@ -410,6 +417,7 @@ def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, An
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
@@ -492,6 +500,7 @@ def get_call_hierarchy(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[str, Any]:
     """Configure a namespace package spread across multiple repositories.
 
@@ -544,6 +553,7 @@ def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[s
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str, Any]:
     """Find a module/class within a namespace package spread across repos.
 
@@ -611,6 +621,7 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def find_symbol_multi(
     name: str, project_paths: list[str], fuzzy: bool = False
 ) -> dict[str, list[dict[str, Any]]]:
@@ -662,6 +673,7 @@ def find_symbol_multi(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
     """List the Python project structure.
 

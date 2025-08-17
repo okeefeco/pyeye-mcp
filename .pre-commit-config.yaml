@@ -26,13 +26,7 @@ repos:
         language_version: python3.12
         args: ['--line-length=100']
 
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ['--profile', 'black', '--line-length', '100']
-
-  # Linting
+  # Linting (Note: Ruff handles import sorting via the "I" rule)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.1.9
     hooks:

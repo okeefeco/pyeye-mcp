@@ -1,0 +1,330 @@
+"""Input validation and sanitization for file paths and user inputs."""
+
+import re
+from pathlib import Path
+from typing import Any
+
+
+class ValidationError(Exception):
+    """Raised when input validation fails."""
+
+    pass
+
+
+class PathValidator:
+    """Validates and sanitizes file paths for security."""
+
+    # Patterns that might indicate path traversal attempts
+    SUSPICIOUS_PATTERNS = [
+        r"\.\./",  # Directory traversal
+        r"\.\.$",  # Directory traversal at end
+        r"^\.\.",  # Starting with ..
+        r"/\.\./",  # Directory traversal with slash
+        r"\\\.\.",  # Windows-style traversal
+        r"\.\.\\",  # Windows-style traversal
+    ]
+
+    # Patterns for potentially dangerous file names
+    DANGEROUS_NAMES = [
+        r"\.git/",  # Git directory
+        r"\.ssh/",  # SSH keys
+        r"\.aws/",  # AWS credentials
+        r"^\.env$",  # Environment files
+        r"\.pem$",  # Certificate files
+        r"\.key$",  # Key files
+        r"^/etc/",  # System config (Unix)
+        r"^/proc/",  # Process info (Unix)
+        r"^/sys/",  # System info (Unix)
+    ]
+
+    @classmethod
+    def validate_path(cls, path: str | Path, base_path: str | Path | None = None) -> Path:
+        """Validate and sanitize a file path.
+
+        Args:
+            path: The path to validate
+            base_path: Optional base path to restrict access within
+
+        Returns:
+            Validated Path object
+
+        Raises:
+            ValidationError: If the path is invalid or potentially dangerous
+        """
+        if not path:
+            raise ValidationError("Path cannot be empty")
+
+        # Convert to string for validation
+        path_str = str(path)
+
+        # Check for null bytes
+        if "\x00" in path_str:
+            raise ValidationError("Path contains null bytes")
+
+        # Check for suspicious patterns
+        for pattern in cls.SUSPICIOUS_PATTERNS:
+            if re.search(pattern, path_str):
+                raise ValidationError(f"Path contains suspicious pattern: {pattern}")
+
+        # Convert to Path object and resolve
+        try:
+            path_obj = Path(path_str)
+            # Resolve to absolute path to handle any remaining .. or .
+            resolved_path = path_obj.resolve()
+        except (ValueError, RuntimeError) as e:
+            raise ValidationError(f"Invalid path: {e}") from e
+
+        # If base_path is provided, ensure the path is within it
+        if base_path:
+            base = Path(base_path).resolve()
+            try:
+                # Check if resolved path is relative to base
+                resolved_path.relative_to(base)
+            except ValueError as e:
+                raise ValidationError(
+                    f"Path {resolved_path} is outside base directory {base}"
+                ) from e
+
+        # Check for dangerous file names
+        path_str_normalized = str(resolved_path).replace("\\", "/")
+        for pattern in cls.DANGEROUS_NAMES:
+            if re.search(pattern, path_str_normalized, re.IGNORECASE):
+                # Log warning but don't block - these might be legitimate
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Accessing potentially sensitive path: {path_str_normalized}"
+                )
+
+        return resolved_path
+
+    @classmethod
+    def is_safe_to_read(cls, path: str | Path, max_size: int = 10 * 1024 * 1024) -> bool:
+        """Check if a file is safe to read.
+
+        Args:
+            path: Path to check
+            max_size: Maximum file size in bytes (default 10MB)
+
+        Returns:
+            True if the file appears safe to read
+        """
+        try:
+            path_obj = cls.validate_path(path)
+
+            # Check if file exists
+            if not path_obj.exists():
+                return False
+
+            # Check if it's a regular file
+            if not path_obj.is_file():
+                return False
+
+            # Check file size
+            if path_obj.stat().st_size > max_size:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"File too large: {path_obj} ({path_obj.stat().st_size} bytes)"
+                )
+                return False
+
+            # Check if it's a symlink pointing outside project
+            if path_obj.is_symlink():
+                target = path_obj.resolve()
+                # Could add additional checks here
+                import logging
+
+                logging.getLogger(__name__).info(f"Following symlink: {path_obj} -> {target}")
+
+            return True
+
+        except (ValidationError, OSError):
+            return False
+
+
+class InputValidator:
+    """General input validation utilities."""
+
+    @staticmethod
+    def validate_identifier(name: str, allow_dots: bool = True) -> str:
+        """Validate a Python identifier or module name.
+
+        Args:
+            name: The identifier to validate
+            allow_dots: Whether to allow dots (for module names)
+
+        Returns:
+            The validated identifier
+
+        Raises:
+            ValidationError: If the identifier is invalid
+        """
+        if not name:
+            raise ValidationError("Identifier cannot be empty")
+
+        # Check length
+        if len(name) > 255:
+            raise ValidationError("Identifier too long")
+
+        # Check for null bytes
+        if "\x00" in name:
+            raise ValidationError("Identifier contains null bytes")
+
+        # Validate format
+        if allow_dots:
+            # Module name format: word.word.word
+            pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
+        else:
+            # Simple identifier
+            pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+
+        if not re.match(pattern, name):
+            raise ValidationError(f"Invalid identifier format: {name}")
+
+        return name
+
+    @staticmethod
+    def validate_line_number(line: Any, max_line: int = 1000000) -> int:
+        """Validate a line number.
+
+        Args:
+            line: The line number to validate
+            max_line: Maximum allowed line number
+
+        Returns:
+            The validated line number
+
+        Raises:
+            ValidationError: If the line number is invalid
+        """
+        try:
+            line_num = int(line)
+        except (TypeError, ValueError) as e:
+            raise ValidationError(f"Invalid line number: {line}") from e
+
+        if line_num < 1:
+            raise ValidationError("Line number must be positive")
+
+        if line_num > max_line:
+            raise ValidationError(f"Line number too large: {line_num}")
+
+        return line_num
+
+    @staticmethod
+    def validate_column_number(column: Any, max_column: int = 10000) -> int:
+        """Validate a column number.
+
+        Args:
+            column: The column number to validate
+            max_column: Maximum allowed column number
+
+        Returns:
+            The validated column number
+
+        Raises:
+            ValidationError: If the column number is invalid
+        """
+        try:
+            col_num = int(column)
+        except (TypeError, ValueError) as e:
+            raise ValidationError(f"Invalid column number: {column}") from e
+
+        if col_num < 0:
+            raise ValidationError("Column number must be non-negative")
+
+        if col_num > max_column:
+            raise ValidationError(f"Column number too large: {col_num}")
+
+        return col_num
+
+    @staticmethod
+    def sanitize_string(text: str, max_length: int = 10000) -> str:
+        """Sanitize a string for safe use.
+
+        Args:
+            text: The string to sanitize
+            max_length: Maximum allowed length
+
+        Returns:
+            The sanitized string
+        """
+        if not text:
+            return ""
+
+        # Remove null bytes
+        text = text.replace("\x00", "")
+
+        # Truncate if too long
+        if len(text) > max_length:
+            text = text[:max_length]
+
+        # Remove control characters except common ones (tab, newline, etc.)
+        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+
+        return text
+
+
+def validate_mcp_inputs(func: Any) -> Any:
+    """Decorator to validate inputs for MCP tool functions."""
+    import functools
+    import inspect
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        # Get function signature
+        sig = inspect.signature(func)
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+
+        # Validate based on parameter names
+        for param_name, value in bound.arguments.items():
+            if value is None:
+                continue
+
+            # File path validation
+            if param_name in ["file", "file_path", "path", "project_path"]:
+                try:
+                    validated = PathValidator.validate_path(value)
+                    bound.arguments[param_name] = str(validated)
+                except ValidationError as e:
+                    return {"error": f"Invalid {param_name}: {e}"}
+
+            # Line number validation
+            elif param_name == "line":
+                try:
+                    bound.arguments[param_name] = InputValidator.validate_line_number(value)
+                except ValidationError as e:
+                    return {"error": f"Invalid line number: {e}"}
+
+            # Column number validation
+            elif param_name == "column":
+                try:
+                    bound.arguments[param_name] = InputValidator.validate_column_number(value)
+                except ValidationError as e:
+                    return {"error": f"Invalid column number: {e}"}
+
+            # Module/identifier name validation
+            elif param_name in ["name", "module_name", "function_name", "import_path"]:
+                try:
+                    bound.arguments[param_name] = InputValidator.validate_identifier(
+                        value, allow_dots=param_name in ["module_name", "import_path"]
+                    )
+                except ValidationError as e:
+                    return {"error": f"Invalid {param_name}: {e}"}
+
+            # List validation for paths
+            elif param_name in ["paths", "repo_paths", "project_paths", "packages"]:
+                if isinstance(value, list):
+                    validated_list = []
+                    for item in value:
+                        try:
+                            validated = PathValidator.validate_path(item)
+                            validated_list.append(str(validated))
+                        except ValidationError as e:
+                            return {"error": f"Invalid path in {param_name}: {e}"}
+                    bound.arguments[param_name] = validated_list
+
+        return func(*bound.args, **bound.kwargs)
+
+    return wrapper

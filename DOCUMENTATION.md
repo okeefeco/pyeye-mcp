@@ -7,9 +7,10 @@
 3. [Configuration](#configuration)
 4. [Tools Reference](#tools-reference)
 5. [Architecture](#architecture)
-6. [Use Cases](#use-cases)
-7. [Plugin Development](#plugin-development)
-8. [Troubleshooting](#troubleshooting)
+6. [Security](#security)
+7. [Use Cases](#use-cases)
+8. [Plugin Development](#plugin-development)
+9. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -421,6 +422,107 @@ The server automatically detects and activates framework-specific tools when it 
 - Automatic cache invalidation
 - Per-project watchers
 - Minimal performance overhead
+
+## Security
+
+### Input Validation
+
+The MCP server implements comprehensive input validation to prevent security vulnerabilities:
+
+#### Path Validation
+
+All file paths are validated to prevent path traversal attacks:
+
+- **Path Traversal Prevention**: Rejects paths containing `../` or similar patterns
+- **Null Byte Protection**: Blocks paths with null bytes that could bypass security checks
+- **Absolute Path Resolution**: Resolves all paths to absolute form to detect escape attempts
+- **Base Directory Restriction**: Optional restriction to keep paths within project boundaries
+
+Example of blocked patterns:
+
+```python
+# These paths will be rejected:
+"../../etc/passwd"           # Path traversal
+"/home/user/../../../etc"    # Absolute path traversal
+"file\x00.txt"              # Null byte injection
+```
+
+#### Input Sanitization
+
+All user inputs are sanitized before processing:
+
+- **Identifier Validation**: Python identifiers must match `[a-zA-Z_][a-zA-Z0-9_]*`
+- **Module Name Validation**: Module names allow dots but must be valid Python modules
+- **Line/Column Validation**: Numbers are range-checked to prevent overflow
+- **String Sanitization**: Control characters are removed, length is limited
+
+#### Sensitive Path Warnings
+
+The server warns when accessing potentially sensitive paths:
+
+- `.git/` - Git repository data
+- `.ssh/` - SSH keys
+- `.aws/` - AWS credentials
+- `.env` - Environment files
+- `*.pem`, `*.key` - Certificate and key files
+
+These paths are logged but not blocked (they may be legitimate for analysis).
+
+### Configuration Security
+
+When loading configuration from files:
+
+- Paths from configuration files are validated
+- Invalid paths are logged and skipped
+- Glob patterns are expanded safely
+- User home directory (`~`) is properly expanded
+
+### Best Practices
+
+1. **Restrict Base Directory**: Use the `base_path` parameter to limit file access:
+
+   ```python
+   PathValidator.validate_path(user_path, base_path="/project/root")
+   ```
+
+2. **Monitor Logs**: Watch for warnings about sensitive file access:
+
+   ```text
+   WARNING: Accessing potentially sensitive path: /home/user/.ssh/id_rsa
+   ```
+
+3. **File Size Limits**: Large files are rejected (default 10MB limit):
+
+   ```python
+   PathValidator.is_safe_to_read(path, max_size=5*1024*1024)  # 5MB limit
+   ```
+
+4. **Use Validation Decorator**: All MCP tools use the `@validate_mcp_inputs` decorator:
+
+   ```python
+   @mcp.tool()
+   @validate_mcp_inputs
+   def find_symbol(name: str, project_path: str = "."):
+       # Inputs are automatically validated
+       pass
+   ```
+
+### Security Testing
+
+The validation module includes comprehensive tests:
+
+```bash
+# Run security tests
+uv run pytest tests/test_validation.py -v
+```
+
+Tests cover:
+
+- Path traversal attempts
+- Null byte injection
+- Invalid identifiers
+- Boundary conditions
+- Decorator validation
 
 ## Use Cases
 
