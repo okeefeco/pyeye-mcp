@@ -103,6 +103,39 @@ warn_unused_ignores = true
 
 # isort configuration removed - using ruff's import sorting instead
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/pycodemcp",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=80",
+    "-v"
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src/pycodemcp"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/conftest.py"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):"
+]
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.1.0"
