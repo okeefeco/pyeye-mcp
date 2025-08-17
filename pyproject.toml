@@ -33,9 +33,17 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "pre-commit>=3.5.0",
+    "detect-secrets>=1.4.0",
+    "bandit[toml]>=1.7.5",
+    "safety>=3.0.0",
+    "commitizen>=3.13.0",
+    "pydocstyle>=6.3.0",
+    "isort>=5.13.0",
 ]
 
 [project.urls]
@@ -54,6 +62,25 @@ packages = ["src/pycodemcp"]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "ARG",  # flake8-unused-arguments
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "SIM102",  # sometimes nested if statements are more readable
+    "UP038",  # use of | in isinstance is not always more readable
+]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]
@@ -62,3 +89,21 @@ target-version = ["py310"]
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+version_files = [
+    "pyproject.toml:version"
+]

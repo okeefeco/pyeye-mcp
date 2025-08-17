@@ -1,4 +1,4 @@
-"""Python Code Intelligence MCP Server
+"""Python Code Intelligence MCP Server.
 
 An extensible MCP server for Python code analysis and navigation.
 """

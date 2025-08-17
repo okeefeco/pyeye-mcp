@@ -9,7 +9,7 @@
   "namespaces": {
     "mycompany": [
       "~/repos/mycompany-auth",
-      "~/repos/mycompany-api", 
+      "~/repos/mycompany-api",
       "~/repos/mycompany-core"
     ],
     "plugins": [
