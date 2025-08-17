@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .validation import PathValidator, ValidationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +64,7 @@ class ProjectConfig:
 
             elif config_path.suffix in [".yaml", ".yml"]:
                 with open(config_path) as f:
-                    import yaml  # type: ignore
+                    import yaml  # type: ignore[import-untyped]
 
                     data = yaml.safe_load(f)
                     self.config.update(data.get("pycodemcp", data))
@@ -157,29 +159,45 @@ class ProjectConfig:
 
         # Add configured packages
         for package in self.config.get("packages", []):
-            # Support glob patterns
-            if "*" in package:
-                from glob import glob
+            try:
+                # Support glob patterns
+                if "*" in package:
+                    from glob import glob
 
-                expanded = glob(os.path.expanduser(package))
-                paths.extend(expanded)
-            else:
-                path = Path(package).expanduser().resolve()
-                if path.exists():
-                    paths.append(str(path))
+                    expanded = glob(os.path.expanduser(package))
+                    for exp_path in expanded:
+                        # Validate each expanded path
+                        validated = PathValidator.validate_path(exp_path)
+                        paths.append(str(validated))
+                else:
+                    # Validate the path
+                    validated = PathValidator.validate_path(package)
+                    if validated.exists():
+                        paths.append(str(validated))
+            except ValidationError as e:
+                logger.warning(f"Skipping invalid package path {package}: {e}")
+                continue
 
         # Add namespace paths
         for _namespace, ns_paths in self.config.get("namespaces", {}).items():
             for ns_path in ns_paths:
-                if "*" in ns_path:
-                    from glob import glob
+                try:
+                    if "*" in ns_path:
+                        from glob import glob
 
-                    expanded = glob(os.path.expanduser(ns_path))
-                    paths.extend(expanded)
-                else:
-                    path = Path(ns_path).expanduser().resolve()
-                    if path.exists():
-                        paths.append(str(path))
+                        expanded = glob(os.path.expanduser(ns_path))
+                        for exp_path in expanded:
+                            # Validate each expanded path
+                            validated = PathValidator.validate_path(exp_path)
+                            paths.append(str(validated))
+                    else:
+                        # Validate the path
+                        validated = PathValidator.validate_path(ns_path)
+                        if validated.exists():
+                            paths.append(str(validated))
+                except ValidationError as e:
+                    logger.warning(f"Skipping invalid namespace path {ns_path}: {e}")
+                    continue
 
         # Always include current project
         paths.insert(0, str(self.project_path))
