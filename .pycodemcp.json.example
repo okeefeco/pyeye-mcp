@@ -1,0 +1,29 @@
+{
+  "packages": [
+    ".",
+    "../my-shared-library",
+    "~/repos/company-utils",
+    "/absolute/path/to/package",
+    "~/repos/plugins/*"
+  ],
+  "namespaces": {
+    "mycompany": [
+      "~/repos/mycompany-auth",
+      "~/repos/mycompany-api", 
+      "~/repos/mycompany-core"
+    ],
+    "plugins": [
+      "./plugins/*",
+      "~/repos/community-plugins/*"
+    ]
+  },
+  "exclude": [
+    "**/tests/**",
+    "**/migrations/**",
+    "**/__pycache__/**"
+  ],
+  "cache": {
+    "ttl_seconds": 300,
+    "max_size_mb": 100
+  }
+}

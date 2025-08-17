@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Any, Union
 import json
 import logging
 from .project_manager import get_project_manager
+from .config import ProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -57,17 +58,83 @@ def get_jedi_project(project_path: Union[str, List[str], Dict] = ".") -> jedi.Pr
 
 
 @mcp.tool()
-def find_symbol(name: str, project_path: str = ".", fuzzy: bool = False) -> List[Dict[str, Any]]:
+def configure_packages(
+    packages: Optional[List[str]] = None,
+    namespaces: Optional[Dict[str, List[str]]] = None,
+    save: bool = True
+) -> Dict[str, Any]:
+    """Configure additional package locations for analysis.
+    
+    Args:
+        packages: List of package paths to include
+        namespaces: Namespace packages with their repo paths
+        save: Whether to save configuration to .pycodemcp.json
+        
+    Returns:
+        Current configuration
+        
+    Example:
+        configure_packages(
+            packages=["../my-lib", "~/repos/shared-utils"],
+            namespaces={
+                "company": ["~/repos/company-auth", "~/repos/company-api"]
+            }
+        )
+    """
+    # Load existing config
+    config = ProjectConfig(".")
+    
+    # Update configuration
+    if packages:
+        config.config.setdefault("packages", []).extend(packages)
+        
+    if namespaces:
+        config.config.setdefault("namespaces", {}).update(namespaces)
+        
+    # Save if requested
+    if save and (packages or namespaces):
+        config.save_config()
+        
+    # Apply configuration to project manager
+    manager = get_project_manager()
+    all_paths = config.get_package_paths()
+    
+    if len(all_paths) > 1:
+        # Configure with all paths
+        manager.get_project(all_paths[0], all_paths[1:])
+        
+    # Configure namespaces
+    for namespace, ns_paths in config.get_namespaces().items():
+        manager.namespace_resolver.register_namespace(namespace, ns_paths)
+        
+    return {
+        "packages": config.get_package_paths(),
+        "namespaces": config.get_namespaces(),
+        "config_file": str(config.project_path / ".pycodemcp.json")
+    }
+
+
+@mcp.tool()
+def find_symbol(name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True) -> List[Dict[str, Any]]:
     """Find symbol definitions in the project.
     
     Args:
         name: Symbol name to search for
         project_path: Root path of the project to search
         fuzzy: Whether to use fuzzy matching
+        use_config: Whether to use configuration file for additional packages
         
     Returns:
         List of symbol locations with file, line, column, and type
     """
+    # Load configuration if requested
+    if use_config:
+        config = ProjectConfig(project_path)
+        all_paths = config.get_package_paths()
+        if len(all_paths) > 1:
+            # Use configured paths
+            project_path = {"main": all_paths[0], "include": all_paths[1:]}
+    
     project = get_jedi_project(project_path)
     results = []
     
