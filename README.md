@@ -15,25 +15,63 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Installation
 
-### From Source
+The Python Code Intelligence MCP can be installed in two ways:
+
+### Option 1: Project-Specific Installation (Recommended)
+
+Install directly into your Python project's virtual environment:
 
 ```bash
-# Clone the repository
+# Activate your project's virtual environment
+source /path/to/your/project/venv/bin/activate
+
+# Install from PyPI (when available)
+pip install python-code-intelligence-mcp
+
+# Or install from source
 git clone https://github.com/hangie/python-code-intelligence-mcp.git
-cd python-code-intelligence-mcp
-
-# Install with uv (recommended)
-uv sync
-
-# Or with pip
-pip install -e .
+pip install -e ./python-code-intelligence-mcp
 ```
 
-### Configure with Claude Code
+Then create a `.mcp.json` file in your project root:
+
+```json
+{
+  "mcpServers": {
+    "python-intelligence": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "pycodemcp.server"],
+      "env": {}
+    }
+  }
+}
+```
+
+This way, the MCP server uses your project's environment and has access to all your project's dependencies.
+
+### Option 2: Global Installation
+
+For analyzing multiple projects or using with global Python:
+
+```bash
+# Install globally with pipx (recommended for isolation)
+pipx install python-code-intelligence-mcp
+
+# Or with pip
+pip install --user python-code-intelligence-mcp
+
+# Or from source
+git clone https://github.com/hangie/python-code-intelligence-mcp.git
+cd python-code-intelligence-mcp
+pip install --user .
+```
+
+#### Configure with Claude Code (Global)
 
 ```bash
 # Add the MCP server globally (available in all projects)
-claude mcp add python-intelligence -s user -- uv run python ~/GitHub/python-code-intelligence-mcp/src/pycodemcp/server.py
+claude mcp add python-intelligence -s user -- python -m pycodemcp.server
 
 # Verify it's connected
 claude mcp list
@@ -47,12 +85,15 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 {
   "mcpServers": {
     "python-intelligence": {
-      "command": "uv",
-      "args": ["run", "python", "/path/to/python-code-intelligence-mcp/src/pycodemcp/server.py"]
+      "command": "python",
+      "args": ["-m", "pycodemcp.server"],
+      "env": {}
     }
   }
 }
 ```
+
+Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `C:\\Python311\\python.exe`).
 
 ## Configuration
 

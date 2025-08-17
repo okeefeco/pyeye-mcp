@@ -8,6 +8,8 @@ import json
 import logging
 from .project_manager import get_project_manager
 from .config import ProjectConfig
+from .plugins.pydantic import PydanticPlugin
+from .plugins.django import DjangoPlugin
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +17,33 @@ logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
 mcp = FastMCP("Python Code Intelligence")
+
+# Global plugin registry
+_plugins: List[Any] = []
+
+
+def initialize_plugins(project_path: str = "."):
+    """Initialize plugins for the project."""
+    global _plugins
+    _plugins = []
+    
+    # Try to activate each plugin
+    plugin_classes = [PydanticPlugin, DjangoPlugin]
+    
+    for plugin_class in plugin_classes:
+        try:
+            plugin = plugin_class(project_path)
+            if plugin.detect():
+                _plugins.append(plugin)
+                logger.info(f"Activated {plugin.name()} plugin")
+                
+                # Register plugin tools
+                for tool_name, tool_func in plugin.register_tools().items():
+                    # Wrap tool function to work with MCP
+                    globals()[tool_name] = mcp.tool()(tool_func)
+                    
+        except Exception as e:
+            logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
 
 
 def parse_project_paths(project_path: Union[str, List[str]]) -> tuple[str, List[str]]:
@@ -677,7 +706,11 @@ if __name__ == "__main__":
     
     atexit.register(cleanup)
     
+    # Initialize plugins for current directory
+    initialize_plugins(".")
+    
     logger.info("Starting Python Code Intelligence MCP Server with file watching")
+    logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
     
     # Run the server
     mcp.run()

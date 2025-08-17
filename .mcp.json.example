@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "python-intelligence": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "pycodemcp.server"],
+      "env": {},
+      "_comment": "This assumes pycodemcp is installed in your active Python environment"
+    }
+  },
+  "_instructions": [
+    "To use this configuration:",
+    "1. Copy this file to your Python project root as .mcp.json",
+    "2. Ensure python-code-intelligence-mcp is installed in your project's venv:",
+    "   pip install python-code-intelligence-mcp",
+    "3. Start Claude Code from your project directory",
+    "4. The MCP server will automatically connect"
+  ]
+}
