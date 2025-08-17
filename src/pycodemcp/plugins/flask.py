@@ -1,8 +1,10 @@
 """Flask framework plugin for code intelligence."""
 
-from typing import List, Dict, Any
-import logging
 import ast
+import logging
+from collections.abc import Callable
+from typing import Any
+
 from .base import AnalyzerPlugin
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return False
 
-    def register_tools(self) -> Dict[str, callable]:
+    def register_tools(self) -> dict[str, Callable]:
         """Register Flask-specific tools."""
         return {
             "find_flask_routes": self.find_routes,
@@ -71,7 +73,7 @@ class FlaskPlugin(AnalyzerPlugin):
             "find_cli_commands": self.find_cli_commands,
         }
 
-    def find_routes(self) -> List[Dict[str, Any]]:
+    def find_routes(self) -> list[dict[str, Any]]:
         """Find all Flask routes in the project."""
         routes = []
 
@@ -89,34 +91,33 @@ class FlaskPlugin(AnalyzerPlugin):
                                 methods = ["GET"]  # Default method
 
                                 # Handle @app.route() or @blueprint.route()
-                                if isinstance(decorator, ast.Call):
-                                    if isinstance(decorator.func, ast.Attribute):
-                                        if decorator.func.attr == "route":
-                                            # Extract route path
-                                            if decorator.args and isinstance(
-                                                decorator.args[0], ast.Constant
-                                            ):
-                                                route_path = decorator.args[0].value
-                                            elif decorator.args and isinstance(
-                                                decorator.args[0], ast.Str
-                                            ):
-                                                route_path = decorator.args[0].s
+                                if (
+                                    isinstance(decorator, ast.Call)
+                                    and isinstance(decorator.func, ast.Attribute)
+                                    and decorator.func.attr == "route"
+                                ):
+                                    # Extract route path
+                                    if decorator.args and isinstance(
+                                        decorator.args[0], ast.Constant
+                                    ):
+                                        route_path = decorator.args[0].value
+                                    elif decorator.args and isinstance(decorator.args[0], ast.Str):
+                                        route_path = decorator.args[0].s
 
-                                            # Extract methods if specified
-                                            for keyword in decorator.keywords:
-                                                if keyword.arg == "methods":
-                                                    if isinstance(keyword.value, ast.List):
-                                                        methods = []
-                                                        for elt in keyword.value.elts:
-                                                            if isinstance(
-                                                                elt, (ast.Str, ast.Constant)
-                                                            ):
-                                                                value = (
-                                                                    elt.s
-                                                                    if isinstance(elt, ast.Str)
-                                                                    else elt.value
-                                                                )
-                                                                methods.append(value)
+                                    # Extract methods if specified
+                                    for keyword in decorator.keywords:
+                                        if keyword.arg == "methods" and isinstance(
+                                            keyword.value, ast.List
+                                        ):
+                                            methods = []
+                                            for elt in keyword.value.elts:
+                                                if isinstance(elt, (ast.Str, ast.Constant)):
+                                                    if isinstance(elt, ast.Str):
+                                                        methods.append(elt.s)
+                                                    elif isinstance(
+                                                        elt, ast.Constant
+                                                    ) and isinstance(elt.value, str):
+                                                        methods.append(elt.value)
 
                                 if route_path:
                                     routes.append(
@@ -135,7 +136,7 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return routes
 
-    def find_blueprints(self) -> List[Dict[str, Any]]:
+    def find_blueprints(self) -> list[dict[str, Any]]:
         """Find all Flask blueprints in the project."""
         blueprints = []
 
@@ -148,55 +149,52 @@ class FlaskPlugin(AnalyzerPlugin):
                     for node in ast.walk(tree):
                         if isinstance(node, ast.Assign):
                             # Check for Blueprint instantiation
-                            if isinstance(node.value, ast.Call):
-                                if (
-                                    isinstance(node.value.func, ast.Name)
-                                    and node.value.func.id == "Blueprint"
-                                ):
-                                    # Get blueprint name
-                                    if node.targets and isinstance(node.targets[0], ast.Name):
-                                        bp_name = None
-                                        url_prefix = None
+                            if isinstance(node.value, ast.Call) and (
+                                isinstance(node.value.func, ast.Name)
+                                and node.value.func.id == "Blueprint"
+                            ):
+                                # Get blueprint name
+                                if node.targets and isinstance(node.targets[0], ast.Name):
+                                    bp_name = None
+                                    url_prefix = None
 
-                                        # Extract blueprint name from args
-                                        if node.value.args and isinstance(
-                                            node.value.args[0], (ast.Str, ast.Constant)
-                                        ):
-                                            bp_name = (
-                                                node.value.args[0].s
-                                                if isinstance(node.value.args[0], ast.Str)
-                                                else node.value.args[0].value
-                                            )
-
-                                        # Extract url_prefix if specified
-                                        for keyword in node.value.keywords:
-                                            if keyword.arg == "url_prefix":
-                                                if isinstance(
-                                                    keyword.value, (ast.Str, ast.Constant)
-                                                ):
-                                                    url_prefix = (
-                                                        keyword.value.s
-                                                        if isinstance(keyword.value, ast.Str)
-                                                        else keyword.value.value
-                                                    )
-
-                                        blueprints.append(
-                                            {
-                                                "name": node.targets[0].id,
-                                                "blueprint_name": bp_name,
-                                                "file": str(py_file),
-                                                "line": node.lineno,
-                                                "url_prefix": url_prefix,
-                                                "type": "blueprint",
-                                            }
+                                    # Extract blueprint name from args
+                                    if node.value.args and isinstance(
+                                        node.value.args[0], (ast.Str, ast.Constant)
+                                    ):
+                                        bp_name = (
+                                            node.value.args[0].s
+                                            if isinstance(node.value.args[0], ast.Str)
+                                            else node.value.args[0].value
                                         )
+
+                                    # Extract url_prefix if specified
+                                    for keyword in node.value.keywords:
+                                        if keyword.arg == "url_prefix":
+                                            if isinstance(keyword.value, (ast.Str, ast.Constant)):
+                                                url_prefix = (
+                                                    keyword.value.s
+                                                    if isinstance(keyword.value, ast.Str)
+                                                    else keyword.value.value
+                                                )
+
+                                    blueprints.append(
+                                        {
+                                            "name": node.targets[0].id,
+                                            "blueprint_name": bp_name,
+                                            "file": str(py_file),
+                                            "line": node.lineno,
+                                            "url_prefix": url_prefix,
+                                            "type": "blueprint",
+                                        }
+                                    )
 
             except Exception as e:
                 logger.warning(f"Error parsing {py_file}: {e}")
 
         return blueprints
 
-    def find_views(self) -> List[Dict[str, Any]]:
+    def find_views(self) -> list[dict[str, Any]]:
         """Find all Flask view functions and classes."""
         views = []
 
@@ -210,16 +208,12 @@ class FlaskPlugin(AnalyzerPlugin):
                         # Find MethodView classes
                         if isinstance(node, ast.ClassDef):
                             for base in node.bases:
-                                if isinstance(base, ast.Name) and base.id == "MethodView":
-                                    views.append(
-                                        {
-                                            "name": node.name,
-                                            "file": str(py_file),
-                                            "line": node.lineno,
-                                            "type": "method_view",
-                                        }
-                                    )
-                                elif isinstance(base, ast.Attribute) and base.attr == "MethodView":
+                                if (
+                                    isinstance(base, ast.Name)
+                                    and base.id == "MethodView"
+                                    or isinstance(base, ast.Attribute)
+                                    and base.attr == "MethodView"
+                                ):
                                     views.append(
                                         {
                                             "name": node.name,
@@ -234,7 +228,7 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return views
 
-    def find_templates(self) -> List[Dict[str, Any]]:
+    def find_templates(self) -> list[dict[str, Any]]:
         """Find all Flask templates and render_template calls."""
         templates = []
         render_calls = []
@@ -269,34 +263,37 @@ class FlaskPlugin(AnalyzerPlugin):
                     tree = ast.parse(content)
 
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.Call):
-                            if (
+                        if (
+                            isinstance(node, ast.Call)
+                            and (
                                 isinstance(node.func, ast.Name)
                                 and node.func.id == "render_template"
-                            ):
-                                if node.args and isinstance(node.args[0], (ast.Str, ast.Constant)):
-                                    template_name = (
-                                        node.args[0].s
-                                        if isinstance(node.args[0], ast.Str)
-                                        else node.args[0].value
-                                    )
-                                    render_calls.append(
-                                        {
-                                            "template": template_name,
-                                            "file": str(py_file),
-                                            "line": node.lineno,
-                                            "type": "render_call",
-                                        }
-                                    )
+                            )
+                            and node.args
+                            and isinstance(node.args[0], (ast.Str, ast.Constant))
+                        ):
+                            template_name = (
+                                node.args[0].s
+                                if isinstance(node.args[0], ast.Str)
+                                else node.args[0].value
+                            )
+                            render_calls.append(
+                                {
+                                    "template": template_name,
+                                    "file": str(py_file),
+                                    "line": node.lineno,
+                                    "type": "render_call",
+                                }
+                            )
 
             except Exception as e:
                 logger.warning(f"Error parsing {py_file}: {e}")
 
-        return {"templates": templates, "render_calls": render_calls}
+        return [{"templates": templates, "render_calls": render_calls}]
 
-    def find_extensions(self) -> List[Dict[str, Any]]:
+    def find_extensions(self) -> list[dict[str, Any]]:
         """Find Flask extensions in use."""
-        extensions = []
+        extensions: list[dict[str, Any]] = []
         common_extensions = [
             "flask_sqlalchemy",
             "flask_migrate",
@@ -347,17 +344,18 @@ class FlaskPlugin(AnalyzerPlugin):
                 logger.warning(f"Error parsing {py_file}: {e}")
 
         # Remove duplicates
-        seen = set()
-        unique_extensions = []
-        for ext in extensions:
-            key = (ext["extension"], ext["file"])
-            if key not in seen:
-                seen.add(key)
-                unique_extensions.append(ext)
+        seen: set[str] = set()
+        unique_extensions: list[dict[str, Any]] = []
+        for ext_info in extensions:
+            if isinstance(ext_info, dict):
+                key = f"{ext_info.get('extension', '')}:{ext_info.get('file', '')}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_extensions.append(ext_info)
 
         return unique_extensions
 
-    def find_config(self) -> List[Dict[str, Any]]:
+    def find_config(self) -> list[dict[str, Any]]:
         """Find Flask configuration files and app.config usage."""
         configs = []
 
@@ -378,25 +376,23 @@ class FlaskPlugin(AnalyzerPlugin):
                     for node in ast.walk(tree):
                         # Look for config access patterns
                         if isinstance(node, ast.Attribute):
-                            if isinstance(node.value, ast.Name):
-                                if (
-                                    node.value.id in ["app", "current_app"]
-                                    and node.attr == "config"
-                                ):
-                                    configs.append(
-                                        {
-                                            "file": str(py_file),
-                                            "line": node.lineno if hasattr(node, "lineno") else 0,
-                                            "type": "config_access",
-                                        }
-                                    )
+                            if isinstance(node.value, ast.Name) and (
+                                node.value.id in ["app", "current_app"] and node.attr == "config"
+                            ):
+                                configs.append(
+                                    {
+                                        "file": str(py_file),
+                                        "line": str(getattr(node, "lineno", 0)),
+                                        "type": "config_access",
+                                    }
+                                )
 
             except Exception as e:
                 logger.warning(f"Error parsing {py_file}: {e}")
 
         return configs
 
-    def find_error_handlers(self) -> List[Dict[str, Any]]:
+    def find_error_handlers(self) -> list[dict[str, Any]]:
         """Find error handler functions."""
         handlers = []
 
@@ -437,7 +433,7 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return handlers
 
-    def find_cli_commands(self) -> List[Dict[str, Any]]:
+    def find_cli_commands(self) -> list[dict[str, Any]]:
         """Find Flask CLI commands."""
         commands = []
 
@@ -462,13 +458,14 @@ class FlaskPlugin(AnalyzerPlugin):
                                                     if decorator.args and isinstance(
                                                         decorator.args[0], (ast.Str, ast.Constant)
                                                     ):
-                                                        command_name = (
-                                                            decorator.args[0].s
-                                                            if isinstance(
-                                                                decorator.args[0], ast.Str
-                                                            )
-                                                            else decorator.args[0].value
-                                                        )
+                                                        if isinstance(decorator.args[0], ast.Str):
+                                                            command_name = decorator.args[0].s
+                                                        elif isinstance(
+                                                            decorator.args[0], ast.Constant
+                                                        ) and isinstance(
+                                                            decorator.args[0].value, str
+                                                        ):
+                                                            command_name = decorator.args[0].value
 
                                                     commands.append(
                                                         {
@@ -497,9 +494,9 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return commands
 
-    def get_framework_components(self) -> Dict[str, List[str]]:
+    def get_framework_components(self) -> dict[str, list[str]]:
         """Get Flask framework components."""
-        components = {
+        components: dict[str, list[str]] = {
             "routes": [],
             "blueprints": [],
             "templates": [],

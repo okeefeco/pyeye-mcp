@@ -7,31 +7,41 @@ The Python Code Intelligence MCP server provides semantic analysis of Python cod
 ## Demo: Analyzing examples/test_project/example.py
 
 ### 1. Finding Symbols
+
 **Question**: "Where is the Calculator class defined?"
+
 - The server can instantly locate `Calculator` at line 7 in `examples/test_project/example.py`
 - It knows it's a class with methods: `__init__`, `add`, `multiply`, `divide`, `get_history`
 
 ### 2. Type Information
+
 **Question**: "What type does Calculator.add return?"
+
 - Returns `float` (rounded to precision)
 - Takes parameters `a: float, b: float`
 - Has full docstring available
 
 ### 3. Finding References
+
 **Question**: "Where is the calculate_area function used?"
+
 - Used in the `__main__` block at lines 115-119
 - Called with different shapes: "circle" and "rectangle"
 
 ### 4. Call Hierarchy
+
 **Question**: "What functions does the main block call?"
+
 - `Calculator()` constructor
 - `calc.add()`, `calc.multiply()`, `calc.divide()`
 - `calculate_area()` with different parameters
 - `calc.get_history()`
 
 ### 5. Project Structure
+
 The server can show the entire Python project structure:
-```
+
+```text
 python-code-intelligence-mcp/
 ├── src/pycodemcp/
 │   ├── server.py (main server)
@@ -64,6 +74,7 @@ python-code-intelligence-mcp/
 ## How to Use in Claude Code
 
 Simply ask natural language questions about your Python code:
+
 - "Find the definition of process_data"
 - "Show me all uses of the Calculator class"
 - "What type does this function return?"

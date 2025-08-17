@@ -1,49 +1,49 @@
 #!/usr/bin/env python3
-"""
-Demonstration of the python-intelligence MCP server's find_symbol capability.
+"""Demonstration of the python-intelligence MCP server's find_symbol capability.
 
 This script shows what the find_symbol tool would return when searching for "Calculator"
 in the project. Since we can't directly call the MCP server tools in this environment,
 this demonstrates the expected functionality.
 """
 
-import jedi
-from pathlib import Path
 import json
-from typing import List, Dict, Any
+from typing import Any
+
+import jedi
 
 
-def find_symbol_demo(name: str, project_path: str = ".", fuzzy: bool = False) -> List[Dict[str, Any]]:
-    """
-    Demonstration of the find_symbol tool from the python-intelligence MCP server.
-    
+def find_symbol_demo(
+    name: str, project_path: str = ".", fuzzy: bool = False
+) -> list[dict[str, Any]]:
+    """Demonstration of the find_symbol tool from the python-intelligence MCP server.
+
     This replicates the functionality that would be available via the MCP server's
     find_symbol tool.
-    
+
     Args:
         name: Symbol name to search for
         project_path: Root path of the project to search
         fuzzy: Whether to use fuzzy matching
-        
+
     Returns:
         List of symbol locations with file, line, column, and type
     """
     project = jedi.Project(path=project_path)
     results = []
-    
+
     try:
         print(f"🔍 Searching for symbol '{name}' in project: {project_path}")
         print(f"📊 Fuzzy matching: {'enabled' if fuzzy else 'disabled'}")
         print()
-        
+
         # Search for the symbol
         search_results = project.search(name, all_scopes=True)
-        
+
         for result in search_results:
             # Check if fuzzy matching or exact match
             if not fuzzy and result.name != name:
                 continue
-                
+
             symbol_info = {
                 "name": result.name,
                 "file": str(result.module_path) if result.module_path else None,
@@ -54,22 +54,22 @@ def find_symbol_demo(name: str, project_path: str = ".", fuzzy: bool = False) ->
                 "full_name": result.full_name,
             }
             results.append(symbol_info)
-            
+
     except Exception as e:
         print(f"❌ Error searching for symbol {name}: {e}")
-        
+
     return results
 
 
-def pretty_print_results(results: List[Dict[str, Any]]):
+def pretty_print_results(results: list[dict[str, Any]]) -> None:
     """Pretty print the search results."""
     if not results:
         print("📭 No symbols found matching the search criteria.")
         return
-        
+
     print(f"✅ Found {len(results)} symbol(s):")
     print()
-    
+
     for i, result in enumerate(results, 1):
         print(f"  {i}. Symbol: {result['name']}")
         print(f"     Type: {result['type']}")
@@ -80,7 +80,7 @@ def pretty_print_results(results: List[Dict[str, Any]]):
         print()
 
 
-def demonstrate_additional_capabilities():
+def demonstrate_additional_capabilities() -> None:
     """Demonstrate other capabilities of the python-intelligence MCP server."""
     print("🚀 Additional Python Code Intelligence MCP Server Capabilities:")
     print()
@@ -110,14 +110,14 @@ if __name__ == "__main__":
     print("🧮 Python Code Intelligence MCP Server Demo")
     print("=" * 60)
     print()
-    
+
     # Search for Calculator symbol
     results = find_symbol_demo("Calculator", ".")
     pretty_print_results(results)
-    
+
     print("-" * 60)
     demonstrate_additional_capabilities()
-    
+
     # Show the raw JSON that would be returned by the MCP server
     print("-" * 60)
     print("📄 Raw JSON Response (as returned by MCP server):")

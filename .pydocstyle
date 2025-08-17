@@ -1,0 +1,5 @@
+[pydocstyle]
+convention = google
+match-dir = (?!tests|\.venv|venv|build|dist).*
+match = (?!test_|setup).*\.py
+add-ignore = D100,D104,D107

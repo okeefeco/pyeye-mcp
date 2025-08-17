@@ -7,7 +7,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 ## Key Features
 
 - **Semantic Code Navigation**: Find symbols, go to definitions, find references using Jedi
-- **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously  
+- **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - **Namespace Packages**: Handle packages distributed across multiple repositories
 - **Auto-Update**: File watching automatically reflects code changes
 - **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
@@ -24,6 +24,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 ## MCP Tools Available
 
 ### Core Navigation Tools
+
 1. `configure_packages` - Set up additional package locations
 2. `find_symbol` - Find class/function/variable definitions
 3. `goto_definition` - Jump to symbol definition
@@ -37,15 +38,17 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 11. `list_project_structure` - View project file organization
 
 ### Pydantic-Specific Tools (auto-activated when Pydantic detected)
-12. `find_pydantic_models` - Discover all BaseModel classes with fields
-13. `get_model_schema` - Extract complete model schema
-14. `find_validators` - Locate all validation methods
-15. `find_field_validators` - Find field-specific validators
-16. `find_model_config` - Extract model configurations
-17. `trace_model_inheritance` - Map model inheritance hierarchies
-18. `find_computed_fields` - Find computed_field and @property fields
+
+1. `find_pydantic_models` - Discover all BaseModel classes with fields
+2. `get_model_schema` - Extract complete model schema
+3. `find_validators` - Locate all validation methods
+4. `find_field_validators` - Find field-specific validators
+5. `find_model_config` - Extract model configurations
+6. `trace_model_inheritance` - Map model inheritance hierarchies
+7. `find_computed_fields` - Find computed_field and @property fields
 
 ### Django-Specific Tools (auto-activated when Django detected)
+
 - `find_django_models` - Find all Django models
 - `find_django_views` - Find all views
 - `find_django_urls` - Find URL patterns
@@ -53,6 +56,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 - `find_django_migrations` - Find migrations
 
 ### Flask-Specific Tools (auto-activated when Flask detected)
+
 - `find_flask_routes` - Discover all route decorators with methods and endpoints
 - `find_flask_blueprints` - Locate Blueprint definitions and registrations
 - `find_flask_views` - Find view functions and MethodView classes
@@ -65,6 +69,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 ## Configuration
 
 The server supports configuration via:
+
 - `.pycodemcp.json` in project root
 - `pyproject.toml` [tool.pycodemcp] section
 - Environment variables (PYCODEMCP_PACKAGES, etc.)
@@ -72,6 +77,7 @@ The server supports configuration via:
 - Auto-discovery of sibling packages
 
 Example `.pycodemcp.json`:
+
 ```json
 {
   "packages": ["../my-lib", "~/repos/shared-utils"],
@@ -98,6 +104,7 @@ uv run ruff check src/
 ## Current Status
 
 ✅ **Fully functional** with all core features implemented:
+
 - Basic navigation tools working
 - Multi-project support with LRU caching
 - Namespace package resolution
@@ -110,6 +117,7 @@ uv run ruff check src/
 ## Next Steps / Improvements
 
 Potential enhancements to consider:
+
 - Add more framework plugins (FastAPI)
 - Implement Tree-sitter for pattern matching
 - Add test coverage
@@ -128,7 +136,7 @@ Potential enhancements to consider:
 
 ## File Structure
 
-```
+```text
 src/pycodemcp/
 ├── server.py              # Main MCP server with 11+ tools
 ├── project_manager.py     # Multi-project management with LRU

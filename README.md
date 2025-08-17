@@ -119,7 +119,7 @@ The server can be configured to analyze packages in other locations. Create a `.
 
 1. **Config File**: `.pycodemcp.json` in project root
 2. **pyproject.toml**: `[tool.pycodemcp]` section
-3. **Environment Variables**: 
+3. **Environment Variables**:
    - `PYCODEMCP_PACKAGES=/path1:/path2`
    - `PYCODEMCP_NAMESPACE_company=~/repos/company-auth:~/repos/company-api`
 4. **Global Config**: `~/.config/pycodemcp/config.json`
@@ -128,6 +128,7 @@ The server can be configured to analyze packages in other locations. Create a `.
 ## Core Tools
 
 ### Basic Navigation
+
 - **`find_symbol`** - Find class, function, or variable definitions
 - **`goto_definition`** - Jump to where a symbol is defined
 - **`find_references`** - Find all places where a symbol is used
@@ -136,17 +137,20 @@ The server can be configured to analyze packages in other locations. Create a `.
 - **`get_call_hierarchy`** - Analyze function call relationships
 
 ### Multi-Project Tools
+
 - **`configure_packages`** - Set up additional package locations
 - **`find_symbol_multi`** - Search across multiple projects
 - **`configure_namespace_package`** - Set up distributed namespace packages
 - **`find_in_namespace`** - Search within namespace packages
 
 ### Project Structure
+
 - **`list_project_structure`** - View Python project file organization
 
 ### Framework-Specific Tools (Auto-Activated)
 
 #### Django (when Django is detected)
+
 - **`find_django_models`** - Find all Django models
 - **`find_django_views`** - Find all views
 - **`find_django_urls`** - Find URL patterns
@@ -154,6 +158,7 @@ The server can be configured to analyze packages in other locations. Create a `.
 - **`find_django_migrations`** - Find migrations
 
 #### Pydantic (when Pydantic is detected)
+
 - **`find_pydantic_models`** - Discover all BaseModel classes
 - **`get_model_schema`** - Extract complete model schema
 - **`find_validators`** - Locate all validation methods
@@ -163,6 +168,7 @@ The server can be configured to analyze packages in other locations. Create a `.
 - **`find_computed_fields`** - Find computed_field and @property fields
 
 #### Flask (when Flask is detected)
+
 - **`find_flask_routes`** - Discover all route decorators with methods and endpoints
 - **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
 - **`find_flask_views`** - Find view functions and MethodView classes
@@ -201,13 +207,14 @@ configure_namespace_package(
 ### Auto-Update on File Changes
 
 The server uses file watching to automatically update when code changes:
+
 - Detects modifications in real-time
 - Invalidates cache for changed files
 - Maintains separate watchers per project
 
 ## Architecture
 
-```
+```text
 Python Code Intelligence MCP
 ├── Core Server (FastMCP)
 ├── Project Manager
@@ -235,11 +242,11 @@ from pycodemcp.plugins.base import AnalyzerPlugin
 class MyProjectPlugin(AnalyzerPlugin):
     def name(self) -> str:
         return "MyProject"
-    
+
     def detect(self) -> bool:
         # Return True if this plugin should activate
         return (self.project_path / "my_framework.conf").exists()
-    
+
     def find_patterns(self, pattern_name: str):
         # Find your custom patterns
         pass
@@ -273,6 +280,7 @@ MIT License - see LICENSE file for details
 ## Acknowledgments
 
 Built on top of:
+
 - [Jedi](https://github.com/davidhalter/jedi) - Python static analysis
 - [Tree-sitter](https://tree-sitter.github.io/) - Incremental parsing
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework

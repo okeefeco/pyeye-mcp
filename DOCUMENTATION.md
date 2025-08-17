@@ -1,6 +1,7 @@
 # Python Code Intelligence MCP Server - Full Documentation
 
 ## Table of Contents
+
 1. [Overview](#overview)
 2. [Installation](#installation)
 3. [Configuration](#configuration)
@@ -15,6 +16,7 @@
 The Python Code Intelligence MCP Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
 
 ### Key Capabilities
+
 - **Semantic Analysis**: Understands Python code structure, not just text matching
 - **Multi-Project**: Analyzes multiple projects and dependencies simultaneously
 - **Auto-Update**: Reflects code changes in real-time
@@ -24,6 +26,7 @@ The Python Code Intelligence MCP Server provides semantic code analysis for Pyth
 ## Installation
 
 ### Prerequisites
+
 - Python 3.10 or higher
 - Git
 - uv (recommended) or pip
@@ -68,8 +71,8 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "python-intelligence": {
       "command": "uv",
       "args": [
-        "run", 
-        "python", 
+        "run",
+        "python",
         "/path/to/python-code-intelligence-mcp/src/pycodemcp/server.py"
       ]
     }
@@ -172,9 +175,11 @@ Create `~/.config/pycodemcp/config.json`:
 ## Tools Reference
 
 ### find_symbol
+
 Find symbol definitions in the project.
 
 **Parameters:**
+
 - `name` (str): Symbol name to search for
 - `project_path` (str): Root path of project (default: ".")
 - `fuzzy` (bool): Use fuzzy matching (default: False)
@@ -183,15 +188,18 @@ Find symbol definitions in the project.
 **Returns:** List of symbol locations with file, line, column, and type
 
 **Example:**
+
 ```python
 find_symbol("User", fuzzy=True)
 # Returns all symbols containing "User"
 ```
 
 ### goto_definition
+
 Jump to symbol definition from a position.
 
 **Parameters:**
+
 - `file` (str): Path to file
 - `line` (int): Line number (1-indexed)
 - `column` (int): Column number (0-indexed)
@@ -200,15 +208,18 @@ Jump to symbol definition from a position.
 **Returns:** Definition location or None
 
 **Example:**
+
 ```python
 goto_definition("app.py", 45, 10)
 # Jumps to definition of symbol at line 45, column 10
 ```
 
 ### find_references
+
 Find all references to a symbol.
 
 **Parameters:**
+
 - `file` (str): Path to file
 - `line` (int): Line number
 - `column` (int): Column number
@@ -218,9 +229,11 @@ Find all references to a symbol.
 **Returns:** List of reference locations
 
 ### get_type_info
+
 Get type information at a position.
 
 **Parameters:**
+
 - `file` (str): Path to file
 - `line` (int): Line number
 - `column` (int): Column number
@@ -229,18 +242,22 @@ Get type information at a position.
 **Returns:** Type information including inferred types and docstring
 
 ### find_imports
+
 Find all imports of a module.
 
 **Parameters:**
+
 - `module_name` (str): Name of module
 - `project_path` (str): Root path
 
 **Returns:** List of import locations
 
 ### get_call_hierarchy
+
 Get call hierarchy for a function.
 
 **Parameters:**
+
 - `function_name` (str): Function name
 - `file` (str, optional): Specific file to search
 - `project_path` (str): Root path
@@ -248,9 +265,11 @@ Get call hierarchy for a function.
 **Returns:** Call hierarchy with callers and callees
 
 ### configure_packages
+
 Configure additional package locations.
 
 **Parameters:**
+
 - `packages` (List[str]): Package paths to include
 - `namespaces` (Dict): Namespace packages with paths
 - `save` (bool): Save to config file
@@ -258,9 +277,11 @@ Configure additional package locations.
 **Returns:** Current configuration
 
 ### find_symbol_multi
+
 Search across multiple projects.
 
 **Parameters:**
+
 - `name` (str): Symbol name
 - `project_paths` (List[str]): Projects to search
 - `fuzzy` (bool): Fuzzy matching
@@ -268,18 +289,22 @@ Search across multiple projects.
 **Returns:** Results grouped by project
 
 ### configure_namespace_package
+
 Set up distributed namespace packages.
 
 **Parameters:**
+
 - `namespace` (str): Package namespace
 - `repo_paths` (List[str]): Repository paths
 
 **Returns:** Configuration details and structure
 
 ### find_in_namespace
+
 Search within namespace packages.
 
 **Parameters:**
+
 - `import_path` (str): Full import path
 - `namespace_repos` (List[str]): Repos to search
 
@@ -290,6 +315,7 @@ Search within namespace packages.
 The server automatically detects and activates framework-specific tools when it identifies framework usage in your project.
 
 #### Django Tools (Auto-activated)
+
 - **`find_django_models`** - Find all Django models with inheritance
 - **`find_django_views`** - Find function and class-based views
 - **`find_django_urls`** - Find URL patterns and configurations
@@ -297,6 +323,7 @@ The server automatically detects and activates framework-specific tools when it 
 - **`find_django_migrations`** - Find migration files by app
 
 #### Pydantic Tools (Auto-activated)
+
 - **`find_pydantic_models`** - Discover all BaseModel classes with fields
 - **`get_model_schema`** - Extract complete model schema including validators
 - **`find_validators`** - Locate all validation methods (root, model validators)
@@ -306,6 +333,7 @@ The server automatically detects and activates framework-specific tools when it 
 - **`find_computed_fields`** - Find computed_field and @property fields
 
 #### Flask Tools (Auto-activated)
+
 - **`find_flask_routes`** - Discover all route decorators with methods and endpoints
 - **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
 - **`find_flask_views`** - Find view functions and MethodView classes
@@ -319,7 +347,7 @@ The server automatically detects and activates framework-specific tools when it 
 
 ### Component Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                   MCP Client (Claude)                │
 └─────────────────────────┬───────────────────────────┘
@@ -360,30 +388,35 @@ The server automatically detects and activates framework-specific tools when it 
 ### Key Components
 
 #### Project Manager
+
 - Manages multiple Python projects simultaneously
 - LRU eviction (max 10 projects by default)
 - Maintains separate Jedi instance per project
 - Handles project dependencies and include paths
 
 #### Namespace Resolver
+
 - Discovers namespace packages (PEP 420)
 - Handles legacy namespace packages
 - Resolves imports across repository boundaries
 - Builds namespace structure maps
 
 #### Configuration System
+
 - Multiple configuration sources
 - Precedence-based resolution
 - Auto-discovery of packages
 - Environment variable support
 
 #### Cache System
+
 - File-based result caching (5min TTL)
 - Automatic invalidation on file changes
 - Per-project cache isolation
 - Memory-efficient LRU eviction
 
 #### File Watching
+
 - Real-time file change detection
 - Automatic cache invalidation
 - Per-project watchers
@@ -459,15 +492,15 @@ from .base import AnalyzerPlugin
 
 class MyFrameworkPlugin(AnalyzerPlugin):
     """Plugin for MyFramework-specific intelligence."""
-    
+
     def name(self) -> str:
         return "MyFramework"
-    
+
     def detect(self) -> bool:
         """Detect if this is a MyFramework project."""
         # Check for framework-specific files
         return (self.project_path / "myframework.yaml").exists()
-    
+
     def register_tools(self) -> Dict[str, callable]:
         """Register framework-specific MCP tools."""
         return {
@@ -475,7 +508,7 @@ class MyFrameworkPlugin(AnalyzerPlugin):
             "find_models": self.find_models,
             "find_routes": self.find_routes,
         }
-    
+
     def find_controllers(self) -> List[Dict[str, Any]]:
         """Find all controllers in the project."""
         controllers = []
@@ -484,7 +517,7 @@ class MyFrameworkPlugin(AnalyzerPlugin):
             # Parse and extract controller info
             pass
         return controllers
-    
+
     def find_patterns(self, pattern_name: str) -> List[Dict[str, Any]]:
         """Find framework-specific patterns."""
         if pattern_name == "middleware":
@@ -509,13 +542,13 @@ def load_plugins(project_path: str):
         FastAPIPlugin(project_path),  # Coming soon
         MyFrameworkPlugin(project_path),  # Your plugin
     ]
-    
+
     active_plugins = []
     for plugin in plugins:
         if plugin.detect():
             active_plugins.append(plugin)
             logger.info(f"Activated {plugin.name()} plugin")
-    
+
     return active_plugins
 ```
 
@@ -560,7 +593,7 @@ def load_plugins(project_path: str):
 3. Review Claude logs for connection errors
 4. Try reconnecting: `claude mcp remove python-intelligence && claude mcp add ...`
 
-## Environment Variables
+## Environment Configuration
 
 - `PYCODEMCP_PACKAGES`: Colon-separated list of package paths
 - `PYCODEMCP_NAMESPACE_<name>`: Namespace package paths
@@ -571,16 +604,19 @@ def load_plugins(project_path: str):
 ## Performance Considerations
 
 ### Memory Usage
+
 - Each project: ~10-50MB depending on size
 - Cache: Configurable, default 100MB max
 - File watchers: ~1MB per project
 
 ### CPU Usage
+
 - Initial indexing: One-time cost per project
 - File watching: Minimal overhead
 - Cache operations: O(1) lookups
 
 ### Optimization Tips
+
 1. Use specific paths rather than globs when possible
 2. Exclude test and build directories
 3. Increase cache TTL for stable codebases
