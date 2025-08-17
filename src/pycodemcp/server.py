@@ -1,6 +1,6 @@
 """Main MCP server implementation for Python code intelligence."""
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 import jedi
 from pathlib import Path
 from typing import List, Dict, Optional, Any
@@ -27,7 +27,7 @@ def get_jedi_project(project_path: str = ".") -> jedi.Project:
     return _jedi_project
 
 
-@mcp.tool
+@mcp.tool()
 def find_symbol(name: str, project_path: str = ".", fuzzy: bool = False) -> List[Dict[str, Any]]:
     """Find symbol definitions in the project.
     
@@ -67,7 +67,7 @@ def find_symbol(name: str, project_path: str = ".", fuzzy: bool = False) -> List
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> Optional[Dict[str, Any]]:
@@ -115,7 +115,7 @@ def goto_definition(
     return None
 
 
-@mcp.tool
+@mcp.tool()
 def find_references(
     file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
 ) -> List[Dict[str, Any]]:
@@ -167,7 +167,7 @@ def find_references(
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def get_type_info(file: str, line: int, column: int, project_path: str = ".") -> Dict[str, Any]:
     """Get type information at a specific position.
     
@@ -221,7 +221,7 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
         return {"error": str(e)}
 
 
-@mcp.tool
+@mcp.tool()
 def find_imports(module_name: str, project_path: str = ".") -> List[Dict[str, Any]]:
     """Find all imports of a specific module in the project.
     
@@ -269,7 +269,7 @@ def find_imports(module_name: str, project_path: str = ".") -> List[Dict[str, An
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def get_call_hierarchy(
     function_name: str, file: Optional[str] = None, project_path: str = "."
 ) -> Dict[str, Any]:
@@ -339,7 +339,7 @@ def get_call_hierarchy(
     return result
 
 
-@mcp.tool
+@mcp.tool()
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> Dict[str, Any]:
     """List the Python project structure.
     
