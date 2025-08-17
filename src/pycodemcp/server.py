@@ -3,10 +3,10 @@
 from mcp.server.fastmcp import FastMCP
 import jedi
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 import json
 import logging
-from .cache import CodebaseWatcher, ProjectCache
+from .project_manager import get_project_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,41 +15,45 @@ logger = logging.getLogger(__name__)
 # Initialize the MCP server
 mcp = FastMCP("Python Code Intelligence")
 
-# Global state
-_jedi_project: Optional[jedi.Project] = None
-_watcher: Optional[CodebaseWatcher] = None
-_cache = ProjectCache(ttl_seconds=300)  # 5 minute cache
 
-
-def invalidate_jedi_cache(file_path: str):
-    """Invalidate Jedi project cache when files change."""
-    global _jedi_project
-    if _jedi_project:
-        logger.info(f"Invalidating Jedi cache due to change in {file_path}")
-        # Force recreation on next access
-        _jedi_project = None
-        # Clear our cache too
-        _cache.invalidate()
-
-
-def get_jedi_project(project_path: str = ".") -> jedi.Project:
-    """Get or create Jedi project for the given path."""
-    global _jedi_project, _watcher
+def parse_project_paths(project_path: Union[str, List[str]]) -> tuple[str, List[str]]:
+    """Parse project path specification.
     
-    project_path_obj = Path(project_path).resolve()
+    Args:
+        project_path: Can be:
+            - Single path: "."
+            - Multiple paths: [".", "../my-package"]
+            - Main + deps: {"main": ".", "include": ["../my-package"]}
+            
+    Returns:
+        Tuple of (main_path, include_paths)
+    """
+    if isinstance(project_path, dict):
+        main = project_path.get("main", ".")
+        include = project_path.get("include", [])
+        return main, include
+    elif isinstance(project_path, list):
+        # First path is main, rest are includes
+        if project_path:
+            return project_path[0], project_path[1:]
+        return ".", []
+    else:
+        # Single string
+        return project_path, []
+
+
+def get_jedi_project(project_path: Union[str, List[str], Dict] = ".") -> jedi.Project:
+    """Get or create Jedi project for the given path(s).
     
-    # Check if we need a new project
-    if _jedi_project is None or _jedi_project.path != project_path_obj:
-        _jedi_project = jedi.Project(path=project_path_obj)
-        logger.info(f"Initialized Jedi project at {project_path_obj}")
+    Args:
+        project_path: Project path specification
         
-        # Set up file watcher for auto-updates
-        if _watcher:
-            _watcher.stop()
-        _watcher = CodebaseWatcher(str(project_path_obj), invalidate_jedi_cache)
-        _watcher.start()
-        
-    return _jedi_project
+    Returns:
+        Configured Jedi project
+    """
+    main_path, include_paths = parse_project_paths(project_path)
+    manager = get_project_manager()
+    return manager.get_project(main_path, include_paths)
 
 
 @mcp.tool()
@@ -365,6 +369,57 @@ def get_call_hierarchy(
 
 
 @mcp.tool()
+def find_symbol_multi(
+    name: str, 
+    project_paths: List[str], 
+    fuzzy: bool = False
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Find symbol across multiple projects.
+    
+    Args:
+        name: Symbol name to search for
+        project_paths: List of project paths to search
+        fuzzy: Whether to use fuzzy matching
+        
+    Returns:
+        Dictionary mapping project paths to their results
+    """
+    manager = get_project_manager()
+    all_results = {}
+    
+    for path in project_paths:
+        # Ensure each project is loaded
+        project = manager.get_project(path)
+        
+        # Search in this project
+        results = []
+        try:
+            search_results = project.search(name, all_scopes=True)
+            
+            for result in search_results:
+                if not fuzzy and result.name != name:
+                    continue
+                    
+                results.append({
+                    "name": result.name,
+                    "file": str(result.module_path) if result.module_path else None,
+                    "line": result.line,
+                    "column": result.column,
+                    "type": result.type,
+                    "description": result.description,
+                })
+                
+            if results:
+                all_results[path] = results
+                
+        except Exception as e:
+            logger.error(f"Error searching in {path}: {e}")
+            all_results[path] = {"error": str(e)}
+            
+    return all_results
+
+
+@mcp.tool()
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> Dict[str, Any]:
     """List the Python project structure.
     
@@ -426,10 +481,9 @@ if __name__ == "__main__":
     
     # Cleanup on exit
     def cleanup():
-        global _watcher
-        if _watcher:
-            _watcher.stop()
-            logger.info("Stopped file watcher")
+        manager = get_project_manager()
+        manager.cleanup_all()
+        logger.info("Cleaned up all projects and watchers")
     
     atexit.register(cleanup)
     
