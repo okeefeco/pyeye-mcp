@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 import json
 import logging
+from .cache import CodebaseWatcher, ProjectCache
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,16 +15,40 @@ logger = logging.getLogger(__name__)
 # Initialize the MCP server
 mcp = FastMCP("Python Code Intelligence")
 
-# Global Jedi project (will be initialized with workspace)
+# Global state
 _jedi_project: Optional[jedi.Project] = None
+_watcher: Optional[CodebaseWatcher] = None
+_cache = ProjectCache(ttl_seconds=300)  # 5 minute cache
+
+
+def invalidate_jedi_cache(file_path: str):
+    """Invalidate Jedi project cache when files change."""
+    global _jedi_project
+    if _jedi_project:
+        logger.info(f"Invalidating Jedi cache due to change in {file_path}")
+        # Force recreation on next access
+        _jedi_project = None
+        # Clear our cache too
+        _cache.invalidate()
 
 
 def get_jedi_project(project_path: str = ".") -> jedi.Project:
     """Get or create Jedi project for the given path."""
-    global _jedi_project
-    if _jedi_project is None or _jedi_project.path != Path(project_path):
-        _jedi_project = jedi.Project(path=project_path)
-        logger.info(f"Initialized Jedi project at {project_path}")
+    global _jedi_project, _watcher
+    
+    project_path_obj = Path(project_path).resolve()
+    
+    # Check if we need a new project
+    if _jedi_project is None or _jedi_project.path != project_path_obj:
+        _jedi_project = jedi.Project(path=project_path_obj)
+        logger.info(f"Initialized Jedi project at {project_path_obj}")
+        
+        # Set up file watcher for auto-updates
+        if _watcher:
+            _watcher.stop()
+        _watcher = CodebaseWatcher(str(project_path_obj), invalidate_jedi_cache)
+        _watcher.start()
+        
     return _jedi_project
 
 
@@ -391,6 +416,7 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> Dict[
 # Main entry point
 if __name__ == "__main__":
     import sys
+    import atexit
     
     # Set up logging
     logging.basicConfig(
@@ -398,7 +424,16 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    logger.info("Starting Python Code Intelligence MCP Server")
+    # Cleanup on exit
+    def cleanup():
+        global _watcher
+        if _watcher:
+            _watcher.stop()
+            logger.info("Stopped file watcher")
+    
+    atexit.register(cleanup)
+    
+    logger.info("Starting Python Code Intelligence MCP Server with file watching")
     
     # Run the server
     mcp.run()
