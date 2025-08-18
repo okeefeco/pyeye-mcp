@@ -7,6 +7,7 @@ from typing import Any
 import jedi
 from mcp.server.fastmcp import FastMCP
 
+from .analyzers.jedi_analyzer import JediAnalyzer
 from .config import ProjectConfig
 from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
@@ -23,6 +24,20 @@ mcp = FastMCP("Python Code Intelligence")
 
 # Global plugin registry
 _plugins: list[Any] = []
+PLUGINS = _plugins  # Expose for testing
+
+# Module-level exports for testing
+project_manager = None  # Will be initialized lazily
+project_config = None  # Will be initialized lazily
+
+
+def get_analyzer(project_path: str = ".") -> JediAnalyzer:
+    """Get or create a JediAnalyzer for the given project path.
+
+    This is a helper function for testing and internal use.
+    """
+    project = get_jedi_project(project_path)
+    return JediAnalyzer(project)
 
 
 def initialize_plugins(project_path: str = ".") -> None:
@@ -115,7 +130,9 @@ def configure_packages(
         )
     """
     # Load existing config
-    config = ProjectConfig(".")
+    global project_config
+    project_config = ProjectConfig(".")
+    config = project_config
 
     # Update configuration
     if packages:

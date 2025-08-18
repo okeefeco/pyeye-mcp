@@ -1,9 +1,10 @@
 """Tests for the MCP server and tools."""
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 from pycodemcp.server import (
     configure_namespace_package,
     configure_packages,
@@ -27,7 +28,7 @@ class TestMCPServer:
         """Test that MCP server is properly initialized."""
         assert mcp is not None
         assert isinstance(mcp, FastMCP)
-        assert mcp.name == "python-code-intelligence"
+        assert mcp.name == "Python Code Intelligence"
 
     def test_server_has_tools(self):
         """Test that server has registered tools."""
@@ -39,46 +40,113 @@ class TestMCPServer:
 class TestConfigurePackages:
     """Test the configure_packages tool."""
 
-    @patch("pycodemcp.server.project_config")
-    def test_configure_packages_basic(self, mock_config):
+    @patch("pycodemcp.server.get_project_manager")
+    @patch("pycodemcp.server.ProjectConfig")
+    @patch("pycodemcp.validation.PathValidator.validate_path")
+    def test_configure_packages_basic(
+        self, mock_validate_path, mock_config_class, mock_get_manager
+    ):
         """Test basic package configuration."""
-        mock_config.config = {}
+        # Create a real dict that can be modified
+        config_dict = {}
+        mock_config = Mock()
+        mock_config.config = config_dict
+        mock_config.get_package_paths.return_value = ["../lib1", "../lib2"]
+        mock_config.get_namespaces.return_value = {}
+        mock_config.project_path = Path(".")
+        mock_config_class.return_value = mock_config
 
-        _ = configure_packages(packages=["../lib1", "../lib2"], save=False)
+        mock_manager = Mock()
+        mock_manager.namespace_resolver = Mock()
+        mock_manager.get_project = Mock()
+        mock_get_manager.return_value = mock_manager
 
-        assert "packages" in mock_config.config
-        assert "../lib1" in mock_config.config["packages"]
-        assert "../lib2" in mock_config.config["packages"]
+        # Mock path validation to return resolved paths as strings
+        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
-    @patch("pycodemcp.server.project_config")
-    def test_configure_namespaces(self, mock_config):
+        result = configure_packages(packages=["../lib1", "../lib2"], save=False)
+
+        # Check that packages were added to config (as resolved paths)
+        assert "packages" in config_dict
+        assert any("lib1" in p for p in config_dict["packages"])
+        assert any("lib2" in p for p in config_dict["packages"])
+        # Check return value
+        assert "packages" in result
+        assert len(result["packages"]) == 2
+
+    @patch("pycodemcp.server.get_project_manager")
+    @patch("pycodemcp.server.ProjectConfig")
+    @patch("pycodemcp.validation.PathValidator.validate_path")
+    def test_configure_namespaces(self, mock_validate_path, mock_config_class, mock_get_manager):
         """Test namespace configuration."""
-        mock_config.config = {}
+        config_dict = {}
+        mock_config = Mock()
+        mock_config.config = config_dict
+        mock_config.get_package_paths.return_value = []
+        mock_config.get_namespaces.return_value = {"company": ["/repos/auth", "/repos/api"]}
+        mock_config.project_path = Path(".")
+        mock_config_class.return_value = mock_config
+
+        mock_manager = Mock()
+        mock_manager.namespace_resolver = Mock()
+        mock_get_manager.return_value = mock_manager
+
+        # Mock path validation
+        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
         _ = configure_packages(namespaces={"company": ["/repos/auth", "/repos/api"]}, save=False)
 
-        assert "namespaces" in mock_config.config
-        assert "company" in mock_config.config["namespaces"]
+        assert "namespaces" in config_dict
+        assert "company" in config_dict["namespaces"]
 
-    @patch("pycodemcp.server.project_config")
-    def test_configure_save(self, mock_config):
+    @patch("pycodemcp.server.get_project_manager")
+    @patch("pycodemcp.server.ProjectConfig")
+    @patch("pycodemcp.validation.PathValidator.validate_path")
+    def test_configure_save(self, mock_validate_path, mock_config_class, mock_get_manager):
         """Test saving configuration."""
-        mock_config.config = {}
+        config_dict = {}
+        mock_config = Mock()
+        mock_config.config = config_dict
         mock_config.save_config = Mock()
+        mock_config.get_package_paths.return_value = ["test"]
+        mock_config.get_namespaces.return_value = {}
+        mock_config.project_path = Path(".")
+        mock_config_class.return_value = mock_config
+
+        mock_manager = Mock()
+        mock_manager.namespace_resolver = Mock()
+        mock_get_manager.return_value = mock_manager
+
+        # Mock path validation
+        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
         _ = configure_packages(packages=["test"], save=True)
 
         mock_config.save_config.assert_called_once()
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.project_config")
-    def test_configure_validates_paths(self, mock_config, mock_validator):
+    @patch("pycodemcp.server.get_project_manager")
+    @patch("pycodemcp.validation.PathValidator")
+    @patch("pycodemcp.server.ProjectConfig")
+    def test_configure_validates_paths(self, mock_config_class, mock_validator, mock_get_manager):
         """Test that paths are validated before configuration."""
-        mock_config.config = {}
+        config_dict = {}
+        mock_config = Mock()
+        mock_config.config = config_dict
+        mock_config.get_package_paths.return_value = ["../lib1"]
+        mock_config.get_namespaces.return_value = {}
+        mock_config.project_path = Path(".")
+        mock_config_class.return_value = mock_config
+
+        mock_manager = Mock()
+        mock_manager.namespace_resolver = Mock()
+        mock_get_manager.return_value = mock_manager
+
+        # Mock path validation to track calls
+        mock_validator.validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
         configure_packages(packages=["../lib1"])
 
-        # Path validator should be called
+        # Path validator should be called via the decorator
         mock_validator.validate_path.assert_called()
 
 

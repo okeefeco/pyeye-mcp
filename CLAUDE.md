@@ -1,5 +1,45 @@
 # Python Code Intelligence MCP Server - Claude Instructions
 
+## Session Recovery Points
+
+### Last Working State (auto-updated)
+
+- **Timestamp**: [Auto-updated on significant changes]
+- **Branch**: enhancement/1-input-validation
+- **Last Modified Files**:
+  - [Track files modified in current session]
+- **Current Focus**: [Current file:line being worked on]
+- **Pending Work**: [Next immediate tasks]
+- **Test Status**: [Last test run results]
+
+### Validation Status (CRITICAL - Never skip without explicit permission)
+
+- **Pre-commit Hooks**: [PASS/FAIL - timestamp]
+- **Tests (pytest)**: [PASS/FAIL - timestamp]
+- **Linting (ruff)**: [PASS/FAIL - timestamp]
+- **Type Check (mypy)**: [PASS/FAIL - timestamp]
+- **Black Formatting**: [PASS/FAIL - timestamp]
+- **Security (bandit)**: [PASS/FAIL - timestamp]
+
+⚠️ **VALIDATION RULES**:
+
+- NEVER commit with failing validations
+- NEVER use --no-verify unless user explicitly says "skip validation"
+- If pre-commit fails, STOP and fix issues first
+- Document all validation failures in todo list
+
+### Active Context
+
+- **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
+- **Python Environment**: uv managed
+- **Key Commands**:
+
+  ```bash
+  uv run pytest              # Run tests
+  uv run ruff check src/     # Check linting
+  uv run black src/          # Format code
+  ```
+
 ## Project Overview
 
 This is the Python Code Intelligence MCP Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
@@ -151,3 +191,73 @@ src/pycodemcp/
     ├── pydantic.py      # Pydantic models plugin
     └── flask.py         # Flask framework plugin (NEW)
 ```
+
+## Context Loss Recovery
+
+If context is lost or session is compacted:
+
+1. **Check Current State**
+
+   ```bash
+   git status                    # Check for uncommitted changes
+   git log --oneline -5         # Review recent commits
+   ```
+
+2. **Review Session Recovery Points**
+   - Check "Last Working State" section at top of this file
+   - Review todo list status with TodoWrite tool
+   - Check last modified files and their changes
+   - **CRITICAL**: Check "Validation Status" section for any failures
+
+3. **Verify Code State**
+
+   ```bash
+   uv run pytest                 # Run tests to verify functionality
+   uv run ruff check src/        # Check for linting issues
+   uv run mypy src/             # Check type hints
+   pre-commit run --all-files   # Run ALL validation checks
+   ```
+
+   ⚠️ **NEVER proceed with commits if any validation fails**
+
+4. **Resume Work**
+   - Continue from last incomplete todo item
+   - Use file:line references to navigate to exact locations
+   - Check "Pending Work" in Last Working State section
+
+5. **Common Recovery Patterns**
+   - If adding a feature: Check existing similar implementations first
+   - If fixing bugs: Run tests to reproduce the issue
+   - If refactoring: Ensure tests pass before and after changes
+
+## Task Management Best Practices
+
+### Granular Task Breakdown
+
+- Break complex tasks into 5-10 minute chunks
+- Include file:line references in task descriptions
+- Example: "Add validation to server.py:125-150"
+
+### Progressive Completion
+
+- Mark tasks complete immediately after finishing
+- Keep only ONE task in_progress at a time
+- Update "Last Working State" after major milestones
+
+### Context Preservation Examples
+
+```markdown
+✅ Added input validation to src/pycodemcp/validators.py:45-89
+✅ Created test file tests/test_validation.py
+⏳ Writing edge case tests in tests/test_validation.py:45
+⬜ Run pytest and fix any failures
+⬜ Update README.md with validation documentation
+```
+
+### File Reference Pattern
+
+Always use `file_path:line_number` format for easy navigation:
+
+- `src/server.py:125` - Specific line reference
+- `tests/test_validation.py:45-89` - Range reference
+- `src/plugins/flask.py:find_routes` - Function reference
