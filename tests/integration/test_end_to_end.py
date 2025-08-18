@@ -308,8 +308,8 @@ def function_{i}_{j}():
         assert "name" in structure
         assert structure["type"] == "directory"
         assert "children" in structure
-        # Should have 10 module directories
-        assert len([c for c in structure["children"] if c["type"] == "directory"]) == 10
+        # Should have 20 module directories (we created 20 above)
+        assert len([c for c in structure["children"] if c["type"] == "directory"]) == 20
 
     def test_cross_repository_import_resolution(self, temp_project_dir):
         """Test resolving imports across multiple repositories."""

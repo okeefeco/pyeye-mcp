@@ -102,7 +102,7 @@ class NamespaceResolver:
                 return self._path_to_namespace(init_file.parent, init_file.parent)
 
             # pkgutil style
-            if "pkgutil.extend_path" in content:
+            if "pkgutil" in content and "extend_path" in content:
                 return self._extract_namespace_from_init(init_file)
 
             # pkg_resources style
@@ -129,11 +129,17 @@ class NamespaceResolver:
         parts: list[str] = []
         current = init_file.parent
 
+        # Walk up the directory tree collecting package names
         while current.name and not current.name.startswith("."):
             parts.insert(0, current.name)
-            current = current.parent
-            if not any(current.glob("*.py")):
+            parent = current.parent
+
+            # Stop when we reach a directory that doesn't have __init__.py
+            # (meaning we've left the Python package structure)
+            if not (parent / "__init__.py").exists():
                 break
+
+            current = parent
 
         if parts:
             return ".".join(parts)
@@ -150,8 +156,10 @@ class NamespaceResolver:
 
     def _is_valid_namespace(self, namespace: str) -> bool:
         """Check if a string is a valid Python namespace."""
+        if not namespace:
+            return False
         parts = namespace.split(".")
-        return all(part.isidentifier() for part in parts if part)
+        return all(part.isidentifier() for part in parts)
 
     def get_all_paths_for_import(self, import_name: str) -> list[Path]:
         """Get all possible paths for an import.
