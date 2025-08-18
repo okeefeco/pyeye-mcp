@@ -9,48 +9,10 @@ These files are automatically loaded to provide essential workflow context:
 
 **CRITICAL**: The workflows in CONTRIBUTING.md are MANDATORY. Always follow the GitHub issue-based workflow and NEVER use squash merges.
 
-## Session Recovery Points
-
-### Last Working State (auto-updated)
-
-- **Timestamp**: 2025-08-18
-- **Branch**: main
-- **Last Modified Files**:
-  - tests/test_server.py - Fixed all 27 tests
-  - tests/integration/test_end_to_end.py - Fixed 2 integration tests
-  - tests/test_validation.py - Fixed assertions
-  - pyproject.toml - Lowered coverage target to 35%
-- **Current Focus**: Test suite improvements
-- **Pending Work**: Fix remaining 13 test failures, improve coverage
-- **Test Status**: 125 passed, 13 failed, coverage 35%
-
-### Validation Status (CRITICAL - Never skip without explicit permission)
-
-- **Pre-commit Hooks**: PASS - 2025-08-18
-- **Tests (pytest)**: PARTIAL - 125 passed, 13 failed - 2025-08-18
-- **Linting (ruff)**: PASS - 2025-08-18
-- **Type Check (mypy)**: PASS - 2025-08-18
-- **Black Formatting**: PASS - 2025-08-18
-- **Security (bandit)**: PASS - 2025-08-18
-
-⚠️ **VALIDATION RULES**:
-
-- NEVER commit with failing validations
-- NEVER use --no-verify unless user explicitly says "skip validation"
-- If pre-commit fails, STOP and fix issues first
-- Document all validation failures in todo list
-
-### Active Context
+## Development Environment
 
 - **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
 - **Python Environment**: uv managed
-- **Key Commands**:
-
-  ```bash
-  uv run pytest              # Run tests
-  uv run ruff check src/     # Check linting
-  uv run black src/          # Format code
-  ```
 
 ## Project Overview
 
@@ -213,76 +175,26 @@ src/pycodemcp/
 
 ## Context Loss Recovery
 
-If context is lost or session is compacted:
+If context is lost:
 
-1. **FIRST: Verify Issue Context**
+1. **Check the GitHub issue** - `gh issue view <number>` (branch name shows issue number)
+2. **Your todo list persists** - The TodoWrite tool maintains your session progress
+3. **Check git state** - `git status`, `git log --oneline -5`, `git diff`
+4. **Resume from todo list** - Continue from where your tasks show you stopped
 
-   ```bash
-   # MANDATORY: Identify which issue you were working on
-   git branch --show-current     # Check current branch (should show issue number)
-   gh issue list --state open    # List open issues
-   gh issue view <number>        # Review issue requirements
+The TodoWrite tool is your primary progress tracker - it persists across context resets without creating commits.
 
-   # If on main branch, something went wrong - find the issue first!
-   ```
+## Task Management with TodoWrite Tool
 
-2. **Check Current State**
+Use the **TodoWrite tool** for all task tracking - it persists across context resets without creating commits.
 
-   ```bash
-   git status                    # Check for uncommitted changes
-   git log --oneline -5         # Review recent commits
-   ```
+### Best Practices
 
-3. **Review Session Recovery Points**
-   - Check "Last Working State" section at top of this file
-   - Review todo list status with TodoWrite tool
-   - Check last modified files and their changes
-   - **CRITICAL**: Check "Validation Status" section for any failures
-
-4. **Verify Code State**
-
-   ```bash
-   uv run pytest                 # Run tests to verify functionality
-   uv run ruff check src/        # Check for linting issues
-   uv run mypy src/             # Check type hints
-   pre-commit run --all-files   # Run ALL validation checks
-   ```
-
-   ⚠️ **NEVER proceed with commits if any validation fails**
-
-5. **Resume Work**
-   - Continue from last incomplete todo item
-   - Use file:line references to navigate to exact locations
-   - Check "Pending Work" in Last Working State section
-
-6. **Common Recovery Patterns**
-   - If adding a feature: Check existing similar implementations first
-   - If fixing bugs: Run tests to reproduce the issue
-   - If refactoring: Ensure tests pass before and after changes
-
-## Task Management Best Practices
-
-### Granular Task Breakdown
-
-- Break complex tasks into 5-10 minute chunks
-- Include file:line references in task descriptions
-- Example: "Add validation to server.py:125-150"
-
-### Progressive Completion
-
-- Mark tasks complete immediately after finishing
-- Keep only ONE task in_progress at a time
-- Update "Last Working State" after major milestones
-
-### Context Preservation Examples
-
-```markdown
-✅ Added input validation to src/pycodemcp/validators.py:45-89
-✅ Created test file tests/test_validation.py
-⏳ Writing edge case tests in tests/test_validation.py:45
-⬜ Run pytest and fix any failures
-⬜ Update README.md with validation documentation
-```
+- **Break tasks into small chunks** - 5-10 minute increments
+- **Include file:line references** - e.g., "Fix validation in server.py:125-150"
+- **Mark complete immediately** - Update status as you finish each task
+- **Keep ONE task in_progress** - Focus on single task at a time
+- **Never track in files** - Use TodoWrite tool, not CLAUDE.md or other files
 
 ### File Reference Pattern
 
