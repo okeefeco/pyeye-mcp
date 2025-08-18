@@ -169,6 +169,54 @@ gh pr create --title "feat: your feature" --body "Description of changes"
 - Tests for new functionality
 - Documentation updates (if needed)
 
+## Merge Strategy
+
+### Our Approach
+
+This project uses **regular merge commits** (not squash merges) to preserve development history and maintain full traceability.
+
+### Why We Don't Use Squash Merge
+
+- **Preserves development history**: Each commit tells part of the story
+- **Better debugging**: `git bisect` works more effectively with granular commits
+- **Proper attribution**: Individual commits show the evolution of the solution
+- **No tracking issues**: Git properly recognizes merged branches (no confusing warnings)
+
+### Why We Don't Recommend Rebase After Push
+
+- **Safety**: Rebase rewrites history, which can cause problems for other developers who have pulled the branch
+- **Collaboration**: Force pushing after rebase can overwrite others' work
+- **Traceability**: Original commit timestamps and hashes are preserved
+
+### Guidelines
+
+1. **Keep commits clean and logical** - Since we preserve history, make each commit meaningful
+2. **Use descriptive commit messages** - Follow our conventional commit format
+3. **It's OK to have "fix" commits** - They show the review process and iterations
+4. **Never force push to shared branches** - Especially after others have reviewed or pulled
+
+### Merging Process
+
+When your PR is approved:
+
+```bash
+# Regular merge (preserves all commits)
+gh pr merge <PR-NUMBER> --merge
+
+# NOT recommended:
+# gh pr merge <PR-NUMBER> --squash  ❌
+# gh pr merge <PR-NUMBER> --rebase  ❌ (especially after push)
+```
+
+### For Maintainers: GitHub Settings
+
+To enforce this strategy, disable squash merging in repository settings:
+
+1. Go to Settings → General → Pull Requests
+2. **Enable**: "Allow merge commits" ✅
+3. **Disable**: "Allow squash merging" ❌
+4. **Disable**: "Allow rebase merging" ❌ (optional, but recommended)
+
 ## Code Style Guidelines
 
 ### Python Style
