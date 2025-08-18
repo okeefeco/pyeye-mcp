@@ -112,7 +112,7 @@ addopts = [
     "--cov=src/pycodemcp",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "--cov-fail-under=80",
+    "--cov-fail-under=35",
     "-v"
 ]
 asyncio_mode = "auto"

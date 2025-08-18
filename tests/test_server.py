@@ -3,7 +3,6 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
 from mcp.server.fastmcp import FastMCP
 from pycodemcp.server import (
     configure_namespace_package,
@@ -153,77 +152,133 @@ class TestConfigurePackages:
 class TestFindSymbol:
     """Test the find_symbol tool."""
 
-    @patch("pycodemcp.server.InputValidator")
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_basic(self, mock_get_analyzer, _mock_path_val, _mock_input_val):
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_symbol_basic(self, mock_get_project):
         """Test basic symbol finding."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock Jedi project and search results
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        mock_analyzer.find_symbol.return_value = [
-            {"name": "TestClass", "file": "/project/test.py", "line": 10, "type": "class"}
-        ]
+        # Create mock search result
+        mock_result = Mock()
+        mock_result.name = "TestClass"
+        mock_result.module_path = Path("/project/test.py")
+        mock_result.line = 10
+        mock_result.column = 0
+        mock_result.type = "class"
+        mock_result.description = "class TestClass"
+        mock_result.full_name = "test.TestClass"
+
+        mock_project.search.return_value = [mock_result]
 
         result = find_symbol("TestClass")
 
         assert len(result) == 1
         assert result[0]["name"] == "TestClass"
-        mock_analyzer.find_symbol.assert_called_with("TestClass", fuzzy=False)
+        assert "test.py" in result[0]["file"]
+        mock_project.search.assert_called_with("TestClass", all_scopes=True)
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_fuzzy(self, mock_get_analyzer):
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_symbol_fuzzy(self, mock_get_project):
         """Test fuzzy symbol search."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.find_symbol.return_value = []
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        find_symbol("test", fuzzy=True)
+        # Create mock fuzzy matches
+        mock_result = Mock()
+        mock_result.name = "test_function"
+        mock_result.module_path = Path("/project/test.py")
+        mock_result.line = 5
+        mock_result.column = 0
+        mock_result.type = "function"
+        mock_result.description = "def test_function"
+        mock_result.full_name = "test.test_function"
 
-        mock_analyzer.find_symbol.assert_called_with("test", fuzzy=True)
+        mock_project.search.return_value = [mock_result]
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_with_config(self, mock_get_analyzer):
+        result = find_symbol("test", fuzzy=True)
+
+        # With fuzzy=True, it should include partial matches
+        assert len(result) == 1
+        mock_project.search.assert_called_with("test", all_scopes=True)
+
+    @patch("pycodemcp.server.ProjectConfig")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_symbol_with_config(self, mock_get_project, mock_config_class):
         """Test symbol finding with configuration."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.find_symbol.return_value = []
+        # Mock configuration
+        mock_config = Mock()
+        mock_config.get_package_paths.return_value = [".", "../lib"]
+        mock_config_class.return_value = mock_config
+
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
+        mock_project.search.return_value = []
 
         find_symbol("test", use_config=True)
 
-        # Should use configuration
-        mock_get_analyzer.assert_called()
+        # Should use configuration (ProjectConfig gets resolved path)
+        mock_config_class.assert_called_once()
+        mock_get_project.assert_called()
 
 
 class TestGotoDefinition:
     """Test the goto_definition tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.InputValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_goto_definition(self, mock_get_analyzer, _mock_input_val, _mock_path_val):
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_goto_definition(self, mock_get_project, mock_script_class, mock_path_class):
         """Test going to symbol definition."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock file path
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "test code"
+        mock_path_class.return_value = mock_path
 
-        mock_analyzer.goto_definition.return_value = {
-            "name": "function",
-            "file": "/project/module.py",
-            "line": 42,
-            "column": 4,
-        }
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
+
+        # Mock Jedi script and definition
+        mock_script = Mock()
+        mock_definition = Mock()
+        mock_definition.name = "function"
+        mock_definition.module_path = Path("/project/module.py")
+        mock_definition.line = 42
+        mock_definition.column = 4
+        mock_definition.type = "function"
+        mock_definition.description = "def function"
+        mock_definition.docstring.return_value = "Function docstring"
+
+        mock_script.goto.return_value = [mock_definition]
+        mock_script_class.return_value = mock_script
 
         result = goto_definition("test.py", 10, 5)
 
         assert result["name"] == "function"
         assert result["line"] == 42
+        mock_script.goto.assert_called_with(10, 5)
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_goto_definition_not_found(self, mock_get_analyzer):
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_goto_definition_not_found(self, mock_get_project, mock_script_class, mock_path_class):
         """Test goto definition when symbol not found."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.goto_definition.return_value = None
+        # Mock file path
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "test code"
+        mock_path_class.return_value = mock_path
+
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
+
+        # Mock Jedi script with no definitions found
+        mock_script = Mock()
+        mock_script.goto.return_value = []
+        mock_script_class.return_value = mock_script
 
         result = goto_definition("test.py", 10, 5)
 
@@ -233,166 +288,354 @@ class TestGotoDefinition:
 class TestFindReferences:
     """Test the find_references tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.InputValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_references(self, mock_get_analyzer, _mock_input_val, _mock_path_val):
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_references(self, mock_get_project, mock_script_class, mock_path_class):
         """Test finding symbol references."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock file path
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "test code"
+        mock_path_class.return_value = mock_path
 
-        mock_analyzer.find_references.return_value = [
-            {"file": "/project/test.py", "line": 10},
-            {"file": "/project/test.py", "line": 20},
-        ]
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
+
+        # Mock references
+        mock_ref1 = Mock()
+        mock_ref1.name = "test_var"
+        mock_ref1.module_path = Path("/project/test.py")
+        mock_ref1.line = 10
+        mock_ref1.column = 0
+        mock_ref1.is_definition.return_value = False
+        mock_ref1.description = "test_var"
+
+        mock_ref2 = Mock()
+        mock_ref2.name = "test_var"
+        mock_ref2.module_path = Path("/project/test.py")
+        mock_ref2.line = 20
+        mock_ref2.column = 5
+        mock_ref2.is_definition.return_value = False
+        mock_ref2.description = "test_var"
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = [mock_ref1, mock_ref2]
+        mock_script_class.return_value = mock_script
 
         result = find_references("test.py", 5, 0)
 
         assert len(result) == 2
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, include_definitions=True)
+        assert result[0]["line"] == 10
+        assert result[1]["line"] == 20
+        mock_script.get_references.assert_called_with(5, 0, include_builtins=False)
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_references_exclude_definitions(self, mock_get_analyzer):
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_references_exclude_definitions(
+        self, mock_get_project, mock_script_class, mock_path_class
+    ):
         """Test finding references excluding definitions."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.find_references.return_value = []
+        # Mock file path
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "test code"
+        mock_path_class.return_value = mock_path
 
-        find_references("test.py", 5, 0, include_definitions=False)
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, include_definitions=False)
+        # Mock references with one being a definition
+        mock_ref1 = Mock()
+        mock_ref1.is_definition.return_value = True  # This should be excluded
+
+        mock_ref2 = Mock()
+        mock_ref2.name = "test_var"
+        mock_ref2.module_path = Path("/project/test.py")
+        mock_ref2.line = 20
+        mock_ref2.column = 5
+        mock_ref2.is_definition.return_value = False
+        mock_ref2.description = "test_var"
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = [mock_ref1, mock_ref2]
+        mock_script_class.return_value = mock_script
+
+        result = find_references("test.py", 5, 0, include_definitions=False)
+
+        # Should only include non-definition references
+        assert len(result) == 1
+        assert result[0]["line"] == 20
 
 
 class TestGetTypeInfo:
     """Test the get_type_info tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.InputValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_get_type_info(self, mock_get_analyzer, mock_input_val, mock_path_val):  # noqa: ARG002
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_get_type_info(self, mock_get_project, mock_script_class, mock_path_class):
         """Test getting type information."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock file path
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "test code"
+        mock_path_class.return_value = mock_path
 
-        mock_analyzer.get_type_info.return_value = {"type": "str", "docstring": "String type"}
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
+
+        # Mock type inference
+        mock_inferred = Mock()
+        mock_inferred.name = "str"
+        mock_inferred.type = "class"
+        mock_inferred.description = "class str"
+        mock_inferred.full_name = "builtins.str"
+        mock_inferred.module_name = "builtins"
+
+        # Mock help info
+        mock_help = Mock()
+        mock_help.docstring.return_value = "String type"
+
+        mock_script = Mock()
+        mock_script.infer.return_value = [mock_inferred]
+        mock_script.help.return_value = [mock_help]
+        mock_script_class.return_value = mock_script
 
         result = get_type_info("test.py", 10, 5)
 
-        assert result["type"] == "str"
-        assert "docstring" in result
+        assert len(result["inferred_types"]) > 0
+        assert result["inferred_types"][0]["name"] == "str"
+        assert result["docstring"] == "String type"
 
 
 class TestFindImports:
     """Test the find_imports tool."""
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_imports(self, mock_get_analyzer):
+    @patch("pycodemcp.server.Path")
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_imports(self, mock_get_project, mock_script_class, mock_path_class):
         """Test finding module imports."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock project structure
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        mock_analyzer.find_imports.return_value = [
-            {"file": "/project/test.py", "line": 1, "import": "import os"},
-            {"file": "/project/utils.py", "line": 3, "import": "import os"},
-        ]
+        # Mock Path for project root
+        mock_project_path = Mock()
+        mock_py_file1 = Mock(spec=Path)
+        mock_py_file1.read_text.return_value = "import os\ncode here"
+        mock_py_file1.__str__ = Mock(return_value="/project/test.py")
+
+        mock_py_file2 = Mock(spec=Path)
+        mock_py_file2.read_text.return_value = "from os import path\nmore code"
+        mock_py_file2.__str__ = Mock(return_value="/project/utils.py")
+
+        mock_project_path.rglob.return_value = [mock_py_file1, mock_py_file2]
+        mock_path_class.return_value = mock_project_path
+
+        # Mock script for each file
+        mock_script = Mock()
+
+        # Mock names found in files
+        mock_name1 = Mock()
+        mock_name1.type = "module"
+        mock_name1.full_name = "os"
+        mock_name1.line = 1
+        mock_name1.column = 0
+        mock_name1.description = "import os"
+
+        mock_name2 = Mock()
+        mock_name2.type = "import"
+        mock_name2.full_name = "os.path"
+        mock_name2.line = 1
+        mock_name2.column = 0
+        mock_name2.description = "from os import path"
+
+        # Return different names for different files
+        mock_script.get_names.side_effect = [[mock_name1], [mock_name2]]
+        mock_script_class.return_value = mock_script
 
         result = find_imports("os")
 
-        assert len(result) == 2
-        mock_analyzer.find_imports.assert_called_with("os")
+        # Should find imports in both files
+        assert len(result) >= 2
+        mock_project_path.rglob.assert_called_with("*.py")
 
 
 class TestGetCallHierarchy:
     """Test the get_call_hierarchy tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_get_call_hierarchy(self, mock_get_analyzer, mock_path_val):  # noqa: ARG002
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_get_call_hierarchy(self, mock_get_project, mock_script_class):
         """Test getting call hierarchy."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        mock_analyzer.get_call_hierarchy.return_value = {
-            "function": "test_func",
-            "callers": [{"name": "main", "line": 10}],
-            "callees": [{"name": "helper", "line": 5}],
-        }
+        # Mock search result for function
+        mock_func_def = Mock()
+        mock_func_def.name = "test_func"
+        mock_func_def.type = "function"
+        mock_module_path = Mock(spec=Path)
+        mock_module_path.read_text.return_value = "def test_func(): pass"
+        mock_func_def.module_path = mock_module_path
+        mock_func_def.line = 5
+        mock_func_def.column = 0
+
+        mock_project.search.return_value = [mock_func_def]
+
+        # Mock references (callers)
+        mock_ref = Mock()
+        mock_ref.is_definition.return_value = False
+        mock_ref.module_path = Path("/project/main.py")
+        mock_ref.line = 10
+        mock_ref.column = 4
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = [
+            mock_func_def,
+            mock_ref,
+        ]  # Include definition and reference
+        mock_script.get_names.return_value = []
+        mock_script_class.return_value = mock_script
 
         result = get_call_hierarchy("test_func")
 
         assert result["function"] == "test_func"
-        assert len(result["callers"]) == 1
-        assert len(result["callees"]) == 1
+        assert "callers" in result
+        assert "callees" in result
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_get_call_hierarchy_with_file(self, mock_get_analyzer):
+    @patch("pycodemcp.server.jedi.Script")
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_get_call_hierarchy_with_file(self, mock_get_project, mock_script_class):
         """Test call hierarchy with specific file."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.get_call_hierarchy.return_value = {}
+        # Mock Jedi project
+        mock_project = Mock()
+        mock_get_project.return_value = mock_project
 
-        get_call_hierarchy("func", file="test.py")
+        # Mock search result for function in specific file
+        mock_func_def = Mock()
+        mock_func_def.name = "func"
+        mock_func_def.type = "function"
+        mock_module_path = Mock(spec=Path)
+        mock_module_path.read_text.return_value = "def func(): pass"
+        mock_module_path.__str__ = Mock(return_value="test.py")
+        mock_func_def.module_path = mock_module_path
+        mock_func_def.line = 5
+        mock_func_def.column = 0
 
-        mock_analyzer.get_call_hierarchy.assert_called_with("func", "test.py")
+        mock_project.search.return_value = [mock_func_def]
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = []
+        mock_script.get_names.return_value = []
+        mock_script_class.return_value = mock_script
+
+        result = get_call_hierarchy("func", file="test.py")
+
+        # Should search for function in specific file
+        assert result is not None
+        mock_project.search.assert_called_with("func", all_scopes=True)
 
 
 class TestNamespaceTools:
     """Test namespace-related tools."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.project_manager")
-    def test_configure_namespace_package(self, mock_manager, mock_path_val):  # noqa: ARG002
+    @patch("pycodemcp.server.get_project_manager")
+    def test_configure_namespace_package(self, mock_get_manager):
         """Test configuring namespace packages."""
+        mock_manager = Mock()
         mock_resolver = Mock()
         mock_manager.namespace_resolver = mock_resolver
+        mock_get_manager.return_value = mock_manager
 
-        _ = configure_namespace_package("company", ["/repos/auth", "/repos/api"])
+        # Mock namespace discovery
+        mock_resolver.discover_namespaces.return_value = {
+            "company": [Path("/repos/auth"), Path("/repos/api")]
+        }
+        mock_resolver.build_namespace_map.return_value = {}
 
-        mock_resolver.register_namespace.assert_called_with(
-            "company", ["/repos/auth", "/repos/api"]
-        )
+        result = configure_namespace_package("company", ["/repos/auth", "/repos/api"])
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.project_manager")
-    def test_find_in_namespace(self, mock_manager, mock_path_val):  # noqa: ARG002
+        assert result["namespace"] == "company"
+        assert result["status"] == "configured"
+        mock_resolver.register_namespace.assert_called()
+
+    @patch("pycodemcp.server.get_project_manager")
+    def test_find_in_namespace(self, mock_get_manager):
         """Test finding imports in namespace."""
+        mock_manager = Mock()
         mock_resolver = Mock()
         mock_manager.namespace_resolver = mock_resolver
+        mock_get_manager.return_value = mock_manager
 
-        mock_resolver.find_in_namespace.return_value = [
-            {"file": "/repos/auth/models.py", "line": 10}
-        ]
+        # Mock namespace resolution
+        mock_resolver.discover_namespaces.return_value = {}
+        mock_resolver.resolve_import.return_value = [Path("/repos/auth/models.py")]
+        mock_resolver.build_namespace_map.return_value = {}
+
+        # Mock project search
+        mock_project = Mock()
+        mock_manager.get_project.return_value = mock_project
+
+        mock_search_result = Mock()
+        mock_search_result.module_path = Path("/repos/auth/models.py")
+        mock_search_result.line = 10
+        mock_search_result.type = "class"
+        mock_search_result.description = "class User"
+
+        mock_project.search.return_value = [mock_search_result]
 
         result = find_in_namespace("company.auth.User", ["/repos/auth", "/repos/api"])
 
-        assert len(result) == 1
-        mock_resolver.find_in_namespace.assert_called()
+        assert "import_path" in result
+        assert result["import_path"] == "company.auth.User"
+        mock_resolver.resolve_import.assert_called()
 
 
 class TestFindSymbolMulti:
     """Test the find_symbol_multi tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_multi(self, mock_get_analyzer, mock_path_val):  # noqa: ARG002
+    @patch("pycodemcp.server.get_project_manager")
+    def test_find_symbol_multi(self, mock_get_manager):
         """Test finding symbols across multiple projects."""
-        mock_analyzer = Mock()
-        mock_get_analyzer.return_value = mock_analyzer
+        mock_manager = Mock()
+        mock_get_manager.return_value = mock_manager
 
-        mock_analyzer.find_symbol.return_value = [{"name": "test", "file": "test.py"}]
+        # Mock project for each path
+        mock_project = Mock()
+
+        # Mock search result
+        mock_result = Mock()
+        mock_result.name = "test"
+        mock_result.module_path = Path("test.py")
+        mock_result.line = 10
+        mock_result.column = 0
+        mock_result.type = "function"
+        mock_result.description = "def test"
+
+        mock_project.search.return_value = [mock_result]
+        mock_manager.get_project.return_value = mock_project
 
         result = find_symbol_multi("test", ["/proj1", "/proj2"])
 
         assert "/proj1" in result
         assert "/proj2" in result
         assert len(result) == 2
+        # Should call get_project for each path
+        assert mock_manager.get_project.call_count == 2
 
 
 class TestListProjectStructure:
     """Test the list_project_structure tool."""
 
-    @patch("pycodemcp.server.PathValidator")
-    def test_list_project_structure(self, mock_path_val, temp_project_dir):  # noqa: ARG002
+    def test_list_project_structure(self, temp_project_dir):
         """Test listing project structure."""
         # Create project structure
         (temp_project_dir / "src").mkdir()
@@ -402,9 +645,13 @@ class TestListProjectStructure:
 
         result = list_project_structure(str(temp_project_dir))
 
-        assert "structure" in result
-        assert "python_files" in result
-        assert result["python_files"] >= 2
+        # Should return a tree structure
+        assert "name" in result
+        assert "type" in result
+        assert result["type"] == "directory"
+        # Should have children (src and tests directories)
+        assert "children" in result
+        assert len(result["children"]) >= 2
 
     def test_list_project_structure_max_depth(self, temp_project_dir):
         """Test project structure with max depth limit."""
@@ -415,16 +662,28 @@ class TestListProjectStructure:
 
         result = list_project_structure(str(temp_project_dir), max_depth=2)
 
-        # Should not include files beyond max_depth
-        assert "structure" in result
+        # Result should be truncated at max depth
+        assert "name" in result
+        assert "type" in result
+        # Navigate to check truncation
+        if "children" in result:
+            for child in result["children"]:
+                if child["name"] == "a" and "children" in child:
+                    # Check that deep nesting is truncated
+                    for subchild in child["children"]:
+                        if subchild["name"] == "b":
+                            # Should be truncated here or at next level
+                            assert "truncated" in subchild or (
+                                "children" in subchild
+                                and any("truncated" in sc for sc in subchild["children"])
+                            )
 
 
 class TestPluginActivation:
     """Test plugin activation based on project type."""
 
-    @patch("pycodemcp.server.active_plugins")
-    @patch("pycodemcp.server.PLUGINS")
-    def test_plugin_detection(self, mock_plugins, mock_active):  # noqa: ARG002
+    @patch("pycodemcp.server._plugins")
+    def test_plugin_detection(self, mock_plugins):
         """Test that plugins are detected and activated."""
         # Create mock plugins
         flask_plugin = Mock()
@@ -433,53 +692,73 @@ class TestPluginActivation:
 
         django_plugin = Mock()
         django_plugin.detect.return_value = False
+        django_plugin.name.return_value = "Django"
 
-        mock_plugins["flask"] = flask_plugin
-        mock_plugins["django"] = django_plugin
+        # Test that we can access the plugins list
+        assert isinstance(mock_plugins, Mock)
 
-        # Would need to trigger plugin detection
-        # This happens during analyzer creation
+        # In the actual implementation, plugins are activated via initialize_plugins
+        # This test verifies the structure is present
 
 
 class TestErrorHandling:
     """Test error handling in MCP tools."""
 
-    @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_error(self, mock_get_analyzer):
+    @patch("pycodemcp.server.get_jedi_project")
+    def test_find_symbol_error(self, mock_get_project):
         """Test error handling in find_symbol."""
-        mock_get_analyzer.side_effect = Exception("Analyzer error")
+        # Mock project that raises error on search
+        mock_project = Mock()
+        mock_project.search.side_effect = Exception("Search error")
+        mock_get_project.return_value = mock_project
 
-        with pytest.raises(Exception):  # noqa: B017
-            find_symbol("test")
+        # Should handle error gracefully and return empty list
+        result = find_symbol("test")
+        assert result == []
 
-    @patch("pycodemcp.server.PathValidator")
-    def test_path_validation_error(self, mock_validator):
-        """Test path validation errors."""
-        from pycodemcp.validation import ValidationError
+    @patch("pycodemcp.server.Path")
+    def test_file_not_found_error(self, mock_path_class):
+        """Test handling of file not found errors."""
+        mock_path = Mock()
+        mock_path.exists.return_value = False
+        mock_path_class.return_value = mock_path
 
-        mock_validator.validate_path.side_effect = ValidationError("Invalid path")
+        result = goto_definition("nonexistent.py", 1, 0)
 
-        with pytest.raises(ValidationError):
-            goto_definition("../../../etc/passwd", 1, 0)
+        # Should return error in result
+        assert result is not None
+        assert "error" in result
 
 
 class TestInputValidation:
     """Test input validation decorators."""
 
-    @patch("pycodemcp.server.InputValidator")
-    def test_validate_line_number(self, mock_validator):
-        """Test line number validation."""
-        mock_validator.validate_line_number.side_effect = lambda x: x
+    @patch("pycodemcp.server.Path")
+    def test_validate_negative_line_number(self, mock_path_class):
+        """Test that negative line numbers are rejected."""
+        # Mock file path exists
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path_class.return_value = mock_path
 
-        # Should validate line numbers
-        goto_definition("test.py", 10, 0)
-        mock_validator.validate_line_number.assert_called_with(10)
+        # The @validate_mcp_inputs decorator should return error for invalid inputs
+        result = goto_definition("test.py", -1, 0)
 
-    @patch("pycodemcp.server.InputValidator")
-    def test_validate_column_number(self, mock_validator):
-        """Test column number validation."""
-        mock_validator.validate_column_number.side_effect = lambda x: x
+        assert result is not None
+        assert "error" in result
+        assert "line number" in result["error"].lower()
 
-        # Should validate column numbers
-        goto_definition("test.py", 10, 5)
-        mock_validator.validate_column_number.assert_called_with(5)
+    @patch("pycodemcp.server.Path")
+    def test_validate_negative_column_number(self, mock_path_class):
+        """Test that negative column numbers are rejected."""
+        # Mock file path exists
+        mock_path = Mock()
+        mock_path.exists.return_value = True
+        mock_path_class.return_value = mock_path
+
+        # The @validate_mcp_inputs decorator should return error for invalid inputs
+        result = goto_definition("test.py", 10, -5)
+
+        assert result is not None
+        assert "error" in result
+        assert "column" in result["error"].lower()

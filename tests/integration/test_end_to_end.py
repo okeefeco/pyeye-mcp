@@ -128,10 +128,11 @@ class APIClient:
         assert len(resolver.namespace_paths["company"]) == 2
 
         # Find imports across namespace
-        results = resolver.find_in_namespace("company.auth.models", [str(auth_repo), str(api_repo)])
+        results = resolver.resolve_import("company.auth.models", [str(auth_repo), str(api_repo)])
 
-        # Should find the models module
-        assert any("models" in str(r.get("file", "")) for r in results)
+        # Should find the models module (resolve_import returns list of Path objects)
+        assert len(results) > 0
+        assert any("models" in str(path) for path in results)
 
     def test_file_change_cache_invalidation(self, temp_project_dir):
         """Test that file changes trigger cache invalidation."""
@@ -303,8 +304,12 @@ def function_{i}_{j}():
 
         structure = list_project_structure(str(temp_project_dir), max_depth=2)
 
-        assert structure["python_files"] == 200
-        assert "structure" in structure
+        # The new structure returns a tree, not a flat count
+        assert "name" in structure
+        assert structure["type"] == "directory"
+        assert "children" in structure
+        # Should have 10 module directories
+        assert len([c for c in structure["children"] if c["type"] == "directory"]) == 10
 
     def test_cross_repository_import_resolution(self, temp_project_dir):
         """Test resolving imports across multiple repositories."""
