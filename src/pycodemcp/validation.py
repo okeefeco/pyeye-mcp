@@ -14,16 +14,6 @@ class ValidationError(Exception):
 class PathValidator:
     """Validates and sanitizes file paths for security."""
 
-    # Patterns that might indicate path traversal attempts
-    SUSPICIOUS_PATTERNS = [
-        r"\.\./",  # Directory traversal
-        r"\.\.$",  # Directory traversal at end
-        r"^\.\.",  # Starting with ..
-        r"/\.\./",  # Directory traversal with slash
-        r"\\\.\.",  # Windows-style traversal
-        r"\.\.\\",  # Windows-style traversal
-    ]
-
     # Patterns for potentially dangerous file names
     DANGEROUS_NAMES = [
         r"\.git/",  # Git directory
@@ -61,18 +51,45 @@ class PathValidator:
         if "\x00" in path_str:
             raise ValidationError("Path contains null bytes")
 
-        # Check for suspicious patterns
-        for pattern in cls.SUSPICIOUS_PATTERNS:
-            if re.search(pattern, path_str):
-                raise ValidationError(f"Path contains suspicious pattern: {pattern}")
+        # Check for suspicious patterns that might be attacks
+        # Even if they don't exist, we should reject them
+        if "..." in path_str:
+            raise ValidationError("Path contains suspicious triple dots")
+
+        # Check for attempts to access system directories
+        # even if they resolve to non-existent paths
+        suspicious_components = ["/etc/", "/root/", "/proc/", "/sys/", "/dev/"]
+        path_lower = path_str.lower()
+        for comp in suspicious_components:
+            if comp in path_lower:
+                raise ValidationError(f"Path contains suspicious component: {comp}")
 
         # Convert to Path object and resolve
+        # This safely handles .. and . in paths
         try:
             path_obj = Path(path_str)
             # Resolve to absolute path to handle any remaining .. or .
             resolved_path = path_obj.resolve()
         except (ValueError, RuntimeError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
+
+        # Check the RESOLVED path for actual dangerous locations
+        resolved_str = str(resolved_path)
+
+        # Check for actual security issues in resolved paths
+        suspicious_resolved_patterns = [
+            r"^/etc/",
+            r"^/root/",
+            r"^/proc/",
+            r"^/sys/",
+            r"^/dev/",
+            r"/etc/",  # Also check if /etc/ appears anywhere in path
+            r"/root/",  # Also check if /root/ appears anywhere
+        ]
+
+        for pattern in suspicious_resolved_patterns:
+            if re.search(pattern, resolved_str):
+                raise ValidationError(f"Path resolves to restricted location: {pattern}")
 
         # If base_path is provided, ensure the path is within it
         if base_path:
