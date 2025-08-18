@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run mypy:*)",
+      "Bash(uv run black:*)",
+      "Bash(uv run pre-commit:*)"
+    ],
+    "ask": [],
+    "deny": []
+  }
+}

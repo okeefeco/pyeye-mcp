@@ -734,6 +734,113 @@ def find_symbol_multi(
 
 @mcp.tool()
 @validate_mcp_inputs
+def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
+    """List all Python packages in the project.
+
+    Args:
+        project_path: Root path of the project
+
+    Returns:
+        List of packages with structure information
+    """
+    try:
+        analyzer = JediAnalyzer(project_path)
+        return analyzer.list_packages()
+    except ProjectNotFoundError as e:
+        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+    except Exception as e:
+        logger.error(f"Error listing packages: {e}")
+        raise AnalysisError(
+            "Failed to list packages",
+            file_path=project_path,
+            operation="list_packages",
+            error=str(e),
+        ) from e
+
+
+@mcp.tool()
+@validate_mcp_inputs
+def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
+    """List all Python modules with exports and metrics.
+
+    Args:
+        project_path: Root path of the project
+
+    Returns:
+        List of modules with exports, classes, functions, and metrics
+    """
+    try:
+        analyzer = JediAnalyzer(project_path)
+        return analyzer.list_modules()
+    except ProjectNotFoundError as e:
+        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+    except Exception as e:
+        logger.error(f"Error listing modules: {e}")
+        raise AnalysisError(
+            "Failed to list modules", file_path=project_path, operation="list_modules", error=str(e)
+        ) from e
+
+
+@mcp.tool()
+@validate_mcp_inputs
+def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str, Any]:
+    """Analyze import dependencies for a module.
+
+    Args:
+        module_path: Import path of the module (e.g., "pycodemcp.server")
+        project_path: Root path of the project
+
+    Returns:
+        Dependencies analysis including imports, imported_by, and circular dependencies
+    """
+    try:
+        analyzer = JediAnalyzer(project_path)
+        return analyzer.analyze_dependencies(module_path)
+    except ProjectNotFoundError as e:
+        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+    except FileAccessError:
+        raise  # Re-raise module not found errors
+    except Exception as e:
+        logger.error(f"Error analyzing dependencies: {e}")
+        raise AnalysisError(
+            f"Failed to analyze dependencies for {module_path}",
+            file_path=project_path,
+            operation="analyze_dependencies",
+            error=str(e),
+        ) from e
+
+
+@mcp.tool()
+@validate_mcp_inputs
+def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
+    """Get detailed information about a specific module.
+
+    Args:
+        module_path: Import path of the module (e.g., "pycodemcp.server")
+        project_path: Root path of the project
+
+    Returns:
+        Detailed module information including exports, classes, functions, metrics, and dependencies
+    """
+    try:
+        analyzer = JediAnalyzer(project_path)
+        return analyzer.get_module_info(module_path)
+    except ProjectNotFoundError as e:
+        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+    except FileAccessError:
+        raise  # Re-raise module not found errors
+    except Exception as e:
+        logger.error(f"Error getting module info: {e}")
+        raise AnalysisError(
+            f"Failed to get module info for {module_path}",
+            file_path=project_path,
+            operation="get_module_info",
+            error=str(e),
+        ) from e
+
+
+@mcp.tool()
+@validate_mcp_inputs
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
     """List the Python project structure.
 

@@ -89,6 +89,13 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 10. `find_in_namespace` - Search within namespace packages
 11. `list_project_structure` - View project file organization
 
+### Module & Package Analysis Tools
+
+1. `list_packages` - List all Python packages with structure
+2. `list_modules` - List modules with exports, classes, functions, and metrics
+3. `analyze_dependencies` - Analyze module imports and detect circular dependencies
+4. `get_module_info` - Get detailed module information including metrics and dependencies
+
 ### Pydantic-Specific Tools (auto-activated when Pydantic detected)
 
 1. `find_pydantic_models` - Discover all BaseModel classes with fields

@@ -1,5 +1,6 @@
 """Jedi-based analyzer for Python code intelligence."""
 
+import ast
 import logging
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,462 @@ class JediAnalyzer:
             logger.error(f"Error in analyze_imports: {e}")
 
         return imports
+
+    def list_packages(self) -> list[dict[str, Any]]:
+        """List all Python packages in the project."""
+        packages: list[dict[str, Any]] = []
+        seen_packages = set()
+
+        try:
+            # Walk the project directory to find packages
+            for path in self.project_path.rglob("__init__.py"):
+                package_dir = path.parent
+                rel_path = package_dir.relative_to(self.project_path)
+
+                # Skip hidden directories and common non-package directories
+                parts = rel_path.parts
+                if any(
+                    p.startswith(".") or p in ["__pycache__", "build", "dist", "egg-info"]
+                    for p in parts
+                ):
+                    continue
+
+                package_name = str(rel_path).replace("/", ".")
+                if package_name not in seen_packages:
+                    seen_packages.add(package_name)
+
+                    # Find subpackages and modules
+                    subpackages = []
+                    modules = []
+
+                    for item in package_dir.iterdir():
+                        if item.is_dir() and (item / "__init__.py").exists():
+                            subpackages.append(item.name)
+                        elif item.is_file() and item.suffix == ".py" and item.name != "__init__.py":
+                            modules.append(item.stem)
+
+                    packages.append(
+                        {
+                            "name": package_name,
+                            "path": str(package_dir),
+                            "is_namespace": not (package_dir / "__init__.py").exists(),
+                            "subpackages": sorted(subpackages),
+                            "modules": sorted(modules),
+                        }
+                    )
+
+            # Sort packages by name
+            packages.sort(key=lambda p: str(p["name"]))  # type: ignore
+
+        except Exception as e:
+            logger.error(f"Error in list_packages: {e}")
+            raise AnalysisError(
+                "Failed to list packages", operation="list_packages", error=str(e)
+            ) from e
+
+        return packages
+
+    def list_modules(self) -> list[dict[str, Any]]:  # type: ignore
+        """List all Python modules with exports and metrics."""
+        modules = []
+
+        try:
+            # Find all Python files in the project
+            for py_file in self.project_path.rglob("*.py"):
+                # Skip hidden directories and common non-source directories
+                rel_path = py_file.relative_to(self.project_path)
+                parts = rel_path.parts
+                if any(
+                    p.startswith(".") or p in ["__pycache__", "build", "dist", "tests", "test"]
+                    for p in parts[:-1]
+                ):
+                    continue
+
+                try:
+                    # Get module import path
+                    module_parts = list(rel_path.parts[:-1])  # directories
+                    if py_file.name != "__init__.py":
+                        module_parts.append(py_file.stem)
+                    import_path = ".".join(module_parts) if module_parts else py_file.stem
+
+                    # Read file for analysis
+                    source = py_file.read_text()
+                    lines = source.count("\n") + 1
+
+                    # Parse with AST to extract structure
+                    tree = ast.parse(source)
+
+                    exports = []
+                    classes = []
+                    functions = []
+                    imports_from = set()
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.ClassDef):
+                            classes.append(node.name)
+                            exports.append(node.name)
+                        elif isinstance(node, ast.FunctionDef):
+                            if not node.name.startswith("_"):  # Public functions
+                                functions.append(node.name)
+                                exports.append(node.name)
+                        elif isinstance(node, ast.Import):
+                            for alias in node.names:
+                                imports_from.add(alias.name.split(".")[0])
+                        elif isinstance(node, ast.ImportFrom):
+                            if node.module:
+                                imports_from.add(node.module.split(".")[0])
+
+                    # Check if has tests
+                    test_patterns = ["test_" + py_file.stem, py_file.stem + "_test"]
+                    has_tests = any(
+                        (self.project_path / "tests").rglob(f"{pattern}.py")
+                        for pattern in test_patterns
+                    )
+
+                    modules.append(
+                        {
+                            "name": py_file.stem if py_file.name != "__init__.py" else "__init__",
+                            "import_path": import_path,
+                            "file": str(py_file),
+                            "exports": sorted(exports),
+                            "classes": sorted(classes),
+                            "functions": sorted(functions),
+                            "imports_from": sorted(imports_from),
+                            "size_lines": lines,
+                            "has_tests": has_tests,
+                        }
+                    )
+
+                except Exception as e:
+                    logger.warning(f"Could not analyze module {py_file}: {e}")
+                    continue
+
+            # Sort modules by import path
+            modules.sort(key=lambda m: str(m["import_path"]))  # type: ignore
+
+        except Exception as e:
+            logger.error(f"Error in list_modules: {e}")
+            raise AnalysisError(
+                "Failed to list modules", operation="list_modules", error=str(e)
+            ) from e
+
+        return modules
+
+    def analyze_dependencies(self, module_path: str) -> dict[str, Any]:  # type: ignore
+        """Analyze import dependencies for a module."""
+        result: dict[str, Any] = {
+            "module": module_path,
+            "imports": {"internal": [], "external": [], "stdlib": []},
+            "imported_by": [],
+            "circular_dependencies": [],
+        }
+
+        try:
+            # Find the module file
+            module_file = None
+            module_parts = module_path.split(".")
+
+            # Try different possible paths
+            possible_paths = [
+                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                self.project_path / Path(*module_parts) / "__init__.py",
+                self.project_path / f"{module_path.replace('.', '/')}.py",
+            ]
+
+            for path in possible_paths:
+                if path.exists():
+                    module_file = path
+                    break
+
+            if not module_file:
+                raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
+
+            # Analyze imports in this module
+            source = module_file.read_text()
+            tree = ast.parse(source)
+
+            # Standard library modules (common ones, not exhaustive)
+            stdlib_modules = {
+                "os",
+                "sys",
+                "re",
+                "json",
+                "math",
+                "random",
+                "datetime",
+                "collections",
+                "itertools",
+                "functools",
+                "pathlib",
+                "typing",
+                "enum",
+                "dataclasses",
+                "logging",
+                "argparse",
+                "subprocess",
+                "threading",
+                "multiprocessing",
+                "urllib",
+                "http",
+                "socket",
+                "ssl",
+                "hashlib",
+                "hmac",
+                "base64",
+                "pickle",
+                "csv",
+                "xml",
+                "html",
+                "email",
+                "sqlite3",
+                "asyncio",
+                "contextlib",
+                "tempfile",
+                "shutil",
+                "glob",
+                "fnmatch",
+                "platform",
+            }
+
+            # Get project modules for internal/external classification
+            project_modules = set()
+            for py_file in self.project_path.rglob("*.py"):
+                rel_path = py_file.relative_to(self.project_path)
+                if not any(
+                    p.startswith(".") or p in ["__pycache__", "build", "dist"]
+                    for p in rel_path.parts
+                ):
+                    module_parts = list(rel_path.parts[:-1])
+                    if py_file.name != "__init__.py":
+                        module_parts.append(py_file.stem)
+                    if module_parts:
+                        project_modules.add(module_parts[0])
+
+            # Analyze imports
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        module_name = alias.name.split(".")[0]
+                        if module_name in stdlib_modules:
+                            result["imports"]["stdlib"].append(alias.name)  # type: ignore
+                        elif module_name in project_modules:
+                            result["imports"]["internal"].append(alias.name)  # type: ignore
+                        else:
+                            result["imports"]["external"].append(alias.name)  # type: ignore
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        module_name = node.module.split(".")[0]
+                        if module_name in stdlib_modules:
+                            result["imports"]["stdlib"].append(node.module)  # type: ignore
+                        elif module_name in project_modules:
+                            result["imports"]["internal"].append(node.module)  # type: ignore
+                        else:
+                            result["imports"]["external"].append(node.module)  # type: ignore
+
+            # Remove duplicates and sort
+            stdlib_imports = result["imports"]["stdlib"]  # type: ignore
+            internal_imports = result["imports"]["internal"]  # type: ignore
+            external_imports = result["imports"]["external"]  # type: ignore
+            result["imports"]["stdlib"] = sorted(set(stdlib_imports))
+            result["imports"]["internal"] = sorted(set(internal_imports))
+            result["imports"]["external"] = sorted(set(external_imports))
+
+            # Find what imports this module
+            for py_file in self.project_path.rglob("*.py"):
+                if py_file == module_file:
+                    continue
+
+                try:
+                    source = py_file.read_text()
+                    if module_path in source or module_path.replace(".", "/") in source:
+                        # More precise check with AST
+                        tree = ast.parse(source)
+                        for node in ast.walk(tree):
+                            if isinstance(node, ast.Import):
+                                for alias in node.names:
+                                    if alias.name == module_path or alias.name.startswith(
+                                        module_path + "."
+                                    ):
+                                        rel_path = py_file.relative_to(self.project_path)
+                                        import_path = (
+                                            str(rel_path).replace("/", ".").replace(".py", "")
+                                        )
+                                        result["imported_by"].append(import_path)  # type: ignore
+                                        break
+                            elif isinstance(node, ast.ImportFrom):
+                                if node.module and (
+                                    node.module == module_path
+                                    or node.module.startswith(module_path + ".")
+                                ):
+                                    rel_path = py_file.relative_to(self.project_path)
+                                    import_path = str(rel_path).replace("/", ".").replace(".py", "")
+                                    result["imported_by"].append(import_path)  # type: ignore
+                                    break
+                except Exception as e:
+                    logger.warning(f"Could not analyze {py_file} for imports: {e}")
+                    continue
+
+            result["imported_by"] = sorted(set(result["imported_by"]))  # type: ignore
+
+            # Check for circular dependencies
+            for imported_module in result["imports"]["internal"]:  # type: ignore
+                # Check if the imported module also imports this module
+                try:
+                    deps = self.analyze_dependencies(imported_module)
+                    if module_path in deps["imports"]["internal"]:
+                        result["circular_dependencies"].append(imported_module)  # type: ignore
+                except Exception:
+                    # Ignore errors in recursive analysis
+                    pass
+
+        except FileAccessError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in analyze_dependencies: {e}")
+            raise AnalysisError(
+                f"Failed to analyze dependencies for {module_path}",
+                operation="analyze_dependencies",
+                error=str(e),
+            ) from e
+
+        return result
+
+    def get_module_info(self, module_path: str) -> dict[str, Any]:  # type: ignore
+        """Get detailed information about a specific module."""
+        info: dict[str, Any] = {
+            "module": module_path,
+            "file": None,
+            "docstring": None,
+            "exports": [],
+            "classes": [],
+            "functions": [],
+            "variables": [],
+            "imports": [],
+            "metrics": {"lines": 0, "classes": 0, "functions": 0, "complexity": 0},
+            "dependencies": None,
+        }
+
+        try:
+            # Find the module file
+            module_file = None
+            module_parts = module_path.split(".")
+
+            # Try different possible paths
+            possible_paths = [
+                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                self.project_path / Path(*module_parts) / "__init__.py",
+                self.project_path / f"{module_path.replace('.', '/')}.py",
+            ]
+
+            for path in possible_paths:
+                if path.exists():
+                    module_file = path
+                    break
+
+            if not module_file:
+                raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
+
+            info["file"] = str(module_file)
+
+            # Read and parse the module
+            source = module_file.read_text()
+            info["metrics"]["lines"] = source.count("\n") + 1
+
+            tree = ast.parse(source)
+
+            # Get module docstring
+            if (
+                tree.body
+                and isinstance(tree.body[0], ast.Expr)
+                and isinstance(tree.body[0].value, ast.Constant)
+            ):
+                info["docstring"] = tree.body[0].value.value
+
+            # Analyze module contents
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    class_info: dict[str, Any] = {
+                        "name": node.name,
+                        "line": node.lineno,
+                        "methods": [],
+                        "docstring": ast.get_docstring(node),
+                    }
+
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            class_info["methods"].append(
+                                {
+                                    "name": item.name,
+                                    "line": item.lineno,
+                                    "is_private": item.name.startswith("_"),
+                                }
+                            )
+
+                    info["classes"].append(class_info)  # type: ignore
+                    info["exports"].append(node.name)  # type: ignore
+                    info["metrics"]["classes"] += 1
+
+                elif isinstance(node, ast.FunctionDef):
+                    func_info = {
+                        "name": node.name,
+                        "line": node.lineno,
+                        "args": [arg.arg for arg in node.args.args],
+                        "docstring": ast.get_docstring(node),
+                        "is_private": node.name.startswith("_"),
+                    }
+                    info["functions"].append(func_info)  # type: ignore
+                    if not node.name.startswith("_"):
+                        info["exports"].append(node.name)  # type: ignore
+                    info["metrics"]["functions"] += 1
+
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            if not target.id.startswith("_"):
+                                info["variables"].append({"name": target.id, "line": node.lineno})  # type: ignore
+                                info["exports"].append(target.id)  # type: ignore
+
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        info["imports"].append(  # type: ignore
+                            {"module": alias.name, "alias": alias.asname, "line": node.lineno}
+                        )
+
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        for alias in node.names:
+                            info["imports"].append(  # type: ignore
+                                {
+                                    "module": node.module,
+                                    "name": alias.name,
+                                    "alias": alias.asname,
+                                    "line": node.lineno,
+                                }
+                            )
+
+            # Calculate cyclomatic complexity (simplified)
+            complexity = 1  # Base complexity
+            for ast_node in ast.walk(tree):
+                if isinstance(ast_node, (ast.If, ast.While, ast.For, ast.ExceptHandler)):
+                    complexity += 1
+                elif isinstance(ast_node, ast.BoolOp):
+                    complexity += len(ast_node.values) - 1
+            info["metrics"]["complexity"] = complexity
+
+            # Get dependency information
+            info["dependencies"] = self.analyze_dependencies(module_path)
+
+        except FileAccessError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in get_module_info: {e}")
+            raise AnalysisError(
+                f"Failed to get module info for {module_path}",
+                operation="get_module_info",
+                error=str(e),
+            ) from e
+
+        return info
 
     def _serialize_name(
         self, name: jedi.api.classes.Name, include_docstring: bool = False

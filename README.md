@@ -12,6 +12,7 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 ## Features
 
 - 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references
+- 📊 **Module & Package Analysis**: List packages/modules, analyze dependencies, detect circular imports
 - 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
 - 🔄 **Auto-Update**: Automatically detects and reflects file changes
@@ -168,9 +169,13 @@ This file is automatically ignored by git and takes precedence over all other co
 - **`configure_namespace_package`** - Set up distributed namespace packages
 - **`find_in_namespace`** - Search within namespace packages
 
-### Project Structure
+### Project Structure & Analysis
 
 - **`list_project_structure`** - View Python project file organization
+- **`list_packages`** - List all Python packages with structure
+- **`list_modules`** - List modules with exports, classes, functions, and metrics
+- **`analyze_dependencies`** - Analyze module imports and detect circular dependencies
+- **`get_module_info`** - Get detailed module information including metrics and dependencies
 
 ### Framework-Specific Tools (Auto-Activated)
 
