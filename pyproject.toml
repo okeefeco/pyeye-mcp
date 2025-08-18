@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Mark O'Keefe", email = "mark_okeefe@mac.com"}
+    {name = "Mark O'Keefe (O'Keefe & Co Consulting Pty Ltd)", email = "mark_okeefe@mac.com"}
 ]
 keywords = ["mcp", "python", "code-intelligence", "jedi", "lsp", "static-analysis"]
 classifiers = [
