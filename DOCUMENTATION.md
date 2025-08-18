@@ -311,6 +311,116 @@ Search within namespace packages.
 
 **Returns:** Locations where import is found
 
+### list_packages
+
+List all Python packages in the project.
+
+**Parameters:**
+
+- `project_path` (str): Root path of the project (default: ".")
+
+**Returns:** List of packages with structure information
+
+**Example:**
+
+```python
+list_packages()
+# Returns:
+# [
+#   {
+#     "name": "mypackage",
+#     "path": "/project/src/mypackage",
+#     "is_namespace": false,
+#     "subpackages": ["subpkg1", "subpkg2"],
+#     "modules": ["module1", "module2"]
+#   }
+# ]
+```
+
+### list_modules
+
+List all Python modules with exports and metrics.
+
+**Parameters:**
+
+- `project_path` (str): Root path of the project (default: ".")
+
+**Returns:** List of modules with exports, classes, functions, and metrics
+
+**Example:**
+
+```python
+list_modules()
+# Returns:
+# [
+#   {
+#     "name": "server",
+#     "import_path": "pycodemcp.server",
+#     "file": "src/pycodemcp/server.py",
+#     "exports": ["mcp", "configure_packages"],
+#     "classes": ["MCPServer"],
+#     "functions": ["find_symbol", "goto_definition"],
+#     "imports_from": ["fastmcp", "jedi", "pathlib"],
+#     "size_lines": 850,
+#     "has_tests": true
+#   }
+# ]
+```
+
+### analyze_dependencies
+
+Analyze import dependencies for a module.
+
+**Parameters:**
+
+- `module_path` (str): Import path of the module (e.g., "pycodemcp.server")
+- `project_path` (str): Root path of the project (default: ".")
+
+**Returns:** Dependencies analysis including imports, imported_by, and circular dependencies
+
+**Example:**
+
+```python
+analyze_dependencies("pycodemcp.server")
+# Returns:
+# {
+#   "module": "pycodemcp.server",
+#   "imports": {
+#     "internal": ["pycodemcp.config", "pycodemcp.project_manager"],
+#     "external": ["fastmcp", "jedi"],
+#     "stdlib": ["pathlib", "logging"]
+#   },
+#   "imported_by": ["pycodemcp.__init__"],
+#   "circular_dependencies": []
+# }
+```
+
+### get_module_info
+
+Get detailed information about a specific module.
+
+**Parameters:**
+
+- `module_path` (str): Import path of the module (e.g., "pycodemcp.server")
+- `project_path` (str): Root path of the project (default: ".")
+
+**Returns:** Detailed module information including exports, classes, functions, metrics, and dependencies
+
+**Example:**
+
+```python
+get_module_info("pycodemcp.analyzer")
+# Returns comprehensive module information including:
+# - Module docstring
+# - All exports (public API)
+# - Classes with methods and docstrings
+# - Functions with arguments and docstrings
+# - Variables and constants
+# - Import statements
+# - Code metrics (lines, complexity)
+# - Full dependency analysis
+```
+
 ### Framework-Specific Tools
 
 The server automatically detects and activates framework-specific tools when it identifies framework usage in your project.
