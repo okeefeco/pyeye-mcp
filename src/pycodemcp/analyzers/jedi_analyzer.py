@@ -2,6 +2,7 @@
 
 import ast
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -231,7 +232,7 @@ class JediAnalyzer:
                 ):
                     continue
 
-                package_name = str(rel_path).replace("/", ".")
+                package_name = str(rel_path).replace(os.sep, ".")
                 if package_name not in seen_packages:
                     seen_packages.add(package_name)
 
@@ -256,7 +257,7 @@ class JediAnalyzer:
                     )
 
             # Sort packages by name
-            packages.sort(key=lambda p: str(p["name"]))  # type: ignore
+            packages.sort(key=lambda p: str(p["name"]))
 
         except Exception as e:
             logger.error(f"Error in list_packages: {e}")
@@ -266,7 +267,7 @@ class JediAnalyzer:
 
         return packages
 
-    def list_modules(self) -> list[dict[str, Any]]:  # type: ignore
+    def list_modules(self) -> list[dict[str, Any]]:
         """List all Python modules with exports and metrics."""
         modules = []
 
@@ -342,7 +343,7 @@ class JediAnalyzer:
                     continue
 
             # Sort modules by import path
-            modules.sort(key=lambda m: str(m["import_path"]))  # type: ignore
+            modules.sort(key=lambda m: str(m["import_path"]))
 
         except Exception as e:
             logger.error(f"Error in list_modules: {e}")
@@ -352,7 +353,7 @@ class JediAnalyzer:
 
         return modules
 
-    def analyze_dependencies(self, module_path: str) -> dict[str, Any]:  # type: ignore
+    def analyze_dependencies(self, module_path: str) -> dict[str, Any]:
         """Analyze import dependencies for a module."""
         result: dict[str, Any] = {
             "module": module_path,
@@ -370,7 +371,7 @@ class JediAnalyzer:
             possible_paths = [
                 self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
                 self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', '/')}.py",
+                self.project_path / f"{module_path.replace('.', os.sep)}.py",
             ]
 
             for path in possible_paths:
@@ -448,25 +449,25 @@ class JediAnalyzer:
                     for alias in node.names:
                         module_name = alias.name.split(".")[0]
                         if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(alias.name)  # type: ignore
+                            result["imports"]["stdlib"].append(alias.name)
                         elif module_name in project_modules:
-                            result["imports"]["internal"].append(alias.name)  # type: ignore
+                            result["imports"]["internal"].append(alias.name)
                         else:
-                            result["imports"]["external"].append(alias.name)  # type: ignore
+                            result["imports"]["external"].append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
                         module_name = node.module.split(".")[0]
                         if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(node.module)  # type: ignore
+                            result["imports"]["stdlib"].append(node.module)
                         elif module_name in project_modules:
-                            result["imports"]["internal"].append(node.module)  # type: ignore
+                            result["imports"]["internal"].append(node.module)
                         else:
-                            result["imports"]["external"].append(node.module)  # type: ignore
+                            result["imports"]["external"].append(node.module)
 
             # Remove duplicates and sort
-            stdlib_imports = result["imports"]["stdlib"]  # type: ignore
-            internal_imports = result["imports"]["internal"]  # type: ignore
-            external_imports = result["imports"]["external"]  # type: ignore
+            stdlib_imports = result["imports"]["stdlib"]
+            internal_imports = result["imports"]["internal"]
+            external_imports = result["imports"]["external"]
             result["imports"]["stdlib"] = sorted(set(stdlib_imports))
             result["imports"]["internal"] = sorted(set(internal_imports))
             result["imports"]["external"] = sorted(set(external_imports))
@@ -489,9 +490,9 @@ class JediAnalyzer:
                                     ):
                                         rel_path = py_file.relative_to(self.project_path)
                                         import_path = (
-                                            str(rel_path).replace("/", ".").replace(".py", "")
+                                            str(rel_path).replace(os.sep, ".").replace(".py", "")
                                         )
-                                        result["imported_by"].append(import_path)  # type: ignore
+                                        result["imported_by"].append(import_path)
                                         break
                             elif isinstance(node, ast.ImportFrom):
                                 if node.module and (
@@ -499,22 +500,24 @@ class JediAnalyzer:
                                     or node.module.startswith(module_path + ".")
                                 ):
                                     rel_path = py_file.relative_to(self.project_path)
-                                    import_path = str(rel_path).replace("/", ".").replace(".py", "")
-                                    result["imported_by"].append(import_path)  # type: ignore
+                                    import_path = (
+                                        str(rel_path).replace(os.sep, ".").replace(".py", "")
+                                    )
+                                    result["imported_by"].append(import_path)
                                     break
                 except Exception as e:
                     logger.warning(f"Could not analyze {py_file} for imports: {e}")
                     continue
 
-            result["imported_by"] = sorted(set(result["imported_by"]))  # type: ignore
+            result["imported_by"] = sorted(set(result["imported_by"]))
 
             # Check for circular dependencies
-            for imported_module in result["imports"]["internal"]:  # type: ignore
+            for imported_module in result["imports"]["internal"]:
                 # Check if the imported module also imports this module
                 try:
                     deps = self.analyze_dependencies(imported_module)
                     if module_path in deps["imports"]["internal"]:
-                        result["circular_dependencies"].append(imported_module)  # type: ignore
+                        result["circular_dependencies"].append(imported_module)
                 except Exception:
                     # Ignore errors in recursive analysis
                     pass
@@ -531,7 +534,7 @@ class JediAnalyzer:
 
         return result
 
-    def get_module_info(self, module_path: str) -> dict[str, Any]:  # type: ignore
+    def get_module_info(self, module_path: str) -> dict[str, Any]:
         """Get detailed information about a specific module."""
         info: dict[str, Any] = {
             "module": module_path,
@@ -555,7 +558,7 @@ class JediAnalyzer:
             possible_paths = [
                 self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
                 self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', '/')}.py",
+                self.project_path / f"{module_path.replace('.', os.sep)}.py",
             ]
 
             for path in possible_paths:
@@ -602,8 +605,8 @@ class JediAnalyzer:
                                 }
                             )
 
-                    info["classes"].append(class_info)  # type: ignore
-                    info["exports"].append(node.name)  # type: ignore
+                    info["classes"].append(class_info)
+                    info["exports"].append(node.name)
                     info["metrics"]["classes"] += 1
 
                 elif isinstance(node, ast.FunctionDef):
@@ -614,28 +617,28 @@ class JediAnalyzer:
                         "docstring": ast.get_docstring(node),
                         "is_private": node.name.startswith("_"),
                     }
-                    info["functions"].append(func_info)  # type: ignore
+                    info["functions"].append(func_info)
                     if not node.name.startswith("_"):
-                        info["exports"].append(node.name)  # type: ignore
+                        info["exports"].append(node.name)
                     info["metrics"]["functions"] += 1
 
                 elif isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name):
                             if not target.id.startswith("_"):
-                                info["variables"].append({"name": target.id, "line": node.lineno})  # type: ignore
-                                info["exports"].append(target.id)  # type: ignore
+                                info["variables"].append({"name": target.id, "line": node.lineno})
+                                info["exports"].append(target.id)
 
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
-                        info["imports"].append(  # type: ignore
+                        info["imports"].append(
                             {"module": alias.name, "alias": alias.asname, "line": node.lineno}
                         )
 
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
                         for alias in node.names:
-                            info["imports"].append(  # type: ignore
+                            info["imports"].append(
                                 {
                                     "module": node.module,
                                     "name": alias.name,
