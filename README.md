@@ -123,13 +123,31 @@ The server can be configured to analyze packages in other locations. Create a `.
 
 ### Configuration Methods
 
-1. **Config File**: `.pycodemcp.json` in project root
-2. **pyproject.toml**: `[tool.pycodemcp]` section
-3. **Environment Variables**:
-   - `PYCODEMCP_PACKAGES=/path1:/path2`
-   - `PYCODEMCP_NAMESPACE_company=~/repos/company-auth:~/repos/company-api`
-4. **Global Config**: `~/.config/pycodemcp/config.json`
-5. **Auto-Discovery**: Automatically finds sibling packages
+Configuration is loaded in the following order (later sources override earlier ones):
+
+1. **Global Config**: `~/.config/pycodemcp/config.json` or `~/.pycodemcp.json` - User defaults
+2. **Project Config**: `.pycodemcp.json` in project root or `[tool.pycodemcp]` in `pyproject.toml`
+3. **Override File**: `.pycodemcp.override.json` - Local development overrides (git-ignored)
+4. **Auto-Discovery**: Automatically finds sibling packages if no packages configured
+
+### Using Override Files
+
+Override files are perfect for local development configurations that shouldn't be committed:
+
+```json
+// .pycodemcp.override.json (git-ignored)
+{
+  "packages": [
+    "../my-local-dev-package",
+    "~/dev/experimental"
+  ],
+  "namespaces": {
+    "company.feature": ["/home/user/feature-branch"]
+  }
+}
+```
+
+This file is automatically ignored by git and takes precedence over all other configuration sources.
 
 ## Core Tools
 

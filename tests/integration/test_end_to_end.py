@@ -208,33 +208,32 @@ class User(BaseModel):
 
     def test_configuration_precedence_workflow(self, temp_project_dir):
         """Test configuration loading from multiple sources."""
-        import os
 
         # 1. Create local config
         local_config = temp_project_dir / ".pycodemcp.json"
         local_config.write_text(json.dumps({"packages": ["local_package"], "cache_ttl": 100}))
 
-        # 2. Set environment variables
-        with patch.dict(
-            os.environ, {"PYCODEMCP_PACKAGES": "env_package", "PYCODEMCP_CACHE_TTL": "200"}
-        ):
-            # 3. Create global config
-            global_dir = temp_project_dir / ".config" / "pycodemcp"
-            global_dir.mkdir(parents=True)
-            global_config = global_dir / "config.json"
-            global_config.write_text(json.dumps({"packages": ["global_package"], "cache_ttl": 300}))
+        # 2. Create override config (replaces ENV vars)
+        override_config = temp_project_dir / ".pycodemcp.override.json"
+        override_config.write_text(json.dumps({"packages": ["override_package"], "debug": True}))
 
-            # Load configuration
-            with patch.object(Path, "home", return_value=temp_project_dir):
-                config = ProjectConfig(str(temp_project_dir))
+        # 3. Create global config
+        global_dir = temp_project_dir / ".config" / "pycodemcp"
+        global_dir.mkdir(parents=True)
+        global_config = global_dir / "config.json"
+        global_config.write_text(json.dumps({"packages": ["global_package"], "cache_ttl": 300}))
 
-                # Local config should take precedence for cache_ttl
-                assert config.config["cache_ttl"] == 100
+        # Load configuration
+        with patch.object(Path, "home", return_value=temp_project_dir):
+            config = ProjectConfig(str(temp_project_dir))
 
-                # Packages should be merged
-                packages = config.config.get("packages", [])
-                assert "local_package" in packages
-                assert "env_package" in packages
+            # Local config cache_ttl should be preserved
+            assert config.config["cache_ttl"] == 100
+
+            # Override packages should win
+            packages = config.config.get("packages", [])
+            assert "override_package" in packages
+            assert config.config.get("debug") is True
 
     def test_error_recovery_workflow(self, temp_project_dir):
         """Test system recovery from various error conditions."""

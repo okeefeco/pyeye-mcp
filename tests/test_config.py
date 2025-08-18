@@ -1,7 +1,6 @@
 """Tests for configuration management."""
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -99,25 +98,44 @@ packages = {json.dumps(toml_config["packages"])}
         # JSON should take precedence
         assert config.config["packages"] == ["json_package"]
 
-    def test_load_from_environment(self, temp_project_dir, monkeypatch):
-        """Test loading configuration from environment variables."""
-        # Use os.pathsep for platform-appropriate separator
-        packages_value = os.pathsep.join(["/path1", "/path2", "/path3"])
-        namespace_auth_value = os.pathsep.join(["/repos/auth", "/repos/login"])
+    def test_load_override_file(self, temp_project_dir):
+        """Test loading configuration from override file."""
+        # Create base config
+        base_config = {"packages": ["base_package"], "namespaces": {"base.ns": ["/base/path"]}}
+        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file.write_text(json.dumps(base_config))
 
-        monkeypatch.setenv("PYCODEMCP_PACKAGES", packages_value)
-        monkeypatch.setenv("PYCODEMCP_NAMESPACE_company_auth", namespace_auth_value)
-        monkeypatch.setenv("PYCODEMCP_NAMESPACE_company_api", "/repos/api")
+        # Create override config
+        override_config = {
+            "packages": ["override_package"],
+            "namespaces": {"override.ns": ["/override/path"]},
+        }
+        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file.write_text(json.dumps(override_config))
 
         config = ProjectConfig(str(temp_project_dir))
 
-        assert "/path1" in config.config.get("packages", [])
-        assert "/path2" in config.config.get("packages", [])
-        assert "/path3" in config.config.get("packages", [])
+        # Override should replace base values
+        assert "override_package" in config.config.get("packages", [])
+        assert "override.ns" in config.config.get("namespaces", {})
 
-        namespaces = config.config.get("namespaces", {})
-        assert "company.auth" in namespaces
-        assert "/repos/auth" in namespaces["company.auth"]
+    def test_override_precedence(self, temp_project_dir):
+        """Test that override file has highest precedence."""
+        # Create base config with a value
+        base_config = {"cache_ttl": 100, "packages": ["base"]}
+        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file.write_text(json.dumps(base_config))
+
+        # Create override config with different value
+        override_config = {"cache_ttl": 500, "packages": ["override"]}
+        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file.write_text(json.dumps(override_config))
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Override values should win
+        assert config.config.get("cache_ttl") == 500
+        assert config.config.get("packages") == ["override"]
 
     @patch.object(Path, "home")
     def test_load_global_config(self, mock_home, temp_project_dir):
@@ -157,23 +175,25 @@ packages = {json.dumps(toml_config["packages"])}
             if not config.config.get("packages"):
                 mock_discover.assert_called()
 
-    def test_merge_configs(self, temp_project_dir, monkeypatch):
+    def test_merge_configs(self, temp_project_dir):
         """Test that configs from different sources are merged."""
-        # Local config
-        local_config = {"packages": ["local_pkg"], "cache_ttl": 300}
+        # Base config
+        base_config = {"packages": ["base_pkg"], "cache_ttl": 300}
         config_file = temp_project_dir / ".pycodemcp.json"
-        config_file.write_text(json.dumps(local_config))
+        config_file.write_text(json.dumps(base_config))
 
-        # Environment config
-        monkeypatch.setenv("PYCODEMCP_PACKAGES", "/env_pkg")
+        # Override config
+        override_config = {"packages": ["override_pkg"], "debug": True}
+        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file.write_text(json.dumps(override_config))
 
         config = ProjectConfig(str(temp_project_dir))
 
-        # Should have both local and env packages
+        # Override should replace packages but other settings remain
         packages = config.config.get("packages", [])
-        assert "local_pkg" in packages
-        assert "/env_pkg" in packages
-        assert config.config["cache_ttl"] == 300
+        assert "override_pkg" in packages
+        assert config.config.get("cache_ttl") == 300  # From base
+        assert config.config.get("debug") is True  # From override
 
     def test_invalid_json_config(self, temp_project_dir, caplog):
         """Test handling of invalid JSON config files."""

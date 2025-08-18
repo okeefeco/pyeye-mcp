@@ -34,19 +34,28 @@ class ProjectConfig:
         self.load_config()
 
     def load_config(self) -> None:
-        """Load configuration from various sources."""
-        # 1. Check for config files in project
+        """Load configuration from various sources.
+
+        Loading order (later sources override earlier ones):
+        1. Global config (~/.config/pycodemcp/config.json)
+        2. Project config files (.pycodemcp.json, pyproject.toml, etc.)
+        3. Override file (.pycodemcp.override.json) - for local development
+        4. Auto-discovery (if no packages configured)
+        """
+        # 1. Load global config first (lowest precedence)
+        self._load_global_config()
+
+        # 2. Load project config files
         for config_file in self.CONFIG_FILES:
             config_path = self.project_path / config_file
             if config_path.exists():
                 self._load_from_file(config_path)
                 break
 
-        # 2. Check environment variables
-        self._load_from_env()
-
-        # 3. Check for global config
-        self._load_global_config()
+        # 3. Load override file (highest precedence)
+        override_path = self.project_path / ".pycodemcp.override.json"
+        if override_path.exists():
+            self._load_from_file(override_path)
 
         # 4. Auto-discover if no config found
         if not self.config.get("packages"):
@@ -83,21 +92,11 @@ class ProjectConfig:
         except Exception as e:
             logger.error(f"Error loading config from {config_path}: {e}")
 
-    def _load_from_env(self) -> None:
-        """Load configuration from environment variables."""
-        # PYCODEMCP_PACKAGES=/path/to/pkg1:/path/to/pkg2 (Unix) or ;separated (Windows)
-        if "PYCODEMCP_PACKAGES" in os.environ:
-            packages = os.environ["PYCODEMCP_PACKAGES"].split(os.pathsep)
-            self.config.setdefault("packages", []).extend(packages)
-
-        # PYCODEMCP_NAMESPACE_company=/repos/company-*
-        for key, value in os.environ.items():
-            if key.startswith("PYCODEMCP_NAMESPACE_"):
-                namespace = key.replace("PYCODEMCP_NAMESPACE_", "").replace("_", ".")
-                self.config.setdefault("namespaces", {})[namespace] = value.split(os.pathsep)
-
     def _load_global_config(self) -> None:
-        """Load global configuration from user home."""
+        """Load global configuration from user home.
+
+        Global config provides defaults that can be overridden by project config.
+        """
         global_configs = [
             Path.home() / ".config" / "pycodemcp" / "config.json",
             Path.home() / ".pycodemcp.json",
@@ -108,9 +107,9 @@ class ProjectConfig:
                 try:
                     with open(config_path) as f:
                         global_config = json.load(f)
-                        # Global config has lower precedence
-                        for key, value in global_config.items():
-                            self.config.setdefault(key, value)
+                        # Global config loaded first, so just update
+                        self.config.update(global_config)
+                        logger.info(f"Loaded global config from {config_path}")
                         break
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
