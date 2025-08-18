@@ -358,7 +358,14 @@ class User:
         # Configure project with dependencies
         manager = ProjectManager()
 
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with (
+            patch("pycodemcp.project_manager.jedi.Project"),
+            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+        ):
+            # Mock the watcher to prevent file system interference
+            mock_watcher_instance = Mock()
+            mock_watcher.return_value = mock_watcher_instance
+
             _ = manager.get_project(str(main_proj), include_paths=[str(lib_repo), str(shared_repo)])
 
             # Verify dependencies are tracked
