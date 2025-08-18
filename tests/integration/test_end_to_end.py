@@ -80,15 +80,20 @@ if __name__ == "__main__":
             # Return unique mock for each call to avoid issues with object identity
             mock_project.side_effect = lambda *_, **__: Mock()
 
-            for proj in projects:
-                manager.get_project(str(proj))
+            # Mock the watcher to prevent file system events during test
+            with patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher:
+                mock_watcher_instance = Mock()
+                mock_watcher.return_value = mock_watcher_instance
 
-            assert len(manager.projects) == 3
+                for proj in projects:
+                    manager.get_project(str(proj))
 
-            # Access projects again - should use cache
-            for proj in projects:
-                cached_project = manager.get_project(str(proj))
-                assert cached_project is not None
+                assert len(manager.projects) == 3
+
+                # Access projects again - should use cache
+                for proj in projects:
+                    cached_project = manager.get_project(str(proj))
+                    assert cached_project is not None
 
     def test_namespace_package_workflow(self, temp_project_dir):
         """Test distributed namespace package workflow."""
