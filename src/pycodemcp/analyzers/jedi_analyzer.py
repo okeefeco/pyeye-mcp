@@ -6,6 +6,8 @@ from typing import Any
 
 import jedi
 
+from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,10 +19,26 @@ class JediAnalyzer:
 
         Args:
             project_path: Root path of the project to analyze
+
+        Raises:
+            ProjectNotFoundError: If the project path doesn't exist
         """
         self.project_path = Path(project_path)
-        self.project = jedi.Project(path=self.project_path)
-        logger.info(f"Initialized JediAnalyzer for {self.project_path}")
+
+        # Validate project path exists
+        if not self.project_path.exists():
+            raise ProjectNotFoundError(str(project_path))
+
+        try:
+            self.project = jedi.Project(path=self.project_path)
+            logger.info(f"Initialized JediAnalyzer for {self.project_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Jedi project: {e}")
+            raise AnalysisError(
+                f"Failed to initialize analyzer for {project_path}",
+                file_path=str(project_path),
+                error=str(e),
+            ) from e
 
     def find_symbol(self, name: str, fuzzy: bool = False) -> list[dict[str, Any]]:
         """Find symbol definitions in the project."""
@@ -33,10 +51,23 @@ class JediAnalyzer:
                 if not fuzzy and result.name != name:
                     continue
 
-                results.append(self._serialize_name(result))
+                try:
+                    results.append(self._serialize_name(result))
+                except Exception as e:
+                    # Log but don't fail entire search for one bad result
+                    logger.warning(f"Could not serialize result {result.name}: {e}")
+                    continue
 
         except Exception as e:
             logger.error(f"Error in find_symbol: {e}")
+            # Don't raise - return partial results if any
+            if not results:
+                raise AnalysisError(
+                    f"Failed to search for symbol '{name}'",
+                    operation="find_symbol",
+                    symbol=name,
+                    error=str(e),
+                ) from e
 
         return results
 
@@ -45,7 +76,7 @@ class JediAnalyzer:
         try:
             file_path = Path(file)
             if not file_path.exists():
-                return None
+                raise FileAccessError(f"File not found: {file}", file, "read")
 
             source = file_path.read_text()
             script = jedi.Script(source, path=file_path, project=self.project)
@@ -54,8 +85,11 @@ class JediAnalyzer:
             if definitions:
                 return self._serialize_name(definitions[0], include_docstring=True)
 
+        except FileAccessError:
+            raise  # Re-raise file access errors
         except Exception as e:
             logger.error(f"Error in goto_definition: {e}")
+            # Return None for non-critical errors (e.g., no definition found)
 
         return None
 
@@ -68,7 +102,7 @@ class JediAnalyzer:
         try:
             file_path = Path(file)
             if not file_path.exists():
-                return results
+                raise FileAccessError(f"File not found: {file}", file, "read")
 
             source = file_path.read_text()
             script = jedi.Script(source, path=file_path, project=self.project)
@@ -82,8 +116,11 @@ class JediAnalyzer:
                 serialized["is_definition"] = ref.is_definition()
                 results.append(serialized)
 
+        except FileAccessError:
+            raise  # Re-raise file access errors
         except Exception as e:
             logger.error(f"Error in find_references: {e}")
+            # Return partial results if any
 
         return results
 
@@ -94,7 +131,7 @@ class JediAnalyzer:
         try:
             file_path = Path(file)
             if not file_path.exists():
-                return completions
+                raise FileAccessError(f"File not found: {file}", file, "read")
 
             source = file_path.read_text()
             script = jedi.Script(source, path=file_path, project=self.project)
@@ -110,8 +147,11 @@ class JediAnalyzer:
                     }
                 )
 
+        except FileAccessError:
+            raise  # Re-raise file access errors
         except Exception as e:
             logger.error(f"Error in get_completions: {e}")
+            # Return partial results if any
 
         return completions
 

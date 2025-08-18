@@ -9,6 +9,11 @@ from mcp.server.fastmcp import FastMCP
 
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .config import ProjectConfig
+from .exceptions import (
+    AnalysisError,
+    FileAccessError,
+    ProjectNotFoundError,
+)
 from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
 from .plugins.pydantic import PydanticPlugin
@@ -62,6 +67,7 @@ def initialize_plugins(project_path: str = ".") -> None:
 
         except Exception as e:
             logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
+            # Don't raise - plugins are optional
 
 
 def parse_project_paths(project_path: str | list[str] | dict[str, Any]) -> tuple[str, list[str]]:
@@ -215,8 +221,16 @@ def find_symbol(
                 }
             )
 
+    except FileNotFoundError as e:
+        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except Exception as e:
         logger.error(f"Error searching for symbol {name}: {e}")
+        raise AnalysisError(
+            f"Failed to search for symbol '{name}'",
+            file_path=project_path,
+            operation="symbol_search",
+            error=str(e),
+        ) from e
 
     return results
 
@@ -243,7 +257,7 @@ def goto_definition(
         # Read the file content
         file_path = Path(file)
         if not file_path.exists():
-            return {"error": f"File not found: {file}"}
+            raise FileAccessError(f"File not found: {file}", file, "read")
 
         source = file_path.read_text()
 
@@ -263,9 +277,16 @@ def goto_definition(
                 "docstring": definition.docstring(),
             }
 
+    except FileAccessError:
+        raise  # Re-raise file access errors
     except Exception as e:
         logger.error(f"Error going to definition: {e}")
-        return {"error": str(e)}
+        raise AnalysisError(
+            f"Failed to find definition at {file}:{line}:{column}",
+            file_path=file,
+            line=line,
+            error=str(e),
+        ) from e
 
     return None
 
@@ -294,7 +315,7 @@ def find_references(
         # Read the file content
         file_path = Path(file)
         if not file_path.exists():
-            return [{"error": f"File not found: {file}"}]
+            raise FileAccessError(f"File not found: {file}", file, "read")
 
         source = file_path.read_text()
 
@@ -318,9 +339,16 @@ def find_references(
                 }
             )
 
+    except FileAccessError:
+        raise  # Re-raise file access errors
     except Exception as e:
         logger.error(f"Error finding references: {e}")
-        results.append({"error": str(e)})
+        raise AnalysisError(
+            f"Failed to find references at {file}:{line}:{column}",
+            file_path=file,
+            line=line,
+            error=str(e),
+        ) from e
 
     return results
 
@@ -345,7 +373,7 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
         # Read the file content
         file_path = Path(file)
         if not file_path.exists():
-            return {"error": f"File not found: {file}"}
+            raise FileAccessError(f"File not found: {file}", file, "read")
 
         source = file_path.read_text()
 
@@ -377,9 +405,16 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
 
         return result
 
+    except FileAccessError:
+        raise  # Re-raise file access errors
     except Exception as e:
         logger.error(f"Error getting type info: {e}")
-        return {"error": str(e)}
+        raise AnalysisError(
+            f"Failed to get type info at {file}:{line}:{column}",
+            file_path=file,
+            line=line,
+            error=str(e),
+        ) from e
 
 
 @mcp.tool()
@@ -427,8 +462,16 @@ def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, An
                 logger.warning(f"Error processing {py_file}: {e}")
                 continue
 
+    except FileNotFoundError as e:
+        raise ProjectNotFoundError(project_path) from e
     except Exception as e:
         logger.error(f"Error finding imports: {e}")
+        raise AnalysisError(
+            f"Failed to find imports of module '{module_name}'",
+            module=module_name,
+            project_path=project_path,
+            error=str(e),
+        ) from e
 
     return results
 
