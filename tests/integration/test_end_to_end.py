@@ -277,7 +277,8 @@ class User(BaseModel):
             proj_dir = temp_project_dir / f"proj{i}"
             proj_dir.mkdir()
             (proj_dir / "main.py").write_text(f"# Project {i}")
-            projects.append(proj_dir)
+            # Store resolved path to match what ProjectManager uses
+            projects.append(proj_dir.resolve())
 
         with patch("pycodemcp.project_manager.jedi.Project"):
             # Rapidly access all projects
