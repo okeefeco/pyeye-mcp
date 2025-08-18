@@ -1,5 +1,96 @@
 # Python Code Intelligence MCP Server - Claude Instructions
 
+## 🚨 CRITICAL: GitHub Issue-Based Workflow (MANDATORY)
+
+### All Work MUST Follow This Process
+
+1. **BEFORE ANY WORK BEGINS**:
+
+   ```bash
+   # Check for existing issues
+   gh issue list --state open
+
+   # If no issue exists for the work, CREATE ONE or ask user to create it
+   gh issue create --title "Brief description" --body "Details"
+   ```
+
+2. **BRANCH STRATEGY (REQUIRED)**:
+
+   ```bash
+   # Format: type/issue-number-brief-description
+   # Examples:
+   git checkout -b fix/22-merge-strategy-docs
+   git checkout -b feat/23-add-validation
+   git checkout -b docs/24-update-readme
+   ```
+
+3. **DISCOVERED PROBLEMS**:
+   - If you find ANY bug, issue, or improvement opportunity:
+     1. STOP current work
+     2. Create or request issue creation
+     3. Only proceed with fix after issue exists
+   - Example response: "I found a bug in the validation logic. Let me create issue #25 to track this before fixing it."
+
+4. **VALIDATION BEFORE STARTING**:
+
+   ```bash
+   # ALWAYS run these checks before starting work:
+   gh issue view <issue-number>  # Verify issue exists and understand requirements
+   git status                     # Ensure clean working directory
+   git checkout main              # Start from main
+   git pull origin main           # Get latest changes
+   git checkout -b <branch-name>  # Create feature branch
+   ```
+
+5. **PR CREATION**:
+   - Always reference issue: "Fixes #<issue-number>" or "Addresses #<issue-number>"
+   - PR title should match branch naming convention
+   - Never merge without issue reference
+
+### Examples of Required Workflow
+
+❌ **WRONG**: "I'll fix this typo real quick"
+✅ **RIGHT**: "I found a typo. Let me create issue #26 for this, then fix it on branch `docs/26-fix-typo`"
+
+❌ **WRONG**: Starting work immediately when user mentions a problem
+✅ **RIGHT**: "I understand the issue. Let's create a GitHub issue to track this properly, then I'll work on it"
+
+❌ **WRONG**: Making changes on main branch
+✅ **RIGHT**: Always create issue-specific feature branch
+
+### Issue Templates to Use
+
+For bugs:
+
+```markdown
+## Bug Description
+[Clear description of the issue]
+
+## Steps to Reproduce
+1. [Step 1]
+2. [Step 2]
+
+## Expected Behavior
+[What should happen]
+
+## Actual Behavior
+[What actually happens]
+```
+
+For features:
+
+```markdown
+## Feature Description
+[What needs to be added]
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Implementation Notes
+[Any technical details]
+```
+
 ## Session Recovery Points
 
 ### Last Working State (auto-updated)
@@ -199,20 +290,31 @@ src/pycodemcp/
 
 If context is lost or session is compacted:
 
-1. **Check Current State**
+1. **FIRST: Verify Issue Context**
+
+   ```bash
+   # MANDATORY: Identify which issue you were working on
+   git branch --show-current     # Check current branch (should show issue number)
+   gh issue list --state open    # List open issues
+   gh issue view <number>        # Review issue requirements
+
+   # If on main branch, something went wrong - find the issue first!
+   ```
+
+2. **Check Current State**
 
    ```bash
    git status                    # Check for uncommitted changes
    git log --oneline -5         # Review recent commits
    ```
 
-2. **Review Session Recovery Points**
+3. **Review Session Recovery Points**
    - Check "Last Working State" section at top of this file
    - Review todo list status with TodoWrite tool
    - Check last modified files and their changes
    - **CRITICAL**: Check "Validation Status" section for any failures
 
-3. **Verify Code State**
+4. **Verify Code State**
 
    ```bash
    uv run pytest                 # Run tests to verify functionality
@@ -223,12 +325,12 @@ If context is lost or session is compacted:
 
    ⚠️ **NEVER proceed with commits if any validation fails**
 
-4. **Resume Work**
+5. **Resume Work**
    - Continue from last incomplete todo item
    - Use file:line references to navigate to exact locations
    - Check "Pending Work" in Last Working State section
 
-5. **Common Recovery Patterns**
+6. **Common Recovery Patterns**
    - If adding a feature: Check existing similar implementations first
    - If fixing bugs: Run tests to reproduce the issue
    - If refactoring: Ensure tests pass before and after changes
