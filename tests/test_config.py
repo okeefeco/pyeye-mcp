@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pytest
 from pycodemcp.config import ProjectConfig
 
+from .test_utils import assert_path_equal, assert_path_in_list
+
 
 class TestProjectConfig:
     """Test the ProjectConfig class."""
@@ -16,7 +18,7 @@ class TestProjectConfig:
         with patch.object(ProjectConfig, "load_config"):
             config = ProjectConfig(str(temp_project_dir))
 
-            assert config.project_path == temp_project_dir
+            assert_path_equal(config.project_path, temp_project_dir)
             assert isinstance(config.config, dict)
 
     def test_load_json_config(self, temp_project_dir):
@@ -247,7 +249,7 @@ setting = "value"
 
         # get_package_paths includes the project path itself plus the configured packages
         assert len(packages) >= 4  # project + 3 packages
-        assert str(temp_project_dir) in packages  # Project itself
+        assert_path_in_list(str(temp_project_dir), packages)  # Project itself
         assert any("pkg1" in p for p in packages)
         assert any("pkg2" in p for p in packages)
         assert any("pkg3" in p for p in packages)
