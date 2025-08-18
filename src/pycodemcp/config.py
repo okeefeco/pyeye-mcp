@@ -123,14 +123,22 @@ class ProjectConfig:
         # Check for sibling packages
         potential_packages = []
         if parent != self.project_path:
-            for sibling in parent.iterdir():
-                if (
-                    sibling.is_dir()
-                    and sibling != self.project_path
-                    and (any(sibling.glob("*.py")) or (sibling / "setup.py").exists())
-                ):
-                    # It's a Python package
-                    potential_packages.append(str(sibling))
+            try:
+                for sibling in parent.iterdir():
+                    try:
+                        if (
+                            sibling.is_dir()
+                            and sibling != self.project_path
+                            and (any(sibling.glob("*.py")) or (sibling / "setup.py").exists())
+                        ):
+                            # It's a Python package
+                            potential_packages.append(str(sibling))
+                    except (PermissionError, OSError):
+                        # Skip inaccessible directories
+                        continue
+            except (PermissionError, OSError):
+                # Can't access parent directory
+                pass
 
         # Check for virtualenv site-packages
         venv_paths = [
@@ -170,6 +178,9 @@ class ProjectConfig:
                         validated = PathValidator.validate_path(exp_path)
                         paths.append(str(validated))
                 else:
+                    # Resolve relative to project directory
+                    if not os.path.isabs(package):
+                        package = os.path.join(str(self.project_path), package)
                     # Validate the path
                     validated = PathValidator.validate_path(package)
                     if validated.exists():

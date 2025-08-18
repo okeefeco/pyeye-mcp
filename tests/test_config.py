@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from pycodemcp.config import ProjectConfig
 
 
@@ -35,20 +36,23 @@ class TestProjectConfig:
         assert config.config["namespaces"] == config_data["namespaces"]
         assert config.config["cache_ttl"] == 600
 
-    @patch("pycodemcp.config.yaml")
-    def test_load_yaml_config(self, mock_yaml, temp_project_dir):
+    def test_load_yaml_config(self, temp_project_dir):
         """Test loading configuration from YAML file."""
-        config_data = {"packages": ["../lib1"], "cache_ttl": 300}
+        pytest.importorskip("yaml")  # Skip if PyYAML not installed
 
-        mock_yaml.safe_load.return_value = {"pycodemcp": config_data}
+        yaml_content = """pycodemcp:
+  packages:
+    - ../lib1
+  cache_ttl: 300
+"""
 
         config_file = temp_project_dir / ".pycodemcp.yaml"
-        config_file.write_text("# YAML config")
+        config_file.write_text(yaml_content)
 
         config = ProjectConfig(str(temp_project_dir))
 
-        mock_yaml.safe_load.assert_called_once()
-        assert config.config["packages"] == config_data["packages"]
+        assert config.config["packages"] == ["../lib1"]
+        assert config.config["cache_ttl"] == 300
 
     def test_load_pyproject_toml(self, temp_project_dir):
         """Test loading configuration from pyproject.toml."""
@@ -204,14 +208,24 @@ setting = "value"
 
     def test_get_packages(self, temp_project_dir):
         """Test getting package list from config."""
-        config_data = {"packages": ["pkg1", "pkg2", "pkg3"]}
+        # Create actual subdirectories
+        (temp_project_dir / "pkg1").mkdir()
+        (temp_project_dir / "pkg2").mkdir()
+        (temp_project_dir / "pkg3").mkdir()
+
+        config_data = {"packages": ["./pkg1", "./pkg2", "./pkg3"]}
         config_file = temp_project_dir / ".pycodemcp.json"
         config_file.write_text(json.dumps(config_data))
 
         config = ProjectConfig(str(temp_project_dir))
-        packages = config.get_packages()
+        packages = config.get_package_paths()
 
-        assert packages == ["pkg1", "pkg2", "pkg3"]
+        # get_package_paths includes the project path itself plus the configured packages
+        assert len(packages) >= 4  # project + 3 packages
+        assert str(temp_project_dir) in packages  # Project itself
+        assert any("pkg1" in p for p in packages)
+        assert any("pkg2" in p for p in packages)
+        assert any("pkg3" in p for p in packages)
 
     def test_get_namespaces(self, temp_project_dir):
         """Test getting namespace configuration."""
