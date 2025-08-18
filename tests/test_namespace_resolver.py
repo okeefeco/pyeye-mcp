@@ -3,6 +3,8 @@
 
 from pycodemcp.namespace_resolver import NamespaceResolver
 
+from .test_utils import assert_path_in_list
+
 
 class TestNamespaceResolver:
     """Test the NamespaceResolver class."""
@@ -30,8 +32,8 @@ class TestNamespaceResolver:
 
         assert "company.auth" in resolver.namespace_paths
         assert len(resolver.namespace_paths["company.auth"]) == 2
-        assert path1 in resolver.namespace_paths["company.auth"]
-        assert path2 in resolver.namespace_paths["company.auth"]
+        assert_path_in_list(path1, resolver.namespace_paths["company.auth"])
+        assert_path_in_list(path2, resolver.namespace_paths["company.auth"])
 
     def test_register_namespace_nonexistent_paths(self, temp_project_dir, caplog):
         """Test registering namespace with non-existent paths."""
@@ -44,7 +46,7 @@ class TestNamespaceResolver:
 
         # Should only register existing path
         assert len(resolver.namespace_paths["test.namespace"]) == 1
-        assert existing in resolver.namespace_paths["test.namespace"]
+        assert_path_in_list(existing, resolver.namespace_paths["test.namespace"])
         assert "does not exist" in caplog.text
 
     def test_discover_namespaces_with_init(self, temp_project_dir):
@@ -202,8 +204,8 @@ __path__ = __import__('pkgutil').extend_path(__path__, __name__)
         structure = resolver.build_namespace_map([str(temp_project_dir)])
 
         assert "company" in structure
-        # Check for either "modules" or "__subpackages__" depending on implementation
-        assert "__subpackages__" in structure["company"] or "modules" in structure["company"]
+        # The implementation returns __subpackages__ for namespace structure
+        assert "__subpackages__" in structure["company"]
 
     def test_cache_package_structure(self, temp_project_dir):
         """Test caching of package structures."""

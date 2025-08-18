@@ -85,16 +85,16 @@ class ProjectConfig:
 
     def _load_from_env(self) -> None:
         """Load configuration from environment variables."""
-        # PYCODEMCP_PACKAGES=/path/to/pkg1:/path/to/pkg2
+        # PYCODEMCP_PACKAGES=/path/to/pkg1:/path/to/pkg2 (Unix) or ;separated (Windows)
         if "PYCODEMCP_PACKAGES" in os.environ:
-            packages = os.environ["PYCODEMCP_PACKAGES"].split(":")
+            packages = os.environ["PYCODEMCP_PACKAGES"].split(os.pathsep)
             self.config.setdefault("packages", []).extend(packages)
 
         # PYCODEMCP_NAMESPACE_company=/repos/company-*
         for key, value in os.environ.items():
             if key.startswith("PYCODEMCP_NAMESPACE_"):
                 namespace = key.replace("PYCODEMCP_NAMESPACE_", "").replace("_", ".")
-                self.config.setdefault("namespaces", {})[namespace] = value.split(":")
+                self.config.setdefault("namespaces", {})[namespace] = value.split(os.pathsep)
 
     def _load_global_config(self) -> None:
         """Load global configuration from user home."""
