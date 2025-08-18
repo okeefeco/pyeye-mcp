@@ -625,9 +625,13 @@ class TestFindSymbolMulti:
 
         result = find_symbol_multi("test", ["/proj1", "/proj2"])
 
-        assert "/proj1" in result
-        assert "/proj2" in result
+        # Check that both projects are in results, handling platform-specific paths
+        result_keys = list(result.keys())
         assert len(result) == 2
+        # On Windows, paths may be resolved to full paths like "D:\proj1"
+        # Check that keys end with the expected directory names
+        assert any("proj1" in key for key in result_keys)
+        assert any("proj2" in key for key in result_keys)
         # Should call get_project for each path
         assert mock_manager.get_project.call_count == 2
 
