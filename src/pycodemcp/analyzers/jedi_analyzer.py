@@ -353,7 +353,9 @@ class JediAnalyzer:
 
         return modules
 
-    def analyze_dependencies(self, module_path: str) -> dict[str, Any]:
+    def analyze_dependencies(
+        self, module_path: str, _visited: set[str] | None = None
+    ) -> dict[str, Any]:
         """Analyze import dependencies for a module."""
         result: dict[str, Any] = {
             "module": module_path,
@@ -512,15 +514,23 @@ class JediAnalyzer:
             result["imported_by"] = sorted(set(result["imported_by"]))
 
             # Check for circular dependencies
-            for imported_module in result["imports"]["internal"]:
-                # Check if the imported module also imports this module
-                try:
-                    deps = self.analyze_dependencies(imported_module)
-                    if module_path in deps["imports"]["internal"]:
-                        result["circular_dependencies"].append(imported_module)
-                except Exception:
-                    # Ignore errors in recursive analysis
-                    pass
+            # Use visited set to prevent infinite recursion
+            if _visited is None:
+                _visited = set()
+
+            if module_path not in _visited:
+                _visited.add(module_path)
+                for imported_module in result["imports"]["internal"]:
+                    # Skip if we've already visited this module to avoid infinite recursion
+                    if imported_module not in _visited:
+                        # Check if the imported module also imports this module
+                        try:
+                            deps = self.analyze_dependencies(imported_module, _visited)
+                            if module_path in deps["imports"]["internal"]:
+                                result["circular_dependencies"].append(imported_module)
+                        except Exception:
+                            # Ignore errors in recursive analysis
+                            pass
 
         except FileAccessError:
             raise
