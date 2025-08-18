@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Mark Hangie", email = "mark@example.com"}
+    {name = "Mark O'Keefe", email = "mark_okeefe@mac.com"}
 ]
 keywords = ["mcp", "python", "code-intelligence", "jedi", "lsp", "static-analysis"]
 classifiers = [
@@ -47,9 +47,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hangie/python-code-intelligence-mcp"
-Repository = "https://github.com/hangie/python-code-intelligence-mcp"
-Issues = "https://github.com/hangie/python-code-intelligence-mcp/issues"
+Homepage = "https://github.com/okeefeco/python-code-intelligence-mcp"
+Repository = "https://github.com/okeefeco/python-code-intelligence-mcp"
+Issues = "https://github.com/okeefeco/python-code-intelligence-mcp/issues"
 
 [build-system]
 requires = ["hatchling"]
