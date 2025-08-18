@@ -2,6 +2,97 @@
 
 Thank you for your interest in contributing! This document provides guidelines and instructions for contributing to the project.
 
+## 🚨 CRITICAL: GitHub Issue-Based Workflow (MANDATORY)
+
+### All Work MUST Follow This Process
+
+1. **BEFORE ANY WORK BEGINS**:
+
+   ```bash
+   # Check for existing issues
+   gh issue list --state open
+
+   # If no issue exists for the work, CREATE ONE or ask user to create it
+   gh issue create --title "Brief description" --body "Details"
+   ```
+
+2. **BRANCH STRATEGY (REQUIRED)**:
+
+   ```bash
+   # Format: type/issue-number-brief-description
+   # Examples:
+   git checkout -b fix/22-merge-strategy-docs
+   git checkout -b feat/23-add-validation
+   git checkout -b docs/24-update-readme
+   ```
+
+3. **DISCOVERED PROBLEMS**:
+   - If you find ANY bug, issue, or improvement opportunity:
+     1. STOP current work
+     2. Create or request issue creation
+     3. Only proceed with fix after issue exists
+   - Example response: "I found a bug in the validation logic. Let me create issue #25 to track this before fixing it."
+
+4. **VALIDATION BEFORE STARTING**:
+
+   ```bash
+   # ALWAYS run these checks before starting work:
+   gh issue view <issue-number>  # Verify issue exists and understand requirements
+   git status                     # Ensure clean working directory
+   git checkout main              # Start from main
+   git pull origin main           # Get latest changes
+   git checkout -b <branch-name>  # Create feature branch
+   ```
+
+5. **PR CREATION**:
+   - Always reference issue: "Fixes #<issue-number>" or "Addresses #<issue-number>"
+   - PR title should match branch naming convention
+   - Never merge without issue reference
+
+### Examples of Required Workflow
+
+❌ **WRONG**: "I'll fix this typo real quick"
+✅ **RIGHT**: "I found a typo. Let me create issue #26 for this, then fix it on branch `docs/26-fix-typo`"
+
+❌ **WRONG**: Starting work immediately when user mentions a problem
+✅ **RIGHT**: "I understand the issue. Let's create a GitHub issue to track this properly, then I'll work on it"
+
+❌ **WRONG**: Making changes on main branch
+✅ **RIGHT**: Always create issue-specific feature branch
+
+### Issue Templates to Use
+
+For bugs:
+
+```markdown
+## Bug Description
+[Clear description of the issue]
+
+## Steps to Reproduce
+1. [Step 1]
+2. [Step 2]
+
+## Expected Behavior
+[What should happen]
+
+## Actual Behavior
+[What actually happens]
+```
+
+For features:
+
+```markdown
+## Feature Description
+[What needs to be added]
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Implementation Notes
+[Any technical details]
+```
+
 ## Development Setup
 
 ### Prerequisites
