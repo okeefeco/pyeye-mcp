@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.config import ProjectConfig
@@ -76,7 +76,10 @@ if __name__ == "__main__":
             projects.append(proj_dir)
 
         # Load all projects
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with patch("pycodemcp.project_manager.jedi.Project") as mock_project:
+            # Return unique mock for each call to avoid issues with object identity
+            mock_project.side_effect = lambda *_, **__: Mock()
+
             for proj in projects:
                 manager.get_project(str(proj))
 
