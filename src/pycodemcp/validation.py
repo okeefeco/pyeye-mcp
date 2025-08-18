@@ -4,11 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-
-class ValidationError(Exception):
-    """Raised when input validation fails."""
-
-    pass
+from .exceptions import ValidationError
 
 
 class PathValidator:
@@ -283,7 +279,11 @@ class InputValidator:
 
 
 def validate_mcp_inputs(func: Any) -> Any:
-    """Decorator to validate inputs for MCP tool functions."""
+    """Decorator to validate inputs for MCP tool functions.
+
+    This decorator validates common MCP tool parameters and raises
+    ValidationError for invalid inputs rather than returning error dicts.
+    """
     import functools
     import inspect
 
@@ -305,21 +305,28 @@ def validate_mcp_inputs(func: Any) -> Any:
                     validated = PathValidator.validate_path(value)
                     bound.arguments[param_name] = str(validated)
                 except ValidationError as e:
-                    return {"error": f"Invalid {param_name}: {e}"}
+                    # Raise the error to be handled by the exception handler
+                    raise ValidationError(
+                        f"Invalid {param_name}: {e}", parameter=param_name, value=str(value)
+                    ) from e
 
             # Line number validation
             elif param_name == "line":
                 try:
                     bound.arguments[param_name] = InputValidator.validate_line_number(value)
                 except ValidationError as e:
-                    return {"error": f"Invalid line number: {e}"}
+                    raise ValidationError(
+                        f"Invalid line number: {e}", parameter="line", value=str(value)
+                    ) from e
 
             # Column number validation
             elif param_name == "column":
                 try:
                     bound.arguments[param_name] = InputValidator.validate_column_number(value)
                 except ValidationError as e:
-                    return {"error": f"Invalid column number: {e}"}
+                    raise ValidationError(
+                        f"Invalid column number: {e}", parameter="column", value=str(value)
+                    ) from e
 
             # Module/identifier name validation
             elif param_name in ["name", "module_name", "function_name", "import_path"]:
@@ -328,18 +335,25 @@ def validate_mcp_inputs(func: Any) -> Any:
                         value, allow_dots=param_name in ["module_name", "import_path"]
                     )
                 except ValidationError as e:
-                    return {"error": f"Invalid {param_name}: {e}"}
+                    raise ValidationError(
+                        f"Invalid {param_name}: {e}", parameter=param_name, value=str(value)
+                    ) from e
 
             # List validation for paths
             elif param_name in ["paths", "repo_paths", "project_paths", "packages"]:
                 if isinstance(value, list):
                     validated_list = []
-                    for item in value:
+                    for i, item in enumerate(value):
                         try:
                             validated = PathValidator.validate_path(item)
                             validated_list.append(str(validated))
                         except ValidationError as e:
-                            return {"error": f"Invalid path in {param_name}: {e}"}
+                            raise ValidationError(
+                                f"Invalid path at index {i} in {param_name}: {e}",
+                                parameter=param_name,
+                                value=str(item),
+                                index=i,
+                            ) from e
                     bound.arguments[param_name] = validated_list
 
         return func(*bound.args, **bound.kwargs)

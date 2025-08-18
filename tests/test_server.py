@@ -3,7 +3,9 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 from mcp.server.fastmcp import FastMCP
+from pycodemcp.exceptions import AnalysisError, FileAccessError
 from pycodemcp.server import (
     configure_namespace_package,
     configure_packages,
@@ -716,9 +718,10 @@ class TestErrorHandling:
         mock_project.search.side_effect = Exception("Search error")
         mock_get_project.return_value = mock_project
 
-        # Should handle error gracefully and return empty list
-        result = find_symbol("test")
-        assert result == []
+        # Should raise AnalysisError when search fails
+        with pytest.raises(AnalysisError) as exc_info:
+            find_symbol("test")
+        assert "Failed to search for symbol" in str(exc_info.value)
 
     @patch("pycodemcp.server.Path")
     def test_file_not_found_error(self, mock_path_class):
@@ -727,11 +730,10 @@ class TestErrorHandling:
         mock_path.exists.return_value = False
         mock_path_class.return_value = mock_path
 
-        result = goto_definition("nonexistent.py", 1, 0)
-
-        # Should return error in result
-        assert result is not None
-        assert "error" in result
+        # Should raise FileAccessError for non-existent file
+        with pytest.raises(FileAccessError) as exc_info:
+            goto_definition("nonexistent.py", 1, 0)
+        assert "File not found" in str(exc_info.value)
 
 
 class TestInputValidation:
@@ -740,29 +742,31 @@ class TestInputValidation:
     @patch("pycodemcp.server.Path")
     def test_validate_negative_line_number(self, mock_path_class):
         """Test that negative line numbers are rejected."""
+        from pycodemcp.exceptions import ValidationError
+
         # Mock file path exists
         mock_path = Mock()
         mock_path.exists.return_value = True
         mock_path_class.return_value = mock_path
 
-        # The @validate_mcp_inputs decorator should return error for invalid inputs
-        result = goto_definition("test.py", -1, 0)
+        # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
+        with pytest.raises(ValidationError) as exc_info:
+            goto_definition("test.py", -1, 0)
 
-        assert result is not None
-        assert "error" in result
-        assert "line number" in result["error"].lower()
+        assert "line number" in str(exc_info.value).lower()
 
     @patch("pycodemcp.server.Path")
     def test_validate_negative_column_number(self, mock_path_class):
         """Test that negative column numbers are rejected."""
+        from pycodemcp.exceptions import ValidationError
+
         # Mock file path exists
         mock_path = Mock()
         mock_path.exists.return_value = True
         mock_path_class.return_value = mock_path
 
-        # The @validate_mcp_inputs decorator should return error for invalid inputs
-        result = goto_definition("test.py", 10, -5)
+        # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
+        with pytest.raises(ValidationError) as exc_info:
+            goto_definition("test.py", 10, -5)
 
-        assert result is not None
-        assert "error" in result
-        assert "column" in result["error"].lower()
+        assert "column" in str(exc_info.value).lower()

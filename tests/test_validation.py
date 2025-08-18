@@ -219,6 +219,7 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_paths(self):
         """Test that decorator validates path parameters."""
+        from pycodemcp.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(file: str, project_path: str = "."):
@@ -226,15 +227,16 @@ class TestValidateMCPInputsDecorator:
 
         # Valid paths
         result = test_func("/valid/path.py", "/project")
-        assert "error" not in result
+        assert result["file"] == str(Path("/valid/path.py").resolve())
 
-        # Invalid path
-        result = test_func("../../etc/passwd", "/project")
-        assert "error" in result
-        assert "Invalid file" in result["error"]
+        # Invalid path should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            test_func("../../etc/passwd", "/project")
+        assert "Invalid file" in str(exc_info.value)
 
     def test_decorator_validates_line_column(self):
         """Test that decorator validates line and column parameters."""
+        from pycodemcp.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(line: int, column: int):
@@ -244,18 +246,19 @@ class TestValidateMCPInputsDecorator:
         result = test_func(10, 5)
         assert result == {"line": 10, "column": 5}
 
-        # Invalid line
-        result = test_func(-1, 5)
-        assert "error" in result
-        assert "Invalid line" in result["error"]
+        # Invalid line should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            test_func(-1, 5)
+        assert "Invalid line" in str(exc_info.value)
 
-        # Invalid column
-        result = test_func(10, -1)
-        assert "error" in result
-        assert "Invalid column" in result["error"]
+        # Invalid column should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            test_func(10, -1)
+        assert "Invalid column" in str(exc_info.value)
 
     def test_decorator_validates_identifiers(self):
         """Test that decorator validates identifier parameters."""
+        from pycodemcp.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(name: str, module_name: str):
@@ -265,13 +268,14 @@ class TestValidateMCPInputsDecorator:
         result = test_func("my_func", "package.module")
         assert result == {"name": "my_func", "module_name": "package.module"}
 
-        # Invalid identifier
-        result = test_func("123invalid", "package.module")
-        assert "error" in result
-        assert "Invalid name" in result["error"]
+        # Invalid identifier should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            test_func("123invalid", "package.module")
+        assert "Invalid name" in str(exc_info.value)
 
     def test_decorator_validates_path_lists(self):
         """Test that decorator validates lists of paths."""
+        from pycodemcp.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(paths: list, packages: list):
@@ -279,12 +283,14 @@ class TestValidateMCPInputsDecorator:
 
         # Valid paths
         result = test_func(["/path1", "/path2"], ["/pkg1", "/pkg2"])
-        assert "error" not in result
+        assert len(result["paths"]) == 2
+        assert len(result["packages"]) == 2
 
-        # List with invalid path
-        result = test_func(["/valid", "../../etc/passwd"], ["/pkg1"])
-        assert "error" in result
-        assert "Invalid path in paths" in result["error"]
+        # List with invalid path should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            test_func(["/valid", "../../etc/passwd"], ["/pkg1"])
+        assert "Invalid path" in str(exc_info.value)
+        assert "paths" in str(exc_info.value)
 
     def test_decorator_handles_none_values(self):
         """Test that decorator handles None values gracefully."""
