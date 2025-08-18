@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+from pycodemcp.exceptions import AnalysisError, FileAccessError
 
 
 class TestJediAnalyzer:
@@ -300,10 +301,12 @@ def main():
         mock_project.search.side_effect = Exception("Jedi error")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
-        results = analyzer.find_symbol("test")
 
-        # Should handle error and return empty results
-        assert results == []
+        # Should raise AnalysisError when search fails with no results
+        with pytest.raises(AnalysisError) as exc_info:
+            analyzer.find_symbol("test")
+
+        assert "Failed to search for symbol 'test'" in str(exc_info.value)
         assert "Error in find_symbol" in caplog.text
 
     @pytest.mark.skip(reason="_serialize_name method doesn't exist in JediAnalyzer")
@@ -336,26 +339,32 @@ def main():
         with patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project"):
             analyzer = JediAnalyzer(str(temp_project_dir))
 
-            # Try to analyze non-existent file
-            result = analyzer.goto_definition("/nonexistent/file.py", 1, 0)
-            assert result is None
+            # Try to analyze non-existent file - should raise FileAccessError
+            with pytest.raises(FileAccessError) as exc_info:
+                analyzer.goto_definition("/nonexistent/file.py", 1, 0)
+            assert "File not found" in str(exc_info.value)
 
-            # Skip as find_references doesn't exist
-            # refs = analyzer.find_references("/nonexistent/file.py", 1, 0)
-            # assert refs == []
-            pass  # Skip this part of the test
+            # find_references should also raise FileAccessError for non-existent files
+            with pytest.raises(FileAccessError):
+                analyzer.find_references("/nonexistent/file.py", 1, 0)
 
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
-    def test_multiple_projects(self, mock_project_class):
+    def test_multiple_projects(self, mock_project_class, tmp_path):
         """Test that analyzer can work with different projects."""
+        # Create actual directories for the test
+        project1 = tmp_path / "project1"
+        project2 = tmp_path / "project2"
+        project1.mkdir()
+        project2.mkdir()
+
         # Create two analyzers for different projects
-        _ = JediAnalyzer("/project1")
-        _ = JediAnalyzer("/project2")
+        _ = JediAnalyzer(str(project1))
+        _ = JediAnalyzer(str(project2))
 
         # Should create two different project instances
         assert mock_project_class.call_count == 2
 
         # Check paths
         calls = mock_project_class.call_args_list
-        assert calls[0][1]["path"] == Path("/project1")
-        assert calls[1][1]["path"] == Path("/project2")
+        assert calls[0][1]["path"] == project1
+        assert calls[1][1]["path"] == project2

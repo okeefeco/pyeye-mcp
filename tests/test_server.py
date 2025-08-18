@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from pycodemcp.exceptions import AnalysisError, FileAccessError
 from pycodemcp.server import (
     configure_namespace_package,
     configure_packages,
@@ -717,9 +718,10 @@ class TestErrorHandling:
         mock_project.search.side_effect = Exception("Search error")
         mock_get_project.return_value = mock_project
 
-        # Should handle error gracefully and return empty list
-        result = find_symbol("test")
-        assert result == []
+        # Should raise AnalysisError when search fails
+        with pytest.raises(AnalysisError) as exc_info:
+            find_symbol("test")
+        assert "Failed to search for symbol" in str(exc_info.value)
 
     @patch("pycodemcp.server.Path")
     def test_file_not_found_error(self, mock_path_class):
@@ -728,11 +730,10 @@ class TestErrorHandling:
         mock_path.exists.return_value = False
         mock_path_class.return_value = mock_path
 
-        result = goto_definition("nonexistent.py", 1, 0)
-
-        # Should return error in result
-        assert result is not None
-        assert "error" in result
+        # Should raise FileAccessError for non-existent file
+        with pytest.raises(FileAccessError) as exc_info:
+            goto_definition("nonexistent.py", 1, 0)
+        assert "File not found" in str(exc_info.value)
 
 
 class TestInputValidation:
