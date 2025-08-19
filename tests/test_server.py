@@ -223,6 +223,61 @@ class TestFindSymbol:
         mock_config_class.assert_called_once()
         mock_get_project.assert_called()
 
+    def test_find_symbol_with_reexports(self):
+        """Test find_symbol includes import_paths for re-exported symbols."""
+        # Use the test fixture
+        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+
+        # Find the User symbol in the test fixture
+        results = find_symbol("User", project_path=fixture_path, use_config=False)
+
+        # Should find at least one result
+        assert len(results) > 0
+
+        # Check that import_paths is included for the User class
+        user_found = False
+        for result in results:
+            if result.get("name") == "User" and "user.py" in result.get("file", ""):
+                user_found = True
+                # Should have import_paths field with re-export information
+                assert "import_paths" in result
+                import_paths = result["import_paths"]
+                assert len(import_paths) >= 2
+                # Should have both direct and re-exported paths
+                assert any("from models.user import User" in path for path in import_paths)
+                assert any("from models import User" in path for path in import_paths)
+
+        assert user_found, "User class not found in results"
+
+    def test_find_symbol_multi_level_reexports(self):
+        """Test find_symbol with multi-level re-exports."""
+        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+
+        # Find the Authenticator symbol
+        results = find_symbol("Authenticator", project_path=fixture_path, use_config=False)
+
+        # Should find the Authenticator class
+        assert len(results) > 0
+
+        auth_found = False
+        for result in results:
+            if result.get("name") == "Authenticator" and "authenticator.py" in result.get(
+                "file", ""
+            ):
+                auth_found = True
+                assert "import_paths" in result
+                import_paths = result["import_paths"]
+                # Should have multiple levels of re-exports
+                assert len(import_paths) >= 3
+                # Check for all three levels
+                assert any(
+                    "from core.auth.authenticator import Authenticator" in p for p in import_paths
+                )
+                assert any("from core.auth import Authenticator" in p for p in import_paths)
+                assert any("from core import Authenticator" in p for p in import_paths)
+
+        assert auth_found, "Authenticator class not found in results"
+
 
 class TestGotoDefinition:
     """Test the goto_definition tool."""

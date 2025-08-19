@@ -3,6 +3,7 @@
 import ast
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ class JediAnalyzer:
             ProjectNotFoundError: If the project path doesn't exist
         """
         self.project_path = Path(project_path)
+        self.additional_paths: list[Path] = []  # For additional package paths
 
         # Validate project path exists
         if not self.project_path.exists():
@@ -42,8 +44,19 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-    def find_symbol(self, name: str, fuzzy: bool = False) -> list[dict[str, Any]]:
-        """Find symbol definitions in the project."""
+    def find_symbol(
+        self, name: str, fuzzy: bool = False, include_import_paths: bool = True
+    ) -> list[dict[str, Any]]:
+        """Find symbol definitions in the project.
+
+        Args:
+            name: Symbol name to search for
+            fuzzy: Enable fuzzy matching
+            include_import_paths: Include alternative import paths for re-exported symbols
+
+        Returns:
+            List of symbol matches with location and optional import path information
+        """
         results = []
 
         try:
@@ -54,7 +67,9 @@ class JediAnalyzer:
                     continue
 
                 try:
-                    results.append(self._serialize_name(result))
+                    results.append(
+                        self._serialize_name(result, include_import_paths=include_import_paths)
+                    )
                 except Exception as e:
                     # Log but don't fail entire search for one bad result
                     logger.warning(f"Could not serialize result {result.name}: {e}")
@@ -682,7 +697,10 @@ class JediAnalyzer:
         return info
 
     def _serialize_name(
-        self, name: jedi.api.classes.Name, include_docstring: bool = False
+        self,
+        name: jedi.api.classes.Name,
+        include_docstring: bool = False,
+        include_import_paths: bool = False,
     ) -> dict[str, Any]:
         """Serialize a Jedi Name object to a dictionary."""
         result = {
@@ -700,4 +718,127 @@ class JediAnalyzer:
         if include_docstring:
             result["docstring"] = name.docstring()
 
+        # Add import paths if requested and we have module information
+        if include_import_paths and name.full_name:
+            # Extract module path from full_name (everything except the last part)
+            parts = name.full_name.split(".")
+            if len(parts) > 1:
+                module_path = ".".join(parts[:-1])
+                file_path = str(name.module_path) if name.module_path else None
+                import_paths = self.find_reexports(name.name, module_path, file_path)
+                if import_paths:
+                    result["import_paths"] = import_paths
+
         return result
+
+    def find_reexports(
+        self, symbol_name: str, original_module: str, file_path: str | None = None
+    ) -> list[str]:
+        """Find re-export paths for a symbol.
+
+        Args:
+            symbol_name: Name of the symbol to find re-exports for
+            original_module: The module path where the symbol is originally defined
+            file_path: Optional file path to help determine full module path
+
+        Returns:
+            List of import paths where the symbol can be imported from
+        """
+        import_paths = []
+
+        # Determine the full module path
+        if original_module:
+            # If we have a file path, try to determine the full module path
+            if file_path and self.project_path:
+                try:
+                    # Convert file path to module path relative to project
+                    file_path_obj = Path(file_path)
+                    rel_path = file_path_obj.relative_to(self.project_path)
+                    # Remove .py extension and convert to module path
+                    module_from_file = str(rel_path.with_suffix("")).replace(os.sep, ".")
+                    # Use the module from file if it's more complete
+                    if len(module_from_file.split(".")) > len(original_module.split(".")):
+                        original_module = module_from_file.rsplit(".", 1)[
+                            0
+                        ]  # Remove the filename part
+                except (ValueError, Exception):
+                    pass  # Keep original module if conversion fails
+
+            module_parts = original_module.split(".")
+            direct_import = f"from {original_module} import {symbol_name}"
+            import_paths.append(direct_import)
+
+            # Check for re-exports in parent __init__.py files
+            for i in range(len(module_parts) - 1, 0, -1):
+                parent_module = ".".join(module_parts[:i])
+                init_file = self._find_init_file(parent_module)
+
+                if init_file and self._check_symbol_in_init(
+                    init_file, symbol_name, module_parts[i]
+                ):
+                    shorter_import = f"from {parent_module} import {symbol_name}"
+                    # Insert at beginning as shorter imports are preferred
+                    import_paths.insert(0, shorter_import)
+
+        return import_paths
+
+    def _find_init_file(self, module_path: str) -> Path | None:
+        """Find the __init__.py file for a module."""
+        try:
+            # Convert module path to file system path
+            path_parts = module_path.split(".")
+
+            # Search in project path and any additional package paths
+            search_paths = [self.project_path]
+            if hasattr(self, "additional_paths"):
+                search_paths.extend(self.additional_paths)
+
+            for base_path in search_paths:
+                # Try to find the module relative to the base path
+                # First check if the full module path exists as a package
+                potential_path = base_path / Path(*path_parts) / "__init__.py"
+                if potential_path.exists():
+                    return potential_path
+
+                # Also check if it's a submodule of a package in the base path
+                # (e.g., base_path contains "reexport_test" and we're looking for "reexport_test.models")
+                if len(path_parts) > 1 and base_path.name == path_parts[0]:
+                    # Skip the first part if it matches the base directory name
+                    potential_path = base_path / Path(*path_parts[1:]) / "__init__.py"
+                    if potential_path.exists():
+                        return potential_path
+
+        except Exception as e:
+            logger.debug(f"Error finding __init__.py for {module_path}: {e}")
+
+        return None
+
+    def _check_symbol_in_init(self, init_file: Path, symbol_name: str, submodule: str) -> bool:
+        """Check if a symbol is re-exported in an __init__.py file."""
+        try:
+            content = init_file.read_text()
+
+            # Check for direct import: from .submodule import symbol
+            import_patterns = [
+                f"from .{submodule} import {symbol_name}",
+                f"from .{submodule} import .*{symbol_name}",  # Handle multi-imports
+                f"from .{submodule} import .*\\bas {symbol_name}\\b",  # Handle aliased imports
+            ]
+
+            for pattern in import_patterns:
+                if re.search(pattern, content):
+                    return True
+
+            # Check if symbol is in __all__
+            all_match = re.search(r"__all__\s*=\s*\[([^\]]+)\]", content, re.DOTALL)
+            if all_match:
+                all_content = all_match.group(1)
+                if f'"{symbol_name}"' in all_content or f"'{symbol_name}'" in all_content:
+                    # Verify the symbol is actually imported
+                    if f"import {symbol_name}" in content or f"from .{submodule}" in content:
+                        return True
+
+        except Exception as e:
+            logger.debug(f"Error checking symbol in {init_file}: {e}")
+
+        return False

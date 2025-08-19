@@ -215,6 +215,60 @@ result = func()
         assert result["type"] == "str"
         assert "docstring" in result
 
+    def test_find_reexports(self):
+        """Test finding re-export paths for symbols."""
+        # Create test fixture
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Test finding re-exports for User class
+        user_file = fixture_path / "models" / "user.py"
+        import_paths = analyzer.find_reexports("User", "models.user", str(user_file))
+
+        assert len(import_paths) >= 1
+        assert "from models.user import User" in import_paths
+        # Should also find the re-export from models/__init__.py
+        assert "from models import User" in import_paths
+
+    def test_find_symbol_with_import_paths(self):
+        """Test find_symbol includes import_paths for re-exported symbols."""
+        # Use the test fixture
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Find the User symbol
+        results = analyzer.find_symbol("User", include_import_paths=True)
+
+        # Should find at least one result
+        assert len(results) > 0
+
+        # Check that import_paths is included for symbols that are re-exported
+        for result in results:
+            if result.get("name") == "User":
+                # Should have import_paths field if re-exported
+                if "reexport_test.models.user" in result.get("full_name", ""):
+                    assert "import_paths" in result
+                    assert len(result["import_paths"]) >= 1
+
+    def test_multi_level_reexports(self):
+        """Test multi-level re-exports (core -> auth -> authenticator)."""
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Test finding re-exports for Authenticator class (multi-level)
+        auth_file = fixture_path / "core" / "auth" / "authenticator.py"
+        import_paths = analyzer.find_reexports(
+            "Authenticator", "core.auth.authenticator", str(auth_file)
+        )
+
+        assert len(import_paths) >= 1
+        # Direct import
+        assert "from core.auth.authenticator import Authenticator" in import_paths
+        # Re-export from auth/__init__.py
+        assert "from core.auth import Authenticator" in import_paths
+        # Re-export from core/__init__.py
+        assert "from core import Authenticator" in import_paths
+
     @pytest.mark.skip(
         reason="JediAnalyzer doesn't have find_imports method - has analyze_imports instead"
     )

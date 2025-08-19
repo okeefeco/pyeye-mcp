@@ -73,6 +73,7 @@ repos:
         args: ['--fix=lf']
       - id: name-tests-test
         args: ['--pytest-test-first']
+        exclude: '^tests/fixtures/'
 
   # JSON validation
   - repo: https://github.com/pre-commit/pre-commit-hooks
