@@ -34,6 +34,8 @@ class TestJediAnalyzer:
         mock_result.column = 4
         mock_result.module_path = Path("/test/module.py")
         mock_result.type = "function"
+        mock_result.description = "def test_function"
+        mock_result.full_name = "test_module.test_function"
         mock_result.docstring = Mock(return_value="Test docstring")
 
         mock_project.search.return_value = [mock_result]
@@ -62,6 +64,8 @@ class TestJediAnalyzer:
             mock_result.column = 0
             mock_result.module_path = Path(f"/{name}.py")
             mock_result.type = "function"
+            mock_result.description = f"def {name}"
+            mock_result.full_name = f"module.{name}"
             mock_result.docstring = Mock(return_value="")
             results_list.append(mock_result)
 
