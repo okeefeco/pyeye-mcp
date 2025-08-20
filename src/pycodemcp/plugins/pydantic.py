@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..async_utils import read_file_async, rglob_async
 from .base import AnalyzerPlugin
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,7 @@ class PydanticPlugin(AnalyzerPlugin):
     def detect(self) -> bool:
         """Detect if this project uses Pydantic."""
         # Check for Pydantic imports in any Python file
+        # Note: Using sync I/O here as detect() is called during initialization
         for py_file in self.project_path.rglob("*.py"):
             if py_file.stat().st_size > 1000000:  # Skip very large files
                 continue
@@ -56,13 +58,14 @@ class PydanticPlugin(AnalyzerPlugin):
             "find_computed_fields": self.find_computed_fields,
         }
 
-    def find_models(self) -> list[dict[str, Any]]:
+    async def find_models(self) -> list[dict[str, Any]]:
         """Find all Pydantic models in the project."""
         models = []
 
-        for py_file in self.project_path.rglob("*.py"):
+        py_files = await rglob_async("*.py", self.project_path)
+        for py_file in py_files:
             try:
-                content = py_file.read_text()
+                content = await read_file_async(py_file)
                 if "BaseModel" not in content and "pydantic" not in content.lower():
                     continue  # Quick filter
 
@@ -89,9 +92,9 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return models
 
-    def get_model_schema(self, model_name: str) -> dict[str, Any] | None:
+    async def get_model_schema(self, model_name: str) -> dict[str, Any] | None:
         """Get the schema for a specific Pydantic model."""
-        models = self.find_models()
+        models = await self.find_models()
 
         for model in models:
             if model["name"] == model_name:
@@ -116,13 +119,14 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return None
 
-    def find_validators(self) -> list[dict[str, Any]]:
+    async def find_validators(self) -> list[dict[str, Any]]:
         """Find all Pydantic validators in the project."""
         validators = []
 
-        for py_file in self.project_path.rglob("*.py"):
+        py_files = await rglob_async("*.py", self.project_path)
+        for py_file in py_files:
             try:
-                content = py_file.read_text()
+                content = await read_file_async(py_file)
                 if "validator" not in content and "field_validator" not in content:
                     continue
 
@@ -148,18 +152,19 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return validators
 
-    def find_field_validators(self) -> list[dict[str, Any]]:
+    async def find_field_validators(self) -> list[dict[str, Any]]:
         """Find all field-specific validators."""
-        all_validators = self.find_validators()
+        all_validators = await self.find_validators()
         return [v for v in all_validators if v["type"] == "field_validator"]
 
-    def find_model_config(self) -> list[dict[str, Any]]:
+    async def find_model_config(self) -> list[dict[str, Any]]:
         """Find all model configurations."""
         configs = []
 
-        for py_file in self.project_path.rglob("*.py"):
+        py_files = await rglob_async("*.py", self.project_path)
+        for py_file in py_files:
             try:
-                content = py_file.read_text()
+                content = await read_file_async(py_file)
                 if "Config" not in content and "model_config" not in content:
                     continue
 
@@ -194,9 +199,9 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return configs
 
-    def trace_model_inheritance(self, model_name: str) -> dict[str, Any]:
+    async def trace_model_inheritance(self, model_name: str) -> dict[str, Any]:
         """Trace the inheritance hierarchy of a Pydantic model."""
-        models = self.find_models()
+        models = await self.find_models()
 
         hierarchy: dict[str, Any] = {
             "model": model_name,
@@ -224,13 +229,14 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return hierarchy
 
-    def find_computed_fields(self) -> list[dict[str, Any]]:
+    async def find_computed_fields(self) -> list[dict[str, Any]]:
         """Find all computed fields (properties, computed_field decorator)."""
         computed_fields = []
 
-        for py_file in self.project_path.rglob("*.py"):
+        py_files = await rglob_async("*.py", self.project_path)
+        for py_file in py_files:
             try:
-                content = py_file.read_text()
+                content = await read_file_async(py_file)
                 if "computed_field" not in content and "@property" not in content:
                     continue
 

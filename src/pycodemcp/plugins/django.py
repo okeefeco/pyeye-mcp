@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..async_utils import read_file_async, rglob_async
 from .base import AnalyzerPlugin
 
 logger = logging.getLogger(__name__)
@@ -55,14 +56,15 @@ class DjangoPlugin(AnalyzerPlugin):
             "find_django_migrations": self.find_migrations,
         }
 
-    def find_models(self) -> list[dict[str, Any]]:
+    async def find_models(self) -> list[dict[str, Any]]:
         """Find all Django models in the project."""
         models = []
 
         # Look for models.py files
-        for models_file in self.project_path.rglob("models.py"):
+        models_files = await rglob_async("models.py", self.project_path)
+        for models_file in models_files:
             try:
-                content = models_file.read_text()
+                content = await read_file_async(models_file)
                 if "from django.db import models" in content or "Model" in content:
                     # Simple heuristic - could be enhanced with AST parsing
                     import ast
@@ -90,14 +92,15 @@ class DjangoPlugin(AnalyzerPlugin):
 
         return models
 
-    def find_views(self) -> list[dict[str, Any]]:
+    async def find_views(self) -> list[dict[str, Any]]:
         """Find all Django views in the project."""
         views = []
 
         # Look for views.py files
-        for views_file in self.project_path.rglob("views.py"):
+        views_files = await rglob_async("views.py", self.project_path)
+        for views_file in views_files:
             try:
-                content = views_file.read_text()
+                content = await read_file_async(views_file)
                 if "from django" in content:
                     import ast
 

@@ -1,5 +1,6 @@
 """Simplified performance benchmark for Python Code Intelligence MCP Server."""
 
+import asyncio
 import shutil
 import tempfile
 import time
@@ -41,14 +42,14 @@ class Class_{i}:
     return temp_dir
 
 
-def benchmark_symbol_search(project_path: str, iterations: int = 10) -> dict[str, float]:
+async def benchmark_symbol_search(project_path: str, iterations: int = 10) -> dict[str, float]:
     """Benchmark symbol search performance."""
     analyzer = JediAnalyzer(project_path)
 
     times = []
     for _ in range(iterations):
         start = time.perf_counter()
-        analyzer.find_symbol("function_0")
+        await analyzer.find_symbol("function_0")
         duration = time.perf_counter() - start
         times.append(duration * 1000)  # Convert to ms
 
@@ -60,14 +61,14 @@ def benchmark_symbol_search(project_path: str, iterations: int = 10) -> dict[str
     }
 
 
-def main() -> None:
+async def main() -> None:
     """Run simple benchmark."""
     print("Creating test project...")
     project_path = create_test_project("medium")
 
     try:
         print("Running benchmark...")
-        results = benchmark_symbol_search(project_path)
+        results = await benchmark_symbol_search(project_path)
 
         print("\nResults:")
         print(f"  Min: {results['min_ms']:.2f}ms")
@@ -80,4 +81,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

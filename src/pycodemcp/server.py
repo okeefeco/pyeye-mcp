@@ -8,6 +8,7 @@ import jedi
 from mcp.server.fastmcp import FastMCP
 
 from .analyzers.jedi_analyzer import JediAnalyzer
+from .async_utils import read_file_async, rglob_async
 from .config import ProjectConfig
 from .exceptions import (
     AnalysisError,
@@ -171,7 +172,7 @@ def configure_packages(
 
 @mcp.tool()
 @validate_mcp_inputs
-def find_symbol(
+async def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
     """Find symbol definitions in the project.
@@ -198,7 +199,7 @@ def find_symbol(
                 analyzer.additional_paths = [Path(p) for p in all_paths[1:]]
 
         # Use the analyzer's find_symbol method which includes import_paths
-        results = analyzer.find_symbol(name, fuzzy=fuzzy, include_import_paths=True)
+        results = await analyzer.find_symbol(name, fuzzy=fuzzy, include_import_paths=True)
 
     except FileNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
@@ -216,7 +217,7 @@ def find_symbol(
 
 @mcp.tool()
 @validate_mcp_inputs
-def goto_definition(
+async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
     """Go to symbol definition from a specific position.
@@ -238,7 +239,7 @@ def goto_definition(
         if not file_path.exists():
             raise FileAccessError(f"File not found: {file}", file, "read")
 
-        source = file_path.read_text()
+        source = await read_file_async(file_path)
 
         # Create script and get definitions
         script = jedi.Script(source, path=file_path, project=project)
@@ -272,7 +273,7 @@ def goto_definition(
 
 @mcp.tool()
 @validate_mcp_inputs
-def find_references(
+async def find_references(
     file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
 ) -> list[dict[str, Any]]:
     """Find all references to the symbol at a specific position.
@@ -296,7 +297,7 @@ def find_references(
         if not file_path.exists():
             raise FileAccessError(f"File not found: {file}", file, "read")
 
-        source = file_path.read_text()
+        source = await read_file_async(file_path)
 
         # Create script and get references
         script = jedi.Script(source, path=file_path, project=project)
@@ -334,7 +335,9 @@ def find_references(
 
 @mcp.tool()
 @validate_mcp_inputs
-def get_type_info(file: str, line: int, column: int, project_path: str = ".") -> dict[str, Any]:
+async def get_type_info(
+    file: str, line: int, column: int, project_path: str = "."
+) -> dict[str, Any]:
     """Get type information at a specific position.
 
     Args:
@@ -354,7 +357,7 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
         if not file_path.exists():
             raise FileAccessError(f"File not found: {file}", file, "read")
 
-        source = file_path.read_text()
+        source = await read_file_async(file_path)
 
         # Create script and get type info
         script = jedi.Script(source, path=file_path, project=project)
@@ -398,7 +401,7 @@ def get_type_info(file: str, line: int, column: int, project_path: str = ".") ->
 
 @mcp.tool()
 @validate_mcp_inputs
-def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
+async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Find all imports of a specific module in the project.
 
     Args:
@@ -416,9 +419,10 @@ def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, An
         # This is a simplified implementation - could be enhanced with AST parsing
         project_root = Path(project_path)
 
-        for py_file in project_root.rglob("*.py"):
+        py_files = await rglob_async("*.py", project_root)
+        for py_file in py_files:
             try:
-                source = py_file.read_text()
+                source = await read_file_async(py_file)
                 script = jedi.Script(source, path=py_file, project=project)
 
                 # Get all names in the file
@@ -457,7 +461,7 @@ def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, An
 
 @mcp.tool()
 @validate_mcp_inputs
-def get_call_hierarchy(
+async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
     """Get the call hierarchy for a function.
@@ -492,7 +496,7 @@ def get_call_hierarchy(
             return {"error": f"Function {function_name} not found"}
 
         # Get the function's source
-        source = function_def.module_path.read_text()
+        source = await read_file_async(function_def.module_path)
         script = jedi.Script(source, path=function_def.module_path, project=project)
 
         # Find references (callers)
@@ -713,7 +717,7 @@ def find_symbol_multi(
 
 @mcp.tool()
 @validate_mcp_inputs
-def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
+async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
     """List all Python packages in the project.
 
     Args:
@@ -724,7 +728,7 @@ def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
     """
     try:
         analyzer = JediAnalyzer(project_path)
-        return analyzer.list_packages()
+        return await analyzer.list_packages()
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except Exception as e:
@@ -739,7 +743,7 @@ def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 
 @mcp.tool()
 @validate_mcp_inputs
-def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
+async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
     """List all Python modules with exports and metrics.
 
     Args:
@@ -750,7 +754,7 @@ def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
     """
     try:
         analyzer = JediAnalyzer(project_path)
-        return analyzer.list_modules()
+        return await analyzer.list_modules()
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except Exception as e:
@@ -762,7 +766,7 @@ def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
 
 @mcp.tool()
 @validate_mcp_inputs
-def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str, Any]:
+async def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Analyze import dependencies for a module.
 
     Args:
@@ -774,7 +778,7 @@ def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str,
     """
     try:
         analyzer = JediAnalyzer(project_path)
-        return analyzer.analyze_dependencies(module_path)
+        return await analyzer.analyze_dependencies(module_path)
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except FileAccessError:
@@ -791,7 +795,7 @@ def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str,
 
 @mcp.tool()
 @validate_mcp_inputs
-def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
+async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Get detailed information about a specific module.
 
     Args:
@@ -803,7 +807,7 @@ def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]
     """
     try:
         analyzer = JediAnalyzer(project_path)
-        return analyzer.get_module_info(module_path)
+        return await analyzer.get_module_info(module_path)
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except FileAccessError:
