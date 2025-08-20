@@ -112,7 +112,7 @@ addopts = [
     "--cov=src/pycodemcp",
     "--cov-report=term-missing",
     "--cov-report=html",
-    "--cov-fail-under=35",
+    "--cov-fail-under=75",
     "-v"
 ]
 asyncio_mode = "auto"
@@ -121,6 +121,7 @@ asyncio_mode = "auto"
 source = ["src/pycodemcp"]
 omit = [
     "*/tests/*",
+    "*/benchmarks/*",
     "*/__pycache__/*",
     "*/conftest.py"
 ]
