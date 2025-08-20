@@ -1,6 +1,6 @@
 # Python Code Intelligence MCP Server
 
-[![CI](https://github.com/okeefeco/python-code-intelligence-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/okeefeco/python-code-intelligence-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/okeefeco/python-code-intelligence-mcp/workflows/CI/badge.svg)](https://github.com/okeefeco/python-code-intelligence-mcp/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
