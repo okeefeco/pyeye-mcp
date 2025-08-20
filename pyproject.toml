@@ -143,3 +143,8 @@ tag_format = "v$version"
 version_files = [
     "pyproject.toml:version"
 ]
+
+[dependency-groups]
+dev = [
+    "psutil>=6.0.0",
+]
