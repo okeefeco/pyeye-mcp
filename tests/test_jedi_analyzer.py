@@ -273,6 +273,86 @@ result = func()
         # Re-export from core/__init__.py
         assert "from core import Authenticator" in import_paths
 
+    def test_find_reexports_with_longer_file_path(self):
+        """Test that file path is used when it provides more complete module info."""
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Test with a short module name but complete file path
+        # This should use the file path to determine the full module
+        file_path = str(fixture_path / "models" / "user.py")
+        # Pass just "user" as module, file path should expand it to "models.user"
+        import_paths = analyzer.find_reexports("User", "user", file_path)
+
+        # The function should use the file path to get full module
+        assert len(import_paths) >= 1
+        # Even with short module input, we get the re-export
+        assert "from models import User" in import_paths
+
+    def test_find_init_file_with_matching_base_name(self):
+        """Test _find_init_file when base directory name matches module prefix."""
+        # Create a temporary test structure where base name matches
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create mypackage/mypackage/__init__.py structure
+            base = Path(tmpdir) / "mypackage"
+            base.mkdir()
+            sub = base / "mypackage"
+            sub.mkdir()
+            init_file = sub / "__init__.py"
+            init_file.write_text("# Test init")
+
+            analyzer = JediAnalyzer(str(base))
+            # Looking for mypackage.submodule, but we're already in mypackage base
+            found = analyzer._find_init_file("mypackage")
+            assert found == init_file
+
+    def test_check_symbol_in_init_with_all(self):
+        """Test _check_symbol_in_init with __all__ declaration."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            init_file = Path(tmpdir) / "__init__.py"
+            init_file.write_text(
+                """
+from .models import User, Admin
+
+__all__ = [
+    "User",
+    "Admin",
+]
+"""
+            )
+
+            fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+            analyzer = JediAnalyzer(str(fixture_path))
+
+            # Check symbol that's in __all__ and imported
+            assert analyzer._check_symbol_in_init(init_file, "User", "models")
+            assert analyzer._check_symbol_in_init(init_file, "Admin", "models")
+            # Check symbol not in __all__
+            assert not analyzer._check_symbol_in_init(init_file, "NotThere", "models")
+
+    def test_check_symbol_in_init_error_handling(self):
+        """Test _check_symbol_in_init handles file read errors gracefully."""
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Test with non-existent file
+        non_existent = Path("/does/not/exist/__init__.py")
+        result = analyzer._check_symbol_in_init(non_existent, "Symbol", "module")
+        assert result is False  # Should return False on error
+
+    def test_find_init_file_not_found(self):
+        """Test _find_init_file returns None when init file doesn't exist."""
+        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        analyzer = JediAnalyzer(str(fixture_path))
+
+        # Test with module that doesn't exist
+        result = analyzer._find_init_file("nonexistent.module.path")
+        assert result is None  # Should return None when not found
+
     @pytest.mark.skip(
         reason="JediAnalyzer doesn't have find_imports method - has analyze_imports instead"
     )
