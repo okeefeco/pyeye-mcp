@@ -7,6 +7,7 @@ import jedi
 
 from .cache import CodebaseWatcher, ProjectCache
 from .namespace_resolver import NamespaceResolver
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +15,18 @@ logger = logging.getLogger(__name__)
 class ProjectManager:
     """Manages multiple Python projects simultaneously."""
 
-    def __init__(self, max_projects: int = 10):
+    def __init__(self, max_projects: int | None = None):
         """Initialize the project manager.
 
         Args:
-            max_projects: Maximum number of projects to keep in memory
+            max_projects: Maximum number of projects to keep in memory.
+                         If None, uses value from settings.
         """
         self.projects: dict[Path, jedi.Project] = {}
         self.watchers: dict[Path, CodebaseWatcher] = {}
         self.caches: dict[Path, ProjectCache] = {}
         self.access_order: list[Path] = []  # LRU tracking
-        self.max_projects = max_projects
+        self.max_projects = max_projects if max_projects is not None else settings.max_projects
 
         # Project dependencies - maps project to its dependencies
         self.dependencies: dict[Path, set[Path]] = {}
@@ -97,8 +99,8 @@ class ProjectManager:
         # Store dependencies
         self.dependencies[main_path] = dep_paths
 
-        # Create cache
-        self.caches[main_path] = ProjectCache(ttl_seconds=300)
+        # Create cache with configurable TTL
+        self.caches[main_path] = ProjectCache(ttl_seconds=settings.cache_ttl)
 
         # Set up watcher for main project
         def on_change(file_path: str) -> None:

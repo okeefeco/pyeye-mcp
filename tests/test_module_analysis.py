@@ -1,6 +1,5 @@
 """Tests for module analysis functionality."""
 
-
 import pytest
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.exceptions import FileAccessError

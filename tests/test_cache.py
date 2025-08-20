@@ -51,6 +51,8 @@ class TestCodebaseWatcher:
 
     def test_on_modified_python_file(self, temp_project_dir):
         """Test handling Python file modifications."""
+        from pycodemcp.settings import settings
+
         callback = Mock()
         watcher = CodebaseWatcher(str(temp_project_dir), callback)
 
@@ -61,6 +63,9 @@ class TestCodebaseWatcher:
         # Small delay to ensure time difference
         time.sleep(0.01)
         watcher.on_modified(event)
+
+        # Wait for debounce delay
+        time.sleep(settings.watcher_debounce + 0.1)
 
         assert watcher.last_change > old_time
         callback.assert_called_once_with(str(temp_project_dir / "test.py"))
