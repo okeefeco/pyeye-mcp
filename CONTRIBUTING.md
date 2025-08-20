@@ -136,6 +136,131 @@ pre-commit install --hook-type commit-msg  # For commit message validation
 detect-secrets scan > .secrets.baseline
 ```
 
+## Local Development Tools
+
+### Personal Configuration Files (Claude Code)
+
+For user-specific settings that shouldn't be committed (like worktree paths, personal aliases, etc.), use Claude's local configuration system:
+
+1. **Create your personal config file**:
+
+   ```bash
+   mkdir -p ~/.claude/projects/{github-org}
+   touch ~/.claude/projects/{github-org}/{repo-name}.md
+
+   # For this project:
+   mkdir -p ~/.claude/projects/okeefeco
+   touch ~/.claude/projects/okeefeco/python-code-intelligence-mcp.md
+   ```
+
+2. **Structure**: The `{org}/{repo}` pattern prevents naming conflicts between:
+   - Forks (e.g., `upstream/repo` vs `yourfork/repo`)
+   - Different organizations with same repo names
+   - Personal vs work projects
+
+3. **Import in CLAUDE.md**: The project's CLAUDE.md includes an optional import that fails gracefully if your personal file doesn't exist
+
+4. **Example personal config content**:
+
+   ```markdown
+   # Python Code Intelligence MCP - Local Settings
+
+   ## Worktree Locations
+   - Main: /home/user/GitHub/python-code-intelligence-mcp
+   - Work: /home/user/GitHub/python-code-intelligence-mcp-work/
+
+   ## Personal Aliases
+   alias mcp-main="cd /home/user/GitHub/python-code-intelligence-mcp"
+   alias mcp-work="cd /home/user/GitHub/python-code-intelligence-mcp-work"
+   ```
+
+### Git Worktrees (Recommended)
+
+Git worktrees allow you to have multiple branches checked out simultaneously in different directories. This is especially useful for:
+
+- Keeping the main branch stable for running the MCP server
+- Working on multiple features/fixes without stashing
+- Quick context switching between tasks
+
+1. **Setup worktree with virtual environment**:
+
+   ```bash
+   # Create a directory for worktrees
+   mkdir ../python-code-intelligence-mcp-work
+
+   # Add a worktree (directory name matches branch pattern)
+   git worktree add ../python-code-intelligence-mcp-work/feat-42-new-feature -b feat/42-new-feature main
+
+   # Set up isolated virtual environment (required for each worktree)
+   cd ../python-code-intelligence-mcp-work/feat-42-new-feature
+   uv venv
+   uv pip install -e ".[dev]"
+   ```
+
+2. **Recommended structure**:
+
+   ```text
+   python-code-intelligence-mcp/        # Main repo (keep on main branch)
+   ├── .venv/                           # Main's virtual environment
+   python-code-intelligence-mcp-work/   # Worktrees directory
+   ├── feat-42-new-feature/             # Feature branch worktree
+   │   ├── .venv/                       # Isolated virtual environment
+   ├── fix-43-bug-name/                 # Bugfix branch worktree
+   │   ├── .venv/                       # Isolated virtual environment
+   └── docs-44-update-readme/           # Documentation branch worktree
+       ├── .venv/                       # Isolated virtual environment
+   ```
+
+3. **Virtual Environment Strategy**:
+
+   Each worktree gets its own `.venv` for complete isolation:
+   - **Isolation**: Test dependency changes without affecting other branches
+   - **Speed**: `uv` caches packages, so subsequent installs are fast (~10s)
+   - **Safety**: Main branch stays stable even if a feature branch experiments
+   - **IDE Support**: Each worktree's `.venv` is automatically detected
+
+   Note: Do NOT copy/symlink venvs between worktrees - this defeats isolation and can cause issues.
+
+4. **Worktree commands**:
+
+   ```bash
+   # List all worktrees
+   git worktree list
+
+   # Remove a worktree when done
+   git worktree remove ../python-code-intelligence-mcp-work/feat-42
+
+   # Prune stale worktree references
+   git worktree prune
+   ```
+
+5. **Quick setup script** (optional):
+
+   Create `setup-worktree.sh` in your main repo:
+
+   ```bash
+   #!/bin/bash
+   # Usage: ./setup-worktree.sh feat 42 "add-new-feature"
+
+   TYPE=$1
+   ISSUE=$2
+   DESC=$3
+   BRANCH="$TYPE/$ISSUE-$DESC"
+   DIR="../python-code-intelligence-mcp-work/$TYPE-$ISSUE-$DESC"
+
+   git worktree add "$DIR" -b "$BRANCH" main
+   cd "$DIR"
+   uv venv
+   uv pip install -e ".[dev]"
+   echo "✅ Worktree ready at $DIR"
+   ```
+
+6. **Benefits**:
+   - No need to stash changes when switching tasks
+   - Main branch stays clean for testing/running
+   - Each issue gets its own isolated workspace
+   - Faster context switching
+
 ## Development Workflow
 
 ### Branch Protection
