@@ -103,6 +103,119 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `C:\\Python311\\python.exe`).
 
+### Configure with GitHub Copilot (VS Code)
+
+As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this Python Code Intelligence server with GitHub Copilot:
+
+#### Prerequisites
+
+- **GitHub Copilot Business or Enterprise subscription** (required for MCP support)
+- **VS Code version 1.102 or later** (MCP support is GA)
+- **Organization MCP policy enabled** by your admin
+
+#### Step 1: Enable MCP in Your Organization
+
+Your GitHub Copilot administrator needs to enable the MCP servers policy:
+
+1. Go to your organization settings on GitHub
+2. Navigate to **Copilot** → **Policies**
+3. Enable **"MCP servers in Copilot"** policy
+4. Save changes
+
+#### Step 2: Install the MCP Server
+
+Install the Python Code Intelligence MCP server in your project or globally:
+
+```bash
+# Option A: Install in your project's virtual environment (recommended)
+pip install python-code-intelligence-mcp
+
+# Option B: Install globally with pipx
+pipx install python-code-intelligence-mcp
+
+# Option C: Install from source
+git clone https://github.com/hangie/python-code-intelligence-mcp.git
+pip install -e ./python-code-intelligence-mcp
+```
+
+#### Step 3: Configure VS Code
+
+Add the MCP server configuration to your VS Code settings:
+
+**User Settings** (applies to all projects):
+
+```json
+// File: ~/.config/Code/User/settings.json (Linux/Mac)
+// or %APPDATA%\Code\User\settings.json (Windows)
+{
+  "github.copilot.chat.mcpServers": {
+    "python-intelligence": {
+      "command": "python",
+      "args": ["-m", "pycodemcp.server"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Workspace Settings** (project-specific):
+
+```json
+// File: .vscode/settings.json in your project root
+{
+  "github.copilot.chat.mcpServers": {
+    "python-intelligence": {
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "pycodemcp.server"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}
+```
+
+#### Step 4: Verify Connection
+
+1. Open VS Code in your Python project
+2. Open the GitHub Copilot Chat panel
+3. Type: `@mcp list` to see available MCP servers
+4. You should see `python-intelligence` in the list
+5. Test with: `@mcp python-intelligence find_symbol MyClass`
+
+#### Troubleshooting
+
+**MCP not available:**
+
+- Ensure you have Copilot Business/Enterprise (not Free/Pro)
+- Check that your organization admin enabled the MCP policy
+- Update VS Code to version 1.102 or later
+
+**Server not connecting:**
+
+- Verify Python path in the configuration
+- Check that `pycodemcp` is installed: `python -m pycodemcp.server --help`
+- Look for errors in VS Code Output panel → GitHub Copilot Logs
+
+**Import errors:**
+
+- If using a virtual environment, ensure the path points to the venv Python
+- Add `PYTHONPATH` to the env configuration if needed
+
+#### Other IDEs
+
+**JetBrains IDEs** (IntelliJ, PyCharm, etc.):
+
+- MCP support is GA - configure in Settings → Tools → GitHub Copilot → MCP Servers
+
+**Visual Studio**:
+
+- MCP support is in preview - configure in Tools → Options → GitHub Copilot → MCP Servers
+
+**Eclipse & Xcode**:
+
+- MCP support is GA - see IDE-specific documentation for configuration
+
 ## Configuration
 
 The server can be configured to analyze packages in other locations. Create a `.pycodemcp.json` file in your project:
