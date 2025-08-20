@@ -1,7 +1,7 @@
 """Tests for the MCP server and tools."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -155,10 +155,11 @@ class TestFindSymbol:
     """Test the find_symbol tool."""
 
     @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_basic(self, mock_get_analyzer):
+    @pytest.mark.asyncio
+    async def test_find_symbol_basic(self, mock_get_analyzer):
         """Test basic symbol finding."""
         # Mock JediAnalyzer
-        mock_analyzer = Mock()
+        mock_analyzer = AsyncMock()
         mock_get_analyzer.return_value = mock_analyzer
 
         # Mock the find_symbol method to return expected results
@@ -174,7 +175,7 @@ class TestFindSymbol:
             }
         ]
 
-        result = find_symbol("TestClass")
+        result = await find_symbol("TestClass")
 
         assert len(result) == 1
         assert result[0]["name"] == "TestClass"
@@ -184,9 +185,10 @@ class TestFindSymbol:
         )
 
     @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_fuzzy(self, mock_get_analyzer):
+    @pytest.mark.asyncio
+    async def test_find_symbol_fuzzy(self, mock_get_analyzer):
         """Test fuzzy symbol search."""
-        mock_analyzer = Mock()
+        mock_analyzer = AsyncMock()
         mock_get_analyzer.return_value = mock_analyzer
 
         # Mock the find_symbol method to return fuzzy matches
@@ -202,7 +204,7 @@ class TestFindSymbol:
             }
         ]
 
-        result = find_symbol("test", fuzzy=True)
+        result = await find_symbol("test", fuzzy=True)
 
         # With fuzzy=True, it should include partial matches
         assert len(result) == 1
@@ -210,18 +212,19 @@ class TestFindSymbol:
 
     @patch("pycodemcp.server.ProjectConfig")
     @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_with_config(self, mock_get_analyzer, mock_config_class):
+    @pytest.mark.asyncio
+    async def test_find_symbol_with_config(self, mock_get_analyzer, mock_config_class):
         """Test symbol finding with configuration."""
         # Mock configuration
         mock_config = Mock()
         mock_config.get_package_paths.return_value = [".", "../lib"]
         mock_config_class.return_value = mock_config
 
-        mock_analyzer = Mock()
+        mock_analyzer = AsyncMock()
         mock_get_analyzer.return_value = mock_analyzer
         mock_analyzer.find_symbol.return_value = []
 
-        find_symbol("test", use_config=True)
+        await find_symbol("test", use_config=True)
 
         # Should use configuration (ProjectConfig gets resolved path)
         mock_config_class.assert_called_once()
@@ -229,13 +232,14 @@ class TestFindSymbol:
         # Check that additional_paths was set
         assert hasattr(mock_analyzer, "additional_paths")
 
-    def test_find_symbol_with_reexports(self):
+    @pytest.mark.asyncio
+    async def test_find_symbol_with_reexports(self):
         """Test find_symbol includes import_paths for re-exported symbols."""
         # Use the test fixture
         fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
 
         # Find the User symbol in the test fixture
-        results = find_symbol("User", project_path=fixture_path, use_config=False)
+        results = await find_symbol("User", project_path=fixture_path, use_config=False)
 
         # Should find at least one result
         assert len(results) > 0
@@ -255,12 +259,13 @@ class TestFindSymbol:
 
         assert user_found, "User class not found in results"
 
-    def test_find_symbol_multi_level_reexports(self):
+    @pytest.mark.asyncio
+    async def test_find_symbol_multi_level_reexports(self):
         """Test find_symbol with multi-level re-exports."""
         fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
 
         # Find the Authenticator symbol
-        results = find_symbol("Authenticator", project_path=fixture_path, use_config=False)
+        results = await find_symbol("Authenticator", project_path=fixture_path, use_config=False)
 
         # Should find the Authenticator class
         assert len(results) > 0
@@ -288,16 +293,20 @@ class TestFindSymbol:
 class TestGotoDefinition:
     """Test the goto_definition tool."""
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_goto_definition(self, mock_get_project, mock_script_class, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_goto_definition(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_read_file
+    ):
         """Test going to symbol definition."""
-        # Mock file path
+        # Mock file path and async file reading
         mock_path = Mock()
         mock_path.exists.return_value = True
-        mock_path.read_text.return_value = "test code"
         mock_path_class.return_value = mock_path
+        mock_read_file.return_value = "test code"
 
         # Mock Jedi project
         mock_project = Mock()
@@ -317,22 +326,26 @@ class TestGotoDefinition:
         mock_script.goto.return_value = [mock_definition]
         mock_script_class.return_value = mock_script
 
-        result = goto_definition("test.py", 10, 5)
+        result = await goto_definition("test.py", 10, 5)
 
         assert result["name"] == "function"
         assert result["line"] == 42
         mock_script.goto.assert_called_with(10, 5)
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_goto_definition_not_found(self, mock_get_project, mock_script_class, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_goto_definition_not_found(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_read_file
+    ):
         """Test goto definition when symbol not found."""
-        # Mock file path
+        # Mock file path and async file reading
         mock_path = Mock()
         mock_path.exists.return_value = True
-        mock_path.read_text.return_value = "test code"
         mock_path_class.return_value = mock_path
+        mock_read_file.return_value = "test code"
 
         # Mock Jedi project
         mock_project = Mock()
@@ -343,7 +356,7 @@ class TestGotoDefinition:
         mock_script.goto.return_value = []
         mock_script_class.return_value = mock_script
 
-        result = goto_definition("test.py", 10, 5)
+        result = await goto_definition("test.py", 10, 5)
 
         assert result is None
 
@@ -351,16 +364,20 @@ class TestGotoDefinition:
 class TestFindReferences:
     """Test the find_references tool."""
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_find_references(self, mock_get_project, mock_script_class, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_find_references(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_read_file
+    ):
         """Test finding symbol references."""
-        # Mock file path
+        # Mock file path and async file reading
         mock_path = Mock()
         mock_path.exists.return_value = True
-        mock_path.read_text.return_value = "test code"
         mock_path_class.return_value = mock_path
+        mock_read_file.return_value = "test code"
 
         # Mock Jedi project
         mock_project = Mock()
@@ -387,25 +404,27 @@ class TestFindReferences:
         mock_script.get_references.return_value = [mock_ref1, mock_ref2]
         mock_script_class.return_value = mock_script
 
-        result = find_references("test.py", 5, 0)
+        result = await find_references("test.py", 5, 0)
 
         assert len(result) == 2
         assert result[0]["line"] == 10
         assert result[1]["line"] == 20
         mock_script.get_references.assert_called_with(5, 0, include_builtins=False)
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_find_references_exclude_definitions(
-        self, mock_get_project, mock_script_class, mock_path_class
+    @pytest.mark.asyncio
+    async def test_find_references_exclude_definitions(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_read_file
     ):
         """Test finding references excluding definitions."""
-        # Mock file path
+        # Mock file path and async file reading
         mock_path = Mock()
         mock_path.exists.return_value = True
-        mock_path.read_text.return_value = "test code"
         mock_path_class.return_value = mock_path
+        mock_read_file.return_value = "test code"
 
         # Mock Jedi project
         mock_project = Mock()
@@ -427,7 +446,7 @@ class TestFindReferences:
         mock_script.get_references.return_value = [mock_ref1, mock_ref2]
         mock_script_class.return_value = mock_script
 
-        result = find_references("test.py", 5, 0, include_definitions=False)
+        result = await find_references("test.py", 5, 0, include_definitions=False)
 
         # Should only include non-definition references
         assert len(result) == 1
@@ -437,16 +456,20 @@ class TestFindReferences:
 class TestGetTypeInfo:
     """Test the get_type_info tool."""
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_get_type_info(self, mock_get_project, mock_script_class, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_get_type_info(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_read_file
+    ):
         """Test getting type information."""
-        # Mock file path
+        # Mock file path and async file reading
         mock_path = Mock()
         mock_path.exists.return_value = True
-        mock_path.read_text.return_value = "test code"
         mock_path_class.return_value = mock_path
+        mock_read_file.return_value = "test code"
 
         # Mock Jedi project
         mock_project = Mock()
@@ -469,7 +492,7 @@ class TestGetTypeInfo:
         mock_script.help.return_value = [mock_help]
         mock_script_class.return_value = mock_script
 
-        result = get_type_info("test.py", 10, 5)
+        result = await get_type_info("test.py", 10, 5)
 
         assert len(result["inferred_types"]) > 0
         assert result["inferred_types"][0]["name"] == "str"
@@ -479,26 +502,37 @@ class TestGetTypeInfo:
 class TestFindImports:
     """Test the find_imports tool."""
 
+    @patch("pycodemcp.server.read_file_async")
+    @patch("pycodemcp.server.rglob_async")
     @patch("pycodemcp.server.Path")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_find_imports(self, mock_get_project, mock_script_class, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_find_imports(
+        self, mock_get_project, mock_script_class, mock_path_class, mock_rglob, mock_read_file
+    ):
         """Test finding module imports."""
         # Mock project structure
         mock_project = Mock()
         mock_get_project.return_value = mock_project
 
+        # Mock file paths
+        mock_py_file1 = Path("/project/test.py")
+        mock_py_file2 = Path("/project/utils.py")
+        mock_rglob.return_value = [mock_py_file1, mock_py_file2]
+
+        # Mock file reading to return different content for each file
+        async def mock_read_side_effect(path):
+            if "test.py" in str(path):
+                return "import os\ncode here"
+            elif "utils.py" in str(path):
+                return "from os import path\nmore code"
+            return ""
+
+        mock_read_file.side_effect = mock_read_side_effect
+
         # Mock Path for project root
         mock_project_path = Mock()
-        mock_py_file1 = Mock(spec=Path)
-        mock_py_file1.read_text.return_value = "import os\ncode here"
-        mock_py_file1.__str__ = Mock(return_value="/project/test.py")
-
-        mock_py_file2 = Mock(spec=Path)
-        mock_py_file2.read_text.return_value = "from os import path\nmore code"
-        mock_py_file2.__str__ = Mock(return_value="/project/utils.py")
-
-        mock_project_path.rglob.return_value = [mock_py_file1, mock_py_file2]
         mock_path_class.return_value = mock_project_path
 
         # Mock script for each file
@@ -523,19 +557,21 @@ class TestFindImports:
         mock_script.get_names.side_effect = [[mock_name1], [mock_name2]]
         mock_script_class.return_value = mock_script
 
-        result = find_imports("os")
+        result = await find_imports("os")
 
         # Should find imports in both files
         assert len(result) >= 2
-        mock_project_path.rglob.assert_called_with("*.py")
+        mock_rglob.assert_called_with("*.py", mock_project_path)
 
 
 class TestGetCallHierarchy:
     """Test the get_call_hierarchy tool."""
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_get_call_hierarchy(self, mock_get_project, mock_script_class):
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy(self, mock_get_project, mock_script_class, mock_read_file):
         """Test getting call hierarchy."""
         # Mock Jedi project
         mock_project = Mock()
@@ -545,11 +581,12 @@ class TestGetCallHierarchy:
         mock_func_def = Mock()
         mock_func_def.name = "test_func"
         mock_func_def.type = "function"
-        mock_module_path = Mock(spec=Path)
-        mock_module_path.read_text.return_value = "def test_func(): pass"
-        mock_func_def.module_path = mock_module_path
+        mock_func_def.module_path = Path("/project/module.py")
         mock_func_def.line = 5
         mock_func_def.column = 0
+
+        # Mock async file reading
+        mock_read_file.return_value = "def test_func(): pass"
 
         mock_project.search.return_value = [mock_func_def]
 
@@ -568,15 +605,19 @@ class TestGetCallHierarchy:
         mock_script.get_names.return_value = []
         mock_script_class.return_value = mock_script
 
-        result = get_call_hierarchy("test_func")
+        result = await get_call_hierarchy("test_func")
 
         assert result["function"] == "test_func"
         assert "callers" in result
         assert "callees" in result
 
+    @patch("pycodemcp.server.read_file_async")
     @patch("pycodemcp.server.jedi.Script")
     @patch("pycodemcp.server.get_jedi_project")
-    def test_get_call_hierarchy_with_file(self, mock_get_project, mock_script_class):
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy_with_file(
+        self, mock_get_project, mock_script_class, mock_read_file
+    ):
         """Test call hierarchy with specific file."""
         # Mock Jedi project
         mock_project = Mock()
@@ -586,12 +627,12 @@ class TestGetCallHierarchy:
         mock_func_def = Mock()
         mock_func_def.name = "func"
         mock_func_def.type = "function"
-        mock_module_path = Mock(spec=Path)
-        mock_module_path.read_text.return_value = "def func(): pass"
-        mock_module_path.__str__ = Mock(return_value="test.py")
-        mock_func_def.module_path = mock_module_path
+        mock_func_def.module_path = Path("test.py")
         mock_func_def.line = 5
         mock_func_def.column = 0
+
+        # Mock async file reading
+        mock_read_file.return_value = "def func(): pass"
 
         mock_project.search.return_value = [mock_func_def]
 
@@ -600,7 +641,7 @@ class TestGetCallHierarchy:
         mock_script.get_names.return_value = []
         mock_script_class.return_value = mock_script
 
-        result = get_call_hierarchy("func", file="test.py")
+        result = await get_call_hierarchy("func", file="test.py")
 
         # Should search for function in specific file
         assert result is not None
@@ -772,20 +813,22 @@ class TestErrorHandling:
     """Test error handling in MCP tools."""
 
     @patch("pycodemcp.server.get_analyzer")
-    def test_find_symbol_error(self, mock_get_analyzer):
+    @pytest.mark.asyncio
+    async def test_find_symbol_error(self, mock_get_analyzer):
         """Test error handling in find_symbol."""
         # Mock analyzer that raises error on find_symbol
-        mock_analyzer = Mock()
+        mock_analyzer = AsyncMock()
         mock_analyzer.find_symbol.side_effect = Exception("Search error")
         mock_get_analyzer.return_value = mock_analyzer
 
         # Should raise AnalysisError when search fails
         with pytest.raises(AnalysisError) as exc_info:
-            find_symbol("test")
+            await find_symbol("test")
         assert "Failed to search for symbol" in str(exc_info.value)
 
     @patch("pycodemcp.server.Path")
-    def test_file_not_found_error(self, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_file_not_found_error(self, mock_path_class):
         """Test handling of file not found errors."""
         mock_path = Mock()
         mock_path.exists.return_value = False
@@ -793,7 +836,7 @@ class TestErrorHandling:
 
         # Should raise FileAccessError for non-existent file
         with pytest.raises(FileAccessError) as exc_info:
-            goto_definition("nonexistent.py", 1, 0)
+            await goto_definition("nonexistent.py", 1, 0)
         assert "File not found" in str(exc_info.value)
 
 
@@ -801,7 +844,8 @@ class TestInputValidation:
     """Test input validation decorators."""
 
     @patch("pycodemcp.server.Path")
-    def test_validate_negative_line_number(self, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_validate_negative_line_number(self, mock_path_class):
         """Test that negative line numbers are rejected."""
         from pycodemcp.exceptions import ValidationError
 
@@ -812,12 +856,13 @@ class TestInputValidation:
 
         # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
         with pytest.raises(ValidationError) as exc_info:
-            goto_definition("test.py", -1, 0)
+            await goto_definition("test.py", -1, 0)
 
         assert "line number" in str(exc_info.value).lower()
 
     @patch("pycodemcp.server.Path")
-    def test_validate_negative_column_number(self, mock_path_class):
+    @pytest.mark.asyncio
+    async def test_validate_negative_column_number(self, mock_path_class):
         """Test that negative column numbers are rejected."""
         from pycodemcp.exceptions import ValidationError
 
@@ -828,6 +873,6 @@ class TestInputValidation:
 
         # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
         with pytest.raises(ValidationError) as exc_info:
-            goto_definition("test.py", 10, -5)
+            await goto_definition("test.py", 10, -5)
 
         assert "column" in str(exc_info.value).lower()

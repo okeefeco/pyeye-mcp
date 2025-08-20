@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from src.pycodemcp.plugins.flask import FlaskPlugin
 
 
@@ -35,7 +37,8 @@ if __name__ == '__main__':
         assert plugin.name() == "Flask"
 
 
-def test_find_routes():
+@pytest.mark.asyncio
+async def test_find_routes():
     """Test finding Flask routes."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create Flask app with routes
@@ -61,7 +64,7 @@ def user_detail(user_id):
         )
 
         plugin = FlaskPlugin(tmpdir)
-        routes = plugin.find_routes()
+        routes = await plugin.find_routes()
 
         assert len(routes) == 3
 
@@ -78,7 +81,8 @@ def user_detail(user_id):
         assert set(users_route["methods"]) == {"GET", "POST"}
 
 
-def test_find_blueprints():
+@pytest.mark.asyncio
+async def test_find_blueprints():
     """Test finding Flask blueprints."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create blueprint file
@@ -98,7 +102,7 @@ api_bp = Blueprint('api', __name__, url_prefix='/api/v1')
         )
 
         plugin = FlaskPlugin(tmpdir)
-        blueprints = plugin.find_blueprints()
+        blueprints = await plugin.find_blueprints()
 
         assert len(blueprints) == 2
 
@@ -115,7 +119,8 @@ api_bp = Blueprint('api', __name__, url_prefix='/api/v1')
         assert api_bp["url_prefix"] == "/api/v1"
 
 
-def test_find_error_handlers():
+@pytest.mark.asyncio
+async def test_find_error_handlers():
     """Test finding error handlers."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with error handlers
@@ -141,7 +146,7 @@ def handle_exception(error):
         )
 
         plugin = FlaskPlugin(tmpdir)
-        handlers = plugin.find_error_handlers()
+        handlers = await plugin.find_error_handlers()
 
         assert len(handlers) == 3
 
@@ -155,7 +160,8 @@ def handle_exception(error):
         assert exception_handler is not None
 
 
-def test_find_extensions():
+@pytest.mark.asyncio
+async def test_find_extensions():
     """Test finding Flask extensions."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with extensions
@@ -175,7 +181,7 @@ CORS(app)
         )
 
         plugin = FlaskPlugin(tmpdir)
-        extensions = plugin.find_extensions()
+        extensions = await plugin.find_extensions()
 
         # Check that we found the extensions
         ext_names = [e["extension"] for e in extensions]
@@ -184,7 +190,8 @@ CORS(app)
         assert "flask_cors" in ext_names
 
 
-def test_find_cli_commands():
+@pytest.mark.asyncio
+async def test_find_cli_commands():
     """Test finding CLI commands."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with CLI commands
@@ -209,7 +216,7 @@ def seed_data():
         )
 
         plugin = FlaskPlugin(tmpdir)
-        commands = plugin.find_cli_commands()
+        commands = await plugin.find_cli_commands()
 
         assert len(commands) == 2
 
