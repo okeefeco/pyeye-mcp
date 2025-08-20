@@ -182,30 +182,46 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
 - Working on multiple features/fixes without stashing
 - Quick context switching between tasks
 
-1. **Setup worktree structure**:
+1. **Setup worktree with virtual environment**:
 
    ```bash
    # Create a directory for worktrees
    mkdir ../python-code-intelligence-mcp-work
 
-   # Add a worktree for a feature branch
-   git worktree add ../python-code-intelligence-mcp-work/feat-42 -b feat/42-new-feature main
+   # Add a worktree (directory name matches branch pattern)
+   git worktree add ../python-code-intelligence-mcp-work/feat-42-new-feature -b feat/42-new-feature main
 
-   # Add a worktree for a bugfix
-   git worktree add ../python-code-intelligence-mcp-work/fix-43 -b fix/43-bug-name main
+   # Set up isolated virtual environment (required for each worktree)
+   cd ../python-code-intelligence-mcp-work/feat-42-new-feature
+   uv venv
+   uv pip install -e ".[dev]"
    ```
 
 2. **Recommended structure**:
 
    ```text
    python-code-intelligence-mcp/        # Main repo (keep on main branch)
+   ├── .venv/                           # Main's virtual environment
    python-code-intelligence-mcp-work/   # Worktrees directory
-   ├── feat-42/                         # Feature branch worktree
-   ├── fix-43/                          # Bugfix branch worktree
-   └── docs-44/                         # Documentation branch worktree
+   ├── feat-42-new-feature/             # Feature branch worktree
+   │   ├── .venv/                       # Isolated virtual environment
+   ├── fix-43-bug-name/                 # Bugfix branch worktree
+   │   ├── .venv/                       # Isolated virtual environment
+   └── docs-44-update-readme/           # Documentation branch worktree
+       ├── .venv/                       # Isolated virtual environment
    ```
 
-3. **Worktree commands**:
+3. **Virtual Environment Strategy**:
+
+   Each worktree gets its own `.venv` for complete isolation:
+   - **Isolation**: Test dependency changes without affecting other branches
+   - **Speed**: `uv` caches packages, so subsequent installs are fast (~10s)
+   - **Safety**: Main branch stays stable even if a feature branch experiments
+   - **IDE Support**: Each worktree's `.venv` is automatically detected
+
+   Note: Do NOT copy/symlink venvs between worktrees - this defeats isolation and can cause issues.
+
+4. **Worktree commands**:
 
    ```bash
    # List all worktrees
@@ -218,7 +234,28 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
    git worktree prune
    ```
 
-4. **Benefits**:
+5. **Quick setup script** (optional):
+
+   Create `setup-worktree.sh` in your main repo:
+
+   ```bash
+   #!/bin/bash
+   # Usage: ./setup-worktree.sh feat 42 "add-new-feature"
+
+   TYPE=$1
+   ISSUE=$2
+   DESC=$3
+   BRANCH="$TYPE/$ISSUE-$DESC"
+   DIR="../python-code-intelligence-mcp-work/$TYPE-$ISSUE-$DESC"
+
+   git worktree add "$DIR" -b "$BRANCH" main
+   cd "$DIR"
+   uv venv
+   uv pip install -e ".[dev]"
+   echo "✅ Worktree ready at $DIR"
+   ```
+
+6. **Benefits**:
    - No need to stash changes when switching tasks
    - Main branch stays clean for testing/running
    - Each issue gets its own isolated workspace
