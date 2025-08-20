@@ -9,6 +9,16 @@ These files are automatically loaded to provide essential workflow context:
 
 **CRITICAL**: The workflows in CONTRIBUTING.md are MANDATORY. Always follow the GitHub issue-based workflow and NEVER use squash merges.
 
+## 📝 Optional User-Specific Configuration
+
+For personal development settings (worktrees, local paths, etc.):
+
+- Create: `~/.claude/projects/{org}/{repo}.md`
+- Example: `~/.claude/projects/okeefeco/python-code-intelligence-mcp.md`
+- This file is ignored if it doesn't exist and won't be committed to the repository
+
+@~/.claude/projects/okeefeco/python-code-intelligence-mcp.md
+
 ## Development Environment
 
 - **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
