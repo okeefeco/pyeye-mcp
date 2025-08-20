@@ -136,6 +136,94 @@ pre-commit install --hook-type commit-msg  # For commit message validation
 detect-secrets scan > .secrets.baseline
 ```
 
+## Local Development Tools
+
+### Personal Configuration Files (Claude Code)
+
+For user-specific settings that shouldn't be committed (like worktree paths, personal aliases, etc.), use Claude's local configuration system:
+
+1. **Create your personal config file**:
+
+   ```bash
+   mkdir -p ~/.claude/projects/{github-org}
+   touch ~/.claude/projects/{github-org}/{repo-name}.md
+
+   # For this project:
+   mkdir -p ~/.claude/projects/okeefeco
+   touch ~/.claude/projects/okeefeco/python-code-intelligence-mcp.md
+   ```
+
+2. **Structure**: The `{org}/{repo}` pattern prevents naming conflicts between:
+   - Forks (e.g., `upstream/repo` vs `yourfork/repo`)
+   - Different organizations with same repo names
+   - Personal vs work projects
+
+3. **Import in CLAUDE.md**: The project's CLAUDE.md includes an optional import that fails gracefully if your personal file doesn't exist
+
+4. **Example personal config content**:
+
+   ```markdown
+   # Python Code Intelligence MCP - Local Settings
+
+   ## Worktree Locations
+   - Main: /home/user/GitHub/python-code-intelligence-mcp
+   - Work: /home/user/GitHub/python-code-intelligence-mcp-work/
+
+   ## Personal Aliases
+   alias mcp-main="cd /home/user/GitHub/python-code-intelligence-mcp"
+   alias mcp-work="cd /home/user/GitHub/python-code-intelligence-mcp-work"
+   ```
+
+### Git Worktrees (Recommended)
+
+Git worktrees allow you to have multiple branches checked out simultaneously in different directories. This is especially useful for:
+
+- Keeping the main branch stable for running the MCP server
+- Working on multiple features/fixes without stashing
+- Quick context switching between tasks
+
+1. **Setup worktree structure**:
+
+   ```bash
+   # Create a directory for worktrees
+   mkdir ../python-code-intelligence-mcp-work
+
+   # Add a worktree for a feature branch
+   git worktree add ../python-code-intelligence-mcp-work/feat-42 -b feat/42-new-feature main
+
+   # Add a worktree for a bugfix
+   git worktree add ../python-code-intelligence-mcp-work/fix-43 -b fix/43-bug-name main
+   ```
+
+2. **Recommended structure**:
+
+   ```text
+   python-code-intelligence-mcp/        # Main repo (keep on main branch)
+   python-code-intelligence-mcp-work/   # Worktrees directory
+   ├── feat-42/                         # Feature branch worktree
+   ├── fix-43/                          # Bugfix branch worktree
+   └── docs-44/                         # Documentation branch worktree
+   ```
+
+3. **Worktree commands**:
+
+   ```bash
+   # List all worktrees
+   git worktree list
+
+   # Remove a worktree when done
+   git worktree remove ../python-code-intelligence-mcp-work/feat-42
+
+   # Prune stale worktree references
+   git worktree prune
+   ```
+
+4. **Benefits**:
+   - No need to stash changes when switching tasks
+   - Main branch stays clean for testing/running
+   - Each issue gets its own isolated workspace
+   - Faster context switching
+
 ## Development Workflow
 
 ### Branch Protection
