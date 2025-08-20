@@ -48,14 +48,14 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term
+          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=75
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   type-check:
