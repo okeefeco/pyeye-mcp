@@ -280,7 +280,16 @@ class User(BaseModel):
             # Store resolved path to match what ProjectManager uses
             projects.append(proj_dir.resolve())
 
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with (
+            patch("pycodemcp.project_manager.jedi.Project"),
+            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+        ):
+            # Mock the watcher to prevent file system issues on macOS
+            mock_watcher_instance = Mock()
+            mock_watcher_instance.start = Mock()
+            mock_watcher_instance.stop = Mock()
+            mock_watcher.return_value = mock_watcher_instance
+
             # Rapidly access all projects
             for _ in range(3):  # Multiple rounds
                 for proj in projects:
@@ -289,6 +298,9 @@ class User(BaseModel):
 
             # All should still be in cache (max_projects=10)
             assert len(manager.projects) == 10
+
+        # Ensure cleanup
+        manager.cleanup_all()
 
     def test_large_codebase_workflow(self, temp_project_dir):
         """Test handling large codebases with many files."""
