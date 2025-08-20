@@ -1,6 +1,5 @@
 """Tests for namespace package resolution."""
 
-
 from pycodemcp.namespace_resolver import NamespaceResolver
 
 from .test_utils import assert_path_in_list

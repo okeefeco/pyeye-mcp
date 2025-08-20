@@ -1,6 +1,7 @@
 """Caching and file watching for the MCP server."""
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 from watchdog.events import FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
+
+from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +30,14 @@ class CodebaseWatcher(FileSystemEventHandler):
         self.last_change = time.time()
         self._observer: BaseObserver | None = None
 
+        # Debouncing support
+        self.debounce_timer: threading.Timer | None = None
+        self.debounce_delay = settings.watcher_debounce
+        self.pending_changes: set[str] = set()
+        self.debounce_lock = threading.Lock()
+
     def on_modified(self, event: Any) -> None:
-        """Handle file modification events."""
+        """Handle file modification events with debouncing."""
         if event.is_directory:
             return
 
@@ -36,11 +45,43 @@ class CodebaseWatcher(FileSystemEventHandler):
         if isinstance(event, FileModifiedEvent):
             src_path = event.src_path
             if isinstance(src_path, str) and src_path.endswith(".py"):
-                logger.info(f"Python file modified: {src_path}")
+                logger.debug(f"Python file modified: {src_path}")
                 self.last_change = time.time()
 
-                if self.on_change_callback:
-                    self.on_change_callback(src_path)
+                # Add to pending changes and reset debounce timer
+                with self.debounce_lock:
+                    self.pending_changes.add(src_path)
+
+                    # Cancel existing timer if any
+                    if self.debounce_timer:
+                        self.debounce_timer.cancel()
+
+                    # Start new timer
+                    self.debounce_timer = threading.Timer(
+                        self.debounce_delay, self._process_changes
+                    )
+                    self.debounce_timer.start()
+
+    def _process_changes(self) -> None:
+        """Process accumulated changes after debounce delay."""
+        with self.debounce_lock:
+            if not self.pending_changes:
+                return
+
+            changes = list(self.pending_changes)
+            self.pending_changes.clear()
+            self.debounce_timer = None
+
+        # Log all changes at once
+        logger.info(f"Processing {len(changes)} file change(s) after debounce")
+        for path in changes:
+            logger.debug(f"  - {path}")
+
+        # Call callback once for all changes
+        if self.on_change_callback:
+            # Pass the first changed file (for compatibility)
+            # Could be enhanced to pass all files if needed
+            self.on_change_callback(changes[0])
 
     def start(self) -> None:
         """Start watching the project."""
@@ -52,6 +93,13 @@ class CodebaseWatcher(FileSystemEventHandler):
 
     def stop(self) -> None:
         """Stop watching."""
+        # Cancel any pending debounce timer
+        with self.debounce_lock:
+            if self.debounce_timer:
+                self.debounce_timer.cancel()
+                self.debounce_timer = None
+            self.pending_changes.clear()
+
         if self._observer:
             self._observer.stop()
             self._observer.join()
@@ -66,15 +114,16 @@ class CodebaseWatcher(FileSystemEventHandler):
 class ProjectCache:
     """Simple cache for project analysis results."""
 
-    def __init__(self, ttl_seconds: int = 300):
+    def __init__(self, ttl_seconds: int | None = None):
         """Initialize cache.
 
         Args:
-            ttl_seconds: Time to live for cache entries
+            ttl_seconds: Time to live for cache entries.
+                        If None, uses value from settings.
         """
         self.cache: dict[str, Any] = {}
         self.timestamps: dict[str, float] = {}
-        self.ttl = ttl_seconds
+        self.ttl = ttl_seconds if ttl_seconds is not None else settings.cache_ttl
 
     def get(self, key: str) -> Any | None:
         """Get value from cache if not expired."""

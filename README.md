@@ -149,6 +149,47 @@ Override files are perfect for local development configurations that shouldn't b
 }
 ```
 
+### Performance Settings
+
+All performance-critical settings can be configured via environment variables to tune for your specific workload:
+
+| Environment Variable | Default | Description | Valid Range |
+|---------------------|---------|-------------|-------------|
+| `PYCODEMCP_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
+| `PYCODEMCP_CACHE_TTL` | 300 | Cache time-to-live in seconds | 0-86400 (24h) |
+| `PYCODEMCP_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
+| `PYCODEMCP_MAX_FILE_SIZE` | 1048576 | Maximum file size to analyze (bytes) | 1KB-100MB |
+| `PYCODEMCP_MAX_WORKERS` | 4 | Maximum concurrent analysis workers | 1-32 |
+| `PYCODEMCP_ANALYSIS_TIMEOUT` | 30.0 | Analysis timeout in seconds | 1.0-300.0 |
+| `PYCODEMCP_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
+| `PYCODEMCP_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
+
+#### Performance Tuning Examples
+
+**Large codebase with stable files:**
+
+```bash
+export PYCODEMCP_MAX_PROJECTS=50        # Handle more projects
+export PYCODEMCP_CACHE_TTL=1800         # 30 minute cache
+export PYCODEMCP_WATCHER_DEBOUNCE=2.0   # Less frequent updates
+```
+
+**Active development with frequent changes:**
+
+```bash
+export PYCODEMCP_MAX_PROJECTS=5         # Fewer projects, faster switching
+export PYCODEMCP_CACHE_TTL=60           # 1 minute cache
+export PYCODEMCP_WATCHER_DEBOUNCE=0.1   # Near real-time updates
+```
+
+**Memory-constrained environment:**
+
+```bash
+export PYCODEMCP_MAX_PROJECTS=3         # Minimal project cache
+export PYCODEMCP_MAX_FILE_SIZE=524288   # 512KB file limit
+export PYCODEMCP_MAX_WORKERS=2          # Fewer workers
+```
+
 This file is automatically ignored by git and takes precedence over all other configuration sources.
 
 ## Core Tools

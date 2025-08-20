@@ -146,7 +146,10 @@ class APIClient:
 
     def test_file_change_cache_invalidation(self, temp_project_dir):
         """Test that file changes trigger cache invalidation."""
+        import time
+
         from pycodemcp.cache import CodebaseWatcher, ProjectCache
+        from pycodemcp.settings import settings
 
         # Create project with file
         test_file = temp_project_dir / "test.py"
@@ -166,6 +169,9 @@ class APIClient:
 
         event = FileModifiedEvent(str(test_file))
         watcher.on_modified(event)
+
+        # Wait for debounce delay
+        time.sleep(settings.watcher_debounce + 0.1)
 
         # Cache should be invalidated
         assert cache.get("test_key") is None
