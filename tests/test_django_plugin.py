@@ -110,7 +110,8 @@ class TestDjangoPlugin:
             assert tool_name in tools
             assert callable(tools[tool_name])
 
-    def test_find_models(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_models(self, temp_project):
         """Test finding Django models."""
         models_file = temp_project / "models.py"
         models_file.write_text(
@@ -128,13 +129,14 @@ class Product(models.Model):
         )
 
         plugin = DjangoPlugin(temp_project)
-        models = plugin.find_models()
+        models = await plugin.find_models()
 
         assert len(models) == 2
         assert any(m["name"] == "User" for m in models)
         assert any(m["name"] == "Product" for m in models)
 
-    def test_find_views(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_views(self, temp_project):
         """Test finding Django views."""
         views_file = temp_project / "views.py"
         views_file.write_text(
@@ -155,7 +157,7 @@ def index(request):
         )
 
         plugin = DjangoPlugin(temp_project)
-        views = plugin.find_views()
+        views = await plugin.find_views()
 
         assert len(views) >= 2  # At least the class-based views
         assert any(v["name"] == "UserListView" for v in views)
@@ -252,21 +254,23 @@ class Migration(migrations.Migration):
         assert any("admin.py" in f for f in components["admin"])
         assert any("forms.py" in f for f in components["forms"])
 
-    def test_empty_project(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_empty_project(self, temp_project):
         """Test all find methods return empty lists for empty project."""
         plugin = DjangoPlugin(temp_project)
 
-        assert plugin.find_models() == []
-        assert plugin.find_views() == []
+        assert await plugin.find_models() == []
+        assert await plugin.find_views() == []
         assert plugin.find_urls() == []
         assert plugin.find_templates() == []
         assert plugin.find_migrations() == []
 
-    def test_file_not_found_handling(self, django_plugin):
+    @pytest.mark.asyncio
+    async def test_file_not_found_handling(self, django_plugin):
         """Test handling of non-existent files."""
         # All find methods should handle missing files gracefully
-        assert django_plugin.find_models() == []
-        assert django_plugin.find_views() == []
+        assert await django_plugin.find_models() == []
+        assert await django_plugin.find_views() == []
 
     @patch("pycodemcp.plugins.django.logger")
     def test_logging_on_detection(self, mock_logger, temp_project):

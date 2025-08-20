@@ -2,8 +2,9 @@
 
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.config import ProjectConfig
 from pycodemcp.namespace_resolver import NamespaceResolver
@@ -13,7 +14,8 @@ from pycodemcp.project_manager import ProjectManager
 class TestEndToEndWorkflow:
     """Test complete workflows from config to analysis."""
 
-    def test_complete_project_analysis_workflow(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_complete_project_analysis_workflow(self, temp_project_dir):
         """Test complete workflow: config → project → analyze."""
         # Step 1: Create project structure
         src_dir = temp_project_dir / "src"
@@ -54,13 +56,13 @@ if __name__ == "__main__":
         # Step 5: Perform analysis
         analyzer = JediAnalyzer(str(temp_project_dir))
 
-        with patch.object(analyzer, "find_symbol") as mock_find:
+        with patch.object(analyzer, "find_symbol", new_callable=AsyncMock) as mock_find:
             mock_find.return_value = [
                 {"name": "main", "line": 2, "type": "function"},
                 {"name": "helper", "line": 7, "type": "function"},
             ]
 
-            results = analyzer.find_symbol("main")
+            results = await analyzer.find_symbol("main")
             assert len(results) == 2
 
     def test_multi_project_workflow(self, temp_project_dir):
@@ -168,7 +170,8 @@ class APIClient:
         # Cache should be invalidated
         assert cache.get("test_key") is None
 
-    def test_plugin_activation_workflow(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_plugin_activation_workflow(self, temp_project_dir):
         """Test that plugins are activated based on project type."""
         from pycodemcp.plugins.flask import FlaskPlugin
         from pycodemcp.plugins.pydantic import PydanticPlugin
@@ -202,7 +205,7 @@ class User(BaseModel):
         flask_plugin = FlaskPlugin(str(temp_project_dir))
         assert flask_plugin.detect() is True
 
-        routes = flask_plugin.find_routes()
+        routes = await flask_plugin.find_routes()
         assert len(routes) == 1
         assert routes[0]["path"] == "/"
 
@@ -210,7 +213,7 @@ class User(BaseModel):
         pydantic_plugin = PydanticPlugin(str(temp_project_dir))
         assert pydantic_plugin.detect() is True
 
-        models = pydantic_plugin.find_models()
+        models = await pydantic_plugin.find_models()
         assert len(models) == 1
         assert models[0]["name"] == "User"
 

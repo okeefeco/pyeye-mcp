@@ -9,6 +9,7 @@ from typing import Any
 
 import jedi
 
+from ..async_utils import read_file_async, rglob_async
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-    def find_symbol(
+    async def find_symbol(
         self, name: str, fuzzy: bool = False, include_import_paths: bool = True
     ) -> list[dict[str, Any]]:
         """Find symbol definitions in the project.
@@ -68,7 +69,9 @@ class JediAnalyzer:
 
                 try:
                     results.append(
-                        self._serialize_name(result, include_import_paths=include_import_paths)
+                        await self._serialize_name(
+                            result, include_import_paths=include_import_paths
+                        )
                     )
                 except Exception as e:
                     # Log but don't fail entire search for one bad result
@@ -88,19 +91,19 @@ class JediAnalyzer:
 
         return results
 
-    def goto_definition(self, file: str, line: int, column: int) -> dict[str, Any] | None:
+    async def goto_definition(self, file: str, line: int, column: int) -> dict[str, Any] | None:
         """Get definition location from a position."""
         try:
             file_path = Path(file)
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = file_path.read_text()
+            source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
             definitions = script.goto(line, column)
 
             if definitions:
-                return self._serialize_name(definitions[0], include_docstring=True)
+                return await self._serialize_name(definitions[0], include_docstring=True)
 
         except FileAccessError:
             raise  # Re-raise file access errors
@@ -110,7 +113,7 @@ class JediAnalyzer:
 
         return None
 
-    def find_references(
+    async def find_references(
         self, file: str, line: int, column: int, include_definitions: bool = True
     ) -> list[dict[str, Any]]:
         """Find all references to a symbol."""
@@ -121,7 +124,7 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = file_path.read_text()
+            source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
             references = script.get_references(line, column, include_builtins=False)
 
@@ -129,7 +132,7 @@ class JediAnalyzer:
                 if not include_definitions and ref.is_definition():
                     continue
 
-                serialized = self._serialize_name(ref)
+                serialized = await self._serialize_name(ref)
                 serialized["is_definition"] = ref.is_definition()
                 results.append(serialized)
 
@@ -141,7 +144,7 @@ class JediAnalyzer:
 
         return results
 
-    def get_completions(self, file: str, line: int, column: int) -> list[dict[str, Any]]:
+    async def get_completions(self, file: str, line: int, column: int) -> list[dict[str, Any]]:
         """Get code completions at a position."""
         completions: list[dict[str, Any]] = []
 
@@ -150,7 +153,7 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = file_path.read_text()
+            source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
 
             for completion in script.complete(line, column):
@@ -172,14 +175,14 @@ class JediAnalyzer:
 
         return completions
 
-    def get_signature_help(self, file: str, line: int, column: int) -> dict[str, Any] | None:
+    async def get_signature_help(self, file: str, line: int, column: int) -> dict[str, Any] | None:
         """Get signature help for function calls."""
         try:
             file_path = Path(file)
             if not file_path.exists():
                 return None
 
-            source = file_path.read_text()
+            source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
             signatures = script.get_signatures(line, column)
 
@@ -197,7 +200,7 @@ class JediAnalyzer:
 
         return None
 
-    def analyze_imports(self, file: str) -> list[dict[str, Any]]:
+    async def analyze_imports(self, file: str) -> list[dict[str, Any]]:
         """Analyze imports in a file."""
         imports: list[dict[str, Any]] = []
 
@@ -206,7 +209,7 @@ class JediAnalyzer:
             if not file_path.exists():
                 return imports
 
-            source = file_path.read_text()
+            source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
 
             names = script.get_names(all_scopes=True, definitions=True, references=False)
@@ -228,14 +231,15 @@ class JediAnalyzer:
 
         return imports
 
-    def list_packages(self) -> list[dict[str, Any]]:
+    async def list_packages(self) -> list[dict[str, Any]]:
         """List all Python packages in the project."""
         packages: list[dict[str, Any]] = []
         seen_packages = set()
 
         try:
             # Walk the project directory to find packages
-            for path in self.project_path.rglob("__init__.py"):
+            init_files = await rglob_async("__init__.py", self.project_path)
+            for path in init_files:
                 package_dir = path.parent
                 rel_path = package_dir.relative_to(self.project_path)
 
@@ -282,13 +286,14 @@ class JediAnalyzer:
 
         return packages
 
-    def list_modules(self) -> list[dict[str, Any]]:
+    async def list_modules(self) -> list[dict[str, Any]]:
         """List all Python modules with exports and metrics."""
         modules = []
 
         try:
             # Find all Python files in the project
-            for py_file in self.project_path.rglob("*.py"):
+            py_files = await rglob_async("*.py", self.project_path)
+            for py_file in py_files:
                 # Skip hidden directories and common non-source directories
                 rel_path = py_file.relative_to(self.project_path)
                 parts = rel_path.parts
@@ -306,7 +311,7 @@ class JediAnalyzer:
                     import_path = ".".join(module_parts) if module_parts else py_file.stem
 
                     # Read file for analysis
-                    source = py_file.read_text()
+                    source = await read_file_async(py_file)
                     lines = source.count("\n") + 1
 
                     # Parse with AST to extract structure
@@ -334,10 +339,14 @@ class JediAnalyzer:
 
                     # Check if has tests
                     test_patterns = ["test_" + py_file.stem, py_file.stem + "_test"]
-                    has_tests = any(
-                        (self.project_path / "tests").rglob(f"{pattern}.py")
-                        for pattern in test_patterns
-                    )
+                    has_tests = False
+                    tests_dir = self.project_path / "tests"
+                    if tests_dir.exists():
+                        for pattern in test_patterns:
+                            test_files = await rglob_async(f"{pattern}.py", tests_dir)
+                            if test_files:
+                                has_tests = True
+                                break
 
                     modules.append(
                         {
@@ -368,7 +377,7 @@ class JediAnalyzer:
 
         return modules
 
-    def analyze_dependencies(
+    async def analyze_dependencies(
         self, module_path: str, _visited: set[str] | None = None
     ) -> dict[str, Any]:
         """Analyze import dependencies for a module."""
@@ -400,7 +409,7 @@ class JediAnalyzer:
                 raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
 
             # Analyze imports in this module
-            source = module_file.read_text()
+            source = await read_file_async(module_file)
             tree = ast.parse(source)
 
             # Standard library modules (common ones, not exhaustive)
@@ -448,7 +457,8 @@ class JediAnalyzer:
 
             # Get project modules for internal/external classification
             project_modules = set()
-            for py_file in self.project_path.rglob("*.py"):
+            py_files = await rglob_async("*.py", self.project_path)
+            for py_file in py_files:
                 rel_path = py_file.relative_to(self.project_path)
                 if not any(
                     p.startswith(".") or p in ["__pycache__", "build", "dist"]
@@ -490,12 +500,13 @@ class JediAnalyzer:
             result["imports"]["external"] = sorted(set(external_imports))
 
             # Find what imports this module
-            for py_file in self.project_path.rglob("*.py"):
+            py_files = await rglob_async("*.py", self.project_path)
+            for py_file in py_files:
                 if py_file == module_file:
                     continue
 
                 try:
-                    source = py_file.read_text()
+                    source = await read_file_async(py_file)
                     if module_path in source or module_path.replace(".", "/") in source:
                         # More precise check with AST
                         tree = ast.parse(source)
@@ -540,7 +551,7 @@ class JediAnalyzer:
                     if imported_module not in _visited:
                         # Check if the imported module also imports this module
                         try:
-                            deps = self.analyze_dependencies(imported_module, _visited)
+                            deps = await self.analyze_dependencies(imported_module, _visited)
                             if module_path in deps["imports"]["internal"]:
                                 result["circular_dependencies"].append(imported_module)
                         except Exception:
@@ -559,7 +570,7 @@ class JediAnalyzer:
 
         return result
 
-    def get_module_info(self, module_path: str) -> dict[str, Any]:
+    async def get_module_info(self, module_path: str) -> dict[str, Any]:
         """Get detailed information about a specific module."""
         info: dict[str, Any] = {
             "module": module_path,
@@ -597,7 +608,7 @@ class JediAnalyzer:
             info["file"] = str(module_file)
 
             # Read and parse the module
-            source = module_file.read_text()
+            source = await read_file_async(module_file)
             info["metrics"]["lines"] = source.count("\n") + 1
 
             tree = ast.parse(source)
@@ -682,7 +693,7 @@ class JediAnalyzer:
             info["metrics"]["complexity"] = complexity
 
             # Get dependency information
-            info["dependencies"] = self.analyze_dependencies(module_path)
+            info["dependencies"] = await self.analyze_dependencies(module_path)
 
         except FileAccessError:
             raise
@@ -696,7 +707,7 @@ class JediAnalyzer:
 
         return info
 
-    def _serialize_name(
+    async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
         include_docstring: bool = False,
@@ -725,13 +736,13 @@ class JediAnalyzer:
             if len(parts) > 1:
                 module_path = ".".join(parts[:-1])
                 file_path = str(name.module_path) if name.module_path else None
-                import_paths = self.find_reexports(name.name, module_path, file_path)
+                import_paths = await self.find_reexports(name.name, module_path, file_path)
                 if import_paths:
                     result["import_paths"] = import_paths
 
         return result
 
-    def find_reexports(
+    async def find_reexports(
         self, symbol_name: str, original_module: str, file_path: str | None = None
     ) -> list[str]:
         """Find re-export paths for a symbol.
@@ -773,7 +784,7 @@ class JediAnalyzer:
                 parent_module = ".".join(module_parts[:i])
                 init_file = self._find_init_file(parent_module)
 
-                if init_file and self._check_symbol_in_init(
+                if init_file and await self._check_symbol_in_init(
                     init_file, symbol_name, module_parts[i]
                 ):
                     shorter_import = f"from {parent_module} import {symbol_name}"
@@ -813,10 +824,12 @@ class JediAnalyzer:
 
         return None
 
-    def _check_symbol_in_init(self, init_file: Path, symbol_name: str, submodule: str) -> bool:
+    async def _check_symbol_in_init(
+        self, init_file: Path, symbol_name: str, submodule: str
+    ) -> bool:
         """Check if a symbol is re-exported in an __init__.py file."""
         try:
-            content = init_file.read_text()
+            content = await read_file_async(init_file)
 
             # Check for direct import: from .submodule import symbol
             import_patterns = [

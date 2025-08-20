@@ -83,7 +83,8 @@ class TestPydanticPlugin:
             assert tool_name in tools
             assert callable(tools[tool_name])
 
-    def test_find_models(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_models(self, temp_project):
         """Test finding Pydantic models."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -103,7 +104,7 @@ class Product(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        models = plugin.find_models()
+        models = await plugin.find_models()
 
         assert len(models) == 2
         assert any(m["name"] == "User" for m in models)
@@ -114,7 +115,8 @@ class Product(BaseModel):
         assert len(user_model["fields"]) == 3
         assert any(f["name"] == "name" for f in user_model["fields"])
 
-    def test_get_model_schema(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_get_model_schema(self, temp_project):
         """Test getting model schema."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -128,8 +130,8 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        plugin.find_models()  # First find the models
-        schema = plugin.get_model_schema("User")
+        await plugin.find_models()  # First find the models
+        schema = await plugin.get_model_schema("User")
 
         assert schema is not None
         assert schema["model"] == "User"
@@ -137,12 +139,14 @@ class User(BaseModel):
         assert "required" in schema
         assert "optional" in schema
 
-    def test_get_model_schema_not_found(self, pydantic_plugin):
+    @pytest.mark.asyncio
+    async def test_get_model_schema_not_found(self, pydantic_plugin):
         """Test getting schema for non-existent model."""
-        schema = pydantic_plugin.get_model_schema("NonExistent")
+        schema = await pydantic_plugin.get_model_schema("NonExistent")
         assert schema is None
 
-    def test_find_validators(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_validators(self, temp_project):
         """Test finding validators."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -168,13 +172,14 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        validators = plugin.find_validators()
+        validators = await plugin.find_validators()
 
         assert len(validators) >= 2
         assert any(v["name"] == "validate_name" for v in validators)
         assert any(v["name"] == "validate_email" for v in validators)
 
-    def test_find_field_validators(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_field_validators(self, temp_project):
         """Test finding field-specific validators."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -192,12 +197,13 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        validators = plugin.find_field_validators()
+        validators = await plugin.find_field_validators()
 
         assert len(validators) >= 1
         assert any(v["name"] == "validate_fields" for v in validators)
 
-    def test_find_model_config(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_model_config(self, temp_project):
         """Test finding model configurations."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -221,7 +227,7 @@ class Product(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        configs = plugin.find_model_config()
+        configs = await plugin.find_model_config()
 
         assert len(configs) >= 1
         assert any(c["model"] == "User" for c in configs)
@@ -230,7 +236,8 @@ class Product(BaseModel):
         if user_config and "settings" in user_config:
             assert "str_strip_whitespace" in user_config["settings"]
 
-    def test_trace_model_inheritance(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_trace_model_inheritance(self, temp_project):
         """Test tracing model inheritance."""
         # Create separate files for better detection
         base_file = temp_project / "base.py"
@@ -257,13 +264,13 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        models = plugin.find_models()
+        models = await plugin.find_models()
 
         # At minimum, we should find the models
         assert len(models) >= 2
 
         # Test that trace_model_inheritance returns expected structure
-        inheritance = plugin.trace_model_inheritance("User")
+        inheritance = await plugin.trace_model_inheritance("User")
         assert inheritance is not None
         assert inheritance["model"] == "User"
         assert "parents" in inheritance
@@ -271,7 +278,8 @@ class User(BaseModel):
         assert isinstance(inheritance["parents"], list)
         assert isinstance(inheritance["children"], list)
 
-    def test_find_computed_fields(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_computed_fields(self, temp_project):
         """Test finding computed fields."""
         model_file = temp_project / "models.py"
         model_file.write_text(
@@ -294,20 +302,21 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        computed = plugin.find_computed_fields()
+        computed = await plugin.find_computed_fields()
 
         assert len(computed) >= 1
         assert any("full_name" in str(c) or "display_name" in str(c) for c in computed)
 
-    def test_empty_project(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_empty_project(self, temp_project):
         """Test all find methods return empty for empty project."""
         plugin = PydanticPlugin(temp_project)
 
-        assert plugin.find_models() == []
-        assert plugin.find_validators() == []
-        assert plugin.find_field_validators() == []
-        assert plugin.find_model_config() == []
-        assert plugin.find_computed_fields() == []
+        assert await plugin.find_models() == []
+        assert await plugin.find_validators() == []
+        assert await plugin.find_field_validators() == []
+        assert await plugin.find_model_config() == []
+        assert await plugin.find_computed_fields() == []
 
     def test_is_pydantic_model(self, pydantic_plugin):
         """Test _is_pydantic_model method."""
@@ -544,7 +553,8 @@ class User(BaseModel):
         config = pydantic_plugin._extract_config(class_node)
         # Note: This may need dict literal parsing
 
-    def test_complex_model(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_complex_model(self, temp_project):
         """Test with a complex Pydantic model."""
         model_file = temp_project / "complex.py"
         model_file.write_text(
@@ -584,27 +594,28 @@ class User(BaseModel):
         )
 
         plugin = PydanticPlugin(temp_project)
-        models = plugin.find_models()
+        models = await plugin.find_models()
 
         assert len(models) == 2
         assert any(m["name"] == "User" for m in models)
         assert any(m["name"] == "Address" for m in models)
 
-        validators = plugin.find_validators()
+        validators = await plugin.find_validators()
         assert any(v["name"] == "validate_email" for v in validators)
 
-        configs = plugin.find_model_config()
+        configs = await plugin.find_model_config()
         assert len(configs) >= 1
 
+    @pytest.mark.asyncio
     @patch("pycodemcp.plugins.pydantic.logger")
-    def test_logging_on_errors(self, mock_logger, temp_project):
+    async def test_logging_on_errors(self, mock_logger, temp_project):
         """Test that errors are logged appropriately."""
         # Create a file with invalid Python syntax
         bad_file = temp_project / "bad.py"
         bad_file.write_text("from pydantic import BaseModel\nclass User(BaseModel\n")
 
         plugin = PydanticPlugin(temp_project)
-        plugin.find_models()
+        await plugin.find_models()
 
         # Should have logged a debug message about parsing error (not warning)
         assert mock_logger.debug.called
