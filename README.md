@@ -155,7 +155,10 @@ This file is automatically ignored by git and takes precedence over all other co
 
 ### Basic Navigation
 
-- **`find_symbol`** - Find class, function, or variable definitions
+- **`find_symbol`** - Find class, function, or variable definitions with re-export tracking
+  - Now includes `import_paths` field showing all available import paths for a symbol
+  - Automatically detects re-exports through `__init__.py` files
+  - Lists shorter/preferred import paths first (e.g., `from models import User` before `from models.user import User`)
 - **`goto_definition`** - Jump to where a symbol is defined
 - **`find_references`** - Find all places where a symbol is used
 - **`get_type_info`** - Get type hints and docstrings

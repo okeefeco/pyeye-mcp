@@ -154,74 +154,135 @@ class TestConfigurePackages:
 class TestFindSymbol:
     """Test the find_symbol tool."""
 
-    @patch("pycodemcp.server.get_jedi_project")
-    def test_find_symbol_basic(self, mock_get_project):
+    @patch("pycodemcp.server.get_analyzer")
+    def test_find_symbol_basic(self, mock_get_analyzer):
         """Test basic symbol finding."""
-        # Mock Jedi project and search results
-        mock_project = Mock()
-        mock_get_project.return_value = mock_project
+        # Mock JediAnalyzer
+        mock_analyzer = Mock()
+        mock_get_analyzer.return_value = mock_analyzer
 
-        # Create mock search result
-        mock_result = Mock()
-        mock_result.name = "TestClass"
-        mock_result.module_path = Path("/project/test.py")
-        mock_result.line = 10
-        mock_result.column = 0
-        mock_result.type = "class"
-        mock_result.description = "class TestClass"
-        mock_result.full_name = "test.TestClass"
-
-        mock_project.search.return_value = [mock_result]
+        # Mock the find_symbol method to return expected results
+        mock_analyzer.find_symbol.return_value = [
+            {
+                "name": "TestClass",
+                "file": "/project/test.py",
+                "line": 10,
+                "column": 0,
+                "type": "class",
+                "description": "class TestClass",
+                "full_name": "test.TestClass",
+            }
+        ]
 
         result = find_symbol("TestClass")
 
         assert len(result) == 1
         assert result[0]["name"] == "TestClass"
         assert "test.py" in result[0]["file"]
-        mock_project.search.assert_called_with("TestClass", all_scopes=True)
+        mock_analyzer.find_symbol.assert_called_with(
+            "TestClass", fuzzy=False, include_import_paths=True
+        )
 
-    @patch("pycodemcp.server.get_jedi_project")
-    def test_find_symbol_fuzzy(self, mock_get_project):
+    @patch("pycodemcp.server.get_analyzer")
+    def test_find_symbol_fuzzy(self, mock_get_analyzer):
         """Test fuzzy symbol search."""
-        mock_project = Mock()
-        mock_get_project.return_value = mock_project
+        mock_analyzer = Mock()
+        mock_get_analyzer.return_value = mock_analyzer
 
-        # Create mock fuzzy matches
-        mock_result = Mock()
-        mock_result.name = "test_function"
-        mock_result.module_path = Path("/project/test.py")
-        mock_result.line = 5
-        mock_result.column = 0
-        mock_result.type = "function"
-        mock_result.description = "def test_function"
-        mock_result.full_name = "test.test_function"
-
-        mock_project.search.return_value = [mock_result]
+        # Mock the find_symbol method to return fuzzy matches
+        mock_analyzer.find_symbol.return_value = [
+            {
+                "name": "test_function",
+                "file": "/project/test.py",
+                "line": 5,
+                "column": 0,
+                "type": "function",
+                "description": "def test_function",
+                "full_name": "test.test_function",
+            }
+        ]
 
         result = find_symbol("test", fuzzy=True)
 
         # With fuzzy=True, it should include partial matches
         assert len(result) == 1
-        mock_project.search.assert_called_with("test", all_scopes=True)
+        mock_analyzer.find_symbol.assert_called_with("test", fuzzy=True, include_import_paths=True)
 
     @patch("pycodemcp.server.ProjectConfig")
-    @patch("pycodemcp.server.get_jedi_project")
-    def test_find_symbol_with_config(self, mock_get_project, mock_config_class):
+    @patch("pycodemcp.server.get_analyzer")
+    def test_find_symbol_with_config(self, mock_get_analyzer, mock_config_class):
         """Test symbol finding with configuration."""
         # Mock configuration
         mock_config = Mock()
         mock_config.get_package_paths.return_value = [".", "../lib"]
         mock_config_class.return_value = mock_config
 
-        mock_project = Mock()
-        mock_get_project.return_value = mock_project
-        mock_project.search.return_value = []
+        mock_analyzer = Mock()
+        mock_get_analyzer.return_value = mock_analyzer
+        mock_analyzer.find_symbol.return_value = []
 
         find_symbol("test", use_config=True)
 
         # Should use configuration (ProjectConfig gets resolved path)
         mock_config_class.assert_called_once()
-        mock_get_project.assert_called()
+        mock_get_analyzer.assert_called()
+        # Check that additional_paths was set
+        assert hasattr(mock_analyzer, "additional_paths")
+
+    def test_find_symbol_with_reexports(self):
+        """Test find_symbol includes import_paths for re-exported symbols."""
+        # Use the test fixture
+        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+
+        # Find the User symbol in the test fixture
+        results = find_symbol("User", project_path=fixture_path, use_config=False)
+
+        # Should find at least one result
+        assert len(results) > 0
+
+        # Check that import_paths is included for the User class
+        user_found = False
+        for result in results:
+            if result.get("name") == "User" and "user.py" in result.get("file", ""):
+                user_found = True
+                # Should have import_paths field with re-export information
+                assert "import_paths" in result
+                import_paths = result["import_paths"]
+                assert len(import_paths) >= 2
+                # Should have both direct and re-exported paths
+                assert any("from models.user import User" in path for path in import_paths)
+                assert any("from models import User" in path for path in import_paths)
+
+        assert user_found, "User class not found in results"
+
+    def test_find_symbol_multi_level_reexports(self):
+        """Test find_symbol with multi-level re-exports."""
+        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+
+        # Find the Authenticator symbol
+        results = find_symbol("Authenticator", project_path=fixture_path, use_config=False)
+
+        # Should find the Authenticator class
+        assert len(results) > 0
+
+        auth_found = False
+        for result in results:
+            if result.get("name") == "Authenticator" and "authenticator.py" in result.get(
+                "file", ""
+            ):
+                auth_found = True
+                assert "import_paths" in result
+                import_paths = result["import_paths"]
+                # Should have multiple levels of re-exports
+                assert len(import_paths) >= 3
+                # Check for all three levels
+                assert any(
+                    "from core.auth.authenticator import Authenticator" in p for p in import_paths
+                )
+                assert any("from core.auth import Authenticator" in p for p in import_paths)
+                assert any("from core import Authenticator" in p for p in import_paths)
+
+        assert auth_found, "Authenticator class not found in results"
 
 
 class TestGotoDefinition:
@@ -710,13 +771,13 @@ class TestPluginActivation:
 class TestErrorHandling:
     """Test error handling in MCP tools."""
 
-    @patch("pycodemcp.server.get_jedi_project")
-    def test_find_symbol_error(self, mock_get_project):
+    @patch("pycodemcp.server.get_analyzer")
+    def test_find_symbol_error(self, mock_get_analyzer):
         """Test error handling in find_symbol."""
-        # Mock project that raises error on search
-        mock_project = Mock()
-        mock_project.search.side_effect = Exception("Search error")
-        mock_get_project.return_value = mock_project
+        # Mock analyzer that raises error on find_symbol
+        mock_analyzer = Mock()
+        mock_analyzer.find_symbol.side_effect = Exception("Search error")
+        mock_get_analyzer.return_value = mock_analyzer
 
         # Should raise AnalysisError when search fails
         with pytest.raises(AnalysisError) as exc_info:

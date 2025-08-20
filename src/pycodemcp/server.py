@@ -41,8 +41,7 @@ def get_analyzer(project_path: str = ".") -> JediAnalyzer:
 
     This is a helper function for testing and internal use.
     """
-    project = get_jedi_project(project_path)
-    return JediAnalyzer(project)
+    return JediAnalyzer(project_path)
 
 
 def initialize_plugins(project_path: str = ".") -> None:
@@ -184,42 +183,22 @@ def find_symbol(
         use_config: Whether to use configuration file for additional packages
 
     Returns:
-        List of symbol locations with file, line, column, and type
+        List of symbol locations with file, line, column, type, and import_paths
     """
-    # Load configuration if requested
-    if use_config:
-        config = ProjectConfig(project_path)
-        all_paths = config.get_package_paths()
-        if len(all_paths) > 1:
-            # Use configured paths as a dict
-            project_path_dict: dict[str, Any] = {"main": all_paths[0], "include": all_paths[1:]}
-            project = get_jedi_project(project_path_dict)
-        else:
-            project = get_jedi_project(project_path)
-    else:
-        project = get_jedi_project(project_path)
-
-    results = []
     try:
-        # Search for the symbol
-        search_results = project.search(name, all_scopes=True)
+        # Use JediAnalyzer which now supports re-export tracking
+        analyzer = get_analyzer(project_path)
 
-        for result in search_results:
-            # Check if fuzzy matching or exact match
-            if not fuzzy and result.name != name:
-                continue
+        # Configure additional paths if requested
+        if use_config:
+            config = ProjectConfig(project_path)
+            all_paths = config.get_package_paths()
+            if len(all_paths) > 1:
+                # Set additional paths on the analyzer if needed
+                analyzer.additional_paths = [Path(p) for p in all_paths[1:]]
 
-            results.append(
-                {
-                    "name": result.name,
-                    "file": str(result.module_path) if result.module_path else None,
-                    "line": result.line,
-                    "column": result.column,
-                    "type": result.type,
-                    "description": result.description,
-                    "full_name": result.full_name,
-                }
-            )
+        # Use the analyzer's find_symbol method which includes import_paths
+        results = analyzer.find_symbol(name, fuzzy=fuzzy, include_import_paths=True)
 
     except FileNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
