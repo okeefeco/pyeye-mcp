@@ -1,0 +1,67 @@
+# Dependabot configuration for automated dependency updates
+# Documentation: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Python dependencies via pip
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      # Weekly updates to balance security and PR noise
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    # Allow up to 10 open pull requests for pip dependencies
+    open-pull-requests-limit: 10
+    # Group dependency updates when possible
+    groups:
+      # Group all development dependencies together
+      dev-dependencies:
+        patterns:
+          - "pytest*"
+          - "mypy*"
+          - "black"
+          - "ruff"
+          - "pre-commit"
+          - "bandit"
+          - "safety"
+          - "detect-secrets"
+          - "coverage*"
+          - "pydocstyle"
+        dependency-type: "development"
+      # Group all minor and patch updates for production dependencies
+      production-minor:
+        patterns:
+          - "*"
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+    # Labels to apply to PRs
+    labels:
+      - "dependencies"
+      - "automated"
+    # Commit message prefix
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    # PR title prefix
+    pull-request-branch-name:
+      separator: "-"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    # Allow up to 5 open pull requests for GitHub Actions
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci/cd"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
