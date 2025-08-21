@@ -13,6 +13,7 @@ from .exceptions import (
     FileAccessError,
     ProjectNotFoundError,
 )
+from .metrics import metrics
 from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
 from .plugins.pydantic import PydanticPlugin
@@ -70,6 +71,7 @@ def initialize_plugins(project_path: str = ".") -> None:
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("configure_packages")
 def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
@@ -130,6 +132,7 @@ def configure_packages(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("find_symbol")
 async def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
@@ -175,6 +178,7 @@ async def find_symbol(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("goto_definition")
 async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
@@ -195,6 +199,7 @@ async def goto_definition(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("find_references")
 async def find_references(
     file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
 ) -> list[dict[str, Any]]:
@@ -216,6 +221,7 @@ async def find_references(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("get_type_info")
 async def get_type_info(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any]:
@@ -236,6 +242,7 @@ async def get_type_info(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("find_imports")
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Find all imports of a specific module in the project.
 
@@ -252,6 +259,7 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("get_call_hierarchy")
 async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
@@ -271,6 +279,7 @@ async def get_call_hierarchy(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("configure_namespace_package")
 def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[str, Any]:
     """Configure a namespace package spread across multiple repositories.
 
@@ -597,6 +606,39 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
         }
 
     return build_tree(project_root)
+
+
+@mcp.tool()
+async def get_performance_metrics(
+    metric_name: str | None = None, export_format: str = "json"
+) -> dict[str, Any] | str:
+    """Get performance metrics for the MCP server.
+
+    Args:
+        metric_name: Optional specific metric name to retrieve
+        export_format: Output format - 'json' (default) or 'prometheus'
+
+    Returns:
+        Performance metrics in requested format
+
+    Example:
+        # Get all metrics
+        metrics = await get_performance_metrics()
+
+        # Get specific metric
+        symbol_search_stats = await get_performance_metrics("find_symbol")
+
+        # Export in Prometheus format
+        prometheus_data = await get_performance_metrics(export_format="prometheus")
+    """
+    if export_format == "prometheus":
+        return metrics.export_prometheus()
+
+    if metric_name:
+        return metrics.get_stats(metric_name)
+
+    # Return comprehensive performance report
+    return metrics.get_performance_report()
 
 
 # Main entry point

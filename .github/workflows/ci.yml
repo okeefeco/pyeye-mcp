@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   pre-commit:
@@ -35,9 +36,47 @@ jobs:
           python-version: '3.10'
       - uses: pre-commit/action@v3.0.0
 
+  # Detect if only documentation files changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            docs:
+              - '**.md'
+              - 'docs/**'
+              - '.github/*.md'
+              - 'LICENSE'
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+              - '.github/workflows/**'
+              - 'setup.py'
+              - 'setup.cfg'
+      # For non-PR events, always run code checks
+      - name: Set outputs for non-PR events
+        if: github.event_name != 'pull_request'
+        id: non-pr
+        run: |
+          echo "code=true" >> $GITHUB_OUTPUT
+          echo "docs=false" >> $GITHUB_OUTPUT
+
   test-pr:
     # Runs on PRs - optimized matrix to save minutes
-    if: github.event_name == 'pull_request'
+    # Skip if only documentation files changed
+    needs: [changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -128,7 +167,12 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   type-check:
+    # Skip type checking for documentation-only changes in PRs
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: |
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -152,6 +196,7 @@ jobs:
           mypy src/pycodemcp --ignore-missing-imports
 
   security:
+    # Always run security checks, even for docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

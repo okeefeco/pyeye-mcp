@@ -12,6 +12,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from .dependency_tracker import DependencyTracker
+from .metrics import metrics
 from .settings import settings
 
 logger = logging.getLogger(__name__)
@@ -131,11 +132,13 @@ class ProjectCache:
         """Get value from cache if not expired."""
         if key in self.cache:
             if time.time() - self.timestamps[key] < self.ttl:
+                metrics.record_cache_hit()
                 return self.cache[key]
             else:
                 # Expired
                 del self.cache[key]
                 del self.timestamps[key]
+        metrics.record_cache_miss()
         return None
 
     def set(self, key: str, value: Any) -> None:
@@ -230,6 +233,7 @@ class GranularCache(ProjectCache):
     def get(self, key: str) -> Any | None:
         """Get value from cache if not expired, with metrics tracking."""
         with self._lock:
+            # Use parent's get which already records metrics
             result = super().get(key)
             if result is not None:
                 self.metrics.record_hit()
