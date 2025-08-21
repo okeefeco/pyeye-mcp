@@ -545,6 +545,74 @@ def test_find_symbol_invalid_input():
         find_symbol("", project_path="/test")
 ```
 
+## Coverage Goals and Requirements
+
+### 📈 Progressive Coverage Targets
+
+We're committed to continuously improving our test coverage through progressive milestones:
+
+- **Phase 1**: 75% ✅ (Current CI threshold - achieved)
+- **Phase 2**: 85% 🎯 (Active target)
+- **Phase 3**: 90% 🚀 (Future goal when project is widely adopted)
+
+**Current Coverage**: ~79% (See [codecov badge](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp) for live status)
+
+### Coverage Improvement Strategy
+
+#### Ratchet Mechanism
+
+Every PR must maintain or improve coverage - we never go backwards:
+
+- Check current coverage before starting work: `pytest --cov=src/pycodemcp --cov-report=term`
+- Your PR's coverage should be ≥ the baseline
+- Aim to improve coverage by addressing low-coverage files when you touch them
+
+#### Priority Areas for Improvement
+
+Files currently below 75% that need attention:
+
+- Files with 0-50% coverage must be improved to 75%+ when modified
+- Files with 50-75% coverage should be improved when touched
+- New code must have >90% coverage
+
+#### Per-PR Guidelines
+
+1. **Before starting work**: Note the current coverage percentage
+2. **When modifying low-coverage files**: Improve them significantly
+3. **For new features**: Include comprehensive tests (>90% coverage)
+4. **For bug fixes**: Add regression tests that would have caught the bug
+5. **Before submitting PR**: Verify coverage hasn't decreased
+
+### Running Coverage Locally
+
+```bash
+# Check overall coverage
+pytest --cov=src/pycodemcp --cov-report=term
+
+# Check coverage with detailed line-by-line report
+pytest --cov=src/pycodemcp --cov-report=term-missing
+
+# Generate HTML coverage report for detailed inspection
+pytest --cov=src/pycodemcp --cov-report=html
+# Open htmlcov/index.html in your browser
+
+# Check coverage for specific module
+pytest --cov=src/pycodemcp/plugins/flask --cov-report=term-missing tests/plugins/test_flask.py
+
+# Fail if coverage drops below current threshold
+pytest --cov=src/pycodemcp --cov-fail-under=75
+```
+
+### When We Reach 85%
+
+Once we consistently maintain 85% coverage:
+
+1. Update CI threshold in `.github/workflows/ci.yml` from 75% to 85%
+2. Celebrate the milestone! 🎉
+3. Plan approach for Phase 3 (90% coverage)
+
+For detailed coverage tracking and improvement guides, see [docs/COVERAGE.md](docs/COVERAGE.md).
+
 ## Getting Help
 
 - Check existing [issues](https://github.com/okeefeco/python-code-intelligence-mcp/issues)
