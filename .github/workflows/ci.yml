@@ -1,3 +1,18 @@
+# CI Workflow - Optimized for GitHub Actions minute consumption
+#
+# Cost optimization strategy (Issue #65):
+# - PRs: Skip middle Python version on Linux/Windows, macOS runs middle version only
+#   - Linux: 3.10, 3.12 (saves 1 job)
+#   - Windows: 3.10, 3.12 (saves 1 job)
+#   - macOS: 3.11 only (saves 2 jobs = 20x minutes!)
+# - Main: Run full matrix (9 jobs across 3 OS × 3 Python versions)
+# - Estimated savings: 40-50% reduction in monthly minute usage
+#
+# Platform minute multipliers:
+# - Linux: 1x (1 minute = 1 minute billed)
+# - Windows: 2x (1 minute = 2 minutes billed)
+# - macOS: 10x (1 minute = 10 minutes billed)
+
 name: CI
 
 on:
@@ -20,7 +35,61 @@ jobs:
           python-version: '3.10'
       - uses: pre-commit/action@v3.0.0
 
-  test:
+  test-pr:
+    # Runs on PRs - optimized matrix to save minutes
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux - endpoints only
+          - os: ubuntu-latest
+            python-version: '3.10'
+          - os: ubuntu-latest
+            python-version: '3.12'
+          # Windows - endpoints only
+          - os: windows-latest
+            python-version: '3.10'
+          - os: windows-latest
+            python-version: '3.12'
+          # macOS - middle only (biggest savings)
+          - os: macos-latest
+            python-version: '3.11'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=75
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  test-main:
+    # Runs on main branch - full matrix for comprehensive testing
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -48,14 +117,14 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term
+          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=75
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   type-check:

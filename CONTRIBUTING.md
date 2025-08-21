@@ -291,6 +291,13 @@ Before committing, pre-commit will automatically run:
 - **Type checking** (mypy)
 - **Documentation checks** (pydocstyle)
 
+**IMPORTANT**: Pre-commit does NOT run tests. You MUST run tests manually:
+
+```bash
+# Run tests with coverage before committing
+pytest --cov=src/pycodemcp --cov-fail-under=75
+```
+
 To run manually:
 
 ```bash
@@ -382,8 +389,28 @@ gh pr create --title "feat: your feature" --body "Description of changes"
 - Clear title and description
 - Link to related issue (if applicable)
 - All CI checks passing
-- Tests for new functionality
+- **MANDATORY**: Tests for ALL new functionality (coverage must not drop below 75%)
+- **MANDATORY**: Tests for ALL bug fixes (include regression tests)
 - Documentation updates (if needed)
+
+### ⚠️ Test Requirements (MANDATORY)
+
+**Every PR that adds or modifies code MUST include:**
+
+1. **Unit tests** for new functions/methods
+2. **Integration tests** for new features
+3. **Regression tests** for bug fixes
+4. **Coverage must not drop** - CI will fail if coverage drops below 75%
+
+**Before marking any PR as ready:**
+
+```bash
+# Check coverage locally
+pytest --cov=src/pycodemcp --cov-fail-under=75
+
+# Ensure all tests pass
+pytest -v
+```
 
 ## Merge Strategy
 
@@ -473,6 +500,28 @@ src/pycodemcp/
 ```
 
 ## Testing Guidelines
+
+### 🚨 MANDATORY Test Requirements
+
+**ALL code changes MUST include tests. No exceptions.**
+
+1. **New Features**: Must have comprehensive tests covering:
+   - Happy path scenarios
+   - Edge cases
+   - Error conditions
+   - Integration with existing code
+
+2. **Bug Fixes**: Must include:
+   - Test that reproduces the bug (fails before fix)
+   - Test that verifies the fix (passes after fix)
+   - Regression tests to prevent reoccurrence
+
+3. **Refactoring**: Must maintain or improve test coverage
+
+4. **Coverage Requirements**:
+   - Minimum 75% coverage (enforced by CI)
+   - New code should aim for >90% coverage
+   - Use `# pragma: no cover` sparingly and with justification
 
 ### Test Structure
 

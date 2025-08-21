@@ -24,6 +24,43 @@ For personal development settings (worktrees, local paths, etc.):
 - **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
 - **Python Environment**: uv managed
 
+## 🚨 MANDATORY: Test-Driven Development Workflow
+
+**ALL code changes MUST include tests. This is enforced by CI.**
+
+When implementing ANY feature or fix:
+
+1. **Write tests FIRST** (TDD approach recommended)
+2. **Implement the feature/fix**
+3. **Run tests locally with coverage check**:
+
+   ```bash
+   pytest --cov=src/pycodemcp --cov-fail-under=75
+   ```
+
+4. **Fix any failing tests or coverage issues**
+5. **NEVER commit code without tests**
+
+### Coverage Requirements
+
+- **Minimum 75% total coverage** (CI will fail below this)
+- **New code should have >90% coverage**
+- **All bug fixes MUST include regression tests**
+
+### Before Marking Tasks Complete
+
+Always run these validation commands:
+
+```bash
+# Run all tests with coverage
+pytest --cov=src/pycodemcp --cov-fail-under=75
+
+# Run linting and type checks
+uv run black src/
+uv run ruff check src/
+uv run mypy src/pycodemcp
+```
+
 ## Project Overview
 
 This is the Python Code Intelligence MCP Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
