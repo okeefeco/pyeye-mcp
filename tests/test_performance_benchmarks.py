@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.import_analyzer import ImportAnalyzer
 
@@ -57,7 +56,7 @@ def function_{pkg_num}_{mod_num}():
             yield project_path
 
     def benchmark_traditional_invalidation(
-        self, project_path: Path, num_changes: int = 10
+        self, _project_path: Path, num_changes: int = 10
     ) -> dict[str, Any]:
         """Benchmark traditional cache invalidation (invalidate all)."""
         cache = ProjectCache()

@@ -1063,8 +1063,8 @@ class JediAnalyzer:
             # Find all Python files in the project
             python_files = []
             for pattern in ["**/*.py"]:
-                async for file_path in rglob_async(self.project_path, pattern):
-                    python_files.append(file_path)
+                files = await rglob_async(pattern, self.project_path)
+                python_files.extend(files)
 
             logger.info(f"Analyzing dependencies for {len(python_files)} Python files")
 

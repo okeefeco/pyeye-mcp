@@ -69,7 +69,7 @@ class ImportAnalyzer:
                 - from_imports: Dict of module -> imported names
                 - symbols: List of defined symbols (classes, functions)
         """
-        result = {
+        result: dict[str, Any] = {
             "module_name": None,
             "imports": [],
             "from_imports": {},
@@ -103,7 +103,11 @@ class ImportAnalyzer:
                         # Handle relative imports
                         if node.level > 0:
                             # Convert relative to absolute
-                            module = self._resolve_relative_import(module_name, module, node.level)
+                            resolved_module = self._resolve_relative_import(
+                                module_name, module, node.level
+                            )
+                            if resolved_module:
+                                module = resolved_module
 
                         if module:
                             if module not in result["from_imports"]:
@@ -178,7 +182,7 @@ class ImportAnalyzer:
                 - symbols: Dict of module -> list of defined symbols
                 - errors: List of files that couldn't be analyzed
         """
-        graph = {
+        graph: dict[str, Any] = {
             "modules": {},
             "imports": {},
             "symbols": {},

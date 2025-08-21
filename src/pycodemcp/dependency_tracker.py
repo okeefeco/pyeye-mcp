@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class DependencyTracker:
     """Tracks module dependencies for smart cache invalidation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the dependency tracker."""
         # Map from module to modules it imports
         self.imports: dict[str, set[str]] = defaultdict(set)
@@ -113,7 +113,7 @@ class DependencyTracker:
             Set of module names that need cache invalidation
         """
         file_path = file_path.resolve()
-        affected = set()
+        affected: set[str] = set()
 
         # Get the module name for this file
         module_name = self.file_to_module.get(file_path)
