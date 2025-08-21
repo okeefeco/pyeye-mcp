@@ -149,7 +149,8 @@ test_function()
 
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
-    def test_find_references(self, mock_project_class, mock_script_class, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_find_references(self, mock_project_class, mock_script_class, temp_project_dir):
         """Test finding symbol references."""
         mock_project = Mock()
         mock_project_class.return_value = mock_project
@@ -174,23 +175,29 @@ func()
             mock_ref.module_path = test_file
             mock_ref.module_name = "test"
             mock_ref.is_definition = Mock(return_value=(line == 2))
+            mock_ref.name = "func"
+            mock_ref.type = "function"
+            mock_ref.description = "def func"
+            mock_ref.full_name = "test.func"
+            mock_ref.docstring = Mock(return_value="")
             references.append(mock_ref)
 
         mock_script = Mock()
         mock_script.get_references.return_value = references
         mock_script_class.return_value = mock_script
 
-        _ = JediAnalyzer(str(temp_project_dir))
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        results = await analyzer.find_references(str(test_file), 2, 0)
 
-        # Skip this test as find_references doesn't exist in JediAnalyzer
-        pytest.skip("JediAnalyzer doesn't have find_references method - functionality in server.py")
+        assert len(results) == 3
+        assert results[0]["is_definition"]
+        assert not results[1]["is_definition"]
+        assert not results[2]["is_definition"]
 
-    @pytest.mark.skip(
-        reason="JediAnalyzer doesn't have get_type_info method - functionality in server.py"
-    )
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
-    def test_get_type_info(self, mock_project_class, mock_script_class, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_get_type_info(self, mock_project_class, mock_script_class, temp_project_dir):
         """Test getting type information."""
         mock_project = Mock()
         mock_project_class.return_value = mock_project
@@ -208,19 +215,28 @@ result = func()
         # Mock type inference
         mock_type = Mock()
         mock_type.name = "str"
+        mock_type.type = "class"
         mock_type.module_name = "builtins"
         mock_type.description = "str() -> str"
+        mock_type.full_name = "builtins.str"
         mock_type.docstring = Mock(return_value="String type")
+
+        # Mock help info
+        mock_help = Mock()
+        mock_help.docstring = Mock(return_value="String type")
 
         mock_script = Mock()
         mock_script.infer.return_value = [mock_type]
+        mock_script.help.return_value = [mock_help]
         mock_script_class.return_value = mock_script
 
         analyzer = JediAnalyzer(str(temp_project_dir))
-        result = analyzer.get_type_info(str(test_file), 5, 0)
+        result = await analyzer.get_type_info(str(test_file), 5, 0)
 
         assert result is not None
-        assert result["type"] == "str"
+        assert "inferred_types" in result
+        assert len(result["inferred_types"]) == 1
+        assert result["inferred_types"][0]["name"] == "str"
         assert "docstring" in result
 
     @pytest.mark.asyncio
@@ -363,11 +379,10 @@ __all__ = [
         result = analyzer._find_init_file("nonexistent.module.path")
         assert result is None  # Should return None when not found
 
-    @pytest.mark.skip(
-        reason="JediAnalyzer doesn't have find_imports method - has analyze_imports instead"
-    )
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
-    def test_find_imports(self, mock_project_class, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_find_imports(self, mock_project_class, mock_script_class, temp_project_dir):
         """Test finding module imports."""
         mock_project = Mock()
         mock_project_class.return_value = mock_project
@@ -390,23 +405,43 @@ import json
 """
         )
 
+        # Mock the get_names results for each file
+        mock_name1 = Mock()
+        mock_name1.type = "module"
+        mock_name1.full_name = "os"
+        mock_name1.line = 2
+        mock_name1.column = 0
+        mock_name1.description = "import os"
+
+        mock_name2 = Mock()
+        mock_name2.type = "module"
+        mock_name2.full_name = "os"
+        mock_name2.line = 2
+        mock_name2.column = 0
+        mock_name2.description = "import os"
+
+        # Mock Script for each file
+        mock_script1 = Mock()
+        mock_script1.get_names.return_value = [mock_name1]
+
+        mock_script2 = Mock()
+        mock_script2.get_names.return_value = [mock_name2]
+
+        # Make Script return different mocks for different files
+        mock_script_class.side_effect = [mock_script1, mock_script2]
+
         analyzer = JediAnalyzer(str(temp_project_dir))
+        results = await analyzer.find_imports("os")
 
-        # Mock implementation would need to scan files
-        with patch.object(analyzer, "find_imports") as mock_find:
-            mock_find.return_value = [
-                {"file": str(file1), "line": 2, "import": "import os"},
-                {"file": str(file2), "line": 2, "import": "import os"},
-            ]
+        assert len(results) == 2
+        assert all(r["import_statement"] == "import os" for r in results)
 
-            results = analyzer.find_imports("os")
-            assert len(results) == 2
-
-    @pytest.mark.skip(
-        reason="JediAnalyzer doesn't have get_call_hierarchy method - functionality in server.py"
-    )
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
-    def test_get_call_hierarchy(self, mock_project_class, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy(
+        self, mock_project_class, mock_script_class, temp_project_dir
+    ):
         """Test getting call hierarchy for functions."""
         mock_project = Mock()
         mock_project_class.return_value = mock_project
@@ -425,19 +460,34 @@ def main():
 """
         )
 
+        # Mock function definition search
+        mock_func_def = Mock()
+        mock_func_def.name = "callee"
+        mock_func_def.type = "function"
+        mock_func_def.module_path = test_file
+        mock_func_def.line = 5
+        mock_func_def.column = 4
+
+        mock_project.search.return_value = [mock_func_def]
+
+        # Mock references (callers)
+        mock_ref = Mock()
+        mock_ref.is_definition = Mock(return_value=False)
+        mock_ref.module_path = test_file
+        mock_ref.line = 3
+        mock_ref.column = 4
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = [mock_func_def, mock_ref]
+        mock_script.get_names.return_value = []
+        mock_script_class.return_value = mock_script
+
         analyzer = JediAnalyzer(str(temp_project_dir))
+        result = await analyzer.get_call_hierarchy("callee", str(test_file))
 
-        # Mock call hierarchy
-        with patch.object(analyzer, "get_call_hierarchy") as mock_hierarchy:
-            mock_hierarchy.return_value = {
-                "function": "callee",
-                "callers": [{"name": "caller", "file": str(test_file), "line": 3}],
-                "callees": [],
-            }
-
-            result = analyzer.get_call_hierarchy("callee", str(test_file))
-            assert result["function"] == "callee"
-            assert len(result["callers"]) == 1
+        assert result["function"] == "callee"
+        assert len(result["callers"]) == 1
+        assert result["callers"][0]["line"] == 3
 
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
@@ -518,3 +568,128 @@ def main():
         calls = mock_project_class.call_args_list
         assert calls[0][1]["path"] == project1
         assert calls[1][1]["path"] == project2
+
+    @pytest.mark.asyncio
+    async def test_get_type_info_error_handling(self, temp_project_dir):
+        """Test error handling in get_type_info."""
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Test with non-existent file
+        with pytest.raises(FileAccessError) as exc_info:
+            await analyzer.get_type_info("nonexistent.py", 1, 0)
+        assert "nonexistent.py" in str(exc_info.value)
+
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
+    @pytest.mark.asyncio
+    async def test_get_type_info_jedi_error(self, mock_script_class, temp_project_dir):
+        """Test get_type_info when Jedi raises an error."""
+        # Create a test file
+        test_file = temp_project_dir / "test.py"
+        test_file.write_text("x = 1")
+
+        # Make Script.infer raise an exception
+        mock_script = Mock()
+        mock_script.infer.side_effect = Exception("Jedi inference error")
+        mock_script_class.return_value = mock_script
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        with pytest.raises(AnalysisError) as exc_info:
+            await analyzer.get_type_info(str(test_file), 1, 0)
+        assert "Failed to get type info" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_find_references_error_handling(self, temp_project_dir):
+        """Test error handling in find_references."""
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Test with non-existent file
+        with pytest.raises(FileAccessError) as exc_info:
+            await analyzer.find_references("nonexistent.py", 1, 0)
+        assert "nonexistent.py" in str(exc_info.value)
+
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
+    @pytest.mark.asyncio
+    async def test_find_references_jedi_error(self, mock_script_class, temp_project_dir, caplog):
+        """Test find_references when Jedi raises an error."""
+        # Create a test file
+        test_file = temp_project_dir / "test.py"
+        test_file.write_text("x = 1")
+
+        # Make Script.get_references raise an exception
+        mock_script = Mock()
+        mock_script.get_references.side_effect = Exception("Jedi references error")
+        mock_script_class.return_value = mock_script
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Should return empty results and log error
+        results = await analyzer.find_references(str(test_file), 1, 0)
+        assert results == []
+        assert "Error in find_references" in caplog.text
+
+    @patch("pycodemcp.analyzers.jedi_analyzer.rglob_async")
+    @pytest.mark.asyncio
+    async def test_find_imports_file_read_error(self, mock_rglob, temp_project_dir):
+        """Test find_imports when file reading fails."""
+        # Mock rglob to return a file that will fail to read
+        mock_rglob.return_value = [Path("/unreadable/file.py")]
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        results = await analyzer.find_imports("os")
+
+        # Should return empty results when files can't be read
+        assert results == []
+
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy_search_error(self, mock_project_class, temp_project_dir):
+        """Test get_call_hierarchy when search fails."""
+        mock_project = Mock()
+        mock_project_class.return_value = mock_project
+
+        # Make search raise an exception
+        mock_project.search.side_effect = Exception("Search failed")
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        with pytest.raises(AnalysisError) as exc_info:
+            await analyzer.get_call_hierarchy("test_func")
+        assert "Failed to get call hierarchy" in str(exc_info.value)
+
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy_with_file_path(
+        self, mock_project_class, mock_script_class, temp_project_dir
+    ):
+        """Test get_call_hierarchy with specific file path."""
+        # Create a test file
+        test_file = temp_project_dir / "test.py"
+        test_file.write_text("def test_func():\n    pass")
+
+        mock_project = Mock()
+        mock_project_class.return_value = mock_project
+
+        # Mock search result
+        mock_def = Mock()
+        mock_def.name = "test_func"
+        mock_def.type = "function"
+        mock_def.module_path = test_file
+        mock_def.line = 1
+        mock_def.column = 4
+        mock_def.get_line_code.return_value = "def test_func():"
+        mock_project.search.return_value = [mock_def]
+
+        # Mock script for references
+        mock_script = Mock()
+        mock_script.get_references.return_value = []
+        mock_script.get_names.return_value = []
+        mock_script_class.return_value = mock_script
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        result = await analyzer.get_call_hierarchy("test_func", str(test_file))
+
+        assert result["function"] == "test_func"
+        assert "callers" in result
+        assert "callees" in result

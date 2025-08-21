@@ -144,6 +144,201 @@ class JediAnalyzer:
 
         return results
 
+    async def get_type_info(self, file: str, line: int, column: int) -> dict[str, Any]:
+        """Get type information at a specific position.
+
+        Args:
+            file: Path to the file
+            line: Line number (1-indexed)
+            column: Column number (0-indexed)
+
+        Returns:
+            Type information including inferred type and docstring
+        """
+        try:
+            file_path = Path(file)
+            if not file_path.exists():
+                raise FileAccessError(f"File not found: {file}", file, "read")
+
+            source = await read_file_async(file_path)
+            script = jedi.Script(source, path=file_path, project=self.project)
+
+            # Get inferred type
+            inferred = script.infer(line, column)
+
+            # Get help/hover info
+            help_info = script.help(line, column)
+
+            result: dict[str, Any] = {
+                "position": {"file": file, "line": line, "column": column},
+                "inferred_types": [],
+                "docstring": help_info[0].docstring() if help_info else None,
+            }
+
+            for inf in inferred:
+                result["inferred_types"].append(
+                    {
+                        "name": inf.name,
+                        "type": inf.type,
+                        "description": inf.description,
+                        "full_name": inf.full_name,
+                        "module_name": inf.module_name,
+                    }
+                )
+
+            return result
+
+        except FileAccessError:
+            raise  # Re-raise file access errors
+        except Exception as e:
+            logger.error(f"Error getting type info: {e}")
+            raise AnalysisError(
+                f"Failed to get type info at {file}:{line}:{column}",
+                file_path=file,
+                line=line,
+                error=str(e),
+            ) from e
+
+    async def find_imports(self, module_name: str) -> list[dict[str, Any]]:
+        """Find all imports of a specific module in the project.
+
+        Args:
+            module_name: Name of the module to find imports for
+
+        Returns:
+            List of import locations
+        """
+        results = []
+
+        try:
+            # Search for import statements across the project
+            py_files = await rglob_async("*.py", self.project_path)
+            for py_file in py_files:
+                try:
+                    source = await read_file_async(py_file)
+                    script = jedi.Script(source, path=py_file, project=self.project)
+
+                    # Get all names in the file
+                    names = script.get_names(all_scopes=True, definitions=True, references=True)
+
+                    for name in names:
+                        # Check if it's an import of our module
+                        if name.type in ["module", "import"] and module_name in name.full_name:
+                            results.append(
+                                {
+                                    "file": str(py_file),
+                                    "line": name.line,
+                                    "column": name.column,
+                                    "import_statement": name.description,
+                                    "type": name.type,
+                                }
+                            )
+
+                except Exception as e:
+                    logger.warning(f"Error processing {py_file}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error finding imports: {e}")
+            raise AnalysisError(
+                f"Failed to find imports of module '{module_name}'",
+                module=module_name,
+                error=str(e),
+            ) from e
+
+        return results
+
+    async def get_call_hierarchy(
+        self, function_name: str, file: str | None = None
+    ) -> dict[str, Any]:
+        """Get the call hierarchy for a function.
+
+        Args:
+            function_name: Name of the function
+            file: Optional file to search in (searches whole project if not specified)
+
+        Returns:
+            Call hierarchy with callers and callees
+        """
+        result = {
+            "function": function_name,
+            "callers": [],
+            "callees": [],
+        }
+
+        try:
+            # First find the function definition
+            search_results = self.project.search(function_name, all_scopes=True)
+
+            function_def = None
+            for res in search_results:
+                if res.type == "function" and (file is None or str(res.module_path) == file):
+                    function_def = res
+                    break
+
+            if not function_def or not function_def.module_path:
+                return {"error": f"Function {function_name} not found"}
+
+            # Get the function's source
+            source = await read_file_async(function_def.module_path)
+            script = jedi.Script(source, path=function_def.module_path, project=self.project)
+
+            # Find references (callers)
+            refs = script.get_references(function_def.line, function_def.column)
+            for ref in refs:
+                if not ref.is_definition():
+                    callers_list = result["callers"]
+                    if isinstance(callers_list, list):
+                        callers_list.append(
+                            {
+                                "file": str(ref.module_path) if ref.module_path else None,
+                                "line": ref.line,
+                                "column": ref.column,
+                                "context": (
+                                    ref.get_line_code().strip()
+                                    if hasattr(ref, "get_line_code")
+                                    else None
+                                ),
+                            }
+                        )
+
+            # Find callees (functions called by this function)
+            # This requires more sophisticated AST analysis
+            # For now, we'll use a simplified approach
+            names = script.get_names(all_scopes=False)
+            for name in names:
+                if (
+                    name.type == "function"
+                    and name.line >= function_def.line
+                    and name.line <= function_def.line + 50
+                ):  # Rough heuristic
+                    # Check if this is a function call within our function
+                    if name.is_definition():
+                        continue
+                    callees_list = result["callees"]
+                    if isinstance(callees_list, list):
+                        callees_list.append(
+                            {
+                                "name": name.name,
+                                "line": name.line,
+                                "column": name.column,
+                                "type": name.type,
+                            }
+                        )
+
+        except FileNotFoundError as e:
+            raise ProjectNotFoundError(str(self.project_path)) from e
+        except Exception as e:
+            logger.error(f"Error getting call hierarchy: {e}")
+            raise AnalysisError(
+                f"Failed to get call hierarchy for function '{function_name}'",
+                function=function_name,
+                file=file,
+                error=str(e),
+            ) from e
+
+        return result
+
     async def get_completions(self, file: str, line: int, column: int) -> list[dict[str, Any]]:
         """Get code completions at a position."""
         completions: list[dict[str, Any]] = []
