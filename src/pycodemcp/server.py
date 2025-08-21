@@ -4,11 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import jedi
 from mcp.server.fastmcp import FastMCP
 
 from .analyzers.jedi_analyzer import JediAnalyzer
-from .async_utils import read_file_async, rglob_async
 from .config import ProjectConfig
 from .exceptions import (
     AnalysisError,
@@ -68,46 +66,6 @@ def initialize_plugins(project_path: str = ".") -> None:
         except Exception as e:
             logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
             # Don't raise - plugins are optional
-
-
-def parse_project_paths(project_path: str | list[str] | dict[str, Any]) -> tuple[str, list[str]]:
-    """Parse project path specification.
-
-    Args:
-        project_path: Can be:
-            - Single path: "."
-            - Multiple paths: [".", "../my-package"]
-            - Main + deps: {"main": ".", "include": ["../my-package"]}
-
-    Returns:
-        Tuple of (main_path, include_paths)
-    """
-    if isinstance(project_path, dict):
-        main = project_path.get("main", ".")
-        include = project_path.get("include", [])
-        return main, include
-    elif isinstance(project_path, list):
-        # First path is main, rest are includes
-        if project_path:
-            return project_path[0], project_path[1:]
-        return ".", []
-    else:
-        # Single string
-        return project_path, []
-
-
-def get_jedi_project(project_path: str | list[str] | dict[str, Any] = ".") -> jedi.Project:
-    """Get or create Jedi project for the given path(s).
-
-    Args:
-        project_path: Project path specification
-
-    Returns:
-        Configured Jedi project
-    """
-    main_path, include_paths = parse_project_paths(project_path)
-    manager = get_project_manager()
-    return manager.get_project(main_path, include_paths)
 
 
 @mcp.tool()
@@ -231,44 +189,8 @@ async def goto_definition(
     Returns:
         Definition location or None if not found
     """
-    project = get_jedi_project(project_path)
-
-    try:
-        # Read the file content
-        file_path = Path(file)
-        if not file_path.exists():
-            raise FileAccessError(f"File not found: {file}", file, "read")
-
-        source = await read_file_async(file_path)
-
-        # Create script and get definitions
-        script = jedi.Script(source, path=file_path, project=project)
-        definitions = script.goto(line, column)
-
-        if definitions:
-            definition = definitions[0]
-            return {
-                "name": definition.name,
-                "file": str(definition.module_path) if definition.module_path else None,
-                "line": definition.line,
-                "column": definition.column,
-                "type": definition.type,
-                "description": definition.description,
-                "docstring": definition.docstring(),
-            }
-
-    except FileAccessError:
-        raise  # Re-raise file access errors
-    except Exception as e:
-        logger.error(f"Error going to definition: {e}")
-        raise AnalysisError(
-            f"Failed to find definition at {file}:{line}:{column}",
-            file_path=file,
-            line=line,
-            error=str(e),
-        ) from e
-
-    return None
+    analyzer = get_analyzer(project_path)
+    return await analyzer.goto_definition(file, line, column)
 
 
 @mcp.tool()
@@ -288,49 +210,8 @@ async def find_references(
     Returns:
         List of reference locations
     """
-    project = get_jedi_project(project_path)
-    results = []
-
-    try:
-        # Read the file content
-        file_path = Path(file)
-        if not file_path.exists():
-            raise FileAccessError(f"File not found: {file}", file, "read")
-
-        source = await read_file_async(file_path)
-
-        # Create script and get references
-        script = jedi.Script(source, path=file_path, project=project)
-        references = script.get_references(line, column, include_builtins=False)
-
-        for ref in references:
-            # Skip definitions if not requested
-            if not include_definitions and ref.is_definition():
-                continue
-
-            results.append(
-                {
-                    "name": ref.name,
-                    "file": str(ref.module_path) if ref.module_path else None,
-                    "line": ref.line,
-                    "column": ref.column,
-                    "is_definition": ref.is_definition(),
-                    "description": ref.description,
-                }
-            )
-
-    except FileAccessError:
-        raise  # Re-raise file access errors
-    except Exception as e:
-        logger.error(f"Error finding references: {e}")
-        raise AnalysisError(
-            f"Failed to find references at {file}:{line}:{column}",
-            file_path=file,
-            line=line,
-            error=str(e),
-        ) from e
-
-    return results
+    analyzer = get_analyzer(project_path)
+    return await analyzer.find_references(file, line, column, include_definitions)
 
 
 @mcp.tool()
@@ -349,54 +230,8 @@ async def get_type_info(
     Returns:
         Type information including inferred type and docstring
     """
-    project = get_jedi_project(project_path)
-
-    try:
-        # Read the file content
-        file_path = Path(file)
-        if not file_path.exists():
-            raise FileAccessError(f"File not found: {file}", file, "read")
-
-        source = await read_file_async(file_path)
-
-        # Create script and get type info
-        script = jedi.Script(source, path=file_path, project=project)
-
-        # Get inferred type
-        inferred = script.infer(line, column)
-
-        # Get help/hover info
-        help_info = script.help(line, column)
-
-        result: dict[str, Any] = {
-            "position": {"file": file, "line": line, "column": column},
-            "inferred_types": [],
-            "docstring": help_info[0].docstring() if help_info else None,
-        }
-
-        for inf in inferred:
-            result["inferred_types"].append(
-                {
-                    "name": inf.name,
-                    "type": inf.type,
-                    "description": inf.description,
-                    "full_name": inf.full_name,
-                    "module_name": inf.module_name,
-                }
-            )
-
-        return result
-
-    except FileAccessError:
-        raise  # Re-raise file access errors
-    except Exception as e:
-        logger.error(f"Error getting type info: {e}")
-        raise AnalysisError(
-            f"Failed to get type info at {file}:{line}:{column}",
-            file_path=file,
-            line=line,
-            error=str(e),
-        ) from e
+    analyzer = get_analyzer(project_path)
+    return await analyzer.get_type_info(file, line, column)
 
 
 @mcp.tool()
@@ -411,52 +246,8 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
     Returns:
         List of import locations
     """
-    project = get_jedi_project(project_path)
-    results = []
-
-    try:
-        # Search for import statements
-        # This is a simplified implementation - could be enhanced with AST parsing
-        project_root = Path(project_path)
-
-        py_files = await rglob_async("*.py", project_root)
-        for py_file in py_files:
-            try:
-                source = await read_file_async(py_file)
-                script = jedi.Script(source, path=py_file, project=project)
-
-                # Get all names in the file
-                names = script.get_names(all_scopes=True, definitions=True, references=True)
-
-                for name in names:
-                    # Check if it's an import of our module
-                    if name.type in ["module", "import"] and module_name in name.full_name:
-                        results.append(
-                            {
-                                "file": str(py_file),
-                                "line": name.line,
-                                "column": name.column,
-                                "import_statement": name.description,
-                                "type": name.type,
-                            }
-                        )
-
-            except Exception as e:
-                logger.warning(f"Error processing {py_file}: {e}")
-                continue
-
-    except FileNotFoundError as e:
-        raise ProjectNotFoundError(project_path) from e
-    except Exception as e:
-        logger.error(f"Error finding imports: {e}")
-        raise AnalysisError(
-            f"Failed to find imports of module '{module_name}'",
-            module=module_name,
-            project_path=project_path,
-            error=str(e),
-        ) from e
-
-    return results
+    analyzer = get_analyzer(project_path)
+    return await analyzer.find_imports(module_name)
 
 
 @mcp.tool()
@@ -474,72 +265,8 @@ async def get_call_hierarchy(
     Returns:
         Call hierarchy with callers and callees
     """
-    project = get_jedi_project(project_path)
-
-    result = {
-        "function": function_name,
-        "callers": [],
-        "callees": [],
-    }
-
-    try:
-        # First find the function definition
-        search_results = project.search(function_name, all_scopes=True)
-
-        function_def = None
-        for res in search_results:
-            if res.type == "function" and (file is None or str(res.module_path) == file):
-                function_def = res
-                break
-
-        if not function_def or not function_def.module_path:
-            return {"error": f"Function {function_name} not found"}
-
-        # Get the function's source
-        source = await read_file_async(function_def.module_path)
-        script = jedi.Script(source, path=function_def.module_path, project=project)
-
-        # Find references (callers)
-        refs = script.get_references(function_def.line, function_def.column)
-        for ref in refs:
-            if not ref.is_definition():
-                callers_list = result.get("callers", [])
-                if isinstance(callers_list, list):
-                    callers_list.append(
-                        {
-                            "file": str(ref.module_path) if ref.module_path else None,
-                            "line": ref.line,
-                            "column": ref.column,
-                            "context": (
-                                ref.get_line_code().strip()
-                                if hasattr(ref, "get_line_code")
-                                else None
-                            ),
-                        }
-                    )
-
-        # Find callees (functions called by this function)
-        # This requires more sophisticated AST analysis
-        # For now, we'll use a simplified approach
-        names = script.get_names(all_scopes=False)
-        for name in names:
-            if name.type == "function" and name.line >= function_def.line:
-                # Simple heuristic: functions referenced after our function definition
-                callees_list = result.get("callees", [])
-                if isinstance(callees_list, list):
-                    callees_list.append(
-                        {
-                            "name": name.name,
-                            "type": name.type,
-                            "line": name.line,
-                        }
-                    )
-
-    except Exception as e:
-        logger.error(f"Error getting call hierarchy: {e}")
-        return {"error": str(e)}
-
-    return result
+    analyzer = get_analyzer(project_path)
+    return await analyzer.get_call_hierarchy(function_name, file)
 
 
 @mcp.tool()
