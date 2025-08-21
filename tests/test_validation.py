@@ -12,8 +12,14 @@ class TestPathValidator:
 
     def test_validate_normal_path(self):
         """Test validation of normal paths."""
-        # Absolute path
-        result = PathValidator.validate_path("/home/user/project/file.py")
+        # Use platform-appropriate absolute path
+        import os
+
+        abs_path = (
+            "C:\\Users\\user\\project\\file.py" if os.name == "nt" else "/home/user/project/file.py"
+        )
+
+        result = PathValidator.validate_path(abs_path)
         assert isinstance(result, Path)
         assert result.is_absolute()
 
@@ -219,15 +225,26 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_paths(self):
         """Test that decorator validates path parameters."""
+        import os
+
         from pycodemcp.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(file: str, project_path: str = "."):
             return {"file": file, "project_path": project_path}
 
-        # Valid paths
-        result = test_func("/valid/path.py", "/project")
-        assert result["file"] == str(Path("/valid/path.py").resolve())
+        # Valid paths - use platform-appropriate absolute path
+        valid_path = "C:\\valid\\path.py" if os.name == "nt" else "/valid/path.py"
+
+        result = test_func(valid_path, "/project")
+        # The validation preserves paths that don't need resolution
+        # On Windows, paths without ".." are kept as-is if not absolute
+        expected = (
+            str(Path(valid_path).resolve())
+            if Path(valid_path).is_absolute()
+            else str(Path(valid_path))
+        )
+        assert result["file"] == expected
 
         # Invalid path should raise ValidationError
         with pytest.raises(ValidationError) as exc_info:
