@@ -11,19 +11,16 @@ from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.metrics import MetricsCollector
 
 
-class TestPerformanceBaselines:
-    """Test that critical operations meet performance baselines."""
+@pytest.fixture
+def temp_project():
+    """Create a temporary project with test files."""
+    with TemporaryDirectory() as tmpdir:
+        project_path = Path(tmpdir)
 
-    @pytest.fixture
-    def temp_project(self):
-        """Create a temporary project with test files."""
-        with TemporaryDirectory() as tmpdir:
-            project_path = Path(tmpdir)
-
-            # Create test Python files
-            test_file = project_path / "test_module.py"
-            test_file.write_text(
-                """
+        # Create test Python files
+        test_file = project_path / "test_module.py"
+        test_file.write_text(
+            """
 class TestClass:
     def method1(self):
         return "test"
@@ -36,21 +33,25 @@ def test_function(x, y):
 
 TEST_CONSTANT = 42
 """
-            )
+        )
 
-            # Create another file for cross-file testing
-            other_file = project_path / "other_module.py"
-            other_file.write_text(
-                """
+        # Create another file for cross-file testing
+        other_file = project_path / "other_module.py"
+        other_file.write_text(
+            """
 from test_module import TestClass, test_function
 
 def use_imports():
     obj = TestClass()
     return test_function(1, 2)
 """
-            )
+        )
 
-            yield project_path
+        yield project_path
+
+
+class TestPerformanceBaselines:
+    """Test that critical operations meet performance baselines."""
 
     @pytest.mark.asyncio
     async def test_symbol_search_performance(self, temp_project):
