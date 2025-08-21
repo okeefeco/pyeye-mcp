@@ -64,8 +64,12 @@ class TestCodebaseWatcher:
         time.sleep(0.01)
         watcher.on_modified(event)
 
-        # Wait for debounce delay
-        time.sleep(settings.watcher_debounce + 0.1)
+        # Wait for debounce delay with platform-specific timing
+        # macOS seems to need more time for Timer threads to execute reliably
+        import platform
+
+        extra_wait = 0.5 if platform.system() == "Darwin" else 0.1
+        time.sleep(settings.watcher_debounce + extra_wait)
 
         assert watcher.last_change > old_time
         callback.assert_called_once_with(str(temp_project_dir / "test.py"))
