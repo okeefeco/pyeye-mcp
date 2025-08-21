@@ -515,6 +515,13 @@ uv run ruff check src/
 uv run mcp dev src/pycodemcp/server.py
 ```
 
+## Documentation
+
+- [Installation Guide](#installation)
+- [Configuration Guide](#configuration)
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [API Reference](#core-tools)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
