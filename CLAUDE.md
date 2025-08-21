@@ -35,7 +35,8 @@ When implementing ANY feature or fix:
 3. **Run tests locally with coverage check**:
 
    ```bash
-   pytest --cov=src/pycodemcp --cov-fail-under=75
+   # IMPORTANT: Run ALL tests, not just your new tests!
+   pytest --cov=src/pycodemcp --cov-fail-under=80
    ```
 
 4. **Fix any failing tests or coverage issues**
@@ -43,22 +44,20 @@ When implementing ANY feature or fix:
 
 ### Coverage Requirements
 
-- **Minimum 75% total coverage** (CI will fail below this)
+- **Minimum 80% total coverage** (CI will fail below this)
 - **New code should have >90% coverage**
 - **All bug fixes MUST include regression tests**
+- **ALWAYS run full test suite before pushing** (learned from PR #77)
 
 ### Before Marking Tasks Complete
 
 Always run these validation commands:
 
 ```bash
-# Run all tests with coverage
-pytest --cov=src/pycodemcp --cov-fail-under=75
+# MANDATORY: Run ALL tests with coverage (not just your new tests!)
+pytest --cov=src/pycodemcp --cov-fail-under=80
 
-# Run linting and type checks
-uv run black src/
-uv run ruff check src/
-uv run mypy src/pycodemcp
+# Note: Linting/type checks are handled by pre-commit hooks automatically
 ```
 
 ## Project Overview

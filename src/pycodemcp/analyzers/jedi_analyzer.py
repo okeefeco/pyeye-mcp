@@ -10,7 +10,9 @@ from typing import Any
 import jedi
 
 from ..async_utils import read_file_async, rglob_async
+from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
+from ..import_analyzer import ImportAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -1050,3 +1052,51 @@ class JediAnalyzer:
             logger.debug(f"Error checking symbol in {init_file}: {e}")
 
         return False
+
+    async def populate_dependencies(self, dependency_tracker: DependencyTracker) -> None:
+        """Populate dependency tracker with project imports.
+
+        Args:
+            dependency_tracker: Tracker to populate with dependencies
+        """
+        try:
+            # Find all Python files in the project
+            python_files = []
+            for pattern in ["**/*.py"]:
+                files = await rglob_async(pattern, self.project_path)
+                python_files.extend(files)
+
+            logger.info(f"Analyzing dependencies for {len(python_files)} Python files")
+
+            # Create import analyzer
+            import_analyzer = ImportAnalyzer(self.project_path)
+
+            # Build dependency graph
+            graph = import_analyzer.build_dependency_graph(python_files)
+
+            # Populate dependency tracker
+            for module_name, file_path in graph["modules"].items():
+                file_path_obj = Path(file_path)
+
+                # Add file to module mapping
+                dependency_tracker.add_file_mapping(file_path_obj, module_name)
+
+                # Add imports
+                if module_name in graph["imports"]:
+                    for imported_module in graph["imports"][module_name]:
+                        # Only track project-internal imports
+                        if imported_module in graph["modules"]:
+                            dependency_tracker.add_import(module_name, imported_module)
+
+                # Add symbol definitions
+                if module_name in graph["symbols"]:
+                    for symbol in graph["symbols"][module_name]:
+                        dependency_tracker.add_symbol_definition(module_name, symbol)
+
+            stats = dependency_tracker.get_stats()
+            logger.info(
+                f"Dependency graph built: {stats['total_modules']} modules, {stats['total_import_edges']} import edges"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to populate dependencies: {e}")

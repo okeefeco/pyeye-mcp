@@ -294,8 +294,9 @@ Before committing, pre-commit will automatically run:
 **IMPORTANT**: Pre-commit does NOT run tests. You MUST run tests manually:
 
 ```bash
-# Run tests with coverage before committing
-pytest --cov=src/pycodemcp --cov-fail-under=75
+# CRITICAL: Run ALL tests with coverage before pushing (not just your new tests!)
+# This would have caught the ProjectCache/GranularCache issue in PR #77
+pytest --cov=src/pycodemcp --cov-fail-under=80
 ```
 
 To run manually:
@@ -405,11 +406,11 @@ gh pr create --title "feat: your feature" --body "Description of changes"
 **Before marking any PR as ready:**
 
 ```bash
-# Check coverage locally
-pytest --cov=src/pycodemcp --cov-fail-under=75
+# MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
+pytest --cov=src/pycodemcp --cov-fail-under=80
 
-# Ensure all tests pass
-pytest -v
+# Note: This single command runs all tests AND checks coverage
+# Do NOT just run tests for your new code - run the entire suite!
 ```
 
 ## Merge Strategy
@@ -600,7 +601,7 @@ pytest --cov=src/pycodemcp --cov-report=html
 pytest --cov=src/pycodemcp/plugins/flask --cov-report=term-missing tests/plugins/test_flask.py
 
 # Fail if coverage drops below current threshold
-pytest --cov=src/pycodemcp --cov-fail-under=75
+pytest --cov=src/pycodemcp --cov-fail-under=80
 ```
 
 ### When We Reach 85%
