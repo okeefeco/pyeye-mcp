@@ -131,7 +131,7 @@ class TestProjectManager:
         assert manager._needs_update(main_path, [str(dep1), str(dep2)])
 
     @patch("pycodemcp.project_manager.CodebaseWatcher")
-    @patch("pycodemcp.project_manager.ProjectCache")
+    @patch("pycodemcp.project_manager.GranularCache")
     @patch("pycodemcp.project_manager.jedi.Project")
     def test_watcher_and_cache_creation(
         self, mock_jedi_project, mock_cache_class, mock_watcher_class, temp_project_dir
