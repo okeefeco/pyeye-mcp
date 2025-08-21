@@ -5,7 +5,7 @@ from pathlib import Path
 
 import jedi
 
-from .cache import CodebaseWatcher, ProjectCache
+from .cache import CodebaseWatcher, GranularCache
 from .namespace_resolver import NamespaceResolver
 from .settings import settings
 
@@ -24,7 +24,7 @@ class ProjectManager:
         """
         self.projects: dict[Path, jedi.Project] = {}
         self.watchers: dict[Path, CodebaseWatcher] = {}
-        self.caches: dict[Path, ProjectCache] = {}
+        self.caches: dict[Path, GranularCache] = {}
         self.access_order: list[Path] = []  # LRU tracking
         self.max_projects = max_projects if max_projects is not None else settings.max_projects
 
@@ -99,18 +99,21 @@ class ProjectManager:
         # Store dependencies
         self.dependencies[main_path] = dep_paths
 
-        # Create cache with configurable TTL
-        self.caches[main_path] = ProjectCache(ttl_seconds=settings.cache_ttl)
+        # Create granular cache with configurable TTL
+        self.caches[main_path] = GranularCache(ttl_seconds=settings.cache_ttl)
 
-        # Set up watcher for main project
+        # Set up watcher for main project with smart invalidation
         def on_change(file_path: str) -> None:
             logger.info(f"File changed in {main_path}: {file_path}")
-            # Invalidate this project's cache
+            # Use smart invalidation for this file
             if main_path in self.caches:
-                self.caches[main_path].invalidate()
-            # Recreate Jedi project on next access
-            if main_path in self.projects:
-                del self.projects[main_path]
+                changed_file = Path(file_path)
+                invalidated = self.caches[main_path].invalidate_file(changed_file)
+                logger.info(f"Smart invalidation: {invalidated} cache entries affected")
+
+                # Only recreate Jedi project if significant changes
+                # For now, keep the project alive to avoid recreation overhead
+                # The cache invalidation handles the necessary updates
 
         watcher = CodebaseWatcher(str(main_path), on_change)
         watcher.start()
@@ -159,11 +162,11 @@ class ProjectManager:
             logger.info(f"Evicting LRU project: {lru_path}")
             self._cleanup_project(lru_path)
 
-    def get_cache(self, project_path: str) -> ProjectCache:
+    def get_cache(self, project_path: str) -> GranularCache:
         """Get cache for a project."""
         main_path = Path(project_path).resolve()
         if main_path not in self.caches:
-            self.caches[main_path] = ProjectCache()
+            self.caches[main_path] = GranularCache()
         return self.caches[main_path]
 
     def search_all_projects(self, name: str) -> dict[str, list]:
