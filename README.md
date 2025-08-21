@@ -20,6 +20,7 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 - 🔌 **Extensible Plugin System**: Add custom analyzers for your project patterns
 - 🚀 **Fast & Cached**: Intelligent caching with LRU eviction
 - 🎯 **Type-Aware**: Full understanding of Python type hints and annotations
+- 📈 **Performance Monitoring**: Built-in metrics tracking with p50/p95/p99 latencies
 
 ## Installation
 
@@ -334,6 +335,14 @@ This file is automatically ignored by git and takes precedence over all other co
 - **`analyze_dependencies`** - Analyze module imports and detect circular dependencies
 - **`get_module_info`** - Get detailed module information including metrics and dependencies
 
+### Performance Monitoring
+
+- **`get_performance_metrics`** - Get detailed performance metrics and statistics
+  - Track operation latencies (p50, p95, p99)
+  - Monitor cache hit rates and memory usage
+  - Export metrics in JSON or Prometheus format
+  - Identify performance bottlenecks
+
 ### Framework-Specific Tools (Auto-Activated)
 
 #### Django (when Django is detected)
@@ -437,6 +446,56 @@ class MyProjectPlugin(AnalyzerPlugin):
     def find_patterns(self, pattern_name: str):
         # Find your custom patterns
         pass
+```
+
+## Performance Monitoring Details
+
+The server includes comprehensive performance monitoring to help identify bottlenecks and optimize performance for large-scale deployments.
+
+### Getting Performance Metrics
+
+```python
+# Get all performance metrics
+metrics = await get_performance_metrics()
+
+# Get metrics for a specific operation
+symbol_search_stats = await get_performance_metrics("find_symbol")
+
+# Export in Prometheus format for monitoring systems
+prometheus_data = await get_performance_metrics(export_format="prometheus")
+```
+
+### Metrics Tracked
+
+- **Operation Latencies**: p50, p95, p99 percentiles for all MCP tools
+- **Cache Performance**: Hit rate, miss rate, evictions
+- **Memory Usage**: RSS, VMS, percentage used
+- **Error Rates**: Track failures per operation
+- **Throughput**: Operations per second
+
+### Performance Baselines
+
+The following performance baselines are enforced in CI:
+
+| Operation | p50 (ms) | p95 (ms) | p99 (ms) |
+|-----------|----------|----------|----------|
+| symbol_search | 50 | 100 | 200 |
+| goto_definition | 30 | 75 | 150 |
+| find_references | 100 | 250 | 500 |
+| cache_lookup | 0.1 | 0.5 | 1.0 |
+
+### Production Monitoring
+
+For production deployments, metrics can be exported to monitoring systems:
+
+```python
+# Prometheus endpoint integration
+prometheus_metrics = await get_performance_metrics(export_format="prometheus")
+# Send to your Prometheus server
+
+# JSON format for custom monitoring
+json_metrics = await get_performance_metrics()
+# Send to your monitoring system
 ```
 
 ## Development
