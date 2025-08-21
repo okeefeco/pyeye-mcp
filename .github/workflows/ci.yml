@@ -35,42 +35,67 @@ jobs:
           python-version: '3.10'
       - uses: pre-commit/action@v3.0.0
 
-  test:
+  test-pr:
+    # Runs on PRs - optimized matrix to save minutes
+    if: github.event_name == 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Always run - Linux and Windows endpoints, macOS middle
+          # Linux - endpoints only
           - os: ubuntu-latest
             python-version: '3.10'
           - os: ubuntu-latest
             python-version: '3.12'
+          # Windows - endpoints only
           - os: windows-latest
             python-version: '3.10'
           - os: windows-latest
             python-version: '3.12'
+          # macOS - middle only (biggest savings)
           - os: macos-latest
             python-version: '3.11'
 
-          # Only on main branch - Linux and Windows middle versions
-          - os: ubuntu-latest
-            python-version: '3.11'
-            main-only: true
-          - os: windows-latest
-            python-version: '3.11'
-            main-only: true
+    steps:
+      - uses: actions/checkout@v4
 
-          # Only on main branch - macOS endpoints
-          - os: macos-latest
-            python-version: '3.10'
-            main-only: true
-          - os: macos-latest
-            python-version: '3.12'
-            main-only: true
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    # Skip jobs marked as main-only when not on main branch
-    if: ${{ !matrix.main-only || github.ref == 'refs/heads/main' }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=75
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  test-main:
+    # Runs on main branch - full matrix for comprehensive testing
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
       - uses: actions/checkout@v4
