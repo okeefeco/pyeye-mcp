@@ -1,3 +1,15 @@
+# CI Workflow - Optimized for GitHub Actions minute consumption
+#
+# Cost optimization strategy (Issue #65):
+# - PRs: Run only Ubuntu + Python 3.11 (saves ~95% of minutes)
+# - Main: Run full matrix (9 jobs across 3 OS × 3 Python versions)
+# - Estimated savings: 70-80% reduction in monthly minute usage
+#
+# Platform minute multipliers:
+# - Linux: 1x (1 minute = 1 minute billed)
+# - Windows: 2x (1 minute = 2 minutes billed)
+# - macOS: 10x (1 minute = 10 minutes billed)
+
 name: CI
 
 on:
@@ -25,8 +37,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.10', '3.11', '3.12']
+        # Full matrix on main branch, minimal on PRs to save minutes
+        # macOS uses 10x minutes, Windows uses 2x minutes
+        os: ${{ github.ref == 'refs/heads/main' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+        python-version: ${{ github.ref == 'refs/heads/main' && fromJSON('["3.10", "3.11", "3.12"]') || fromJSON('["3.11"]') }}
 
     steps:
       - uses: actions/checkout@v4
