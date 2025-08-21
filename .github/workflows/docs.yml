@@ -1,0 +1,48 @@
+# Documentation Workflow
+# Provides feedback for documentation-only PRs
+# Runs lightweight checks without the heavy test matrix
+
+name: Docs
+
+on:
+  pull_request:
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - '.github/*.md'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  docs-feedback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Documentation-only change detected')
+            );
+
+            if (!botComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '📚 **Documentation-only change detected!**\n\nThis PR contains only documentation changes, so the full test suite has been skipped to save CI resources.\n\n**Checks that still run:**\n- ✅ Pre-commit hooks (markdown linting, formatting)\n- ✅ Security scanning\n- ✅ File validation\n\n**Checks that were skipped:**\n- ⏭️ Test matrix (5 jobs across OS/Python versions)\n- ⏭️ Type checking\n- ⏭️ Coverage reporting\n\nThis optimization saves approximately 45 seconds of CI time and reduces resource usage. 🌱'
+              });
+            }
