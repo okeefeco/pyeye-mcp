@@ -1,6 +1,7 @@
 """Comprehensive tests for async_utils module."""
 
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -55,6 +56,7 @@ class TestReadFileAsync:
         with pytest.raises(FileNotFoundError):
             await read_file_async(non_existent)
 
+    @pytest.mark.skipif(os.name == "nt", reason="Windows handles permissions differently")
     async def test_read_file_permission_error(self, tmp_path):
         """Test reading a file without permissions."""
         test_file = tmp_path / "no_read.txt"
@@ -138,6 +140,7 @@ class TestWriteFileAsync:
         assert test_file.exists()
         assert test_file.read_text() == ""
 
+    @pytest.mark.skipif(os.name == "nt", reason="Windows handles permissions differently")
     async def test_write_file_permission_error(self, tmp_path):
         """Test writing to a directory without permissions."""
         protected_dir = tmp_path / "protected"
@@ -192,6 +195,7 @@ class TestReadFileSafe:
         content = await read_file_safe(non_existent, default="fallback")
         assert content == "fallback"
 
+    @pytest.mark.skipif(os.name == "nt", reason="Windows handles permissions differently")
     async def test_read_file_safe_permission_error(self, tmp_path):
         """Test safe reading of file without permissions."""
         test_file = tmp_path / "no_read_safe.txt"
