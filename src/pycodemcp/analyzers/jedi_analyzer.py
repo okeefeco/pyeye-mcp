@@ -1053,6 +1053,165 @@ class JediAnalyzer:
 
         return False
 
+    async def find_subclasses(
+        self, base_class: str, include_indirect: bool = True, show_hierarchy: bool = False
+    ) -> list[dict[str, Any]]:
+        """Find all classes that inherit from a given base class.
+
+        Args:
+            base_class: Name of the base class to find subclasses for
+            include_indirect: Include indirect inheritance (grandchildren, etc.)
+            show_hierarchy: Show the full inheritance chain
+
+        Returns:
+            List of subclasses with their locations and inheritance details
+        """
+        subclasses = []
+        processed_classes = set()  # To avoid duplicates
+
+        try:
+            # First, try to find the base class definition (may not exist for builtins)
+            base_symbols = await self.find_symbol(base_class, fuzzy=False)
+            if not base_symbols:
+                # For built-in classes like Exception, str, int, etc., we still want to proceed
+                logger.info(
+                    f"Base class '{base_class}' not found in project, checking for subclasses anyway"
+                )
+
+            # Get all Python files in the project
+            py_files = await rglob_async("*.py", self.project_path)
+
+            for py_file in py_files:
+                try:
+                    content = await read_file_async(py_file)
+                    tree = ast.parse(content, filename=str(py_file))
+
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.ClassDef):
+                            # Check if this class inherits from our base class
+                            inheritance_info = self._check_inheritance(
+                                node, base_class, tree, include_indirect
+                            )
+
+                            if inheritance_info and node.name not in processed_classes:
+                                processed_classes.add(node.name)
+
+                                subclass_info = {
+                                    "name": node.name,
+                                    "file": str(py_file),
+                                    "line": node.lineno,
+                                    "column": node.col_offset,
+                                    "direct_parent": inheritance_info["direct_parent"],
+                                    "is_direct": inheritance_info["is_direct"],
+                                }
+
+                                # Add inheritance chain if requested
+                                if show_hierarchy:
+                                    subclass_info[
+                                        "inheritance_chain"
+                                    ] = await self._get_inheritance_chain(node, tree)
+
+                                subclasses.append(subclass_info)
+
+                except Exception as e:
+                    logger.debug(f"Error parsing {py_file}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error finding subclasses: {e}")
+            raise AnalysisError(
+                f"Failed to find subclasses of {base_class}",
+                error=str(e),
+            ) from e
+
+        return subclasses
+
+    def _check_inheritance(
+        self, class_node: ast.ClassDef, base_class: str, tree: ast.Module, include_indirect: bool
+    ) -> dict[str, Any] | None:
+        """Check if a class inherits from the base class.
+
+        Returns dict with inheritance info if it does, None otherwise.
+        """
+        # Check direct inheritance
+        for base in class_node.bases:
+            base_name = self._get_base_name(base)
+            if base_name == base_class:
+                return {
+                    "direct_parent": base_class,
+                    "is_direct": True,
+                }
+
+        # Check indirect inheritance if requested
+        if include_indirect:
+            for base in class_node.bases:
+                base_name = self._get_base_name(base)
+                if base_name and base_name != "object":
+                    # Find the parent class definition and check its bases recursively
+                    parent_classes = self._find_class_in_tree(tree, base_name)
+                    for parent_class in parent_classes:
+                        parent_info = self._check_inheritance(
+                            parent_class, base_class, tree, include_indirect
+                        )
+                        if parent_info:
+                            return {
+                                "direct_parent": base_name,
+                                "is_direct": False,
+                            }
+
+        return None
+
+    def _get_base_name(self, base: Any) -> str | None:
+        """Extract the name from a base class node."""
+        if isinstance(base, ast.Name):
+            return base.id
+        elif isinstance(base, ast.Attribute):
+            # Handle module.Class style bases
+            parts = []
+            node: Any = base
+            while isinstance(node, ast.Attribute):
+                parts.append(node.attr)
+                node = node.value
+            if isinstance(node, ast.Name):
+                parts.append(node.id)
+            return ".".join(reversed(parts))
+        return None
+
+    def _find_class_in_tree(self, tree: ast.Module, class_name: str) -> list[ast.ClassDef]:
+        """Find class definitions by name in the AST tree."""
+        classes = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                classes.append(node)
+        return classes
+
+    async def _get_inheritance_chain(self, class_node: ast.ClassDef, tree: ast.Module) -> list[str]:
+        """Build the complete inheritance chain for a class."""
+        chain = [class_node.name]
+        visited = {class_node.name}  # Prevent infinite loops
+
+        current_bases = class_node.bases
+
+        while current_bases:
+            next_bases = []
+            for base in current_bases:
+                base_name = self._get_base_name(base)
+                if base_name and base_name not in visited:
+                    chain.append(base_name)
+                    visited.add(base_name)
+
+                    # Find this base class and get its bases
+                    parent_classes = self._find_class_in_tree(tree, base_name)
+                    for parent_class in parent_classes:
+                        next_bases.extend(parent_class.bases)
+
+            current_bases = next_bases
+
+        # Add object if not already present
+        if "object" not in chain:
+            chain.append("object")
+
+        return chain
+
     async def populate_dependencies(self, dependency_tracker: DependencyTracker) -> None:
         """Populate dependency tracker with project imports.
 

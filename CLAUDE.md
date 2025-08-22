@@ -92,10 +92,11 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 5. `get_type_info` - Get type hints and docstrings
 6. `find_imports` - Track module imports
 7. `get_call_hierarchy` - Analyze function calls
-8. `find_symbol_multi` - Search across multiple projects
-9. `configure_namespace_package` - Set up distributed namespaces
-10. `find_in_namespace` - Search within namespace packages
-11. `list_project_structure` - View project file organization
+8. `find_subclasses` - Find all classes inheriting from a base class
+9. `find_symbol_multi` - Search across multiple projects
+10. `configure_namespace_package` - Set up distributed namespaces
+11. `find_in_namespace` - Search within namespace packages
+12. `list_project_structure` - View project file organization
 
 ### Module & Package Analysis Tools
 

@@ -693,3 +693,213 @@ def main():
         assert result["function"] == "test_func"
         assert "callers" in result
         assert "callees" in result
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_direct(self, temp_project_dir):
+        """Test finding direct subclasses only."""
+        # Create test files with class hierarchy
+        base_file = temp_project_dir / "base.py"
+        base_file.write_text(
+            """
+class Animal:
+    def speak(self):
+        pass
+
+class Dog(Animal):
+    def speak(self):
+        return "Woof!"
+
+class Cat(Animal):
+    def speak(self):
+        return "Meow!"
+"""
+        )
+
+        child_file = temp_project_dir / "child.py"
+        child_file.write_text(
+            """
+from base import Dog
+
+class Puppy(Dog):
+    def speak(self):
+        return "Yip!"
+
+class Kitten(Cat):  # This won't be found since Cat is not imported
+    def speak(self):
+        return "Mew!"
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Find direct subclasses of Animal only
+        results = await analyzer.find_subclasses("Animal", include_indirect=False)
+
+        # Should find Dog and Cat (direct subclasses)
+        assert len(results) == 2
+        names = {r["name"] for r in results}
+        assert "Dog" in names
+        assert "Cat" in names
+
+        # All should be marked as direct
+        for result in results:
+            assert result["is_direct"] is True
+            assert result["direct_parent"] == "Animal"
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_indirect(self, temp_project_dir):
+        """Test finding both direct and indirect subclasses."""
+        # Create test files with deeper hierarchy
+        base_file = temp_project_dir / "hierarchy.py"
+        base_file.write_text(
+            """
+class Animal:
+    pass
+
+class Mammal(Animal):
+    pass
+
+class Dog(Mammal):
+    pass
+
+class GoldenRetriever(Dog):
+    pass
+
+class Bird(Animal):
+    pass
+
+class Eagle(Bird):
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Find all subclasses of Animal (direct and indirect)
+        results = await analyzer.find_subclasses("Animal", include_indirect=True)
+
+        # Should find all subclasses
+        assert len(results) == 5
+        names = {r["name"] for r in results}
+        assert names == {"Mammal", "Dog", "GoldenRetriever", "Bird", "Eagle"}
+
+        # Check direct vs indirect
+        for result in results:
+            if result["name"] in ["Mammal", "Bird"]:
+                assert result["is_direct"] is True
+                assert result["direct_parent"] == "Animal"
+            else:
+                assert result["is_direct"] is False
+                assert result["direct_parent"] != "Animal"
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_with_hierarchy(self, temp_project_dir):
+        """Test finding subclasses with full hierarchy chain."""
+        # Create test file
+        test_file = temp_project_dir / "classes.py"
+        test_file.write_text(
+            """
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(B):
+    pass
+
+class D(C):
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Find subclasses with hierarchy
+        results = await analyzer.find_subclasses("A", show_hierarchy=True)
+
+        # Check that hierarchy chains are included
+        for result in results:
+            assert "inheritance_chain" in result
+            chain = result["inheritance_chain"]
+            assert isinstance(chain, list)
+            assert result["name"] in chain
+            assert "object" in chain  # Should end with object
+
+            # Check specific chains
+            if result["name"] == "D":
+                assert "C" in chain
+                assert "B" in chain
+                assert "A" in chain
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_multiple_inheritance(self, temp_project_dir):
+        """Test finding subclasses with multiple inheritance."""
+        test_file = temp_project_dir / "multiple.py"
+        test_file.write_text(
+            """
+class Flyable:
+    def fly(self):
+        pass
+
+class Swimmable:
+    def swim(self):
+        pass
+
+class Duck(Flyable, Swimmable):
+    pass
+
+class Airplane(Flyable):
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Find subclasses of Flyable
+        results = await analyzer.find_subclasses("Flyable")
+
+        assert len(results) == 2
+        names = {r["name"] for r in results}
+        assert "Duck" in names
+        assert "Airplane" in names
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_base_not_found(self, temp_project_dir):
+        """Test find_subclasses when base class doesn't exist."""
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Try to find subclasses of non-existent class
+        results = await analyzer.find_subclasses("NonExistentClass")
+
+        # Should return empty list
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_builtin_class(self, temp_project_dir):
+        """Test finding subclasses of builtin classes."""
+        test_file = temp_project_dir / "exceptions.py"
+        test_file.write_text(
+            """
+class CustomError(Exception):
+    pass
+
+class ValidationError(CustomError):
+    pass
+
+class NetworkError(Exception):
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+
+        # Find subclasses of Exception
+        results = await analyzer.find_subclasses("Exception")
+
+        # Should find CustomError and NetworkError (direct)
+        # and ValidationError (indirect)
+        assert len(results) >= 2
+        names = {r["name"] for r in results}
+        assert "CustomError" in names
+        assert "NetworkError" in names
