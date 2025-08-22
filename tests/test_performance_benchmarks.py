@@ -1,7 +1,5 @@
 """Performance benchmarks for smart cache invalidation."""
 
-import os
-import platform
 import tempfile
 import time
 from pathlib import Path
@@ -10,6 +8,12 @@ from typing import Any
 import pytest
 from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.import_analyzer import ImportAnalyzer
+
+from tests.utils.performance import (
+    get_ci_tolerance_factor,
+    get_platform_name,
+    is_ci_environment,
+)
 
 
 class TestPerformanceBenchmarks:
@@ -233,32 +237,18 @@ def function_{pkg_num}_{mod_num}():
                 * smart_results["entries_invalidated_per_change"]
             )
 
-            # On CI runners (especially macOS), timing can be inconsistent
-            # Allow smart invalidation to be up to 2x slower since it still
-            # reduces invalidations by 99% (the real benefit)
-            is_ci = os.getenv("CI") == "true"
-            is_macos = platform.system() == "Darwin"
-            is_windows = platform.system() == "Windows"
+            # Use centralized CI tolerance handling
+            tolerance_factor = get_ci_tolerance_factor()
 
-            if is_ci and is_macos:
-                # On macOS CI, be very lenient with timing due to runner variability
-                # The important metric is the 99% reduction in invalidations
-                assert total_work_smart < total_work_traditional * 3, (
-                    f"Smart invalidation too slow on macOS CI: "
-                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f}"
-                )
-            elif is_ci and is_windows:
-                # On Windows CI, be even more lenient due to extreme timing variability
-                # Windows GitHub Actions runners have inconsistent performance
-                assert total_work_smart < total_work_traditional * 3, (
-                    f"Smart invalidation too slow on Windows CI: "
-                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f}"
-                )
-            elif is_ci:
-                # On other CI platforms (Linux), allow some variance
-                assert total_work_smart < total_work_traditional * 1.5, (
-                    f"Smart should do less total work (allowing 50% variance on CI): "
-                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f}"
+            # Smart invalidation should generally be faster, but allow variance on CI
+            if is_ci_environment():
+                # On CI, the important metric is the 99% reduction in invalidations
+                # Allow more timing variance since CI runners are inconsistent
+                assert total_work_smart < total_work_traditional * tolerance_factor, (
+                    f"Smart invalidation too slow on {get_platform_name()} "
+                    f"{'CI' if is_ci_environment() else 'local'}: "
+                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f} "
+                    f"(tolerance factor: {tolerance_factor}x)"
                 )
             else:
                 # On local development, maintain stricter performance requirements
