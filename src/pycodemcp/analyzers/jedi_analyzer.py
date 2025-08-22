@@ -16,6 +16,9 @@ from ..import_analyzer import ImportAnalyzer
 
 logger = logging.getLogger(__name__)
 
+# Type alias for scope specification
+Scope = str | list[str]
+
 
 class JediAnalyzer:
     """Wrapper around Jedi for semantic Python analysis."""
@@ -31,6 +34,7 @@ class JediAnalyzer:
         """
         self.project_path = Path(project_path)
         self.additional_paths: list[Path] = []  # For additional package paths
+        self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
 
         # Validate project path exists
         if not self.project_path.exists():
@@ -46,6 +50,212 @@ class JediAnalyzer:
                 file_path=str(project_path),
                 error=str(e),
             ) from e
+
+    def set_additional_paths(self, paths: list[Path]) -> None:
+        """Set additional paths from ProjectManager.
+
+        Args:
+            paths: List of additional package paths to include in analysis
+        """
+        self.additional_paths = paths
+        logger.info(f"Set {len(paths)} additional paths for {self.project_path}")
+
+    def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
+        """Set namespace package mappings.
+
+        Args:
+            namespaces: Dictionary mapping namespace names to their paths
+        """
+        self.namespace_paths = {ns: [Path(p) for p in paths] for ns, paths in namespaces.items()}
+        logger.info(f"Set {len(self.namespace_paths)} namespace mappings for {self.project_path}")
+
+    async def get_project_files(self, pattern: str = "*.py", scope: Scope = "all") -> list[Path]:
+        """Get files from project based on scope specification.
+
+        Args:
+            pattern: File pattern to search for (e.g., "*.py", "test_*.py")
+            scope: Search scope specification - can be:
+                - "main": Just the main project
+                - "all": Everything configured (default)
+                - "packages": All configured packages excluding main
+                - "namespace:name": Specific namespace (e.g., "namespace:aac")
+                - "namespace:name.sub": Sub-namespace (e.g., "namespace:aac.tools")
+                - "package:path": Specific package path
+                - List of scopes: Multiple scopes combined
+
+        Returns:
+            List of matching file paths
+
+        Examples:
+            # Get all Python files in main project only
+            files = await analyzer.get_project_files(scope="main")
+
+            # Get test files from a specific namespace
+            files = await analyzer.get_project_files("test_*.py", "namespace:mycompany.tests")
+
+            # Get files from multiple scopes
+            files = await analyzer.get_project_files(scope=["main", "namespace:utils"])
+        """
+        search_paths = await self._resolve_scope_to_paths(scope)
+
+        all_files = []
+        for path in search_paths:
+            try:
+                files = await rglob_async(pattern, path)
+                all_files.extend(files)
+            except Exception as e:
+                logger.warning(f"Error searching {path}: {e}")
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_files = []
+        for f in all_files:
+            if f not in seen:
+                seen.add(f)
+                unique_files.append(f)
+
+        return unique_files
+
+    async def _resolve_scope_to_paths(self, scope: Scope) -> set[Path]:
+        """Resolve scope specification to actual filesystem paths.
+
+        Args:
+            scope: Scope specification (string or list of strings)
+
+        Returns:
+            Set of filesystem paths to search
+        """
+        paths = set()
+
+        # Normalize to list for uniform processing
+        scopes = [scope] if isinstance(scope, str) else scope
+
+        for s in scopes:
+            if s == "main":
+                # Just the main project
+                paths.add(self.project_path)
+
+            elif s == "all":
+                # Everything: main + packages + namespaces
+                paths.add(self.project_path)
+                paths.update(self.additional_paths)
+                # Add all namespace paths
+                for ns_paths in self.namespace_paths.values():
+                    for ns_path in ns_paths:
+                        # For namespace packages, add the proper subdirectory
+                        paths.update(self._get_namespace_directory_structure(ns_path))
+
+            elif s == "packages":
+                # All configured packages excluding main
+                paths.update(self.additional_paths)
+
+            elif s.startswith("namespace:"):
+                # Specific namespace or sub-namespace
+                ns_name = s[10:]  # Remove "namespace:" prefix
+                paths.update(self._resolve_namespace_scope(ns_name))
+
+            elif s.startswith("package:"):
+                # Specific package path
+                pkg_path = Path(s[8:])  # Remove "package:" prefix
+                if pkg_path.exists():
+                    paths.add(pkg_path)
+                else:
+                    logger.warning(f"Package path does not exist: {pkg_path}")
+
+            else:
+                logger.warning(f"Unknown scope specification: {s}")
+
+        return paths
+
+    def _resolve_namespace_scope(self, namespace: str) -> set[Path]:
+        """Resolve a namespace specification to paths.
+
+        Args:
+            namespace: Namespace name (e.g., "aac" or "aac.tools")
+
+        Returns:
+            Set of paths for this namespace
+        """
+        paths = set()
+
+        # Check for exact namespace match
+        if namespace in self.namespace_paths:
+            for ns_path in self.namespace_paths[namespace]:
+                paths.update(self._get_namespace_directory_structure(ns_path))
+
+        # Check for parent namespace (e.g., "aac" when looking for "aac.tools")
+        parts = namespace.split(".")
+        for i in range(len(parts)):
+            parent_ns = ".".join(parts[: i + 1])
+            if parent_ns in self.namespace_paths:
+                # Build the sub-namespace path
+                sub_parts = parts[i + 1 :]
+                for ns_path in self.namespace_paths[parent_ns]:
+                    # For namespace packages, the namespace name is typically a subdirectory
+                    base_path = self._get_namespace_base_path(ns_path, parent_ns)
+                    if sub_parts:
+                        full_path = base_path / Path(*sub_parts)
+                        if full_path.exists():
+                            paths.add(full_path)
+                    else:
+                        paths.add(base_path)
+
+        return paths
+
+    def _get_namespace_directory_structure(self, ns_path: Path) -> set[Path]:
+        """Get the proper directory structure for a namespace package.
+
+        For a namespace "aac" with path "/path/to/aac-tools", this returns
+        the actual Python package directories like "/path/to/aac-tools/aac".
+
+        Args:
+            ns_path: Base path for the namespace package
+
+        Returns:
+            Set of actual package directories
+        """
+        paths = set()
+
+        # Check if the namespace path itself is a package
+        if (ns_path / "__init__.py").exists() or any(ns_path.glob("*.py")):
+            paths.add(ns_path)
+
+        # Look for subdirectories that are Python packages
+        for subdir in ns_path.iterdir():
+            if subdir.is_dir() and not subdir.name.startswith("."):
+                # Check if it's a Python package
+                if (subdir / "__init__.py").exists() or any(subdir.glob("*.py")):
+                    paths.add(subdir)
+
+        # If no packages found, return the base path as fallback
+        if not paths:
+            paths.add(ns_path)
+
+        return paths
+
+    def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
+        """Get the base path for a namespace within a repository.
+
+        Args:
+            ns_path: Repository path containing the namespace
+            namespace: Namespace name
+
+        Returns:
+            Path to the namespace directory
+        """
+        # Try to find the namespace directory within the repository
+        ns_parts = namespace.split(".")
+
+        # Check if namespace directory exists at the repository root
+        potential_path = ns_path / ns_parts[0]
+        if potential_path.exists() and potential_path.is_dir():
+            # Build the full namespace path
+            if len(ns_parts) > 1:
+                return potential_path / Path(*ns_parts[1:])
+            return potential_path
+
+        # Otherwise, assume the repository root is the namespace
+        return ns_path
 
     async def find_symbol(
         self, name: str, fuzzy: bool = False, include_import_paths: bool = True
