@@ -1,0 +1,97 @@
+{
+  "description": "Configuration for a complex enterprise setup with multiple teams and repositories",
+  "namespaces": {
+    "company.core": [
+      "~/repos/company-core",
+      "~/repos/company-framework"
+    ],
+    "company.libs": [
+      "~/repos/company-utils",
+      "~/repos/company-models",
+      "~/repos/company-validators"
+    ],
+    "company.services": [
+      "~/repos/company-auth",
+      "~/repos/company-api",
+      "~/repos/company-billing",
+      "~/repos/company-analytics"
+    ],
+    "company.tools": [
+      "~/repos/company-cli",
+      "~/repos/company-sdk",
+      "~/repos/company-devtools"
+    ],
+    "experiments": [
+      "~/repos/experimental-*"
+    ],
+    "internal": [
+      "~/repos/internal-*"
+    ],
+    "vendor": [
+      "~/repos/vendor-*"
+    ]
+  },
+  "packages": [
+    "~/.venv/lib/python3.11/site-packages"
+  ],
+  "performance": {
+    "cache_ttl": 600,
+    "lazy_load_namespaces": true,
+    "max_concurrent_searches": 20
+  },
+  "scope_aliases": {
+    "api-surface": [
+      "namespace:company.services",
+      "namespace:company.sdk"
+    ],
+    "company": [
+      "namespace:company.core",
+      "namespace:company.services",
+      "namespace:company.tools",
+      "namespace:company.libs"
+    ],
+    "data-layer": [
+      "namespace:company.libs.models",
+      "namespace:company.services.billing",
+      "namespace:company.services.analytics"
+    ],
+    "development": [
+      "main",
+      "namespace:company",
+      "namespace:internal",
+      "namespace:experiments"
+    ],
+    "first-party": [
+      "main",
+      "namespace:company",
+      "namespace:internal"
+    ],
+    "production": [
+      "namespace:company.core",
+      "namespace:company.services",
+      "namespace:company.libs"
+    ],
+    "security-critical": [
+      "namespace:company.services.auth",
+      "namespace:company.core.security",
+      "namespace:company.libs.validators"
+    ],
+    "third-party": [
+      "namespace:vendor",
+      "packages"
+    ]
+  },
+  "scope_defaults": {
+    "global": "namespace:company",
+    "methods": {
+      "analyze_dependencies": "production",
+      "find_imports": "all",
+      "find_models": "namespace:company.libs",
+      "find_references": "all",
+      "find_routes": "namespace:company.services",
+      "find_subclasses": "first-party",
+      "get_call_hierarchy": "production",
+      "list_modules": "main"
+    }
+  }
+}

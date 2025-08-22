@@ -1,0 +1,46 @@
+{
+  "description": "Configuration for a plugin-based architecture",
+  "namespaces": {
+    "builtin_plugins": [
+      "./plugins/auth",
+      "./plugins/logging",
+      "./plugins/cache"
+    ],
+    "community_plugins": [
+      "~/repos/community-plugins/*"
+    ],
+    "core": [
+      "./"
+    ],
+    "external_plugins": [
+      "../plugin-oauth",
+      "../plugin-analytics",
+      "../plugin-monitoring"
+    ]
+  },
+  "scope_aliases": {
+    "all-plugins": [
+      "namespace:builtin_plugins",
+      "namespace:external_plugins",
+      "namespace:community_plugins"
+    ],
+    "first-party": [
+      "namespace:core",
+      "namespace:builtin_plugins"
+    ],
+    "trusted": [
+      "namespace:core",
+      "namespace:builtin_plugins",
+      "namespace:external_plugins"
+    ]
+  },
+  "scope_defaults": {
+    "global": "namespace:core",
+    "methods": {
+      "find_models": "namespace:core",
+      "find_references": "all",
+      "find_subclasses": "all",
+      "list_modules": "main"
+    }
+  }
+}

@@ -232,6 +232,24 @@ class ProjectConfig:
         namespaces = self.config.get("namespaces", {})
         return dict(namespaces) if namespaces else {}
 
+    def get_scope_defaults(self) -> dict[str, Any]:
+        """Get configured scope defaults.
+
+        Returns:
+            Dictionary with global and method-specific scope defaults
+        """
+        defaults = self.config.get("scope_defaults", {})
+        return dict(defaults) if defaults else {}
+
+    def get_scope_aliases(self) -> dict[str, Any]:
+        """Get configured scope aliases.
+
+        Returns:
+            Dictionary mapping alias names to scope specifications
+        """
+        aliases = self.config.get("scope_aliases", {})
+        return dict(aliases) if aliases else {}
+
     def save_config(self, config_path: Path | None = None) -> None:
         """Save current configuration to a file.
 

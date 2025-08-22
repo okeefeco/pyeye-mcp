@@ -1,0 +1,27 @@
+{
+  "description": "Configuration for a monorepo with multiple packages",
+  "packages": [
+    "./packages/*",
+    "./libs/*",
+    "./tools/*"
+  ],
+  "scope_aliases": {
+    "apps": [
+      "main",
+      "./packages/app-*"
+    ],
+    "libs": [
+      "packages"
+    ],
+    "tools": [
+      "./tools/*"
+    ]
+  },
+  "scope_defaults": {
+    "global": "all",
+    "methods": {
+      "list_modules": "main",
+      "list_packages": "all"
+    }
+  }
+}
