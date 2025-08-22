@@ -1,6 +1,9 @@
 """Performance settings for Python Code Intelligence MCP Server."""
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 class PerformanceSettings:
@@ -77,16 +80,16 @@ class PerformanceSettings:
             value = int(os.getenv(key, str(default)))
 
             if min_val is not None and value < min_val:
-                print(f"Warning: {key}={value} below minimum {min_val}, using {min_val}")
+                logger.warning(f"{key}={value} below minimum {min_val}, using {min_val}")
                 return min_val
 
             if max_val is not None and value > max_val:
-                print(f"Warning: {key}={value} above maximum {max_val}, using {max_val}")
+                logger.warning(f"{key}={value} above maximum {max_val}, using {max_val}")
                 return max_val
 
             return value
         except ValueError:
-            print(f"Warning: Invalid value for {key}, using default {default}")
+            logger.warning(f"Invalid value for {key}, using default {default}")
             return default
 
     def _get_float_env(
@@ -111,16 +114,16 @@ class PerformanceSettings:
             value = float(os.getenv(key, str(default)))
 
             if min_val is not None and value < min_val:
-                print(f"Warning: {key}={value} below minimum {min_val}, using {min_val}")
+                logger.warning(f"{key}={value} below minimum {min_val}, using {min_val}")
                 return min_val
 
             if max_val is not None and value > max_val:
-                print(f"Warning: {key}={value} above maximum {max_val}, using {max_val}")
+                logger.warning(f"{key}={value} above maximum {max_val}, using {max_val}")
                 return max_val
 
             return value
         except ValueError:
-            print(f"Warning: Invalid value for {key}, using default {default}")
+            logger.warning(f"Invalid value for {key}, using default {default}")
             return default
 
     def _get_bool_env(self, key: str, default: bool) -> bool:
