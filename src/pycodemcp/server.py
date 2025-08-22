@@ -505,19 +505,26 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
 
 @mcp.tool()
 @validate_mcp_inputs
-async def analyze_dependencies(module_path: str, project_path: str = ".") -> dict[str, Any]:
+async def analyze_dependencies(
+    module_path: str, project_path: str = ".", scope: str = "all"
+) -> dict[str, Any]:
     """Analyze import dependencies for a module.
 
     Args:
         module_path: Import path of the module (e.g., "pycodemcp.server")
         project_path: Root path of the project
+        scope: Search scope (default "all"):
+            - "main": Only the main project
+            - "all": Main project + configured namespaces
+            - "namespace:name": Specific namespace
+            - ["main", "namespace:x"]: Multiple scopes
 
     Returns:
         Dependencies analysis including imports, imported_by, and circular dependencies
     """
     try:
         analyzer = get_analyzer(project_path)
-        return await analyzer.analyze_dependencies(module_path)
+        return await analyzer.analyze_dependencies(module_path, scope=scope)
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
     except FileAccessError:
