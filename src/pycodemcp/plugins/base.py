@@ -117,10 +117,43 @@ class AnalyzerPlugin(ABC):
 
         search_paths = await self._resolve_scope_to_paths(scope)
 
+        # Normalize scope to list for checking
+        scopes = [scope] if isinstance(scope, str) else scope
+
         all_files = []
         for path in search_paths:
             try:
                 files = await rglob_async(pattern, path)
+
+                # If searching "main" scope only, exclude files in namespace subdirectories
+                if "main" in scopes and path == self.project_path:
+                    # Get all namespace paths that are subdirectories of main project
+                    namespace_subdirs = []
+                    for ns_paths in self.namespace_paths.values():
+                        for ns_path in ns_paths:
+                            try:
+                                # Check if namespace path is under main project
+                                ns_path.relative_to(self.project_path)
+                                namespace_subdirs.append(ns_path)
+                            except ValueError:
+                                # Not a subdirectory, ignore
+                                pass
+
+                    # Filter out files in namespace subdirectories
+                    filtered_files = []
+                    for f in files:
+                        is_in_namespace = False
+                        for ns_dir in namespace_subdirs:
+                            try:
+                                f.relative_to(ns_dir)
+                                is_in_namespace = True
+                                break
+                            except ValueError:
+                                pass
+                        if not is_in_namespace:
+                            filtered_files.append(f)
+                    files = filtered_files
+
                 all_files.extend(files)
             except Exception as e:
                 logger.warning(f"Plugin {self.name()}: Error searching {path}: {e}")
