@@ -14,6 +14,11 @@ from pycodemcp.scope_utils import (
     parallel_search,
 )
 
+from tests.utils.performance import (
+    PerformanceThresholds,
+    assert_performance_threshold,
+)
+
 
 @pytest.mark.asyncio
 class TestScopedCachePerformance:
@@ -28,16 +33,23 @@ class TestScopedCachePerformance:
             cache.set(f"key_{i}", f"value_{i}", "main")
             cache.set(f"key_{i}", f"value_{i}_all", "all")
 
-        # Measure cache hit time
+        # Measure cache hit time for 100k lookups
         start = time.time()
         for _ in range(1000):
             for i in range(100):
                 value = cache.get(f"key_{i}", "main")
                 assert value == f"value_{i}"
-        elapsed = time.time() - start
+        elapsed_ms = (time.time() - start) * 1000
 
-        # Should be very fast - under 200ms for 100k lookups
-        assert elapsed < 0.2, f"Cache lookups took {elapsed:.3f}s"
+        # Define thresholds for 100k cache lookups
+        bulk_cache_threshold = PerformanceThresholds(
+            base=200.0,  # 200ms for local development
+            linux_ci=400.0,  # 400ms for Linux CI
+            macos_ci=800.0,  # 800ms for macOS CI
+            windows_ci=800.0,  # 800ms for Windows CI
+        )
+
+        assert_performance_threshold(elapsed_ms, bulk_cache_threshold, "Cache lookups (100k ops)")
 
     async def test_scoped_cache_isolation(self):
         """Test that scoped caches are isolated."""

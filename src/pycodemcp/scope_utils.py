@@ -251,7 +251,7 @@ class ScopeDebugger:
         explanation += f"Resolves to {len(paths)} paths:\n"
 
         for path in sorted(paths):
-            explanation += f"  - {path}\n"
+            explanation += f"  - {path.as_posix()}\n"
 
         return explanation
 
@@ -280,7 +280,7 @@ class ScopeDebugger:
         return {
             "pattern": pattern,
             "scope": scope,
-            "resolved_paths": [str(p) for p in resolved_paths],
+            "resolved_paths": [p.as_posix() for p in resolved_paths],
             "path_count": len(resolved_paths),
             "files_found": files_found,
             "search_time_ms": search_time_ms,
