@@ -63,7 +63,7 @@ class ProjectConfig:
 
     def _load_from_file(self, config_path: Path) -> None:
         """Load configuration from a file."""
-        logger.info(f"Loading config from {config_path}")
+        logger.info(f"Loading config from {config_path.as_posix()}")
 
         try:
             if config_path.suffix == ".json":
@@ -90,7 +90,7 @@ class ProjectConfig:
                         self.config.update(data["tool"]["pycodemcp"])
 
         except Exception as e:
-            logger.error(f"Error loading config from {config_path}: {e}")
+            logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
 
     def _load_global_config(self) -> None:
         """Load global configuration from user home.
@@ -109,7 +109,7 @@ class ProjectConfig:
                         global_config = json.load(f)
                         # Global config loaded first, so just update
                         self.config.update(global_config)
-                        logger.info(f"Loaded global config from {config_path}")
+                        logger.info(f"Loaded global config from {config_path.as_posix()}")
                         break
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
@@ -206,7 +206,7 @@ class ProjectConfig:
                         if validated.exists():
                             paths.append(str(validated))
                 except ValidationError as e:
-                    logger.warning(f"Skipping invalid namespace path {ns_path}: {e}")
+                    logger.warning(f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}")
                     continue
 
         # Always include current project
@@ -216,7 +216,7 @@ class ProjectConfig:
         seen = set()
         unique_paths: list[str] = []
         for path in paths:
-            path_str = str(path)
+            path_str = Path(path).as_posix()
             if path_str not in seen:
                 seen.add(path_str)
                 unique_paths.append(path_str)
@@ -262,7 +262,7 @@ class ProjectConfig:
         try:
             with open(config_path, "w") as f:
                 json.dump(self.config, f, indent=2)
-            logger.info(f"Saved config to {config_path}")
+            logger.info(f"Saved config to {config_path.as_posix()}")
         except Exception as e:
             logger.error(f"Error saving config: {e}")
 
@@ -296,4 +296,4 @@ def create_example_config(project_path: str = ".") -> None:
     with open(config_path, "w") as f:
         json.dump(example, f, indent=2)
 
-    print(f"Created example config at {config_path}")
+    print(f"Created example config at {config_path.as_posix()}")

@@ -88,14 +88,14 @@ class DjangoPlugin(AnalyzerPlugin):
                                     models.append(
                                         {
                                             "name": node.name,
-                                            "file": str(models_file),
+                                            "file": models_file.as_posix(),
                                             "line": node.lineno,
                                             "type": "django_model",
                                         }
                                     )
 
             except Exception as e:
-                logger.warning(f"Error parsing {models_file}: {e}")
+                logger.warning(f"Error parsing {models_file.as_posix()}: {e}")
 
         return models
 
@@ -128,7 +128,7 @@ class DjangoPlugin(AnalyzerPlugin):
                                 views.append(
                                     {
                                         "name": node.name,
-                                        "file": str(views_file),
+                                        "file": views_file.as_posix(),
                                         "line": node.lineno,
                                         "type": "function_view",
                                     }
@@ -141,14 +141,14 @@ class DjangoPlugin(AnalyzerPlugin):
                                     views.append(
                                         {
                                             "name": node.name,
-                                            "file": str(views_file),
+                                            "file": views_file.as_posix(),
                                             "line": node.lineno,
                                             "type": "class_view",
                                         }
                                     )
 
             except Exception as e:
-                logger.warning(f"Error parsing {views_file}: {e}")
+                logger.warning(f"Error parsing {views_file.as_posix()}: {e}")
 
         return views
 
@@ -168,7 +168,7 @@ class DjangoPlugin(AnalyzerPlugin):
         for urls_file in urls_files:
             urls.append(
                 {
-                    "file": str(urls_file),
+                    "file": urls_file.as_posix(),
                     "type": "url_config",
                 }
             )
@@ -196,7 +196,7 @@ class DjangoPlugin(AnalyzerPlugin):
                 for template_dir in root.glob(pattern):
                     if template_dir.is_dir():
                         for template_file in template_dir.rglob("*.html"):
-                            file_str = str(template_file)
+                            file_str = template_file.as_posix()
                             if file_str not in seen_files:
                                 seen_files.add(file_str)
                                 templates.append(
@@ -225,7 +225,7 @@ class DjangoPlugin(AnalyzerPlugin):
         for root in project_roots:
             for migration_file in root.rglob("migrations/*.py"):
                 if migration_file.name != "__init__.py":
-                    file_str = str(migration_file)
+                    file_str = migration_file.as_posix()
                     if file_str not in seen_files:
                         seen_files.add(file_str)
                         migrations.append(

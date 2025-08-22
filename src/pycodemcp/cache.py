@@ -48,7 +48,7 @@ class CodebaseWatcher(FileSystemEventHandler):
         if isinstance(event, FileModifiedEvent):
             src_path = event.src_path
             if isinstance(src_path, str) and src_path.endswith(".py"):
-                logger.debug(f"Python file modified: {src_path}")
+                logger.debug(f"Python file modified: {Path(src_path).as_posix()}")
                 self.last_change = time.time()
 
                 # Add to pending changes and reset debounce timer
@@ -78,7 +78,7 @@ class CodebaseWatcher(FileSystemEventHandler):
         # Log all changes at once
         logger.info(f"Processing {len(changes)} file change(s) after debounce")
         for path in changes:
-            logger.debug(f"  - {path}")
+            logger.debug(f"  - {Path(path).as_posix()}")
 
         # Call callback once for all changes
         if self.on_change_callback:
@@ -271,7 +271,7 @@ class GranularCache(ProjectCache):
                 self.module_cache[module_name].add(key)
 
             self.metrics.total_entries = len(self.cache)
-            logger.debug(f"Cache set: {key} (file={file_path}, module={module_name})")
+            logger.debug(f"Cache set: {key} (file={file_path.as_posix() if file_path else None}, module={module_name})")
 
     def invalidate_file(self, file_path: Path) -> int:
         """Invalidate cache entries associated with a specific file.
@@ -304,7 +304,7 @@ class GranularCache(ProjectCache):
 
                 self.metrics.record_invalidation(invalidated_count)
 
-                logger.info(f"Invalidated {invalidated_count} cache entries for {file_path}")
+                logger.info(f"Invalidated {invalidated_count} cache entries for {file_path.as_posix()}")
 
             # Also invalidate affected modules
             affected_modules = self.dependency_tracker.get_affected_modules(file_path)

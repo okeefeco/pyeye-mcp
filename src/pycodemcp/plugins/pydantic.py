@@ -76,7 +76,7 @@ class PydanticPlugin(AnalyzerPlugin):
                 if "BaseModel" not in content and "pydantic" not in content.lower():
                     continue  # Quick filter
 
-                tree = ast.parse(content, filename=str(py_file))
+                tree = ast.parse(content, filename=py_file.as_posix())
 
                 for node in ast.walk(tree):
                     if isinstance(node, ast.ClassDef):
@@ -84,7 +84,7 @@ class PydanticPlugin(AnalyzerPlugin):
                         if self._is_pydantic_model(node, content):
                             model_info = {
                                 "name": node.name,
-                                "file": str(py_file),
+                                "file": py_file.as_posix(),
                                 "line": node.lineno,
                                 "type": "pydantic_model",
                                 "fields": self._extract_fields(node),
@@ -95,7 +95,7 @@ class PydanticPlugin(AnalyzerPlugin):
                             models.append(model_info)
 
             except Exception as e:
-                logger.debug(f"Error parsing {py_file}: {e}")
+                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
 
         return models
 
@@ -154,7 +154,7 @@ class PydanticPlugin(AnalyzerPlugin):
                 if "validator" not in content and "field_validator" not in content:
                     continue
 
-                tree = ast.parse(content, filename=str(py_file))
+                tree = ast.parse(content, filename=py_file.as_posix())
 
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef):
@@ -163,7 +163,7 @@ class PydanticPlugin(AnalyzerPlugin):
                             if self._is_validator_decorator(decorator):
                                 validator_info = {
                                     "name": node.name,
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": node.lineno,
                                     "type": self._get_validator_type(decorator),
                                     "fields": self._get_validator_fields(decorator),
@@ -172,7 +172,7 @@ class PydanticPlugin(AnalyzerPlugin):
                                 validators.append(validator_info)
 
             except Exception as e:
-                logger.debug(f"Error parsing {py_file}: {e}")
+                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
 
         return validators
 
@@ -206,7 +206,7 @@ class PydanticPlugin(AnalyzerPlugin):
                 if "Config" not in content and "model_config" not in content:
                     continue
 
-                tree = ast.parse(content, filename=str(py_file))
+                tree = ast.parse(content, filename=py_file.as_posix())
 
                 for node in ast.walk(tree):
                     if isinstance(node, ast.ClassDef):
@@ -215,7 +215,7 @@ class PydanticPlugin(AnalyzerPlugin):
                             if isinstance(item, ast.ClassDef) and item.name == "Config":
                                 config_info = {
                                     "model": node.name,
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": item.lineno,
                                     "settings": self._extract_config_settings(item),
                                 }
@@ -226,14 +226,14 @@ class PydanticPlugin(AnalyzerPlugin):
                                         configs.append(
                                             {
                                                 "model": node.name,
-                                                "file": str(py_file),
+                                                "file": py_file.as_posix(),
                                                 "line": item.lineno,
                                                 "settings": self._extract_config_dict(item.value),
                                             }
                                         )
 
             except Exception as e:
-                logger.debug(f"Error parsing {py_file}: {e}")
+                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
 
         return configs
 
@@ -295,7 +295,7 @@ class PydanticPlugin(AnalyzerPlugin):
                 if "computed_field" not in content and "@property" not in content:
                     continue
 
-                tree = ast.parse(content, filename=str(py_file))
+                tree = ast.parse(content, filename=py_file.as_posix())
 
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef):
@@ -304,7 +304,7 @@ class PydanticPlugin(AnalyzerPlugin):
                                 computed_fields.append(
                                     {
                                         "name": node.name,
-                                        "file": str(py_file),
+                                        "file": py_file.as_posix(),
                                         "line": node.lineno,
                                         "type": "computed_field",
                                         "return_type": self._get_return_type(node),
@@ -312,7 +312,7 @@ class PydanticPlugin(AnalyzerPlugin):
                                 )
 
             except Exception as e:
-                logger.debug(f"Error parsing {py_file}: {e}")
+                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
 
         return computed_fields
 

@@ -132,7 +132,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                     routes.append(
                                         {
                                             "name": node.name,
-                                            "file": str(py_file),
+                                            "file": py_file.as_posix(),
                                             "line": node.lineno,
                                             "path": route_path,
                                             "methods": methods,
@@ -141,7 +141,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                     )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return routes
 
@@ -199,7 +199,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                         {
                                             "name": node.targets[0].id,
                                             "blueprint_name": bp_name,
-                                            "file": str(py_file),
+                                            "file": py_file.as_posix(),
                                             "line": node.lineno,
                                             "url_prefix": url_prefix,
                                             "type": "blueprint",
@@ -207,7 +207,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                     )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return blueprints
 
@@ -242,14 +242,14 @@ class FlaskPlugin(AnalyzerPlugin):
                                     views.append(
                                         {
                                             "name": node.name,
-                                            "file": str(py_file),
+                                            "file": py_file.as_posix(),
                                             "line": node.lineno,
                                             "type": "method_view",
                                         }
                                     )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return views
 
@@ -276,7 +276,7 @@ class FlaskPlugin(AnalyzerPlugin):
                         for template_file in template_dir.rglob("*.html"):
                             templates.append(
                                 {
-                                    "file": str(template_file),
+                                    "file": template_file.as_posix(),
                                     "name": template_file.relative_to(template_dir).as_posix(),
                                     "type": "template",
                                 }
@@ -284,7 +284,7 @@ class FlaskPlugin(AnalyzerPlugin):
                         for template_file in template_dir.rglob("*.jinja2"):
                             templates.append(
                                 {
-                                    "file": str(template_file),
+                                    "file": template_file.as_posix(),
                                     "name": template_file.relative_to(template_dir).as_posix(),
                                     "type": "template",
                                 }
@@ -316,14 +316,14 @@ class FlaskPlugin(AnalyzerPlugin):
                             render_calls.append(
                                 {
                                     "template": template_name,
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": node.lineno,
                                     "type": "render_call",
                                 }
                             )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return [{"templates": templates, "render_calls": render_calls}]
 
@@ -367,7 +367,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                         extensions.append(
                                             {
                                                 "extension": ext,
-                                                "file": str(py_file),
+                                                "file": py_file.as_posix(),
                                                 "line": node.lineno,
                                                 "type": "import",
                                             }
@@ -378,14 +378,14 @@ class FlaskPlugin(AnalyzerPlugin):
                                             extensions.append(
                                                 {
                                                     "extension": ext,
-                                                    "file": str(py_file),
+                                                    "file": py_file.as_posix(),
                                                     "line": node.lineno,
                                                     "type": "import",
                                                 }
                                             )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         # Remove duplicates
         seen: set[str] = set()
@@ -415,7 +415,7 @@ class FlaskPlugin(AnalyzerPlugin):
         for pattern in config_patterns:
             for config_file in self.project_path.glob(pattern):
                 if config_file.is_file():
-                    configs.append({"file": str(config_file), "type": "config_file"})
+                    configs.append({"file": config_file.as_posix(), "type": "config_file"})
 
         # Find app.config usage
         py_files = await self.get_project_files("*.py", scope)
@@ -433,14 +433,14 @@ class FlaskPlugin(AnalyzerPlugin):
                             ):
                                 configs.append(
                                     {
-                                        "file": str(py_file),
+                                        "file": py_file.as_posix(),
                                         "line": str(getattr(node, "lineno", 0)),
                                         "type": "config_access",
                                     }
                                 )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return configs
 
@@ -481,7 +481,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                             handlers.append(
                                                 {
                                                     "name": node.name,
-                                                    "file": str(py_file),
+                                                    "file": py_file.as_posix(),
                                                     "line": node.lineno,
                                                     "error_code": error_code,
                                                     "type": "error_handler",
@@ -489,7 +489,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                             )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return handlers
 
@@ -539,7 +539,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                                         {
                                                             "name": command_name,
                                                             "function": node.name,
-                                                            "file": str(py_file),
+                                                            "file": py_file.as_posix(),
                                                             "line": node.lineno,
                                                             "type": "cli_command",
                                                         }
@@ -551,14 +551,14 @@ class FlaskPlugin(AnalyzerPlugin):
                                             {
                                                 "name": node.name,
                                                 "function": node.name,
-                                                "file": str(py_file),
+                                                "file": py_file.as_posix(),
                                                 "line": node.lineno,
                                                 "type": "cli_command",
                                             }
                                         )
 
             except Exception as e:
-                logger.warning(f"Error parsing {py_file}: {e}")
+                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return commands
 
@@ -578,7 +578,7 @@ class FlaskPlugin(AnalyzerPlugin):
             try:
                 content = py_file.read_text()
                 if "@" in content and "route" in content:
-                    components["routes"].append(str(py_file))
+                    components["routes"].append(py_file.as_posix())
             except Exception:
                 pass
 
@@ -587,26 +587,26 @@ class FlaskPlugin(AnalyzerPlugin):
             try:
                 content = py_file.read_text()
                 if "Blueprint" in content:
-                    components["blueprints"].append(str(py_file))
+                    components["blueprints"].append(py_file.as_posix())
             except Exception:
                 pass
 
         # Find template directories
         for template_dir in self.project_path.glob("**/templates"):
             if template_dir.is_dir():
-                components["templates"].append(str(template_dir))
+                components["templates"].append(template_dir.as_posix())
 
         # Find static directories
         for static_dir in self.project_path.glob("**/static"):
             if static_dir.is_dir():
-                components["static"].append(str(static_dir))
+                components["static"].append(static_dir.as_posix())
 
         # Find models (SQLAlchemy)
         for models_file in self.project_path.rglob("models.py"):
-            components["models"].append(str(models_file))
+            components["models"].append(models_file.as_posix())
 
         # Find forms (WTForms)
         for forms_file in self.project_path.rglob("forms.py"):
-            components["forms"].append(str(forms_file))
+            components["forms"].append(forms_file.as_posix())
 
         return components

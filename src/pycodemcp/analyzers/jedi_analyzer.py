@@ -58,16 +58,16 @@ class JediAnalyzer:
 
         # Validate project path exists
         if not self.project_path.exists():
-            raise ProjectNotFoundError(str(project_path))
+            raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
             self.project = jedi.Project(path=self.project_path)
-            logger.info(f"Initialized JediAnalyzer for {self.project_path}")
+            logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
             raise AnalysisError(
-                f"Failed to initialize analyzer for {project_path}",
-                file_path=str(project_path),
+                f"Failed to initialize analyzer for {self.project_path.as_posix()}",
+                file_path=self.project_path.as_posix(),
                 error=str(e),
             ) from e
 
@@ -206,7 +206,7 @@ class JediAnalyzer:
                 if pkg_path.exists():
                     paths.add(pkg_path)
                 else:
-                    logger.warning(f"Package path does not exist: {pkg_path}")
+                    logger.warning(f"Package path does not exist: {pkg_path.as_posix()}")
 
             else:
                 logger.warning(f"Unknown scope specification: {s}")
@@ -526,7 +526,7 @@ class JediAnalyzer:
                         if name.type in ["module", "import"] and module_name in name.full_name:
                             results.append(
                                 {
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": name.line,
                                     "column": name.column,
                                     "import_statement": name.description,
@@ -802,7 +802,7 @@ class JediAnalyzer:
                     packages.append(
                         {
                             "name": package_name,
-                            "path": str(package_dir),
+                            "path": package_dir.as_posix(),
                             "is_namespace": not (package_dir / "__init__.py").exists(),
                             "subpackages": sorted(subpackages),
                             "modules": sorted(modules),
@@ -924,7 +924,7 @@ class JediAnalyzer:
                         {
                             "name": py_file.stem if py_file.name != "__init__.py" else "__init__",
                             "import_path": import_path,
-                            "file": str(py_file),
+                            "file": py_file.as_posix(),
                             "exports": sorted(exports),
                             "classes": sorted(classes),
                             "functions": sorted(functions),
@@ -1206,7 +1206,7 @@ class JediAnalyzer:
             if not module_file:
                 raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
 
-            info["file"] = str(module_file)
+            info["file"] = module_file.as_posix()
 
             # Read and parse the module
             source = await read_file_async(module_file)
@@ -1498,7 +1498,7 @@ class JediAnalyzer:
             for py_file in py_files:
                 try:
                     content = await read_file_async(py_file)
-                    tree = ast.parse(content, filename=str(py_file))
+                    tree = ast.parse(content, filename=py_file.as_posix())
 
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef):
@@ -1512,7 +1512,7 @@ class JediAnalyzer:
 
                                 subclass_info = {
                                     "name": node.name,
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": node.lineno,
                                     "column": node.col_offset,
                                     "direct_parent": inheritance_info["direct_parent"],

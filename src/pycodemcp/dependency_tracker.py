@@ -52,7 +52,7 @@ class DependencyTracker:
         file_path = file_path.resolve()
         self.file_to_module[file_path] = module_name
         self.module_to_file[module_name] = file_path
-        logger.debug(f"Mapped {file_path} to module {module_name}")
+        logger.debug(f"Mapped {file_path.as_posix()} to module {module_name}")
 
     def add_symbol_definition(self, module_name: str, symbol_name: str) -> None:
         """Track where a symbol is defined.
@@ -118,7 +118,7 @@ class DependencyTracker:
         # Get the module name for this file
         module_name = self.file_to_module.get(file_path)
         if not module_name:
-            logger.warning(f"No module mapping for {file_path}")
+            logger.warning(f"No module mapping for {file_path.as_posix()}")
             return affected
 
         # Add the module itself
@@ -130,7 +130,7 @@ class DependencyTracker:
 
         # For now, only invalidate direct dependents
         # Could be made configurable for deeper transitive invalidation
-        logger.info(f"File {file_path} affects {len(affected)} modules")
+        logger.info(f"File {file_path.as_posix()} affects {len(affected)} modules")
 
         return affected
 

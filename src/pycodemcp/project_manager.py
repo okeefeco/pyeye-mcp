@@ -75,7 +75,7 @@ class ProjectManager:
 
     def _create_project(self, main_path: Path, include_paths: list[str] | None = None) -> None:
         """Create a new project with watchers and cache."""
-        logger.info(f"Creating project for {main_path}")
+        logger.info(f"Creating project for {main_path.as_posix()}")
 
         # Clean up old project if exists
         if main_path in self.projects:
@@ -105,7 +105,7 @@ class ProjectManager:
 
         # Set up watcher for main project with smart invalidation
         def on_change(file_path: str) -> None:
-            logger.info(f"File changed in {main_path}: {file_path}")
+            logger.info(f"File changed in {main_path.as_posix()}: {Path(file_path).as_posix()}")
             # Use smart invalidation for this file
             if main_path in self.caches:
                 changed_file = Path(file_path)
@@ -116,20 +116,20 @@ class ProjectManager:
                 # For now, keep the project alive to avoid recreation overhead
                 # The cache invalidation handles the necessary updates
 
-        watcher = CodebaseWatcher(str(main_path), on_change)
+        watcher = CodebaseWatcher(main_path.as_posix(), on_change)
         watcher.start()
         self.watchers[main_path] = watcher
 
         # Optional: Watch dependency paths too
         for dep_path in dep_paths:
-            dep_watcher = CodebaseWatcher(str(dep_path), on_change)
+            dep_watcher = CodebaseWatcher(dep_path.as_posix(), on_change)
             dep_watcher.start()
             # Store with compound key
             self.watchers[dep_path] = dep_watcher
 
     def _cleanup_project(self, project_path: Path) -> None:
         """Clean up a project's resources."""
-        logger.info(f"Cleaning up project {project_path}")
+        logger.info(f"Cleaning up project {project_path.as_posix()}")
 
         # Stop watchers
         if project_path in self.watchers:
@@ -160,7 +160,7 @@ class ProjectManager:
         while len(self.projects) > self.max_projects:
             # Remove least recently used
             lru_path = self.access_order.pop(0)
-            logger.info(f"Evicting LRU project: {lru_path}")
+            logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
             self._cleanup_project(lru_path)
 
     def get_cache(self, project_path: str) -> GranularCache:
@@ -185,7 +185,7 @@ class ProjectManager:
             try:
                 search_results = project.search(name, all_scopes=True)
                 if search_results:
-                    results[str(project_path)] = [
+                    results[project_path.as_posix()] = [
                         {
                             "name": r.name,
                             "file": str(r.module_path) if r.module_path else None,
@@ -195,7 +195,7 @@ class ProjectManager:
                         for r in search_results
                     ]
             except Exception as e:
-                logger.error(f"Error searching in {project_path}: {e}")
+                logger.error(f"Error searching in {project_path.as_posix()}: {e}")
 
         return results
 
