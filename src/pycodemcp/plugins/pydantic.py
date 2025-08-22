@@ -5,8 +5,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..async_utils import read_file_async, rglob_async
-from .base import AnalyzerPlugin
+from ..async_utils import read_file_async
+from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,18 @@ class PydanticPlugin(AnalyzerPlugin):
             "find_computed_fields": self.find_computed_fields,
         }
 
-    async def find_models(self) -> list[dict[str, Any]]:
-        """Find all Pydantic models in the project."""
+    async def find_models(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Pydantic models in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         models = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -92,9 +99,19 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return models
 
-    async def get_model_schema(self, model_name: str) -> dict[str, Any] | None:
-        """Get the schema for a specific Pydantic model."""
-        models = await self.find_models()
+    async def get_model_schema(
+        self, model_name: str, scope: Scope = "main"
+    ) -> dict[str, Any] | None:
+        """Get the schema for a specific Pydantic model.
+
+        Args:
+            model_name: Name of the model to get schema for
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
+        models = await self.find_models(scope)
 
         for model in models:
             if model["name"] == model_name:
@@ -119,11 +136,18 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return None
 
-    async def find_validators(self) -> list[dict[str, Any]]:
-        """Find all Pydantic validators in the project."""
+    async def find_validators(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Pydantic validators in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         validators = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -152,16 +176,30 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return validators
 
-    async def find_field_validators(self) -> list[dict[str, Any]]:
-        """Find all field-specific validators."""
-        all_validators = await self.find_validators()
+    async def find_field_validators(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all field-specific validators.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
+        all_validators = await self.find_validators(scope)
         return [v for v in all_validators if v["type"] == "field_validator"]
 
-    async def find_model_config(self) -> list[dict[str, Any]]:
-        """Find all model configurations."""
+    async def find_model_config(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all model configurations.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         configs = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -199,9 +237,19 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return configs
 
-    async def trace_model_inheritance(self, model_name: str) -> dict[str, Any]:
-        """Trace the inheritance hierarchy of a Pydantic model."""
-        models = await self.find_models()
+    async def trace_model_inheritance(
+        self, model_name: str, scope: Scope = "main"
+    ) -> dict[str, Any]:
+        """Trace the inheritance hierarchy of a Pydantic model.
+
+        Args:
+            model_name: Name of the model to trace
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
+        models = await self.find_models(scope)
 
         hierarchy: dict[str, Any] = {
             "model": model_name,
@@ -229,11 +277,18 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return hierarchy
 
-    async def find_computed_fields(self) -> list[dict[str, Any]]:
-        """Find all computed fields (properties, computed_field decorator)."""
+    async def find_computed_fields(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all computed fields (properties, computed_field decorator).
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         computed_fields = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)

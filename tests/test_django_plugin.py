@@ -284,3 +284,98 @@ class Migration(migrations.Migration):
         # Plugin should log when Django is detected
         # Check that logger was used (exact calls depend on implementation)
         _ = mock_logger  # Use the mock_logger to avoid unused warning
+
+    @pytest.mark.asyncio
+    async def test_find_models_with_namespace_scope(self, temp_project):
+        """Test finding Django models with namespace scope."""
+        # Main project model
+        main_models = temp_project / "models.py"
+        main_models.write_text(
+            """
+from django.db import models
+
+class MainModel(models.Model):
+    name = models.CharField(max_length=100)
+"""
+        )
+
+        # Namespace model
+        ns_path = temp_project / "shared_namespace"
+        ns_path.mkdir()
+        ns_models = ns_path / "models.py"
+        ns_models.write_text(
+            """
+from django.db import models
+
+class SharedModel(models.Model):
+    value = models.IntegerField()
+"""
+        )
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_namespace_paths({"shared": [str(ns_path)]})
+
+        # Test main scope
+        models_main = await plugin.find_models(scope="main")
+        assert len(models_main) == 1
+        assert "MainModel" in str(models_main)
+
+        # Test namespace scope
+        models_ns = await plugin.find_models(scope="namespace:shared")
+        assert len(models_ns) == 1
+        assert "SharedModel" in str(models_ns)
+
+        # Test all scope
+        models_all = await plugin.find_models(scope="all")
+        assert len(models_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_find_templates_with_scope(self, temp_project):
+        """Test finding Django templates across scopes."""
+        # Main templates
+        main_templates = temp_project / "templates"
+        main_templates.mkdir()
+        (main_templates / "base.html").write_text("{% block content %}{% endblock %}")
+
+        # Package templates
+        pkg_path = temp_project / "theme_package"
+        pkg_path.mkdir()
+        pkg_templates = pkg_path / "templates"
+        pkg_templates.mkdir()
+        (pkg_templates / "theme.html").write_text("<div>Theme</div>")
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_additional_paths([pkg_path])
+
+        # Test templates in different scopes
+        templates_main = await plugin.find_templates(scope="main")
+        assert len(templates_main) == 1
+        assert "base.html" in templates_main[0]["name"]
+
+        templates_all = await plugin.find_templates(scope="all")
+        assert len(templates_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_find_migrations_with_scope(self, temp_project):
+        """Test finding migrations across namespaces."""
+        # Main migrations
+        main_migrations = temp_project / "app" / "migrations"
+        main_migrations.mkdir(parents=True)
+        (main_migrations / "0001_initial.py").write_text("# Migration")
+
+        # Namespace migrations
+        ns_path = temp_project / "shared_app"
+        ns_migrations = ns_path / "migrations"
+        ns_migrations.mkdir(parents=True)
+        (ns_migrations / "0001_shared.py").write_text("# Shared migration")
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_namespace_paths({"shared": [str(ns_path)]})
+
+        # Test finding migrations
+        migrations_main = await plugin.find_migrations(scope="main")
+        assert len(migrations_main) == 1
+        assert "0001_initial" in migrations_main[0]["name"]
+
+        migrations_all = await plugin.find_migrations(scope="all")
+        assert len(migrations_all) == 2

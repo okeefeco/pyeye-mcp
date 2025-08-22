@@ -52,6 +52,9 @@ def initialize_plugins(project_path: str = ".") -> None:
     global _plugins
     _plugins = []
 
+    # Load configuration for namespace support
+    config = ProjectConfig(project_path)
+
     # Try to activate each plugin
     plugin_classes = [PydanticPlugin, DjangoPlugin, FlaskPlugin]
 
@@ -59,8 +62,14 @@ def initialize_plugins(project_path: str = ".") -> None:
         try:
             plugin = plugin_class(project_path)  # type: ignore[abstract]
             if plugin.detect():
+                # Pass namespace configuration to the plugin
+                from pathlib import Path
+
+                plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
+                plugin.set_namespace_paths(config.get_namespaces())
+
                 _plugins.append(plugin)
-                logger.info(f"Activated {plugin.name()} plugin")
+                logger.info(f"Activated {plugin.name()} plugin with namespace support")
 
                 # Register plugin tools
                 for tool_name, tool_func in plugin.register_tools().items():
