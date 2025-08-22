@@ -673,3 +673,78 @@ def handle_value_error(e):
         error_codes = [h.get("error_code") for h in handlers]
         assert 403 in error_codes
         assert "ValueError" in error_codes
+
+    @pytest.mark.asyncio
+    async def test_find_routes_with_namespace_scope(tmpdir):
+        """Test finding routes with namespace scope."""
+        # Main project routes
+        main_routes = tmpdir / "routes.py"
+        main_routes.write_text(
+            """
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return 'Main'
+"""
+        )
+
+        # Namespace routes
+        ns_path = tmpdir / "api_namespace"
+        ns_path.mkdir()
+        ns_routes = ns_path / "routes.py"
+        ns_routes.write_text(
+            """
+from flask import Blueprint
+api = Blueprint('api', __name__)
+
+@api.route('/users')
+def users():
+    return 'Users'
+"""
+        )
+
+        plugin = FlaskPlugin(tmpdir)
+        plugin.set_namespace_paths({"api": [str(ns_path)]})
+
+        # Test main scope
+        routes_main = await plugin.find_routes(scope="main")
+        assert len(routes_main) == 1
+        assert routes_main[0]["path"] == "/"
+
+        # Test namespace scope
+        routes_ns = await plugin.find_routes(scope="namespace:api")
+        assert len(routes_ns) == 1
+        assert routes_ns[0]["path"] == "/users"
+
+        # Test all scope
+        routes_all = await plugin.find_routes(scope="all")
+        assert len(routes_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_find_templates_with_scope(tmpdir):
+        """Test finding templates across namespaces."""
+        # Main templates
+        main_templates = tmpdir / "templates"
+        main_templates.mkdir()
+        (main_templates / "index.html").write_text("<h1>Main</h1>")
+
+        # Namespace templates
+        ns_path = tmpdir / "admin_namespace"
+        ns_path.mkdir()
+        ns_templates = ns_path / "templates"
+        ns_templates.mkdir()
+        (ns_templates / "admin.html").write_text("<h1>Admin</h1>")
+
+        plugin = FlaskPlugin(tmpdir)
+        plugin.set_namespace_paths({"admin": [str(ns_path)]})
+
+        # Test finding templates in different scopes
+        templates = await plugin.find_templates(scope="all")
+        template_data = templates[0]["templates"] if templates else []
+
+        # Should find templates from both main and namespace
+        template_names = [t["name"] for t in template_data]
+        assert "index.html" in template_names
+        assert "admin.html" in template_names

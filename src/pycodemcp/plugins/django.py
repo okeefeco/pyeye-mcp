@@ -4,8 +4,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..async_utils import read_file_async, rglob_async
-from .base import AnalyzerPlugin
+from ..async_utils import read_file_async
+from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +56,19 @@ class DjangoPlugin(AnalyzerPlugin):
             "find_django_migrations": self.find_migrations,
         }
 
-    async def find_models(self) -> list[dict[str, Any]]:
-        """Find all Django models in the project."""
+    async def find_models(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Django models in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         models = []
 
         # Look for models.py files
-        models_files = await rglob_async("models.py", self.project_path)
+        models_files = await self.get_project_files("models.py", scope)
         for models_file in models_files:
             try:
                 content = await read_file_async(models_file)
@@ -92,12 +99,19 @@ class DjangoPlugin(AnalyzerPlugin):
 
         return models
 
-    async def find_views(self) -> list[dict[str, Any]]:
-        """Find all Django views in the project."""
+    async def find_views(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Django views in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         views = []
 
         # Look for views.py files
-        views_files = await rglob_async("views.py", self.project_path)
+        views_files = await self.get_project_files("views.py", scope)
         for views_file in views_files:
             try:
                 content = await read_file_async(views_file)
@@ -138,12 +152,20 @@ class DjangoPlugin(AnalyzerPlugin):
 
         return views
 
-    def find_urls(self) -> list[dict[str, Any]]:
-        """Find all URL patterns in the project."""
+    async def find_urls(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all URL patterns in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         urls = []
 
         # Look for urls.py files
-        for urls_file in self.project_path.rglob("urls.py"):
+        urls_files = await self.get_project_files("urls.py", scope)
+        for urls_file in urls_files:
             urls.append(
                 {
                     "file": str(urls_file),
@@ -153,41 +175,67 @@ class DjangoPlugin(AnalyzerPlugin):
 
         return urls
 
-    def find_templates(self) -> list[dict[str, Any]]:
-        """Find all Django templates in the project."""
+    async def find_templates(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Django templates in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         templates = []
+        seen_files = set()  # Track unique files to avoid duplicates
 
         # Common template directories
         template_dirs = ["templates", "*/templates"]
+        project_roots = await self._get_scope_roots(scope)
 
-        for pattern in template_dirs:
-            for template_dir in self.project_path.glob(pattern):
-                if template_dir.is_dir():
-                    for template_file in template_dir.rglob("*.html"):
-                        templates.append(
-                            {
-                                "file": str(template_file),
-                                "name": template_file.name,
-                                "type": "template",
-                            }
-                        )
+        for root in project_roots:
+            for pattern in template_dirs:
+                for template_dir in root.glob(pattern):
+                    if template_dir.is_dir():
+                        for template_file in template_dir.rglob("*.html"):
+                            file_str = str(template_file)
+                            if file_str not in seen_files:
+                                seen_files.add(file_str)
+                                templates.append(
+                                    {
+                                        "file": file_str,
+                                        "name": template_file.name,
+                                        "type": "template",
+                                    }
+                                )
 
         return templates
 
-    def find_migrations(self) -> list[dict[str, Any]]:
-        """Find all Django migrations in the project."""
-        migrations = []
+    async def find_migrations(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Django migrations in the project.
 
-        for migration_file in self.project_path.rglob("migrations/*.py"):
-            if migration_file.name != "__init__.py":
-                migrations.append(
-                    {
-                        "file": str(migration_file),
-                        "name": migration_file.stem,
-                        "app": migration_file.parent.parent.name,
-                        "type": "migration",
-                    }
-                )
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
+        migrations = []
+        seen_files = set()  # Track unique files to avoid duplicates
+        project_roots = await self._get_scope_roots(scope)
+
+        for root in project_roots:
+            for migration_file in root.rglob("migrations/*.py"):
+                if migration_file.name != "__init__.py":
+                    file_str = str(migration_file)
+                    if file_str not in seen_files:
+                        seen_files.add(file_str)
+                        migrations.append(
+                            {
+                                "file": file_str,
+                                "name": migration_file.stem,
+                                "app": migration_file.parent.parent.name,
+                                "type": "migration",
+                            }
+                        )
 
         return migrations
 

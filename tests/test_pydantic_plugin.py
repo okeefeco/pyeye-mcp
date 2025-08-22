@@ -619,3 +619,139 @@ class User(BaseModel):
 
         # Should have logged a debug message about parsing error (not warning)
         assert mock_logger.debug.called
+
+    @pytest.mark.asyncio
+    async def test_find_models_with_namespace_scope(self):
+        """Test finding models with namespace scope."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create main project directory
+            main_dir = Path(tmpdir) / "main_project"
+            main_dir.mkdir()
+
+            # Setup main project with a model
+            main_model = main_dir / "models.py"
+            main_model.write_text(
+                """
+from pydantic import BaseModel
+
+class MainUser(BaseModel):
+    name: str
+    email: str
+"""
+            )
+
+            # Setup namespace directory (outside main project)
+            ns_path = Path(tmpdir) / "namespace_auth"
+            ns_path.mkdir()
+            ns_model = ns_path / "models.py"
+            ns_model.write_text(
+                """
+from pydantic import BaseModel
+
+class AuthUser(BaseModel):
+    username: str
+    password: str
+"""
+            )
+
+            plugin = PydanticPlugin(main_dir)
+            plugin.set_namespace_paths({"auth": [str(ns_path)]})
+
+            # Test main scope only
+            models_main = await plugin.find_models(scope="main")
+            assert len(models_main) == 1
+            assert models_main[0]["name"] == "MainUser"
+
+            # Test namespace scope
+            models_ns = await plugin.find_models(scope="namespace:auth")
+            assert len(models_ns) == 1
+            assert models_ns[0]["name"] == "AuthUser"
+
+            # Test all scope
+            models_all = await plugin.find_models(scope="all")
+            assert len(models_all) == 2
+            assert {m["name"] for m in models_all} == {"MainUser", "AuthUser"}
+
+    @pytest.mark.asyncio
+    async def test_find_validators_with_scope(self, temp_project):
+        """Test finding validators with different scopes."""
+        # Main project validator
+        main_val = temp_project / "validators.py"
+        main_val.write_text(
+            """
+from pydantic import BaseModel, field_validator
+
+class User(BaseModel):
+    email: str
+
+    @field_validator('email')
+    def validate_email(cls, v):
+        return v.lower()
+"""
+        )
+
+        # Additional package validator
+        pkg_path = temp_project / "shared"
+        pkg_path.mkdir()
+        pkg_val = pkg_path / "validators.py"
+        pkg_val.write_text(
+            """
+from pydantic import BaseModel, field_validator
+
+class Product(BaseModel):
+    price: float
+
+    @field_validator('price')
+    def validate_price(cls, v):
+        return max(0, v)
+"""
+        )
+
+        plugin = PydanticPlugin(temp_project)
+        plugin.set_additional_paths([pkg_path])
+
+        # Test main scope only
+        validators_main = await plugin.find_validators(scope="main")
+        # Both validators are found since pkg_path is a subdirectory of temp_project
+        assert len(validators_main) == 2
+        assert any("validate_email" in v["name"] for v in validators_main)
+
+        # Test packages scope
+        validators_pkg = await plugin.find_validators(scope="packages")
+        # With additional_paths set to [pkg_path], it finds that path
+        assert len(validators_pkg) == 1
+        assert "validate_price" in validators_pkg[0]["name"]
+
+        # Test all scope
+        validators_all = await plugin.find_validators(scope="all")
+        assert len(validators_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_get_model_schema_with_scope(self, temp_project):
+        """Test getting model schema from namespace."""
+        # Setup namespace with model
+        ns_path = temp_project / "namespace_models"
+        ns_path.mkdir()
+        ns_model = ns_path / "user.py"
+        ns_model.write_text(
+            """
+from pydantic import BaseModel
+from typing import Optional
+
+class NamespaceUser(BaseModel):
+    id: int
+    name: str
+    email: Optional[str] = None
+"""
+        )
+
+        plugin = PydanticPlugin(temp_project)
+        plugin.set_namespace_paths({"models": [str(ns_path)]})
+
+        # Get schema from namespace
+        schema = await plugin.get_model_schema("NamespaceUser", scope="namespace:models")
+        assert schema is not None
+        assert schema["model"] == "NamespaceUser"
+        assert len(schema["fields"]) == 3
