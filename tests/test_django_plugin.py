@@ -163,7 +163,8 @@ def index(request):
         assert any(v["name"] == "UserListView" for v in views)
         assert any(v["name"] == "UserDetailView" for v in views)
 
-    def test_find_urls(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_urls(self, temp_project):
         """Test finding Django URL patterns."""
         urls_file = temp_project / "urls.py"
         urls_file.write_text(
@@ -180,12 +181,13 @@ urlpatterns = [
         )
 
         plugin = DjangoPlugin(temp_project)
-        urls = plugin.find_urls()
+        urls = await plugin.find_urls()
 
         assert len(urls) > 0
         assert any("urls.py" in u["file"] for u in urls)
 
-    def test_find_templates(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_templates(self, temp_project):
         """Test finding Django templates."""
         templates_dir = temp_project / "templates"
         templates_dir.mkdir()
@@ -197,13 +199,14 @@ urlpatterns = [
         index_template.write_text("{% extends 'base.html' %}")
 
         plugin = DjangoPlugin(temp_project)
-        templates = plugin.find_templates()
+        templates = await plugin.find_templates()
 
         assert len(templates) == 2
         assert any("base.html" in t["file"] for t in templates)
         assert any("index.html" in t["file"] for t in templates)
 
-    def test_find_migrations(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_migrations(self, temp_project):
         """Test finding Django migrations."""
         migrations_dir = temp_project / "migrations"
         migrations_dir.mkdir()
@@ -221,7 +224,7 @@ class Migration(migrations.Migration):
         )
 
         plugin = DjangoPlugin(temp_project)
-        migrations = plugin.find_migrations()
+        migrations = await plugin.find_migrations()
 
         assert len(migrations) == 1
         assert "0001_initial.py" in migrations[0]["file"]
@@ -261,9 +264,9 @@ class Migration(migrations.Migration):
 
         assert await plugin.find_models() == []
         assert await plugin.find_views() == []
-        assert plugin.find_urls() == []
-        assert plugin.find_templates() == []
-        assert plugin.find_migrations() == []
+        assert await plugin.find_urls() == []
+        assert await plugin.find_templates() == []
+        assert await plugin.find_migrations() == []
 
     @pytest.mark.asyncio
     async def test_file_not_found_handling(self, django_plugin):
@@ -284,3 +287,100 @@ class Migration(migrations.Migration):
         # Plugin should log when Django is detected
         # Check that logger was used (exact calls depend on implementation)
         _ = mock_logger  # Use the mock_logger to avoid unused warning
+
+    @pytest.mark.asyncio
+    async def test_find_models_with_namespace_scope(self, temp_project):
+        """Test finding Django models with namespace scope."""
+        # Main project model
+        main_models = temp_project / "models.py"
+        main_models.write_text(
+            """
+from django.db import models
+
+class MainModel(models.Model):
+    name = models.CharField(max_length=100)
+"""
+        )
+
+        # Namespace model
+        ns_path = temp_project / "shared_namespace"
+        ns_path.mkdir()
+        ns_models = ns_path / "models.py"
+        ns_models.write_text(
+            """
+from django.db import models
+
+class SharedModel(models.Model):
+    value = models.IntegerField()
+"""
+        )
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_namespace_paths({"shared": [str(ns_path)]})
+
+        # Test main scope
+        models_main = await plugin.find_models(scope="main")
+        assert len(models_main) == 1
+        assert "MainModel" in str(models_main)
+
+        # Test namespace scope
+        models_ns = await plugin.find_models(scope="namespace:shared")
+        assert len(models_ns) == 1
+        assert "SharedModel" in str(models_ns)
+
+        # Test all scope
+        models_all = await plugin.find_models(scope="all")
+        assert len(models_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_find_templates_with_scope(self, temp_project):
+        """Test finding Django templates across scopes."""
+        # Main templates
+        main_templates = temp_project / "templates"
+        main_templates.mkdir()
+        (main_templates / "base.html").write_text("{% block content %}{% endblock %}")
+
+        # Package templates
+        pkg_path = temp_project / "theme_package"
+        pkg_path.mkdir()
+        pkg_templates = pkg_path / "templates"
+        pkg_templates.mkdir()
+        (pkg_templates / "theme.html").write_text("<div>Theme</div>")
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_additional_paths([pkg_path])
+
+        # Test templates in different scopes
+        templates_main = await plugin.find_templates(scope="main")
+        # Both templates are found since pkg_path is a subdirectory of temp_project
+        assert len(templates_main) == 2
+        assert any("base.html" in t["name"] for t in templates_main)
+
+        templates_all = await plugin.find_templates(scope="all")
+        assert len(templates_all) == 2
+
+    @pytest.mark.asyncio
+    async def test_find_migrations_with_scope(self, temp_project):
+        """Test finding migrations across namespaces."""
+        # Main migrations
+        main_migrations = temp_project / "app" / "migrations"
+        main_migrations.mkdir(parents=True)
+        (main_migrations / "0001_initial.py").write_text("# Migration")
+
+        # Namespace migrations
+        ns_path = temp_project / "shared_app"
+        ns_migrations = ns_path / "migrations"
+        ns_migrations.mkdir(parents=True)
+        (ns_migrations / "0001_shared.py").write_text("# Shared migration")
+
+        plugin = DjangoPlugin(temp_project)
+        plugin.set_namespace_paths({"shared": [str(ns_path)]})
+
+        # Test finding migrations
+        migrations_main = await plugin.find_migrations(scope="main")
+        # Both migrations are found since shared_app is a subdirectory of temp_project
+        assert len(migrations_main) == 2
+        assert any("0001_initial" in m["name"] for m in migrations_main)
+
+        migrations_all = await plugin.find_migrations(scope="all")
+        assert len(migrations_all) == 2

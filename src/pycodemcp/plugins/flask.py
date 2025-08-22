@@ -5,8 +5,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..async_utils import read_file_async, rglob_async
-from .base import AnalyzerPlugin
+from ..async_utils import read_file_async
+from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +74,18 @@ class FlaskPlugin(AnalyzerPlugin):
             "find_cli_commands": self.find_cli_commands,
         }
 
-    async def find_routes(self) -> list[dict[str, Any]]:
-        """Find all Flask routes in the project."""
+    async def find_routes(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Flask routes in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         routes = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -138,11 +145,18 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return routes
 
-    async def find_blueprints(self) -> list[dict[str, Any]]:
-        """Find all Flask blueprints in the project."""
+    async def find_blueprints(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Flask blueprints in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         blueprints = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -197,11 +211,18 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return blueprints
 
-    async def find_views(self) -> list[dict[str, Any]]:
-        """Find all Flask view functions and classes."""
+    async def find_views(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Flask view functions and classes.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         views = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -232,35 +253,45 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return views
 
-    async def find_templates(self) -> list[dict[str, Any]]:
-        """Find all Flask templates and render_template calls."""
+    async def find_templates(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find all Flask templates and render_template calls.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         templates = []
         render_calls = []
 
         # Find template files
         template_dirs = ["templates", "*/templates", "app/templates"]
-        for pattern in template_dirs:
-            for template_dir in self.project_path.glob(pattern):
-                if template_dir.is_dir():
-                    for template_file in template_dir.rglob("*.html"):
-                        templates.append(
-                            {
-                                "file": str(template_file),
-                                "name": template_file.relative_to(template_dir).as_posix(),
-                                "type": "template",
-                            }
-                        )
-                    for template_file in template_dir.rglob("*.jinja2"):
-                        templates.append(
-                            {
-                                "file": str(template_file),
-                                "name": template_file.relative_to(template_dir).as_posix(),
-                                "type": "template",
-                            }
-                        )
+        project_roots = await self._get_scope_roots(scope)
+
+        for root in project_roots:
+            for pattern in template_dirs:
+                for template_dir in root.glob(pattern):
+                    if template_dir.is_dir():
+                        for template_file in template_dir.rglob("*.html"):
+                            templates.append(
+                                {
+                                    "file": str(template_file),
+                                    "name": template_file.relative_to(template_dir).as_posix(),
+                                    "type": "template",
+                                }
+                            )
+                        for template_file in template_dir.rglob("*.jinja2"):
+                            templates.append(
+                                {
+                                    "file": str(template_file),
+                                    "name": template_file.relative_to(template_dir).as_posix(),
+                                    "type": "template",
+                                }
+                            )
 
         # Find render_template calls
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -296,8 +327,15 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return [{"templates": templates, "render_calls": render_calls}]
 
-    async def find_extensions(self) -> list[dict[str, Any]]:
-        """Find Flask extensions in use."""
+    async def find_extensions(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find Flask extensions in use.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         extensions: list[dict[str, Any]] = []
         common_extensions = [
             "flask_sqlalchemy",
@@ -314,7 +352,7 @@ class FlaskPlugin(AnalyzerPlugin):
             "flask_limiter",
         ]
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -361,8 +399,15 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return unique_extensions
 
-    async def find_config(self) -> list[dict[str, Any]]:
-        """Find Flask configuration files and app.config usage."""
+    async def find_config(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find Flask configuration files and app.config usage.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         configs = []
 
         # Look for config files
@@ -373,7 +418,7 @@ class FlaskPlugin(AnalyzerPlugin):
                     configs.append({"file": str(config_file), "type": "config_file"})
 
         # Find app.config usage
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -399,11 +444,18 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return configs
 
-    async def find_error_handlers(self) -> list[dict[str, Any]]:
-        """Find error handler functions."""
+    async def find_error_handlers(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find error handler functions.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         handlers = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
@@ -441,11 +493,18 @@ class FlaskPlugin(AnalyzerPlugin):
 
         return handlers
 
-    async def find_cli_commands(self) -> list[dict[str, Any]]:
-        """Find Flask CLI commands."""
+    async def find_cli_commands(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """Find Flask CLI commands.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project (default for plugins)
+                - "all": Include configured namespaces
+                - "namespace:name": Specific namespace
+        """
         commands = []
 
-        py_files = await rglob_async("*.py", self.project_path)
+        py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             try:
                 content = await read_file_async(py_file)
