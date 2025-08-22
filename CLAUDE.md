@@ -36,7 +36,7 @@ When implementing ANY feature or fix:
 
    ```bash
    # IMPORTANT: Run ALL tests, not just your new tests!
-   pytest --cov=src/pycodemcp --cov-fail-under=80
+   pytest --cov=src/pycodemcp --cov-fail-under=85
    ```
 
 4. **Fix any failing tests or coverage issues**
@@ -44,7 +44,7 @@ When implementing ANY feature or fix:
 
 ### Coverage Requirements
 
-- **Minimum 80% total coverage** (CI will fail below this)
+- **Minimum 85% total coverage** (CI will fail below this)
 - **New code should have >90% coverage**
 - **All bug fixes MUST include regression tests**
 - **ALWAYS run full test suite before pushing** (learned from PR #77)
@@ -55,7 +55,7 @@ Always run these validation commands:
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (not just your new tests!)
-pytest --cov=src/pycodemcp --cov-fail-under=80
+pytest --cov=src/pycodemcp --cov-fail-under=85
 
 # Note: Linting/type checks are handled by pre-commit hooks automatically
 ```
@@ -250,3 +250,40 @@ Always use `file_path:line_number` format for easy navigation:
 - `src/server.py:125` - Specific line reference
 - `tests/test_validation.py:45-89` - Range reference
 - `src/plugins/flask.py:find_routes` - Function reference
+
+## Cross-Platform Path Handling
+
+### Key Learning from PR #121
+
+When working with paths that will be displayed or compared as strings:
+
+- **Always use `.as_posix()`** for consistent forward-slash format
+- **Don't use raw `str(Path)`** for relative paths - it uses OS-native separators
+- **Example**: Template names, config paths, display paths
+
+### Quick Reference
+
+```python
+# ❌ WRONG - OS-dependent separators
+template_name = str(template_file.relative_to(template_dir))
+# Windows: "admin\\dashboard.html"
+# Unix: "admin/dashboard.html"
+
+# ✅ CORRECT - Always forward slashes
+template_name = template_file.relative_to(template_dir).as_posix()
+# All platforms: "admin/dashboard.html"
+```
+
+### Path Utilities Available
+
+- `src/pycodemcp/path_utils.py` has helpers:
+  - `path_to_key()` - For dictionary keys/comparison
+  - `ensure_posix_path()` - Convert any path to forward slashes
+  - `paths_equal()` - Platform-safe path comparison
+
+### Testing on Windows
+
+- CI runs on Windows, macOS, and Linux
+- Windows path issues typically show as:
+  - `AssertionError: 'path/to/file' != 'path\\to\\file'`
+  - Template/config file paths are common culprits
