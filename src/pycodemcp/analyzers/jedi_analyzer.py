@@ -233,6 +233,43 @@ class JediAnalyzer:
 
         return paths
 
+    def _get_import_path_for_file(self, py_file: Path) -> str | None:
+        """Get the import path for a Python file.
+
+        Args:
+            py_file: Path to the Python file
+
+        Returns:
+            Import path string, or None if it can't be determined
+        """
+        # Try main project first
+        try:
+            rel_path = py_file.relative_to(self.project_path)
+            module_parts = list(rel_path.parts[:-1])  # directories
+            if py_file.name != "__init__.py":
+                module_parts.append(py_file.stem)
+            return ".".join(module_parts) if module_parts else py_file.stem
+        except ValueError:
+            pass
+
+        # Try namespaces
+        for ns_name, ns_paths in self.namespace_paths.items():
+            for ns_path in ns_paths:
+                try:
+                    if py_file.is_relative_to(ns_path):
+                        ns_rel_path = py_file.relative_to(ns_path)
+                        module_parts = list(ns_rel_path.parts[:-1])
+                        if py_file.name != "__init__.py":
+                            module_parts.append(py_file.stem)
+                        if module_parts:
+                            return f"{ns_name}.{'.'.join(module_parts)}"
+                        else:
+                            return py_file.stem
+                except (ValueError, AttributeError):
+                    continue
+
+        return None
+
     def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
         """Get the base path for a namespace within a repository.
 
@@ -411,11 +448,16 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-    async def find_imports(self, module_name: str) -> list[dict[str, Any]]:
+    async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
 
         Args:
             module_name: Name of the module to find imports for
+            scope: Search scope (default "all"):
+                - "main": Only the main project
+                - "all": Main project + configured namespaces
+                - "namespace:name": Specific namespace
+                - ["main", "namespace:x"]: Multiple scopes
 
         Returns:
             List of import locations
@@ -424,7 +466,7 @@ class JediAnalyzer:
 
         try:
             # Search for import statements across the project
-            py_files = await rglob_async("*.py", self.project_path)
+            py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
                 try:
                     source = await read_file_async(py_file)
@@ -638,27 +680,66 @@ class JediAnalyzer:
 
         return imports
 
-    async def list_packages(self) -> list[dict[str, Any]]:
-        """List all Python packages in the project."""
+    async def list_packages(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """List all Python packages in the project.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project
+                - "all": Main project + configured namespaces
+                - "namespace:name": Specific namespace
+                - ["main", "namespace:x"]: Multiple scopes
+        """
         packages: list[dict[str, Any]] = []
         seen_packages = set()
 
         try:
             # Walk the project directory to find packages
-            init_files = await rglob_async("__init__.py", self.project_path)
+            init_files = await self.get_project_files("__init__.py", scope)
             for path in init_files:
                 package_dir = path.parent
-                rel_path = package_dir.relative_to(self.project_path)
 
-                # Skip hidden directories and common non-package directories
-                parts = rel_path.parts
-                if any(
-                    p.startswith(".") or p in ["__pycache__", "build", "dist", "egg-info"]
-                    for p in parts
-                ):
+                # Determine package name based on which search path this file belongs to
+                package_name = None
+                rel_path = None
+
+                # Try to make relative to main project first
+                try:
+                    rel_path = package_dir.relative_to(self.project_path)
+                    package_name = rel_path.as_posix().replace("/", ".")
+                except ValueError:
+                    # Not under main project, check if it's in a namespace
+                    for ns_name, ns_paths in self.namespace_paths.items():
+                        for ns_path in ns_paths:
+                            try:
+                                # Check if package_dir is under this namespace path
+                                if package_dir.is_relative_to(ns_path):
+                                    ns_rel_path = package_dir.relative_to(ns_path)
+                                    if ns_rel_path == Path("."):
+                                        package_name = ns_name
+                                    else:
+                                        package_name = (
+                                            f"{ns_name}.{ns_rel_path.as_posix().replace('/', '.')}"
+                                        )
+                                    rel_path = ns_rel_path
+                                    break
+                            except (ValueError, AttributeError):
+                                continue
+                        if package_name:
+                            break
+
+                if not package_name:
+                    # Skip if we can't determine the package name
                     continue
 
-                package_name = str(rel_path).replace(os.sep, ".")
+                # Skip hidden directories and common non-package directories
+                if rel_path:
+                    parts = rel_path.parts
+                    if any(
+                        p.startswith(".") or p in ["__pycache__", "build", "dist", "egg-info"]
+                        for p in parts
+                    ):
+                        continue
                 if package_name not in seen_packages:
                     seen_packages.add(package_name)
 
@@ -693,30 +774,68 @@ class JediAnalyzer:
 
         return packages
 
-    async def list_modules(self) -> list[dict[str, Any]]:
-        """List all Python modules with exports and metrics."""
+    async def list_modules(self, scope: Scope = "main") -> list[dict[str, Any]]:
+        """List all Python modules with exports and metrics.
+
+        Args:
+            scope: Search scope (default "main"):
+                - "main": Only the main project
+                - "all": Main project + configured namespaces
+                - "namespace:name": Specific namespace
+                - ["main", "namespace:x"]: Multiple scopes
+        """
         modules = []
 
         try:
             # Find all Python files in the project
-            py_files = await rglob_async("*.py", self.project_path)
+            py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
-                # Skip hidden directories and common non-source directories
-                rel_path = py_file.relative_to(self.project_path)
-                parts = rel_path.parts
-                if any(
-                    p.startswith(".") or p in ["__pycache__", "build", "dist", "tests", "test"]
-                    for p in parts[:-1]
-                ):
-                    continue
+                # Determine import path based on which search path this file belongs to
+                import_path = None
+                rel_path = None
 
+                # Try to make relative to main project first
                 try:
-                    # Get module import path
+                    rel_path = py_file.relative_to(self.project_path)
                     module_parts = list(rel_path.parts[:-1])  # directories
                     if py_file.name != "__init__.py":
                         module_parts.append(py_file.stem)
                     import_path = ".".join(module_parts) if module_parts else py_file.stem
+                except ValueError:
+                    # Not under main project, check if it's in a namespace
+                    for ns_name, ns_paths in self.namespace_paths.items():
+                        for ns_path in ns_paths:
+                            try:
+                                if py_file.is_relative_to(ns_path):
+                                    ns_rel_path = py_file.relative_to(ns_path)
+                                    module_parts = list(ns_rel_path.parts[:-1])
+                                    if py_file.name != "__init__.py":
+                                        module_parts.append(py_file.stem)
+                                    if module_parts:
+                                        import_path = f"{ns_name}.{'.'.join(module_parts)}"
+                                    else:
+                                        import_path = py_file.stem
+                                    rel_path = ns_rel_path
+                                    break
+                            except (ValueError, AttributeError):
+                                continue
+                        if import_path:
+                            break
 
+                if not import_path:
+                    # Skip if we can't determine the import path
+                    continue
+
+                # Skip hidden directories and common non-source directories
+                if rel_path:
+                    parts = rel_path.parts
+                    if any(
+                        p.startswith(".") or p in ["__pycache__", "build", "dist", "tests", "test"]
+                        for p in parts[:-1]
+                    ):
+                        continue
+
+                try:
                     # Read file for analysis
                     source = await read_file_async(py_file)
                     lines = source.count("\n") + 1
@@ -785,9 +904,19 @@ class JediAnalyzer:
         return modules
 
     async def analyze_dependencies(
-        self, module_path: str, _visited: set[str] | None = None
+        self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
-        """Analyze import dependencies for a module."""
+        """Analyze import dependencies for a module.
+
+        Args:
+            module_path: The module to analyze dependencies for
+            scope: Search scope (default "all"):
+                - "main": Only the main project
+                - "all": Main project + configured namespaces
+                - "namespace:name": Specific namespace
+                - ["main", "namespace:x"]: Multiple scopes
+            _visited: Internal parameter for recursion tracking
+        """
         result: dict[str, Any] = {
             "module": module_path,
             "imports": {"internal": [], "external": [], "stdlib": []},
@@ -864,18 +993,39 @@ class JediAnalyzer:
 
             # Get project modules for internal/external classification
             project_modules = set()
-            py_files = await rglob_async("*.py", self.project_path)
+            py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
-                rel_path = py_file.relative_to(self.project_path)
-                if not any(
-                    p.startswith(".") or p in ["__pycache__", "build", "dist"]
-                    for p in rel_path.parts
-                ):
+                # Determine the module root based on which search path this file belongs to
+                module_root = None
+                rel_path = None
+
+                try:
+                    rel_path = py_file.relative_to(self.project_path)
                     module_parts = list(rel_path.parts[:-1])
                     if py_file.name != "__init__.py":
                         module_parts.append(py_file.stem)
                     if module_parts:
-                        project_modules.add(module_parts[0])
+                        module_root = module_parts[0]
+                except ValueError:
+                    # Not under main project, check namespaces
+                    for ns_name, ns_paths in self.namespace_paths.items():
+                        for ns_path in ns_paths:
+                            try:
+                                if py_file.is_relative_to(ns_path):
+                                    rel_path = py_file.relative_to(ns_path)
+                                    module_root = ns_name
+                                    break
+                            except (ValueError, AttributeError):
+                                continue
+                        if module_root:
+                            break
+
+                if module_root and rel_path:
+                    if not any(
+                        p.startswith(".") or p in ["__pycache__", "build", "dist"]
+                        for p in rel_path.parts
+                    ):
+                        project_modules.add(module_root)
 
             # Analyze imports
             for node in ast.walk(tree):
@@ -907,7 +1057,7 @@ class JediAnalyzer:
             result["imports"]["external"] = sorted(set(external_imports))
 
             # Find what imports this module
-            py_files = await rglob_async("*.py", self.project_path)
+            py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
                 if py_file == module_file:
                     continue
@@ -923,22 +1073,18 @@ class JediAnalyzer:
                                     if alias.name == module_path or alias.name.startswith(
                                         module_path + "."
                                     ):
-                                        rel_path = py_file.relative_to(self.project_path)
-                                        import_path = (
-                                            str(rel_path).replace(os.sep, ".").replace(".py", "")
-                                        )
-                                        result["imported_by"].append(import_path)
+                                        import_path = self._get_import_path_for_file(py_file)
+                                        if import_path:
+                                            result["imported_by"].append(import_path)
                                         break
                             elif isinstance(node, ast.ImportFrom):
                                 if node.module and (
                                     node.module == module_path
                                     or node.module.startswith(module_path + ".")
                                 ):
-                                    rel_path = py_file.relative_to(self.project_path)
-                                    import_path = (
-                                        str(rel_path).replace(os.sep, ".").replace(".py", "")
-                                    )
-                                    result["imported_by"].append(import_path)
+                                    import_path = self._get_import_path_for_file(py_file)
+                                    if import_path:
+                                        result["imported_by"].append(import_path)
                                     break
                 except Exception as e:
                     logger.warning(f"Could not analyze {py_file} for imports: {e}")
@@ -958,7 +1104,9 @@ class JediAnalyzer:
                     if imported_module not in _visited:
                         # Check if the imported module also imports this module
                         try:
-                            deps = await self.analyze_dependencies(imported_module, _visited)
+                            deps = await self.analyze_dependencies(
+                                imported_module, scope=scope, _visited=_visited
+                            )
                             if module_path in deps["imports"]["internal"]:
                                 result["circular_dependencies"].append(imported_module)
                         except Exception:
@@ -1173,7 +1321,7 @@ class JediAnalyzer:
                     file_path_obj = Path(file_path)
                     rel_path = file_path_obj.relative_to(self.project_path)
                     # Remove .py extension and convert to module path
-                    module_from_file = str(rel_path.with_suffix("")).replace(os.sep, ".")
+                    module_from_file = rel_path.with_suffix("").as_posix().replace("/", ".")
                     # Use the module from file if it's more complete
                     if len(module_from_file.split(".")) > len(original_module.split(".")):
                         original_module = module_from_file.rsplit(".", 1)[
@@ -1264,12 +1412,21 @@ class JediAnalyzer:
         return False
 
     async def find_subclasses(
-        self, base_class: str, include_indirect: bool = True, show_hierarchy: bool = False
+        self,
+        base_class: str,
+        scope: Scope = "all",
+        include_indirect: bool = True,
+        show_hierarchy: bool = False,
     ) -> list[dict[str, Any]]:
         """Find all classes that inherit from a given base class.
 
         Args:
             base_class: Name of the base class to find subclasses for
+            scope: Search scope (default "all"):
+                - "main": Only the main project
+                - "all": Main project + configured namespaces
+                - "namespace:name": Specific namespace
+                - ["main", "namespace:x"]: Multiple scopes
             include_indirect: Include indirect inheritance (grandchildren, etc.)
             show_hierarchy: Show the full inheritance chain
 
@@ -1289,7 +1446,7 @@ class JediAnalyzer:
                 )
 
             # Get all Python files in the project
-            py_files = await rglob_async("*.py", self.project_path)
+            py_files = await self.get_project_files("*.py", scope)
 
             for py_file in py_files:
                 try:
@@ -1429,11 +1586,8 @@ class JediAnalyzer:
             dependency_tracker: Tracker to populate with dependencies
         """
         try:
-            # Find all Python files in the project
-            python_files = []
-            for pattern in ["**/*.py"]:
-                files = await rglob_async(pattern, self.project_path)
-                python_files.extend(files)
+            # Find all Python files in the project (use "all" scope for complete dependency tracking)
+            python_files = await self.get_project_files("*.py", "all")
 
             logger.info(f"Analyzing dependencies for {len(python_files)} Python files")
 
