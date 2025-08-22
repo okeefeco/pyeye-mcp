@@ -322,9 +322,19 @@ class TestGotoDefinition:
 
     @patch("pycodemcp.server.get_analyzer")
     @pytest.mark.asyncio
-    async def test_goto_definition_not_found(self, mock_get_analyzer):  # noqa: ARG002
+    async def test_goto_definition_not_found(self, mock_get_analyzer):
         """Test goto definition when symbol not found."""
-        pytest.skip("Test needs refactoring after architecture changes")
+        # Mock analyzer
+        mock_analyzer = AsyncMock()
+        mock_get_analyzer.return_value = mock_analyzer
+
+        # Mock returning None (no definition found)
+        mock_analyzer.goto_definition.return_value = None
+
+        result = await goto_definition("test.py", 10, 5)
+
+        assert result is None
+        mock_analyzer.goto_definition.assert_called_with("test.py", 10, 5)
 
 
 class TestFindReferences:
