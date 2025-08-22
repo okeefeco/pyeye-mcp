@@ -1,4 +1,5 @@
 default: true
 MD013: false  # Line length
+MD024: false  # Allow duplicate headings - needed for API documentation structure
 MD033: false  # Allow inline HTML
 MD041: false  # First line in file should be a top level heading
