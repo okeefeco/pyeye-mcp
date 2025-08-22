@@ -10,6 +10,11 @@ from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.metrics import MetricsCollector
 
+from tests.utils.performance import (
+    CommonThresholds,
+    assert_performance_threshold,
+)
+
 
 @pytest.fixture
 def temp_project():
@@ -216,7 +221,9 @@ class TestPerformanceBaselines:
 
         # Should handle 10 threads × 100 operations efficiently
         assert total_time < 2.0, f"Concurrent operations took {total_time}s (exceeds 2s)"
-        assert stats["p95_ms"] < 200, f"Concurrent op p95 ({stats['p95_ms']}ms) exceeds 200ms"
+        assert_performance_threshold(
+            stats["p95_ms"], CommonThresholds.CONCURRENT_OPS_P95, "Concurrent op p95"
+        )
 
 
 class TestMemoryEfficiency:
