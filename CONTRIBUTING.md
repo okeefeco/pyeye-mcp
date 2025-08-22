@@ -296,7 +296,7 @@ Before committing, pre-commit will automatically run:
 ```bash
 # CRITICAL: Run ALL tests with coverage before pushing (not just your new tests!)
 # This would have caught the ProjectCache/GranularCache issue in PR #77
-pytest --cov=src/pycodemcp --cov-fail-under=80
+pytest --cov=src/pycodemcp --cov-fail-under=85
 ```
 
 To run manually:
@@ -352,6 +352,82 @@ pytest tests/test_server.py
 pytest -v
 ```
 
+#### Windows Test Compatibility
+
+When writing tests that need to handle platform differences:
+
+1. **File Permissions**
+
+   Windows doesn't respect Unix-style chmod permissions the same way:
+   - `chmod(0o000)` doesn't prevent file access on Windows
+   - `chmod(0o555)` on directories doesn't prevent writes on Windows
+
+   ```python
+   import os
+   import pytest
+
+   # Skip permission tests on Windows
+   @pytest.mark.skipif(os.name == "nt", reason="Windows handles permissions differently")
+   async def test_read_file_permission_error(self, tmp_path):
+       test_file = tmp_path / "no_read.txt"
+       test_file.write_text("content")
+       test_file.chmod(0o000)  # Doesn't work as expected on Windows
+
+       with pytest.raises(PermissionError):
+           await read_file_async(test_file)
+   ```
+
+2. **Temporary Directory Operations**
+
+   Some tests that manipulate current working directory and temporary directories can cause stack overflow during cleanup on Windows CI:
+
+   ```python
+   # Be careful with tests that change cwd multiple times
+   @pytest.mark.skipif(os.name == "nt", reason="Potential stack overflow on Windows CI")
+   def test_complex_directory_operations(self, tmp_path):
+       # Tests involving deep directory structures or multiple cwd changes
+       pass
+   ```
+
+3. **Path Expansion**
+
+   The `~/path` expansion works differently on Windows:
+
+   ```python
+   from pathlib import Path
+
+   # Use Path.expanduser() explicitly
+   def test_home_directory_paths(self):
+       home_path = Path("~/.config/app").expanduser()
+       # Make assertions platform-agnostic
+       assert home_path.is_absolute()
+   ```
+
+4. **Common Patterns for Cross-Platform Tests**
+
+   ```python
+   import os
+   import pytest
+   from pathlib import Path
+
+   class TestCrossPlatform:
+       def test_basic_functionality(self):
+           # Test core functionality that should work everywhere
+           pass
+
+       @pytest.mark.skipif(os.name == "nt", reason="Unix-specific behavior")
+       def test_unix_specific(self):
+           # Test Unix-specific features
+           pass
+
+       @pytest.mark.skipif(os.name != "nt", reason="Windows-specific behavior")
+       def test_windows_specific(self):
+           # Test Windows-specific features
+           pass
+   ```
+
+**Reference**: See issue #120 (coverage improvement epic) and PR #122 for examples of fixing Windows test compatibility issues.
+
 ### Type Checking
 
 ```bash
@@ -370,6 +446,88 @@ safety check
 # Scan for secrets
 detect-secrets scan
 ```
+
+## Cross-Platform Development
+
+### Path Handling Guidelines
+
+When working with file paths in this project, it's crucial to ensure cross-platform compatibility. Python's `pathlib` provides excellent tools, but they must be used correctly to avoid platform-specific issues.
+
+#### Key Principles
+
+1. **Always use `.as_posix()` for paths that will be stored or compared as strings**
+   - Template names, configuration paths, dictionary keys
+   - Any path displayed to users or stored in data structures
+   - Paths used in assertions during testing
+
+2. **Use path utilities for consistency**
+   - Import from `src/pycodemcp/path_utils.py`
+   - Use `path_to_key()` for dictionary keys
+   - Use `ensure_posix_path()` to convert any path to forward slashes
+   - Use `paths_equal()` for platform-safe path comparison
+
+3. **Common Pitfalls to Avoid**
+
+```python
+# ❌ WRONG - Uses OS-native separators (breaks on Windows)
+template_name = str(template_file.relative_to(template_dir))
+# Windows: "admin\\dashboard.html"
+# Unix: "admin/dashboard.html"
+
+# ✅ CORRECT - Always forward slashes on all platforms
+template_name = template_file.relative_to(template_dir).as_posix()
+# All platforms: "admin/dashboard.html"
+
+# ❌ WRONG - Direct string conversion for comparison
+if str(path1) == str(path2):
+    ...
+
+# ✅ CORRECT - Use path utilities
+from pycodemcp.path_utils import paths_equal
+if paths_equal(path1, path2):
+    ...
+```
+
+#### When to Use Each Method
+
+| Use Case | Method | Example |
+|----------|--------|---------|
+| Display paths | `.as_posix()` | `print(f"File: {path.as_posix()}")` |
+| Dictionary keys | `path_to_key()` | `cache[path_to_key(file_path)]` |
+| Config values | `.as_posix()` | `config["template_dir"] = path.as_posix()` |
+| Path comparison | `paths_equal()` | `if paths_equal(p1, p2):` |
+| JSON/YAML storage | `.as_posix()` | `data["path"] = path.as_posix()` |
+| Test assertions | `.as_posix()` | `assert result == expected.as_posix()` |
+
+#### Testing Considerations
+
+1. **CI runs on Windows, macOS, and Linux** - Your code must work on all three
+2. **Common Windows test failures:**
+   - `AssertionError: 'path/to/file' != 'path\\to\\file'`
+   - Template paths with backslashes
+   - Config file paths with mixed separators
+
+3. **Best practices for tests:**
+
+   ```python
+   # Use pathlib for test fixtures
+   from pathlib import Path
+
+   test_file = Path("tests/fixtures/sample.py")
+
+   # Always use .as_posix() in assertions
+   assert result["file"] == test_file.as_posix()
+
+   # Use path utilities for comparisons
+   from pycodemcp.path_utils import paths_equal
+   assert paths_equal(result_path, expected_path)
+   ```
+
+#### Related Resources
+
+- PR #121 - Flask plugin cross-platform fixes (good reference implementation)
+- `src/pycodemcp/path_utils.py` - Path utility functions
+- Issue #110 - Original issue that discovered these problems
 
 ## Creating a Pull Request
 
@@ -407,7 +565,7 @@ gh pr create --title "feat: your feature" --body "Description of changes"
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
-pytest --cov=src/pycodemcp --cov-fail-under=80
+pytest --cov=src/pycodemcp --cov-fail-under=85
 
 # Note: This single command runs all tests AND checks coverage
 # Do NOT just run tests for your new code - run the entire suite!
@@ -520,7 +678,7 @@ src/pycodemcp/
 3. **Refactoring**: Must maintain or improve test coverage
 
 4. **Coverage Requirements**:
-   - Minimum 75% coverage (enforced by CI)
+   - Minimum 85% coverage (enforced by CI)
    - New code should aim for >90% coverage
    - Use `# pragma: no cover` sparingly and with justification
 
@@ -546,17 +704,164 @@ def test_find_symbol_invalid_input():
         find_symbol("", project_path="/test")
 ```
 
+### Test Coverage Improvement Process
+
+When adding tests to modules with low coverage, follow this systematic approach:
+
+#### 1. Analysis Phase
+
+```bash
+# Check current coverage for specific modules
+pytest --cov=src/pycodemcp/module_name --cov-report=term-missing
+
+# Identify missing lines
+pytest --cov=src/pycodemcp/module_name --cov-report=term-missing | grep "Missing"
+
+# Generate detailed HTML report for analysis
+pytest --cov=src/pycodemcp/module_name --cov-report=html
+# Open htmlcov/index.html in browser
+```
+
+#### 2. Test Writing Patterns
+
+**For Utility Modules:**
+
+- Test all public functions with multiple scenarios
+- Include edge cases: empty inputs, Unicode, very long inputs
+- Platform-specific behavior: Windows vs Unix differences
+- Error conditions: Invalid inputs, permission errors, etc.
+
+**For Async Modules:**
+
+- Use `@pytest.mark.asyncio` class decorators for async test classes
+- Test concurrency: Batch operations, limits, timeouts
+- Error propagation: How async functions handle and propagate errors
+- Integration scenarios: Combining multiple async operations
+
+#### 3. Test Organization
+
+```python
+# Group tests by functionality using test classes
+@pytest.mark.asyncio
+class TestReadFileAsync:
+    """Test read_file_async function."""
+
+    async def test_read_file_basic(self, tmp_path):
+        """Test basic file reading."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+        result = await read_file_async(test_file)
+        assert result == "content"
+
+    async def test_read_file_unicode(self, tmp_path):
+        """Test Unicode content handling."""
+        test_file = tmp_path / "unicode.txt"
+        test_file.write_text("Hello 世界", encoding="utf-8")
+        result = await read_file_async(test_file)
+        assert result == "Hello 世界"
+
+    async def test_read_file_not_found(self):
+        """Test error handling for missing files."""
+        with pytest.raises(FileNotFoundError):
+            await read_file_async(Path("nonexistent.txt"))
+```
+
+#### 4. Coverage Verification
+
+```bash
+# Target-specific coverage check
+pytest tests/test_module.py --cov=src/pycodemcp/module --cov-report=term
+
+# Verify no regressions in full test suite
+pytest --cov=src/pycodemcp --cov-fail-under=85
+```
+
+#### 5. Common High-Coverage Patterns
+
+**Cross-Platform Testing:**
+
+```python
+import os
+import pytest
+
+class TestCrossPlatform:
+    def test_basic_functionality(self):
+        # Core functionality that works everywhere
+        pass
+
+    @pytest.mark.skipif(os.name == "nt", reason="Unix-specific")
+    def test_unix_behavior(self):
+        # Unix-specific tests
+        pass
+```
+
+**Async Function Testing:**
+
+```python
+@pytest.mark.asyncio
+class TestAsyncOperations:
+    async def test_normal_execution(self):
+        # Test happy path
+        pass
+
+    async def test_error_handling(self):
+        # Test with mock exceptions
+        with patch('module.dependency') as mock_dep:
+            mock_dep.side_effect = Exception("Test error")
+            with pytest.raises(Exception):
+                await async_function()
+
+    async def test_concurrency(self):
+        # Test multiple async operations
+        tasks = [async_function() for _ in range(5)]
+        results = await asyncio.gather(*tasks)
+        assert len(results) == 5
+```
+
+**File Operation Testing:**
+
+```python
+class TestFileOperations:
+    def test_various_file_contents(self, tmp_path):
+        # Test empty files
+        empty_file = tmp_path / "empty.txt"
+        empty_file.touch()
+
+        # Test Unicode content
+        unicode_file = tmp_path / "unicode.txt"
+        unicode_file.write_text("Test 🚀", encoding="utf-8")
+
+        # Test large files
+        large_file = tmp_path / "large.txt"
+        large_file.write_text("x" * 10000)
+
+    def test_error_conditions(self, tmp_path):
+        # Test permission errors, missing files, etc.
+        pass
+```
+
+#### 6. Final Validation
+
+Before submitting your PR:
+
+1. **Check coverage target met**: `pytest --cov=src/pycodemcp/your_module --cov-report=term`
+2. **Verify no regressions**: `pytest --cov=src/pycodemcp --cov-fail-under=85`
+3. **Test cross-platform compatibility**: Ensure tests pass on Windows, macOS, Linux
+4. **Review test quality**: Meaningful tests, not just coverage for coverage's sake
+
+**Reference**: See issue #120 (coverage improvement epic) and PR #122 for examples of bringing modules from 0%/50% to 100% coverage.
+
 ## Coverage Goals and Requirements
 
 ### 📈 Progressive Coverage Targets
 
 We're committed to continuously improving our test coverage through progressive milestones:
 
-- **Phase 1**: 75% ✅ (Current CI threshold - achieved)
+- **Phase 1**: 85% ✅ (Current CI threshold - achieved)
 - **Phase 2**: 85% 🎯 (Active target)
 - **Phase 3**: 90% 🚀 (Future goal when project is widely adopted)
 
-**Current Coverage**: ~79% (See [codecov badge](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp) for live status)
+**Current Coverage**: ~86% (See [codecov badge](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp) for live status)
 
 ### Coverage Improvement Strategy
 
@@ -572,7 +877,7 @@ Every PR must maintain or improve coverage - we never go backwards:
 
 Files currently below 75% that need attention:
 
-- Files with 0-50% coverage must be improved to 75%+ when modified
+- Files with 0-50% coverage must be improved to 85%+ when modified
 - Files with 50-75% coverage should be improved when touched
 - New code must have >90% coverage
 
@@ -601,14 +906,14 @@ pytest --cov=src/pycodemcp --cov-report=html
 pytest --cov=src/pycodemcp/plugins/flask --cov-report=term-missing tests/plugins/test_flask.py
 
 # Fail if coverage drops below current threshold
-pytest --cov=src/pycodemcp --cov-fail-under=80
+pytest --cov=src/pycodemcp --cov-fail-under=85
 ```
 
 ### When We Reach 85%
 
-Once we consistently maintain 85% coverage:
+Once we consistently maintain 90% coverage:
 
-1. Update CI threshold in `.github/workflows/ci.yml` from 75% to 85%
+1. Update CI threshold in `.github/workflows/ci.yml` from 85% to 90%
 2. Celebrate the milestone! 🎉
 3. Plan approach for Phase 3 (90% coverage)
 
