@@ -5,6 +5,7 @@ from pathlib import Path
 
 import jedi
 
+from .analyzers.jedi_analyzer import JediAnalyzer
 from .cache import CodebaseWatcher, GranularCache
 from .namespace_resolver import NamespaceResolver
 from .settings import settings
@@ -197,6 +198,43 @@ class ProjectManager:
                 logger.error(f"Error searching in {project_path}: {e}")
 
         return results
+
+    def get_analyzer(self, project_path: str) -> JediAnalyzer:
+        """Get a configured JediAnalyzer for the given project.
+
+        This method creates a JediAnalyzer and configures it with:
+        - Additional package paths from dependencies
+        - Namespace package mappings
+
+        Args:
+            project_path: Path to the project to analyze
+
+        Returns:
+            Configured JediAnalyzer instance
+        """
+        # Create the analyzer
+        analyzer = JediAnalyzer(project_path)
+
+        # Convert project_path to Path for lookup
+        path_key = Path(project_path).resolve()
+
+        # Set additional paths if this project has dependencies configured
+        if path_key in self.dependencies:
+            analyzer.set_additional_paths(list(self.dependencies[path_key]))
+            logger.info(
+                f"Configured analyzer with {len(self.dependencies[path_key])} additional paths"
+            )
+
+        # Set namespace paths if any are configured
+        if self.namespace_resolver.namespace_paths:
+            # Convert namespace paths to string format for the analyzer
+            namespace_strings = {}
+            for ns, paths in self.namespace_resolver.namespace_paths.items():
+                namespace_strings[ns] = [str(p) for p in paths]
+            analyzer.set_namespace_paths(namespace_strings)
+            logger.info(f"Configured analyzer with {len(namespace_strings)} namespace mappings")
+
+        return analyzer
 
     def cleanup_all(self) -> None:
         """Clean up all projects."""
