@@ -75,6 +75,16 @@ repos:
         args: ['--pytest-test-first']
         exclude: '^tests/(fixtures|utils)/'
 
+  # Project-specific checks
+  - repo: local
+    hooks:
+      - id: check-cross-platform-paths
+        name: Check cross-platform path usage
+        entry: python scripts/check_cross_platform_paths.py
+        language: system
+        files: '\.py$'
+        exclude: '^(tests/fixtures/|scripts/check_cross_platform_paths\.py)'
+
   # JSON validation
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0

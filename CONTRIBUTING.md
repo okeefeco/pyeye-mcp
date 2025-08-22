@@ -263,6 +263,15 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
 
 ## Development Workflow
 
+### ⚠️ Critical Reminders
+
+Before coding, remember these non-negotiable practices:
+
+1. **🖥️ Cross-Platform Paths**: Always use `path.as_posix()` for display/storage, never `str(path)`
+2. **⏱️ Performance Tests**: Use `PerformanceThresholds` from `tests.utils.performance`, never naive timing assertions
+3. **✅ Test Everything**: All code changes require comprehensive tests
+4. **🔄 Pre-commit Hooks**: Let them catch issues before CI
+
 ### Branch Protection
 
 The `main` branch is protected. All changes must go through pull requests with:
@@ -290,6 +299,7 @@ Before committing, pre-commit will automatically run:
 - **Linting** (ruff)
 - **Type checking** (mypy)
 - **Documentation checks** (pydocstyle)
+- **Cross-platform path checking** (custom hook)
 
 **IMPORTANT**: Pre-commit does NOT run tests. You MUST run tests manually:
 
@@ -681,6 +691,40 @@ src/pycodemcp/
    - Minimum 85% coverage (enforced by CI)
    - New code should aim for >90% coverage
    - Use `# pragma: no cover` sparingly and with justification
+
+### 🚀 Performance Testing Framework
+
+**IMPORTANT**: Always use the performance testing framework for CI-tolerant tests.
+
+Our CI environments have variable performance, so never write naive timing assertions like `assert elapsed < 0.2`. Instead, use the built-in framework:
+
+```python
+from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
+
+# Define CI-aware thresholds
+search_threshold = PerformanceThresholds(
+    base=100.0,      # 100ms for local development
+    linux_ci=150.0,   # 150ms for Linux CI
+    macos_ci=300.0,   # 300ms for macOS CI (more lenient)
+    windows_ci=300.0, # 300ms for Windows CI (more lenient)
+)
+
+# Use in your test
+elapsed_ms = measure_operation()
+assert_performance_threshold(elapsed_ms, search_threshold, "Symbol search")
+```
+
+**Common Thresholds Available:**
+
+- `CommonThresholds.SYMBOL_SEARCH_P95` - Symbol search operations
+- `CommonThresholds.CACHE_LOOKUP_P99` - Cache operations
+- `CommonThresholds.CONCURRENT_OPS_P95` - Concurrent operations
+
+**When to Create Custom Thresholds:**
+
+- For operations not covered by CommonThresholds
+- When you need different tolerance levels
+- For bulk operations (like 100k cache lookups)
 
 ### Test Structure
 

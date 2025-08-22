@@ -477,7 +477,9 @@ class LazyNamespaceLoader:
                 files = await rglob_async("*.py", ns_path)
                 all_files.extend(files)
             except Exception as e:
-                logger.warning(f"Error loading namespace {namespace} from {ns_path}: {e}")
+                logger.warning(
+                    f"Error loading namespace {namespace} from {ns_path.as_posix()}: {e}"
+                )
 
         return all_files
 
@@ -516,7 +518,7 @@ async def parallel_search(
             try:
                 return await rglob_async(pattern, path)
             except Exception as e:
-                logger.warning(f"Error searching {path}: {e}")
+                logger.warning(f"Error searching {path.as_posix()}: {e}")
                 return []
 
     # Search all paths concurrently

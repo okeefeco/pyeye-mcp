@@ -24,7 +24,17 @@ For personal development settings (worktrees, local paths, etc.):
 - **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
 - **Python Environment**: uv managed
 
-## 🚨 MANDATORY: Test-Driven Development Workflow
+## 🚨 MANDATORY REQUIREMENTS
+
+### Critical Development Rules
+
+**These are non-negotiable - violations will cause CI failures:**
+
+1. **🖥️ Cross-Platform Paths**: ALWAYS use `path.as_posix()` for display/storage. NEVER use `str(path)` in string contexts.
+2. **⏱️ Performance Tests**: ALWAYS use `PerformanceThresholds` framework. NEVER write naive `assert elapsed < 0.2` assertions.
+3. **✅ Tests Required**: ALL code changes MUST include comprehensive tests.
+
+### Test-Driven Development Workflow
 
 **ALL code changes MUST include tests. This is enforced by CI.**
 
