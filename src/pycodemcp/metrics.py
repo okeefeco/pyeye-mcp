@@ -123,25 +123,46 @@ class MetricsCollector:
         Returns:
             Decorated function
         """
+        import asyncio
 
         def decorator(func: F) -> F:
             metric_name = name or f"{func.__module__}.{func.__name__}"
 
-            @functools.wraps(func)
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
-                start = time.perf_counter()
-                try:
-                    result = func(*args, **kwargs)
-                    duration_ms = (time.perf_counter() - start) * 1000
-                    self.metrics[metric_name].add_value(duration_ms)
-                    return result
-                except Exception as e:
-                    duration_ms = (time.perf_counter() - start) * 1000
-                    self.metrics[metric_name].add_value(duration_ms)
-                    self.metrics[metric_name].add_error(str(e))
-                    raise
+            # Check if the function is async
+            if asyncio.iscoroutinefunction(func):
 
-            return cast(F, wrapper)
+                @functools.wraps(func)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    start = time.perf_counter()
+                    try:
+                        result = await func(*args, **kwargs)
+                        duration_ms = (time.perf_counter() - start) * 1000
+                        self.metrics[metric_name].add_value(duration_ms)
+                        return result
+                    except Exception as e:
+                        duration_ms = (time.perf_counter() - start) * 1000
+                        self.metrics[metric_name].add_value(duration_ms)
+                        self.metrics[metric_name].add_error(str(e))
+                        raise
+
+                return cast(F, async_wrapper)
+            else:
+
+                @functools.wraps(func)
+                def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    start = time.perf_counter()
+                    try:
+                        result = func(*args, **kwargs)
+                        duration_ms = (time.perf_counter() - start) * 1000
+                        self.metrics[metric_name].add_value(duration_ms)
+                        return result
+                    except Exception as e:
+                        duration_ms = (time.perf_counter() - start) * 1000
+                        self.metrics[metric_name].add_value(duration_ms)
+                        self.metrics[metric_name].add_error(str(e))
+                        raise
+
+                return cast(F, sync_wrapper)
 
         return decorator
 
