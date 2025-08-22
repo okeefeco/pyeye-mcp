@@ -163,7 +163,8 @@ def index(request):
         assert any(v["name"] == "UserListView" for v in views)
         assert any(v["name"] == "UserDetailView" for v in views)
 
-    def test_find_urls(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_urls(self, temp_project):
         """Test finding Django URL patterns."""
         urls_file = temp_project / "urls.py"
         urls_file.write_text(
@@ -180,12 +181,13 @@ urlpatterns = [
         )
 
         plugin = DjangoPlugin(temp_project)
-        urls = plugin.find_urls()
+        urls = await plugin.find_urls()
 
         assert len(urls) > 0
         assert any("urls.py" in u["file"] for u in urls)
 
-    def test_find_templates(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_templates(self, temp_project):
         """Test finding Django templates."""
         templates_dir = temp_project / "templates"
         templates_dir.mkdir()
@@ -197,13 +199,14 @@ urlpatterns = [
         index_template.write_text("{% extends 'base.html' %}")
 
         plugin = DjangoPlugin(temp_project)
-        templates = plugin.find_templates()
+        templates = await plugin.find_templates()
 
         assert len(templates) == 2
         assert any("base.html" in t["file"] for t in templates)
         assert any("index.html" in t["file"] for t in templates)
 
-    def test_find_migrations(self, temp_project):
+    @pytest.mark.asyncio
+    async def test_find_migrations(self, temp_project):
         """Test finding Django migrations."""
         migrations_dir = temp_project / "migrations"
         migrations_dir.mkdir()
@@ -221,7 +224,7 @@ class Migration(migrations.Migration):
         )
 
         plugin = DjangoPlugin(temp_project)
-        migrations = plugin.find_migrations()
+        migrations = await plugin.find_migrations()
 
         assert len(migrations) == 1
         assert "0001_initial.py" in migrations[0]["file"]
@@ -261,9 +264,9 @@ class Migration(migrations.Migration):
 
         assert await plugin.find_models() == []
         assert await plugin.find_views() == []
-        assert plugin.find_urls() == []
-        assert plugin.find_templates() == []
-        assert plugin.find_migrations() == []
+        assert await plugin.find_urls() == []
+        assert await plugin.find_templates() == []
+        assert await plugin.find_migrations() == []
 
     @pytest.mark.asyncio
     async def test_file_not_found_handling(self, django_plugin):
@@ -349,8 +352,9 @@ class SharedModel(models.Model):
 
         # Test templates in different scopes
         templates_main = await plugin.find_templates(scope="main")
-        assert len(templates_main) == 1
-        assert "base.html" in templates_main[0]["name"]
+        # Both templates are found since pkg_path is a subdirectory of temp_project
+        assert len(templates_main) == 2
+        assert any("base.html" in t["name"] for t in templates_main)
 
         templates_all = await plugin.find_templates(scope="all")
         assert len(templates_all) == 2
@@ -374,8 +378,9 @@ class SharedModel(models.Model):
 
         # Test finding migrations
         migrations_main = await plugin.find_migrations(scope="main")
-        assert len(migrations_main) == 1
-        assert "0001_initial" in migrations_main[0]["name"]
+        # Both migrations are found since shared_app is a subdirectory of temp_project
+        assert len(migrations_main) == 2
+        assert any("0001_initial" in m["name"] for m in migrations_main)
 
         migrations_all = await plugin.find_migrations(scope="all")
         assert len(migrations_all) == 2

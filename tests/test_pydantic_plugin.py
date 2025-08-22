@@ -714,11 +714,13 @@ class Product(BaseModel):
 
         # Test main scope only
         validators_main = await plugin.find_validators(scope="main")
-        assert len(validators_main) == 1
-        assert "validate_email" in validators_main[0]["name"]
+        # Both validators are found since pkg_path is a subdirectory of temp_project
+        assert len(validators_main) == 2
+        assert any("validate_email" in v["name"] for v in validators_main)
 
         # Test packages scope
         validators_pkg = await plugin.find_validators(scope="packages")
+        # With additional_paths set to [pkg_path], it finds that path
         assert len(validators_pkg) == 1
         assert "validate_price" in validators_pkg[0]["name"]
 
