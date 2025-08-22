@@ -184,8 +184,13 @@ class TestPerformanceBaselines:
         # Calculate overhead
         overhead_ms = ((with_metrics_time - without_metrics_time) / 100) * 1000
 
-        # Metrics overhead should be less than 5ms per operation (relaxed for CI environments)
-        assert overhead_ms < 5, f"Metrics overhead ({overhead_ms}ms) exceeds 5ms per operation"
+        # Metrics overhead should be minimal
+        assert_performance_threshold(
+            overhead_ms,
+            CommonThresholds.METRICS_OVERHEAD,
+            "Metrics overhead",
+            unit="ms per operation",
+        )
 
     def test_concurrent_operations_performance(self):
         """Test performance under concurrent load."""
