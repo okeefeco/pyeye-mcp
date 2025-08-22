@@ -19,7 +19,7 @@ class TestDogfoodingWorkflow:
         server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
         assert server_file.exists(), "Server module should exist"
 
-        content = server_file.read_text()
+        content = server_file.read_text(encoding="utf-8")
         # Check for key MCP tool functions
         assert "find_symbol" in content
         assert "list_packages" in content
@@ -55,7 +55,7 @@ class TestDogfoodingWorkflow:
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
         assert claude_md.exists()
 
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check for dogfooding section
         assert "MCP-First Development Workflow" in content
@@ -75,7 +75,7 @@ class TestMCPFirstPrinciples:
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
         assert claude_md.exists()
 
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check for MCP-first workflow section
         assert "MCP-First Development Workflow" in content
@@ -96,7 +96,7 @@ class TestMCPFirstPrinciples:
         """Verify that approved MCP tools are documented."""
         # Check project CLAUDE.md
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Core tools should be documented
         required_tools = [
@@ -118,7 +118,7 @@ class TestMCPFirstPrinciples:
     def test_semantic_over_text_principle(self):
         """Verify semantic search is prioritized over text search."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check core principle is stated
         assert "Semantic Over Text" in content or "semantic understanding" in content.lower()
@@ -133,7 +133,7 @@ class TestMCPFirstPrinciples:
     def test_success_metrics_defined(self):
         """Verify that success metrics for MCP usage are defined."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         assert "Measuring Success" in content or "Success" in content
         assert "80%" in content or "100%" in content  # Target metrics
@@ -149,7 +149,7 @@ class TestDogfoodingBenefits:
     def test_navigation_benefits_documented(self):
         """Verify that navigation benefits are documented."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check that benefits are documented
         assert "3x faster navigation" in content or "faster navigation" in content.lower()
@@ -159,7 +159,7 @@ class TestDogfoodingBenefits:
     def test_mcp_tools_provide_rich_metadata(self):
         """Verify that MCP tools are documented to provide rich metadata."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check documentation mentions metadata benefits
         assert "type information" in content.lower() or "type-aware" in content.lower()
@@ -169,7 +169,7 @@ class TestDogfoodingBenefits:
     def test_refactoring_safety_documented(self):
         """Verify that refactoring safety is documented."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check refactoring safety is emphasized
         assert "find_references" in content
@@ -217,7 +217,7 @@ class TestDogfoodingPerformance:
     def test_performance_metrics_documented(self):
         """Verify that performance metrics and benefits are documented."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check that performance aspects are documented
         assert "performance" in content.lower() or "faster" in content.lower()
@@ -226,7 +226,7 @@ class TestDogfoodingPerformance:
     def test_performance_tips_provided(self):
         """Verify that performance tips are provided."""
         claude_md = Path(__file__).parent.parent / "CLAUDE.md"
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
 
         # Check for performance tips section
         assert "Performance Tips" in content or "performance" in content.lower()
