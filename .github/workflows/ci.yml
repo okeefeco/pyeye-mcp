@@ -222,3 +222,40 @@ jobs:
 
       # Safety check removed - deprecated command with compatibility issues
       # Consider using pip-audit or other alternatives in future
+
+  # Dummy success jobs for docs-only PRs to satisfy branch protection
+  # These jobs report success when tests are skipped for documentation changes
+  test-pr-dummy:
+    name: test-pr (${{ matrix.os }}, ${{ matrix.python-version }})
+    needs: [changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.code != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: '3.10'
+          - os: ubuntu-latest
+            python-version: '3.12'
+          - os: windows-latest
+            python-version: '3.10'
+          - os: windows-latest
+            python-version: '3.12'
+          - os: macos-latest
+            python-version: '3.11'
+    steps:
+      - name: Skip tests for docs-only changes
+        run: echo "Skipping tests - documentation only changes detected"
+
+  type-check-dummy:
+    name: type-check
+    needs: [changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.code != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip type checking for docs-only changes
+        run: echo "Skipping type checking - documentation only changes detected"
