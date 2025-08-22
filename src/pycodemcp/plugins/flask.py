@@ -246,7 +246,7 @@ class FlaskPlugin(AnalyzerPlugin):
                         templates.append(
                             {
                                 "file": str(template_file),
-                                "name": str(template_file.relative_to(template_dir)),
+                                "name": template_file.relative_to(template_dir).as_posix(),
                                 "type": "template",
                             }
                         )
@@ -254,7 +254,7 @@ class FlaskPlugin(AnalyzerPlugin):
                         templates.append(
                             {
                                 "file": str(template_file),
-                                "name": str(template_file.relative_to(template_dir)),
+                                "name": template_file.relative_to(template_dir).as_posix(),
                                 "type": "template",
                             }
                         )

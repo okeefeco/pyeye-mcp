@@ -418,7 +418,7 @@ def admin():
         assert "index.html" in template_names
         assert "user.html" in template_names
         assert "base.jinja2" in template_names
-        assert "admin/dashboard.html" in template_names
+        assert "admin/dashboard.html" in template_names  # Now always POSIX format
 
         # Check render_template calls
         render_calls = templates_data["render_calls"]
