@@ -39,9 +39,12 @@ project_config = None  # Will be initialized lazily
 def get_analyzer(project_path: str = ".") -> JediAnalyzer:
     """Get or create a JediAnalyzer for the given project path.
 
-    This is a helper function for testing and internal use.
+    This is a helper function that uses ProjectManager to create
+    a properly configured analyzer with namespace and package support.
     """
-    return JediAnalyzer(project_path)
+    # Use the project manager to get a configured analyzer
+    manager = get_project_manager()
+    return manager.get_analyzer(project_path)
 
 
 def initialize_plugins(project_path: str = ".") -> None:
@@ -463,7 +466,7 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
         List of packages with structure information
     """
     try:
-        analyzer = JediAnalyzer(project_path)
+        analyzer = get_analyzer(project_path)
         return await analyzer.list_packages()
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
@@ -489,7 +492,7 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
         List of modules with exports, classes, functions, and metrics
     """
     try:
-        analyzer = JediAnalyzer(project_path)
+        analyzer = get_analyzer(project_path)
         return await analyzer.list_modules()
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
@@ -513,7 +516,7 @@ async def analyze_dependencies(module_path: str, project_path: str = ".") -> dic
         Dependencies analysis including imports, imported_by, and circular dependencies
     """
     try:
-        analyzer = JediAnalyzer(project_path)
+        analyzer = get_analyzer(project_path)
         return await analyzer.analyze_dependencies(module_path)
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
@@ -542,7 +545,7 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
         Detailed module information including exports, classes, functions, metrics, and dependencies
     """
     try:
-        analyzer = JediAnalyzer(project_path)
+        analyzer = get_analyzer(project_path)
         return await analyzer.get_module_info(module_path)
     except ProjectNotFoundError as e:
         raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
