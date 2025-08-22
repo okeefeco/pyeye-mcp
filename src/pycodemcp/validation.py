@@ -289,14 +289,14 @@ def validate_mcp_inputs(func: Any) -> Any:
 
     This decorator validates common MCP tool parameters and raises
     ValidationError for invalid inputs rather than returning error dicts.
+    Properly handles both sync and async functions.
     """
+    import asyncio
     import functools
     import inspect
 
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        # Get function signature
-        sig = inspect.signature(func)
+    def validate_arguments(sig: Any, args: Any, kwargs: Any) -> Any:
+        """Common validation logic for both sync and async wrappers."""
         bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
 
@@ -362,6 +362,25 @@ def validate_mcp_inputs(func: Any) -> Any:
                             ) from e
                     bound.arguments[param_name] = validated_list
 
-        return func(*bound.args, **bound.kwargs)
+        return bound
 
-    return wrapper
+    # Get function signature once
+    sig = inspect.signature(func)
+
+    # Check if the function is async
+    if asyncio.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            bound = validate_arguments(sig, args, kwargs)
+            return await func(*bound.args, **bound.kwargs)
+
+        return async_wrapper
+    else:
+
+        @functools.wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            bound = validate_arguments(sig, args, kwargs)
+            return func(*bound.args, **bound.kwargs)
+
+        return sync_wrapper
