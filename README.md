@@ -319,6 +319,11 @@ This file is automatically ignored by git and takes precedence over all other co
 - **`get_type_info`** - Get type hints and docstrings
 - **`find_imports`** - Track module imports across the project
 - **`get_call_hierarchy`** - Analyze function call relationships
+- **`find_subclasses`** - Find all classes inheriting from a given base class
+  - Supports direct and indirect inheritance
+  - Works with built-in classes (Exception, str, etc.)
+  - Can show full inheritance hierarchy chains
+  - Handles multiple inheritance correctly
 
 ### Multi-Project Tools
 

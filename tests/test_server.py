@@ -12,6 +12,7 @@ from pycodemcp.server import (
     find_imports,
     find_in_namespace,
     find_references,
+    find_subclasses,
     find_symbol,
     find_symbol_multi,
     get_call_hierarchy,
@@ -658,6 +659,90 @@ class TestListProjectStructure:
                                 "children" in subchild
                                 and any("truncated" in sc for sc in subchild["children"])
                             )
+
+
+class TestFindSubclasses:
+    """Test the find_subclasses tool."""
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_basic(self, temp_project_dir):
+        """Test basic find_subclasses functionality."""
+        # Create test file with class hierarchy
+        test_file = temp_project_dir / "animals.py"
+        test_file.write_text(
+            """
+class Animal:
+    pass
+
+class Dog(Animal):
+    pass
+
+class Cat(Animal):
+    pass
+"""
+        )
+
+        result = await find_subclasses("Animal", str(temp_project_dir))
+
+        # Should find both Dog and Cat
+        assert len(result) == 2
+        names = {r["name"] for r in result}
+        assert "Dog" in names
+        assert "Cat" in names
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_with_params(self, temp_project_dir):
+        """Test find_subclasses with include_indirect and show_hierarchy."""
+        test_file = temp_project_dir / "hierarchy.py"
+        test_file.write_text(
+            """
+class Base:
+    pass
+
+class Middle(Base):
+    pass
+
+class Leaf(Middle):
+    pass
+"""
+        )
+
+        # Test with indirect=False
+        result = await find_subclasses("Base", str(temp_project_dir), include_indirect=False)
+        assert len(result) == 1
+        assert result[0]["name"] == "Middle"
+
+        # Test with indirect=True and hierarchy
+        result = await find_subclasses(
+            "Base", str(temp_project_dir), include_indirect=True, show_hierarchy=True
+        )
+        assert len(result) == 2
+        names = {r["name"] for r in result}
+        assert "Middle" in names
+        assert "Leaf" in names
+
+        # Check hierarchy is included
+        for r in result:
+            assert "inheritance_chain" in r
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_not_found(self, temp_project_dir):
+        """Test find_subclasses when base class doesn't exist."""
+        result = await find_subclasses("NonExistentClass", str(temp_project_dir))
+        assert result == []
+
+    @patch("pycodemcp.server.get_analyzer")
+    @pytest.mark.asyncio
+    async def test_find_subclasses_error_handling(self, mock_get_analyzer):
+        """Test error handling in find_subclasses."""
+        # Make analyzer's find_subclasses raise an exception
+        mock_analyzer = Mock()
+        mock_analyzer.find_subclasses.side_effect = Exception("Analysis error")
+        mock_get_analyzer.return_value = mock_analyzer
+
+        with pytest.raises(AnalysisError) as exc_info:
+            await find_subclasses("TestClass", "/test/path")
+        assert "Failed to find subclasses" in str(exc_info.value)
 
 
 class TestPluginActivation:

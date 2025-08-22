@@ -609,6 +609,55 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
 
 
 @mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("find_subclasses")
+async def find_subclasses(
+    base_class: str,
+    project_path: str = ".",
+    include_indirect: bool = True,
+    show_hierarchy: bool = False,
+) -> list[dict[str, Any]]:
+    """Find all classes that inherit from a given base class.
+
+    Args:
+        base_class: Name of the base class to find subclasses for
+        project_path: Root path of the project
+        include_indirect: Include indirect inheritance (grandchildren, etc.)
+        show_hierarchy: Show the full inheritance chain
+
+    Returns:
+        List of subclasses with their locations and inheritance details
+
+    Example:
+        # Find all exception classes
+        subclasses = await find_subclasses("BaseException")
+
+        # Find direct subclasses only
+        direct_only = await find_subclasses("Animal", include_indirect=False)
+
+        # Show full inheritance hierarchy
+        with_hierarchy = await find_subclasses("Model", show_hierarchy=True)
+    """
+    try:
+        analyzer = get_analyzer(project_path)
+
+        return await analyzer.find_subclasses(
+            base_class=base_class,
+            include_indirect=include_indirect,
+            show_hierarchy=show_hierarchy,
+        )
+    except ProjectNotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"Error finding subclasses: {e}")
+        raise AnalysisError(
+            f"Failed to find subclasses of {base_class}",
+            file_path=project_path,
+            error=str(e),
+        ) from e
+
+
+@mcp.tool()
 async def get_performance_metrics(
     metric_name: str | None = None, export_format: str = "json"
 ) -> dict[str, Any] | str:
