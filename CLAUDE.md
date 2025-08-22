@@ -280,9 +280,45 @@ Remember: **We build this tool - we must be its best users!**
 
 To measure our MCP adoption and identify improvement opportunities, we track usage metrics during development sessions.
 
-### Starting a Development Session
+### 🚀 Automatic Setup (Recommended)
 
-When beginning work on an issue:
+For fully automated tracking, run the setup script once:
+
+```bash
+# One-time setup for automatic metrics
+bash scripts/setup_dogfooding.sh
+```
+
+This installs:
+
+- **Git hooks**: Auto-start sessions on branch switch, auto-end on commit
+- **Shell aliases**: Track grep usage automatically
+- **Quick commands**: `mcp-start`, `mcp-end`, `mcp-report`, etc.
+
+### ⚡ What Happens Automatically
+
+After setup, metrics tracking is completely hands-off:
+
+1. **Branch Switch**: `git checkout feat/123-feature` → Auto-starts session for issue #123
+2. **Grep Usage**: `grep "function"` → Auto-tracked as manual search
+3. **MCP Usage**: All MCP tool calls → Auto-tracked via `get_performance_metrics()`
+4. **Commit**: `git commit` → Auto-ends session, shows stats in commit message
+5. **CD into project**: `cd python-code-intelligence-mcp` → Auto-starts if no active session
+
+### 📱 Quick Commands (After Setup)
+
+```bash
+# Manual control (rarely needed)
+mcp-start --issue 135        # Start session manually
+mcp-end                      # End session manually
+mcp-report --days 7          # Weekly report
+mcp-saved 10 "Found refs fast"  # Log time saved
+mcp-bug "Caught circular dep"    # Log prevented bug
+```
+
+### 🔧 Manual Setup (If Needed)
+
+If you prefer manual tracking or the automatic setup fails:
 
 ```bash
 # Start metrics tracking
@@ -292,16 +328,13 @@ python scripts/dogfooding_metrics.py start --issue 135
 mcp__python-intelligence__get_performance_metrics()
 ```
 
-### During Development
+During development, manually track:
 
-Track your tool usage:
-
-- **When using MCP tools**: Automatically tracked via `get_performance_metrics()`
-- **When using grep/find**: Log it with `python scripts/dogfooding_metrics.py grep`
+- **When using grep/find**: `python scripts/dogfooding_metrics.py grep`
 - **When MCP saves time**: `python scripts/dogfooding_metrics.py saved 5 "Found all references instantly"`
 - **When MCP prevents bugs**: `python scripts/dogfooding_metrics.py bug "Would have missed subclass"`
 
-### Ending a Session
+End session:
 
 ```bash
 # End session and see stats

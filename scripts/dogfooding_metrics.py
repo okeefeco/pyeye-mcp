@@ -58,6 +58,11 @@ class DogfoodingMetrics:
         with self.history_file.open("a") as f:
             f.write(json.dumps(session) + "\n")
 
+        # Save stats for commit message hook
+        stats_file = self.data_dir / "last_session_stats.json"
+        with stats_file.open("w") as f:
+            json.dump(session["stats"], f, indent=2)
+
         # Clear current session
         self.session_file.unlink()
 
