@@ -299,8 +299,10 @@ class TestJediAnalyzerNamespaceSupport:
         analyzer.set_additional_paths(paths)
 
         assert len(analyzer.additional_paths) == 2
-        assert temp_project["lib_package"] in analyzer.additional_paths
-        assert temp_project["auth_repo"] in analyzer.additional_paths
+        # Resolve paths for comparison to handle symlinks and short names
+        expected_paths = {p.resolve() for p in paths}
+        actual_paths = {p.resolve() for p in analyzer.additional_paths}
+        assert expected_paths == actual_paths
 
 
 class TestProjectManagerIntegration:
@@ -319,7 +321,10 @@ class TestProjectManagerIntegration:
 
         # Should have additional paths configured
         assert len(analyzer.additional_paths) == 1
-        assert temp_project["lib_package"] in analyzer.additional_paths
+        # Resolve both paths for comparison to handle symlinks and short names
+        expected_path = temp_project["lib_package"].resolve()
+        actual_paths = [p.resolve() for p in analyzer.additional_paths]
+        assert expected_path in actual_paths
 
     def test_get_analyzer_with_namespaces(self, temp_project):
         """Test get_analyzer configures namespaces correctly."""
