@@ -1,8 +1,11 @@
 """Tests for dogfooding automation setup."""
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from scripts.dogfooding_metrics import DogfoodingMetrics
 
@@ -10,23 +13,48 @@ from scripts.dogfooding_metrics import DogfoodingMetrics
 class TestAutomationSetup:
     """Test automated dogfooding setup."""
 
+    @pytest.mark.skipif(os.name == "nt", reason="Windows doesn't use Unix permissions")
     def test_install_hooks_script_exists(self):
         """Test that install hooks script exists and is executable."""
         script_path = Path("scripts/install_hooks.sh")
         assert script_path.exists()
         assert script_path.stat().st_mode & 0o111  # Executable
 
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
+    def test_install_hooks_script_exists_windows(self):
+        """Test that install hooks script exists on Windows."""
+        script_path = Path("scripts/install_hooks.sh")
+        assert script_path.exists()
+        # On Windows, just check it's a file (executable check doesn't apply)
+        assert script_path.is_file()
+
+    @pytest.mark.skipif(os.name == "nt", reason="Windows doesn't use Unix permissions")
     def test_setup_aliases_script_exists(self):
         """Test that setup aliases script exists and is executable."""
         script_path = Path("scripts/setup_aliases.sh")
         assert script_path.exists()
         assert script_path.stat().st_mode & 0o111  # Executable
 
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
+    def test_setup_aliases_script_exists_windows(self):
+        """Test that setup aliases script exists on Windows."""
+        script_path = Path("scripts/setup_aliases.sh")
+        assert script_path.exists()
+        assert script_path.is_file()
+
+    @pytest.mark.skipif(os.name == "nt", reason="Windows doesn't use Unix permissions")
     def test_setup_dogfooding_script_exists(self):
         """Test that main setup script exists and is executable."""
         script_path = Path("scripts/setup_dogfooding.sh")
         assert script_path.exists()
         assert script_path.stat().st_mode & 0o111  # Executable
+
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
+    def test_setup_dogfooding_script_exists_windows(self):
+        """Test that main setup script exists on Windows."""
+        script_path = Path("scripts/setup_dogfooding.sh")
+        assert script_path.exists()
+        assert script_path.is_file()
 
     def test_dogfooding_metrics_cli_help(self):
         """Test that dogfooding metrics CLI shows help."""
@@ -172,7 +200,7 @@ class TestDocumentation:
         docs_file = Path("docs/DOGFOODING_SETUP.md")
         assert docs_file.exists()
 
-        content = docs_file.read_text()
+        content = docs_file.read_text(encoding="utf-8")
         assert "Quick Setup" in content
         assert "Git Hooks" in content
         assert "Shell Aliases" in content
@@ -182,14 +210,14 @@ class TestDocumentation:
         claude_md = Path("CLAUDE.md")
         assert claude_md.exists()
 
-        content = claude_md.read_text()
+        content = claude_md.read_text(encoding="utf-8")
         assert "Automatic Setup" in content
         assert "setup_dogfooding.sh" in content
         assert "What Happens Automatically" in content
 
     def test_all_scripts_documented(self):
         """Test that all automation scripts are documented."""
-        setup_doc = Path("docs/DOGFOODING_SETUP.md").read_text()
+        setup_doc = Path("docs/DOGFOODING_SETUP.md").read_text(encoding="utf-8")
 
         # Check that all scripts are mentioned
         assert "install_hooks.sh" in setup_doc
