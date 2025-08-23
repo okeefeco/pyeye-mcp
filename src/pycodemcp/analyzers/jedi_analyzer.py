@@ -61,7 +61,8 @@ class JediAnalyzer:
             raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
-            self.project = jedi.Project(path=self.project_path)
+            # Pass string to Jedi to avoid potential Path object issues in Jedi's cache
+            self.project = jedi.Project(path=str(self.project_path))
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -377,11 +378,24 @@ class JediAnalyzer:
             logger.error(f"Error in find_symbol: {e}")
             # Don't raise - return partial results if any
             if not results:
+                # Convert Path objects in exception to strings for serialization
+                error_str = str(e)
+                # Special handling for exceptions that contain Path objects
+                if hasattr(e, 'args') and e.args and any(isinstance(arg, Path) for arg in e.args):
+                    # If the exception has Path objects in args, convert them
+                    converted_args = []
+                    for arg in e.args:
+                        if isinstance(arg, Path):
+                            converted_args.append(arg.as_posix())
+                        else:
+                            converted_args.append(str(arg))
+                    error_str = ' '.join(converted_args) if converted_args else str(e)
+                
                 raise AnalysisError(
                     f"Failed to search for symbol '{name}'",
                     operation="find_symbol",
                     symbol=name,
-                    error=str(e),
+                    error=error_str,
                 ) from e
 
         return results
@@ -516,7 +530,7 @@ class JediAnalyzer:
             for py_file in py_files:
                 try:
                     source = await read_file_async(py_file)
-                    script = jedi.Script(source, path=py_file, project=self.project)
+                    script = jedi.Script(source, path=py_file.as_posix(), project=self.project)
 
                     # Get all names in the file
                     names = script.get_names(all_scopes=True, definitions=True, references=True)
@@ -581,7 +595,7 @@ class JediAnalyzer:
 
             # Get the function's source
             source = await read_file_async(function_def.module_path)
-            script = jedi.Script(source, path=function_def.module_path, project=self.project)
+            script = jedi.Script(source, path=function_def.module_path.as_posix() if isinstance(function_def.module_path, Path) else function_def.module_path, project=self.project)
 
             # Find references (callers)
             refs = script.get_references(function_def.line, function_def.column)
