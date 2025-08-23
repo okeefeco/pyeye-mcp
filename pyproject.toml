@@ -1,6 +1,6 @@
 [project]
 name = "python-code-intelligence-mcp"
-version = "0.1.0"
+version = "0.1.0.dev0"
 description = "Extensible Python code intelligence MCP server for semantic analysis and code navigation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,7 @@ dev = [
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks
     "isort==6.0.1",  # Pinned for consistent import sorting
+    "tomli>=2.0.0; python_version < '3.11'",  # TOML parsing for Python 3.10
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
@@ -141,10 +142,11 @@ exclude_lines = [
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.1.0.dev0"
 tag_format = "v$version"
 version_files = [
-    "pyproject.toml:version"
+    "pyproject.toml:version",
+    "src/pycodemcp/__init__.py:__version__"
 ]
 
 [dependency-groups]
