@@ -1,11 +1,15 @@
 """Async file operations utilities for non-blocking I/O."""
 
 import asyncio
+import logging
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import aiofiles  # type: ignore[import-untyped]
+
+logger = logging.getLogger(__name__)
 
 
 async def read_file_async(path: Path) -> str:
@@ -129,3 +133,118 @@ async def process_files_concurrent(
 
     tasks = [process_with_limit(path) for path in paths]
     return await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def ripgrep_async(
+    pattern: str, paths: list[Path], include_pattern: str | None = None, case_sensitive: bool = True
+) -> list[Path]:
+    """Use ripgrep to find files containing a pattern.
+
+    Falls back to Python-based search if ripgrep is not available.
+
+    Args:
+        pattern: Pattern to search for (regex or literal string)
+        paths: List of paths to search in
+        include_pattern: File pattern to include (e.g., "*.py")
+        case_sensitive: Whether search should be case-sensitive
+
+    Returns:
+        List of file paths containing the pattern
+    """
+    # Check if ripgrep is available
+    if not shutil.which("rg"):
+        logger.debug("ripgrep not found, falling back to Python-based search")
+        return await _python_grep_fallback(pattern, paths, include_pattern, case_sensitive)
+
+    try:
+        # Build ripgrep command
+        cmd = ["rg", "--files-with-matches", "--no-heading", "--no-line-number"]
+
+        if not case_sensitive:
+            cmd.append("-i")
+
+        if include_pattern:
+            cmd.extend(["--glob", include_pattern])
+
+        # Add the pattern
+        cmd.append(pattern)
+
+        # Add paths
+        cmd.extend(str(p) for p in paths)
+
+        # Run ripgrep
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+        stdout, _ = await process.communicate()
+
+        if process.returncode not in (0, 1):  # 0 = found matches, 1 = no matches
+            logger.warning(f"ripgrep failed with code {process.returncode}, falling back")
+            return await _python_grep_fallback(pattern, paths, include_pattern, case_sensitive)
+
+        # Parse output
+        if not stdout:
+            return []
+
+        files = stdout.decode("utf-8").strip().split("\n")
+        return [Path(f) for f in files if f]
+
+    except Exception as e:
+        logger.warning(f"Error running ripgrep: {e}, falling back to Python search")
+        return await _python_grep_fallback(pattern, paths, include_pattern, case_sensitive)
+
+
+async def _python_grep_fallback(
+    pattern: str, paths: list[Path], include_pattern: str | None = None, case_sensitive: bool = True
+) -> list[Path]:
+    """Python-based grep fallback when ripgrep is not available.
+
+    Args:
+        pattern: Pattern to search for
+        paths: List of paths to search in
+        include_pattern: File pattern to include
+        case_sensitive: Whether search should be case-sensitive
+
+    Returns:
+        List of file paths containing the pattern
+    """
+    import re
+
+    # Compile regex pattern
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error:
+        # If pattern is not valid regex, treat as literal string
+        regex = re.compile(re.escape(pattern), flags)
+
+    matching_files = []
+
+    for base_path in paths:
+        if base_path.is_file():
+            # Single file
+            files_to_check = [base_path]
+        else:
+            # Directory - find all matching files
+            if include_pattern:
+                files_to_check = list(base_path.rglob(include_pattern))
+            else:
+                files_to_check = list(base_path.rglob("*"))
+
+        # Check each file
+        for file_path in files_to_check:
+            if not file_path.is_file():
+                continue
+
+            try:
+                content = await read_file_safe(file_path)
+                if content and regex.search(content):
+                    matching_files.append(file_path)
+            except Exception:
+                # Skip files that can't be read
+                continue
+
+    return matching_files
