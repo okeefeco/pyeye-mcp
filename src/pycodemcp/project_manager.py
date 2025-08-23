@@ -7,6 +7,7 @@ import jedi
 
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .cache import CodebaseWatcher, GranularCache
+from .connection_pool import ProjectConnectionPool
 from .namespace_resolver import NamespaceResolver
 from .settings import settings
 
@@ -35,6 +36,14 @@ class ProjectManager:
         # Namespace resolver for distributed packages
         self.namespace_resolver = NamespaceResolver()
 
+        # Initialize connection pool if enabled
+        self.connection_pool: ProjectConnectionPool | None = None
+        if settings.enable_connection_pooling:
+            self.connection_pool = ProjectConnectionPool(
+                max_connections=settings.pool_max_connections, ttl_seconds=settings.pool_ttl
+            )
+            logger.info("Connection pooling enabled")
+
     def get_project(
         self, project_path: str, include_paths: list[str] | None = None
     ) -> jedi.Project:
@@ -54,7 +63,40 @@ class ProjectManager:
             self.access_order.remove(main_path)
         self.access_order.append(main_path)
 
-        # Check if we need to create/update the project
+        # Use connection pool if available
+        if self.connection_pool:
+            # Convert include_paths to resolved Path objects
+            additional_paths = []
+            if include_paths:
+                for path in include_paths:
+                    resolved = Path(path).resolve()
+                    if resolved.exists() and resolved.is_dir():
+                        additional_paths.append(resolved)
+
+            # Get pooled connection
+            project = self.connection_pool.get_connection(main_path, additional_paths)
+
+            # Store in projects dict for backward compatibility
+            self.projects[main_path] = project
+
+            # Update dependencies tracking for compatibility
+            self.dependencies[main_path] = set(additional_paths)
+
+            # Ensure cache exists
+            if main_path not in self.caches:
+                self.caches[main_path] = GranularCache(ttl_seconds=settings.cache_ttl)
+
+            # Set up watcher if not exists
+            if main_path not in self.watchers:
+                self._setup_watcher(main_path)
+                # Watch dependencies too
+                for dep_path in additional_paths:
+                    if dep_path not in self.watchers:
+                        self._setup_watcher(dep_path)
+
+            return project
+
+        # Fall back to original implementation if pooling is disabled
         if main_path not in self.projects or self._needs_update(main_path, include_paths):
             self._create_project(main_path, include_paths)
 
@@ -103,29 +145,12 @@ class ProjectManager:
         # Create granular cache with configurable TTL
         self.caches[main_path] = GranularCache(ttl_seconds=settings.cache_ttl)
 
-        # Set up watcher for main project with smart invalidation
-        def on_change(file_path: str) -> None:
-            logger.info(f"File changed in {main_path.as_posix()}: {Path(file_path).as_posix()}")
-            # Use smart invalidation for this file
-            if main_path in self.caches:
-                changed_file = Path(file_path)
-                invalidated = self.caches[main_path].invalidate_file(changed_file)
-                logger.info(f"Smart invalidation: {invalidated} cache entries affected")
+        # Set up watcher for main project
+        self._setup_watcher(main_path)
 
-                # Only recreate Jedi project if significant changes
-                # For now, keep the project alive to avoid recreation overhead
-                # The cache invalidation handles the necessary updates
-
-        watcher = CodebaseWatcher(main_path.as_posix(), on_change)
-        watcher.start()
-        self.watchers[main_path] = watcher
-
-        # Optional: Watch dependency paths too
+        # Watch dependency paths too
         for dep_path in dep_paths:
-            dep_watcher = CodebaseWatcher(dep_path.as_posix(), on_change)
-            dep_watcher.start()
-            # Store with compound key
-            self.watchers[dep_path] = dep_watcher
+            self._setup_watcher(dep_path)
 
     def _cleanup_project(self, project_path: Path) -> None:
         """Clean up a project's resources."""
@@ -236,12 +261,54 @@ class ProjectManager:
 
         return analyzer
 
+    def _setup_watcher(self, path: Path) -> None:
+        """Set up a file watcher for the given path.
+
+        Args:
+            path: Path to watch for changes
+        """
+        if path in self.watchers:
+            return  # Already watching
+
+        def on_change(file_path: str) -> None:
+            logger.info(f"File changed in {path.as_posix()}: {Path(file_path).as_posix()}")
+            # Find all caches that might be affected
+            for project_path, cache in self.caches.items():
+                # Check if this path is the project or one of its dependencies
+                if project_path == path or (
+                    project_path in self.dependencies and path in self.dependencies[project_path]
+                ):
+                    changed_file = Path(file_path)
+                    invalidated = cache.invalidate_file(changed_file)
+                    logger.info(
+                        f"Smart invalidation for {project_path.as_posix()}: {invalidated} cache entries affected"
+                    )
+
+        watcher = CodebaseWatcher(path.as_posix(), on_change)
+        watcher.start()
+        self.watchers[path] = watcher
+        logger.info(f"Started watching {path.as_posix()}")
+
+    def get_pool_stats(self) -> dict | None:
+        """Get connection pool statistics.
+
+        Returns:
+            Pool statistics if pooling is enabled, None otherwise
+        """
+        if self.connection_pool:
+            return self.connection_pool.get_stats()
+        return None
+
     def cleanup_all(self) -> None:
         """Clean up all projects."""
         for project_path in list(self.projects.keys()):
             self._cleanup_project(project_path)
 
         self.access_order.clear()
+
+        # Clear connection pool if it exists
+        if self.connection_pool:
+            self.connection_pool.clear()
 
 
 # Global project manager instance

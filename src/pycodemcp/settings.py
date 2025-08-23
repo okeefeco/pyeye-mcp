@@ -62,6 +62,20 @@ class PerformanceSettings:
             "PYCODEMCP_ENABLE_PERFORMANCE_METRICS", False
         )
 
+        # Connection pooling settings
+        self.pool_max_connections: int = self._get_int_env(
+            "PYCODEMCP_POOL_MAX_CONNECTIONS", 10, min_val=1, max_val=100
+        )
+        self.pool_ttl: int = self._get_int_env(
+            "PYCODEMCP_POOL_TTL",
+            3600,  # 1 hour default
+            min_val=60,
+            max_val=86400,  # Max 24 hours
+        )
+        self.enable_connection_pooling: bool = self._get_bool_env(
+            "PYCODEMCP_ENABLE_CONNECTION_POOLING", True
+        )
+
     def _get_int_env(
         self, key: str, default: int, min_val: int | None = None, max_val: int | None = None
     ) -> int:
@@ -169,6 +183,11 @@ class PerformanceSettings:
   Monitoring:
     enable_memory_profiling: {self.enable_memory_profiling}
     enable_performance_metrics: {self.enable_performance_metrics}
+
+  Connection Pooling:
+    enable_connection_pooling: {self.enable_connection_pooling}
+    pool_max_connections: {self.pool_max_connections}
+    pool_ttl: {self.pool_ttl}s
 """
 
 
