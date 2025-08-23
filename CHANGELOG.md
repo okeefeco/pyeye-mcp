@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-08-24
+
 ### Added
 
 - Initial release of Python Code Intelligence MCP Server
@@ -29,10 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Author and copyright information corrected
-
-## [0.1.0] - Unreleased
-
-Initial version - see Unreleased section above for features
 
 [Unreleased]: https://github.com/okeefeco/python-code-intelligence-mcp/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/okeefeco/python-code-intelligence-mcp/releases/tag/v0.1.0
