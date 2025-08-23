@@ -128,17 +128,27 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Use commitizen to generate changelog for this version
-          cz changelog --incremental --file-format md > RELEASE_NOTES.md
+          # Try to use commitizen to generate changelog for this version
+          # Note: --incremental generates from last version tag
+          cz changelog --incremental --dry-run > RELEASE_NOTES.md 2>/dev/null || true
 
-          # If cz changelog didn't generate content, create basic release notes
+          # If cz changelog didn't generate content or failed, create basic release notes
           if [ ! -s RELEASE_NOTES.md ]; then
             echo "## Release ${{ steps.version.outputs.tag }}" > RELEASE_NOTES.md
             echo "" >> RELEASE_NOTES.md
             echo "### Changes" >> RELEASE_NOTES.md
             echo "" >> RELEASE_NOTES.md
-            # Get commits since last tag
-            git log $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")..HEAD --oneline --pretty=format:"- %s" >> RELEASE_NOTES.md || echo "- Initial release" >> RELEASE_NOTES.md
+            # Get commits since last tag or all commits if first release
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -z "$LAST_TAG" ]; then
+              echo "First release - including all commits" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+              git log --oneline --pretty=format:"- %s" | head -20 >> RELEASE_NOTES.md
+            else
+              echo "Changes since $LAST_TAG:" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+              git log ${LAST_TAG}..HEAD --oneline --pretty=format:"- %s" >> RELEASE_NOTES.md
+            fi
           fi
 
           echo "Generated release notes:"
