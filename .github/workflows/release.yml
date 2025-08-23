@@ -42,8 +42,9 @@ jobs:
 
       - name: Validate version consistency
         run: |
-          # Run our new version consistency tests
-          pytest tests/test_version_consistency.py -v
+          # Run our version consistency tests WITHOUT coverage requirements
+          # (These tests only check version files, not the full codebase)
+          pytest tests/test_version_consistency.py -v --no-cov
           echo "✅ Version consistency validated"
 
       - name: Extract version from tag
