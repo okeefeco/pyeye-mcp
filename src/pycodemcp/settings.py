@@ -73,7 +73,7 @@ class PerformanceSettings:
             max_val=86400,  # Max 24 hours
         )
         self.enable_connection_pooling: bool = self._get_bool_env(
-            "PYCODEMCP_ENABLE_CONNECTION_POOLING", True
+            "PYCODEMCP_ENABLE_CONNECTION_POOLING", False
         )
 
     def _get_int_env(

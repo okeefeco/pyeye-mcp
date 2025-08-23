@@ -94,14 +94,18 @@ class ProjectManager:
                     if dep_path not in self.watchers:
                         self._setup_watcher(dep_path)
 
+            # Don't apply LRU eviction when using connection pool
+            # Pool handles its own eviction
             return project
 
         # Fall back to original implementation if pooling is disabled
         if main_path not in self.projects or self._needs_update(main_path, include_paths):
             self._create_project(main_path, include_paths)
 
-        # Evict old projects if needed
-        self._evict_if_needed()
+        # Only evict old projects if connection pooling is disabled
+        # When pooling is enabled, the pool manages its own eviction
+        if not self.connection_pool:
+            self._evict_if_needed()
 
         return self.projects[main_path]
 

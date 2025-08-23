@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Flask plugin with route/blueprint/template analysis
 - Module and package analysis tools
 - Circular dependency detection
+- Connection pooling for optimized multi-project workflows
 - Comprehensive test suite
 - Pre-commit hooks for code quality
 - Documentation and examples

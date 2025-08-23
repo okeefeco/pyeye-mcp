@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.project_manager import ProjectManager
-
 
 class TestProjectManagerPooling:
     """Test ProjectManager with connection pooling functionality."""
@@ -13,45 +11,41 @@ class TestProjectManagerPooling:
     @pytest.fixture
     def enable_pooling(self, monkeypatch):
         """Enable connection pooling for tests."""
-        # Save original settings
-        from pycodemcp import settings as settings_module
-
-        original_settings = settings_module.settings
-
-        # Set environment variables
+        # Set environment variables to enable pooling
         monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "true")
         monkeypatch.setenv("PYCODEMCP_POOL_MAX_CONNECTIONS", "5")
         monkeypatch.setenv("PYCODEMCP_POOL_TTL", "300")
 
-        # Force settings reload
+        # Re-initialize settings with new environment variables
+        from pycodemcp import settings as settings_module
+
         settings_module.settings = settings_module.PerformanceSettings()
 
         yield
 
-        # Restore original settings
-        settings_module.settings = original_settings
+        # Restore default settings after test
+        settings_module.settings = settings_module.PerformanceSettings()
 
     @pytest.fixture
     def disable_pooling(self, monkeypatch):
         """Disable connection pooling for tests."""
-        # Save original settings
-        from pycodemcp import settings as settings_module
-
-        original_settings = settings_module.settings
-
+        # Set environment variable to disable pooling
         monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "false")
 
-        # Force settings reload
+        # Re-initialize settings with new environment variables
+        from pycodemcp import settings as settings_module
+
         settings_module.settings = settings_module.PerformanceSettings()
 
         yield
 
-        # Restore original settings
-        settings_module.settings = original_settings
+        # Restore default settings after test
+        settings_module.settings = settings_module.PerformanceSettings()
 
     def test_manager_with_pooling_enabled(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that ProjectManager uses connection pool when enabled."""
         # Import settings after fixture has set env vars
+        from pycodemcp.project_manager import ProjectManager
         from pycodemcp.settings import settings
 
         manager = ProjectManager()
@@ -62,12 +56,16 @@ class TestProjectManagerPooling:
 
     def test_manager_with_pooling_disabled(self, disable_pooling, tmp_path):  # noqa: ARG002
         """Test that ProjectManager doesn't use pool when disabled."""
+        from pycodemcp.project_manager import ProjectManager
+
         manager = ProjectManager()
 
         assert manager.connection_pool is None
 
     def test_get_project_uses_pool(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that get_project uses the connection pool."""
+        from pycodemcp.project_manager import ProjectManager
+
         project_path = tmp_path / "test_project"
         project_path.mkdir()
         (project_path / "__init__.py").touch()
@@ -92,6 +90,8 @@ class TestProjectManagerPooling:
         self, enable_pooling, tmp_path  # noqa: ARG002
     ):
         """Test that projects with dependencies use the pool correctly."""
+        from pycodemcp.project_manager import ProjectManager
+
         main_path = tmp_path / "main_project"
         dep1_path = tmp_path / "dependency1"
         dep2_path = tmp_path / "dependency2"
@@ -131,6 +131,9 @@ class TestProjectManagerPooling:
         settings_module.settings = settings_module.PerformanceSettings()
 
         try:
+            # Create manager AFTER settings are updated
+            from pycodemcp.project_manager import ProjectManager
+
             manager = ProjectManager()
 
             # Create multiple projects
@@ -154,6 +157,8 @@ class TestProjectManagerPooling:
 
     def test_watchers_setup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that file watchers are set up correctly with pooling."""
+        from pycodemcp.project_manager import ProjectManager
+
         project_path = tmp_path / "test_project"
         dep_path = tmp_path / "dependency"
 
@@ -178,6 +183,8 @@ class TestProjectManagerPooling:
 
     def test_cache_setup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that caches are set up correctly with pooling."""
+        from pycodemcp.project_manager import ProjectManager
+
         project_path = tmp_path / "test_project"
         project_path.mkdir()
         (project_path / "__init__.py").touch()
@@ -196,6 +203,8 @@ class TestProjectManagerPooling:
 
     def test_cleanup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test cleanup works correctly with pooling."""
+        from pycodemcp.project_manager import ProjectManager
+
         project_path = tmp_path / "test_project"
         project_path.mkdir()
         (project_path / "__init__.py").touch()
@@ -223,6 +232,8 @@ class TestProjectManagerPooling:
 
     def test_fallback_without_pooling(self, disable_pooling, tmp_path):  # noqa: ARG002
         """Test that manager falls back to original behavior without pooling."""
+        from pycodemcp.project_manager import ProjectManager
+
         project_path = tmp_path / "test_project"
         project_path.mkdir()
         (project_path / "__init__.py").touch()
@@ -244,6 +255,8 @@ class TestProjectManagerPooling:
 
     def test_pool_stats_tracking(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that pool statistics are tracked correctly."""
+        from pycodemcp.project_manager import ProjectManager
+
         paths = []
         for i in range(3):
             path = tmp_path / f"project{i}"

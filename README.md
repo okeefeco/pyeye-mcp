@@ -277,6 +277,10 @@ All performance-critical settings can be configured via environment variables to
 | `PYCODEMCP_ANALYSIS_TIMEOUT` | 30.0 | Analysis timeout in seconds | 1.0-300.0 |
 | `PYCODEMCP_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
 | `PYCODEMCP_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
+| **Connection Pooling** | | **Optimize multi-project workflows** | |
+| `PYCODEMCP_ENABLE_CONNECTION_POOLING` | false | Enable connection pooling for multiple projects | true/false |
+| `PYCODEMCP_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
+| `PYCODEMCP_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
 
 #### Performance Tuning Examples
 
@@ -420,6 +424,7 @@ Python Code Intelligence MCP
 ├── Core Server (FastMCP)
 ├── Project Manager
 │   ├── Multi-project support (LRU cache)
+│   ├── Connection pooling (optional optimization)
 │   ├── Namespace resolver
 │   └── Configuration loader
 ├── Analysis Engines
@@ -470,10 +475,32 @@ symbol_search_stats = await get_performance_metrics("find_symbol")
 prometheus_data = await get_performance_metrics(export_format="prometheus")
 ```
 
+### Connection Pooling for Multi-Project Workflows
+
+When working with multiple projects simultaneously, enable connection pooling to reduce project initialization overhead:
+
+```bash
+# Enable connection pooling
+export PYCODEMCP_ENABLE_CONNECTION_POOLING=true
+export PYCODEMCP_POOL_MAX_CONNECTIONS=10
+export PYCODEMCP_POOL_TTL=3600
+
+# Start the server with pooling enabled
+uv run mcp dev src/pycodemcp/server.py
+```
+
+Connection pooling provides significant performance improvements:
+
+- **Reduced initialization time** for frequently accessed projects
+- **Shared connections** across multiple analysis operations
+- **Automatic eviction** of idle connections based on TTL
+- **Memory-efficient** pooling with configurable limits
+
 ### Metrics Tracked
 
 - **Operation Latencies**: p50, p95, p99 percentiles for all MCP tools
 - **Cache Performance**: Hit rate, miss rate, evictions
+- **Connection Pool Stats**: Pool size, hits, misses, evictions, reuse rate
 - **Memory Usage**: RSS, VMS, percentage used
 - **Error Rates**: Track failures per operation
 - **Throughput**: Operations per second
