@@ -33,7 +33,7 @@ class TestListPackages:
         result = await list_packages(str(tmp_path))
         assert len(result) == 1
         assert result[0]["name"] == "mypackage"
-        assert result[0]["path"] == str(package_dir)
+        assert result[0]["path"] == package_dir.as_posix()
         assert result[0]["is_namespace"] is False
         assert "module1" in result[0]["modules"]
         assert "module2" in result[0]["modules"]
