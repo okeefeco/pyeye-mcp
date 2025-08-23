@@ -195,6 +195,13 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
    cd ../python-code-intelligence-mcp-work/feat-42-new-feature
    uv venv
    uv pip install -e ".[dev]"
+
+   # Install pre-commit hooks (CRITICAL - must be done in each worktree!)
+   pre-commit install
+   pre-commit install --hook-type commit-msg  # For commit message validation
+
+   # Note: If you've installed dogfooding metrics hooks, pre-commit will overwrite them.
+   # To use both, install pre-commit first, then run scripts/install_hooks.sh
    ```
 
 2. **Recommended structure**:
@@ -252,7 +259,9 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
    cd "$DIR"
    uv venv
    uv pip install -e ".[dev]"
-   echo "✅ Worktree ready at $DIR"
+   pre-commit install
+   pre-commit install --hook-type commit-msg
+   echo "✅ Worktree ready at $DIR (with pre-commit hooks installed)"
    ```
 
 6. **Benefits**:
