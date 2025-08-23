@@ -9,7 +9,7 @@ from typing import Any
 
 import jedi
 
-from ..async_utils import read_file_async, rglob_async
+from ..async_utils import read_file_async, rglob_async, ripgrep_async
 from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
@@ -514,7 +514,7 @@ class JediAnalyzer:
 
         Args:
             module_name: Name of the module to find imports for
-            scope: Search scope (default "all"):
+            scope: Search scope (default "main" for better performance):
                 - "main": Only the main project
                 - "all": Main project + configured namespaces
                 - "namespace:name": Specific namespace
@@ -523,35 +523,154 @@ class JediAnalyzer:
         Returns:
             List of import locations
         """
-        results = []
+        # Check cache first
+        cache_key = f"imports:{module_name}"
+        cached_result = self.scoped_cache.get(cache_key, scope)
+        if cached_result is not None:
+            return cached_result  # type: ignore[no-any-return]
+
+        results: list[dict[str, Any]] = []
 
         try:
-            # Search for import statements across the project
-            py_files = await self.get_project_files("*.py", scope)
-            for py_file in py_files:
+            # Get search paths based on scope
+            search_paths = []
+            if scope == "main" or scope == "all" or (isinstance(scope, list) and "main" in scope):
+                search_paths.append(self.project_path)
+
+            # Add namespace paths if needed
+            if (
+                scope == "all"
+                or (isinstance(scope, str) and scope.startswith("namespace:"))
+                or (isinstance(scope, list) and any("namespace:" in s for s in scope))
+            ):
+                # Get namespace paths from stored namespace_paths or config
+                namespaces_to_use = {}
+
+                # First check if namespace_paths was set directly via set_namespace_paths
+                if self.namespace_paths:
+                    namespaces_to_use = self.namespace_paths
+                # Otherwise check config
+                elif self.config and self.config.config.get("namespaces"):
+                    namespaces_to_use = {
+                        ns: [Path(p) for p in paths]
+                        for ns, paths in self.config.config["namespaces"].items()
+                    }
+
+                for namespace_name, namespace_paths in namespaces_to_use.items():
+                    if scope == "all" or f"namespace:{namespace_name}" in (
+                        scope if isinstance(scope, list) else [scope]
+                    ):
+                        for path in namespace_paths:
+                            if isinstance(path, str):
+                                path = Path(path).expanduser().resolve()
+                            if path.exists():
+                                search_paths.append(path)
+
+            if not search_paths:
+                search_paths = [self.project_path]
+
+            # Step 1: Use ripgrep to pre-filter files containing the module name
+            # Escape dots in module name for regex (dots are literal in module names)
+            escaped_module = re.escape(module_name)
+            # Create patterns for different import styles
+            import_patterns = [
+                f"import {escaped_module}",
+                f"from {escaped_module}",
+                f"import.*{escaped_module}",
+                f"from.*{escaped_module}",
+            ]
+
+            # Find files that might contain imports
+            candidate_files = set()
+            for pattern in import_patterns:
+                matching_files = await ripgrep_async(
+                    pattern, search_paths, include_pattern="*.py", case_sensitive=True
+                )
+                candidate_files.update(matching_files)
+
+            # If no files found with ripgrep, return empty
+            if not candidate_files:
+                # Cache empty result
+                self.scoped_cache.set(cache_key, results, scope)
+                return results
+
+            # Step 2: Use ImportAnalyzer for fast AST-based parsing
+            for py_file in candidate_files:
                 try:
-                    source = await read_file_async(py_file)
-                    script = jedi.Script(source, path=py_file.as_posix(), project=self.project)
+                    # Create ImportAnalyzer for the appropriate root
+                    # For files under project_path, use project_path
+                    # For files elsewhere (namespace packages), use a suitable parent
+                    try:
+                        py_file.relative_to(self.project_path)
+                        analyzer_root = self.project_path
+                    except ValueError:
+                        # File is not under project_path, find appropriate root
+                        analyzer_root = py_file.parent
+                        # Walk up to find a directory with __init__.py or that contains Python packages
+                        while analyzer_root.parent != analyzer_root:
+                            if (analyzer_root / "__init__.py").exists() or any(
+                                (analyzer_root / p).is_dir()
+                                and (analyzer_root / p / "__init__.py").exists()
+                                for p in ["src", "lib"]
+                                if (analyzer_root / p).exists()
+                            ):
+                                break
+                            analyzer_root = analyzer_root.parent
 
-                    # Get all names in the file
-                    names = script.get_names(all_scopes=True, definitions=True, references=True)
+                    import_analyzer = ImportAnalyzer(analyzer_root)
 
-                    for name in names:
-                        # Check if it's an import of our module
-                        if name.type in ["module", "import"] and module_name in name.full_name:
-                            results.append(
-                                {
-                                    "file": py_file.as_posix(),
-                                    "line": name.line,
-                                    "column": name.column,
-                                    "import_statement": name.description,
-                                    "type": name.type,
-                                }
-                            )
+                    # Use AST-based analysis for speed
+                    import_info = import_analyzer.analyze_imports(py_file)
+
+                    # Check if this file imports our module
+                    found_imports = False
+
+                    # Check direct imports
+                    for imported in import_info["imports"]:
+                        if imported == module_name or imported.startswith(f"{module_name}."):
+                            found_imports = True
+                            break
+
+                    # Check from imports
+                    if not found_imports:
+                        for from_module in import_info["from_imports"]:
+                            if from_module == module_name or from_module.startswith(
+                                f"{module_name}."
+                            ):
+                                found_imports = True
+                                break
+
+                    # If we found imports, extract line information
+                    if found_imports:
+                        source = await read_file_async(py_file)
+
+                        # Use simple line-by-line search since AST already confirmed the import exists
+                        lines = source.splitlines()
+                        for line_num, line in enumerate(lines, 1):
+                            # Check if this line contains the import
+                            # Handle both "import module" and "from module import ..."
+                            if f"import {module_name}" in line or f"from {module_name}" in line:
+                                # Find the column where the module name starts
+                                col = line.find(module_name)
+                                if col == -1:
+                                    col = 0
+
+                                results.append(
+                                    {
+                                        "file": py_file.as_posix(),
+                                        "line": line_num,
+                                        "column": col,
+                                        "import_statement": line.strip(),
+                                        "type": "import",
+                                    }
+                                )
 
                 except Exception as e:
                     logger.warning(f"Error processing {py_file}: {e}")
                     continue
+
+            # Cache the results
+            self.scoped_cache.set(cache_key, results, scope)
 
         except Exception as e:
             logger.error(f"Error finding imports: {e}")

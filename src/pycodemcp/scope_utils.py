@@ -24,7 +24,7 @@ class SmartScopeResolver:
         "find_subclasses": "all",
         "find_references": "all",
         "analyze_dependencies": "all",
-        "find_imports": "all",
+        "find_imports": "main",  # Changed to "main" for better performance
         "get_call_hierarchy": "all",
         # Methods that typically want main project only
         "list_modules": "main",
