@@ -494,7 +494,7 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-    async def find_imports(self, module_name: str, scope: Scope = "main") -> list[dict[str, Any]]:
+    async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
 
         Args:
