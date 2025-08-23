@@ -655,11 +655,24 @@ class JediAnalyzer:
             raise ProjectNotFoundError(str(self.project_path)) from e
         except Exception as e:
             logger.error(f"Error getting call hierarchy: {e}")
+            # Convert Path objects in exception to strings for serialization
+            error_str = str(e)
+            # Special handling for exceptions that contain Path objects (like Jedi's KeyError)
+            if hasattr(e, "args") and e.args and any(isinstance(arg, Path) for arg in e.args):
+                # If the exception has Path objects in args, convert them
+                converted_args = []
+                for arg in e.args:
+                    if isinstance(arg, Path):
+                        converted_args.append(arg.as_posix())
+                    else:
+                        converted_args.append(str(arg))
+                error_str = " ".join(converted_args) if converted_args else str(e)
+
             raise AnalysisError(
                 f"Failed to get call hierarchy for function '{function_name}'",
                 function=function_name,
                 file=file,
-                error=str(e),
+                error=error_str,
             ) from e
 
         return result
