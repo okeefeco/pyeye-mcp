@@ -398,7 +398,11 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
                         if isinstance(found_at_list, list):
                             found_at_list.append(
                                 {
-                                    "file": Path(result.module_path).as_posix() if result.module_path else None,
+                                    "file": (
+                                        Path(result.module_path).as_posix()
+                                        if result.module_path
+                                        else None
+                                    ),
                                     "line": result.line,
                                     "type": result.type,
                                     "description": result.description,

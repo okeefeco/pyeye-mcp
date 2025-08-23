@@ -591,7 +591,9 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
-                                "file": Path(ref.module_path).as_posix() if ref.module_path else None,
+                                "file": (
+                                    Path(ref.module_path).as_posix() if ref.module_path else None
+                                ),
                                 "line": ref.line,
                                 "column": ref.column,
                                 "context": (
@@ -1521,9 +1523,9 @@ class JediAnalyzer:
 
                                 # Add inheritance chain if requested
                                 if show_hierarchy:
-                                    subclass_info[
-                                        "inheritance_chain"
-                                    ] = await self._get_inheritance_chain(node, tree)
+                                    subclass_info["inheritance_chain"] = (
+                                        await self._get_inheritance_chain(node, tree)
+                                    )
 
                                 subclasses.append(subclass_info)
 

@@ -185,10 +185,10 @@ class DependencyTracker:
             "modules_imported": len(self.imported_by),
             "total_import_edges": sum(len(deps) for deps in self.imports.values()),
             "total_symbols_tracked": sum(len(syms) for syms in self.symbol_definitions.values()),
-            "max_dependencies": max(len(deps) for deps in self.imports.values())
-            if self.imports
-            else 0,
-            "max_dependents": max(len(deps) for deps in self.imported_by.values())
-            if self.imported_by
-            else 0,
+            "max_dependencies": (
+                max(len(deps) for deps in self.imports.values()) if self.imports else 0
+            ),
+            "max_dependents": (
+                max(len(deps) for deps in self.imported_by.values()) if self.imported_by else 0
+            ),
         }
