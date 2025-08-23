@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 
 

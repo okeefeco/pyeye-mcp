@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from pycodemcp.config import ProjectConfig
 from pycodemcp.scope_utils import (
     ScopeDebugger,

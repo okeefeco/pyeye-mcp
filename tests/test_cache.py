@@ -3,8 +3,9 @@
 import time
 from unittest.mock import Mock, patch
 
-from pycodemcp.cache import CodebaseWatcher, ProjectCache
 from watchdog.events import DirModifiedEvent, FileModifiedEvent
+
+from pycodemcp.cache import CodebaseWatcher, ProjectCache
 
 
 class TestCodebaseWatcher:

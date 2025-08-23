@@ -6,10 +6,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.metrics import MetricsCollector
-
 from tests.utils.performance import (
     CommonThresholds,
     assert_performance_threshold,

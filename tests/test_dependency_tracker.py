@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from pycodemcp.dependency_tracker import DependencyTracker
 
 

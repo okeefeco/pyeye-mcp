@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.config import ProjectConfig
 from pycodemcp.namespace_resolver import NamespaceResolver

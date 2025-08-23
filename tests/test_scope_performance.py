@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from pycodemcp.config import ProjectConfig
 from pycodemcp.scope_utils import (
     LazyNamespaceLoader,
@@ -13,7 +14,6 @@ from pycodemcp.scope_utils import (
     SmartScopeResolver,
     parallel_search,
 )
-
 from tests.utils.performance import (
     PerformanceThresholds,
     assert_performance_threshold,

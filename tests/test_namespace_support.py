@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.project_manager import ProjectManager
 

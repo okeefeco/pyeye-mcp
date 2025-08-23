@@ -5,6 +5,7 @@ import inspect
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from pycodemcp.metrics import metrics
 from pycodemcp.server import find_symbol, goto_definition
 from pycodemcp.validation import validate_mcp_inputs
