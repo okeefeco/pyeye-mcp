@@ -534,34 +534,50 @@ class JediAnalyzer:
         try:
             # Get search paths based on scope
             search_paths = []
-            if scope == "main" or (isinstance(scope, list) and "main" in scope):
+            if scope == "main" or scope == "all" or (isinstance(scope, list) and "main" in scope):
                 search_paths.append(self.project_path)
 
             # Add namespace paths if needed
-            if scope == "all" or (
-                isinstance(scope, list) and any("namespace:" in s for s in scope)
+            if (
+                scope == "all"
+                or (isinstance(scope, str) and scope.startswith("namespace:"))
+                or (isinstance(scope, list) and any("namespace:" in s for s in scope))
             ):
-                # Get namespace paths from config
-                if self.config and self.config.config.get("namespaces"):
-                    for namespace_name, namespace_paths in self.config.config["namespaces"].items():
-                        if scope == "all" or f"namespace:{namespace_name}" in (
-                            scope if isinstance(scope, list) else [scope]
-                        ):
-                            for path_str in namespace_paths:
-                                path = Path(path_str).expanduser().resolve()
-                                if path.exists():
-                                    search_paths.append(path)
+                # Get namespace paths from stored namespace_paths or config
+                namespaces_to_use = {}
+
+                # First check if namespace_paths was set directly via set_namespace_paths
+                if self.namespace_paths:
+                    namespaces_to_use = self.namespace_paths
+                # Otherwise check config
+                elif self.config and self.config.config.get("namespaces"):
+                    namespaces_to_use = {
+                        ns: [Path(p) for p in paths]
+                        for ns, paths in self.config.config["namespaces"].items()
+                    }
+
+                for namespace_name, namespace_paths in namespaces_to_use.items():
+                    if scope == "all" or f"namespace:{namespace_name}" in (
+                        scope if isinstance(scope, list) else [scope]
+                    ):
+                        for path in namespace_paths:
+                            if isinstance(path, str):
+                                path = Path(path).expanduser().resolve()
+                            if path.exists():
+                                search_paths.append(path)
 
             if not search_paths:
                 search_paths = [self.project_path]
 
             # Step 1: Use ripgrep to pre-filter files containing the module name
+            # Escape dots in module name for regex (dots are literal in module names)
+            escaped_module = re.escape(module_name)
             # Create patterns for different import styles
             import_patterns = [
-                f"import {module_name}",
-                f"from {module_name}",
-                f"import.*{module_name}",
-                f"from.*{module_name}",
+                f"import {escaped_module}",
+                f"from {escaped_module}",
+                f"import.*{escaped_module}",
+                f"from.*{escaped_module}",
             ]
 
             # Find files that might contain imports
@@ -579,10 +595,30 @@ class JediAnalyzer:
                 return results
 
             # Step 2: Use ImportAnalyzer for fast AST-based parsing
-            import_analyzer = ImportAnalyzer(self.project_path)
-
             for py_file in candidate_files:
                 try:
+                    # Create ImportAnalyzer for the appropriate root
+                    # For files under project_path, use project_path
+                    # For files elsewhere (namespace packages), use a suitable parent
+                    try:
+                        py_file.relative_to(self.project_path)
+                        analyzer_root = self.project_path
+                    except ValueError:
+                        # File is not under project_path, find appropriate root
+                        analyzer_root = py_file.parent
+                        # Walk up to find a directory with __init__.py or that contains Python packages
+                        while analyzer_root.parent != analyzer_root:
+                            if (analyzer_root / "__init__.py").exists() or any(
+                                (analyzer_root / p).is_dir()
+                                and (analyzer_root / p / "__init__.py").exists()
+                                for p in ["src", "lib"]
+                                if (analyzer_root / p).exists()
+                            ):
+                                break
+                            analyzer_root = analyzer_root.parent
+
+                    import_analyzer = ImportAnalyzer(analyzer_root)
+
                     # Use AST-based analysis for speed
                     import_info = import_analyzer.analyze_imports(py_file)
 
@@ -604,26 +640,28 @@ class JediAnalyzer:
                                 found_imports = True
                                 break
 
-                    # If we found imports, use Jedi for detailed information
+                    # If we found imports, extract line information
                     if found_imports:
                         source = await read_file_async(py_file)
-                        script = jedi.Script(source, path=py_file.as_posix(), project=self.project)
 
-                        # Get only import-related names (much faster than all names)
-                        names = script.get_names(
-                            all_scopes=False, definitions=True, references=False
-                        )
+                        # Use simple line-by-line search since AST already confirmed the import exists
+                        lines = source.splitlines()
+                        for line_num, line in enumerate(lines, 1):
+                            # Check if this line contains the import
+                            # Handle both "import module" and "from module import ..."
+                            if f"import {module_name}" in line or f"from {module_name}" in line:
+                                # Find the column where the module name starts
+                                col = line.find(module_name)
+                                if col == -1:
+                                    col = 0
 
-                        for name in names:
-                            # Check if it's an import of our module
-                            if name.type in ["module", "import"] and module_name in name.full_name:
                                 results.append(
                                     {
                                         "file": py_file.as_posix(),
-                                        "line": name.line,
-                                        "column": name.column,
-                                        "import_statement": name.description,
-                                        "type": name.type,
+                                        "line": line_num,
+                                        "column": col,
+                                        "import_statement": line.strip(),
+                                        "type": "import",
                                     }
                                 )
 
