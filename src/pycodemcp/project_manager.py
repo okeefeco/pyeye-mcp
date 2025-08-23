@@ -5,11 +5,11 @@ from pathlib import Path
 
 import jedi
 
+from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .cache import CodebaseWatcher, GranularCache
 from .connection_pool import ProjectConnectionPool
 from .namespace_resolver import NamespaceResolver
-from .settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,9 @@ class ProjectManager:
         self.watchers: dict[Path, CodebaseWatcher] = {}
         self.caches: dict[Path, GranularCache] = {}
         self.access_order: list[Path] = []  # LRU tracking
-        self.max_projects = max_projects if max_projects is not None else settings.max_projects
+        self.max_projects = (
+            max_projects if max_projects is not None else settings.settings.max_projects
+        )
 
         # Project dependencies - maps project to its dependencies
         self.dependencies: dict[Path, set[Path]] = {}
@@ -38,9 +40,10 @@ class ProjectManager:
 
         # Initialize connection pool if enabled
         self.connection_pool: ProjectConnectionPool | None = None
-        if settings.enable_connection_pooling:
+        if settings.settings.enable_connection_pooling:
             self.connection_pool = ProjectConnectionPool(
-                max_connections=settings.pool_max_connections, ttl_seconds=settings.pool_ttl
+                max_connections=settings.settings.pool_max_connections,
+                ttl_seconds=settings.settings.pool_ttl,
             )
             logger.info("Connection pooling enabled")
 
@@ -84,7 +87,7 @@ class ProjectManager:
 
             # Ensure cache exists
             if main_path not in self.caches:
-                self.caches[main_path] = GranularCache(ttl_seconds=settings.cache_ttl)
+                self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
 
             # Set up watcher if not exists
             if main_path not in self.watchers:
@@ -147,7 +150,7 @@ class ProjectManager:
         self.dependencies[main_path] = dep_paths
 
         # Create granular cache with configurable TTL
-        self.caches[main_path] = GranularCache(ttl_seconds=settings.cache_ttl)
+        self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
 
         # Set up watcher for main project
         self._setup_watcher(main_path)
