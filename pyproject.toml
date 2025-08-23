@@ -44,6 +44,7 @@ dev = [
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks
     "isort==6.0.1",  # Pinned for consistent import sorting
+    "tomli>=2.0.0; python_version < '3.11'",  # TOML parsing for Python 3.10
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
