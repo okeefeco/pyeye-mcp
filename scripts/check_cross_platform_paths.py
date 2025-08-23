@@ -19,13 +19,25 @@ from pathlib import Path
 class PathViolationChecker(ast.NodeVisitor):
     """AST visitor to find cross-platform path violations."""
 
-    def __init__(self, filename: str):
-        """Initialize the checker with a filename."""
+    def __init__(self, filename: str, source_lines: list[str]):
+        """Initialize the checker with a filename and source lines."""
         self.filename = filename
+        self.source_lines = source_lines
         self.violations: list[tuple[int, str]] = []
+
+    def _is_suppressed(self, line_no: int) -> bool:
+        """Check if a line has a suppression comment."""
+        if 0 <= line_no - 1 < len(self.source_lines):
+            line = self.source_lines[line_no - 1]
+            return "# noqa: path-check" in line or "# path-check: ignore" in line
+        return False
 
     def visit_Call(self, node: ast.Call) -> None:
         """Check function calls for str(Path) usage."""
+        # Skip if line is suppressed
+        if self._is_suppressed(node.lineno):
+            return
+            
         # Check for str(path_like_variable)
         if isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1:
             arg = node.args[0]
@@ -56,6 +68,10 @@ class PathViolationChecker(ast.NodeVisitor):
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
         """Check f-strings for Path objects without .as_posix()."""
+        # Skip if line is suppressed
+        if self._is_suppressed(node.lineno):
+            return
+            
         for value in node.values:
             if isinstance(value, ast.FormattedValue):
                 if isinstance(value.value, ast.Name) and self._looks_like_path_variable(
@@ -72,6 +88,24 @@ class PathViolationChecker(ast.NodeVisitor):
 
     def _looks_like_path_variable(self, name: str) -> bool:
         """Heuristic to identify variables that might be Path objects."""
+        # Exclude common false positives
+        false_positives = [
+            "module_path",  # Python module path (e.g., "os.path")
+            "import_path",  # Import path
+            "xpath",        # XML path
+            "jsonpath",     # JSON path
+            "classpath",    # Java classpath
+            "pythonpath",   # Python module search path
+            "sys_path",     # sys.path
+        ]
+        
+        name_lower = name.lower()
+        
+        # Check if it's a known false positive
+        if any(fp in name_lower for fp in false_positives):
+            return False
+            
+        # Check for path indicators
         path_indicators = [
             "path",
             "file",
@@ -85,7 +119,6 @@ class PathViolationChecker(ast.NodeVisitor):
             "target_file",
         ]
 
-        name_lower = name.lower()
         return any(indicator in name_lower for indicator in path_indicators)
 
 
@@ -93,6 +126,7 @@ def check_file_for_violations(filepath: Path) -> list[tuple[int, str]]:
     """Check a Python file for cross-platform path violations."""
     try:
         content = filepath.read_text(encoding="utf-8")
+        lines = content.splitlines()
 
         # Skip files that import path_utils (they're probably doing it right)
         if (
@@ -105,7 +139,7 @@ def check_file_for_violations(filepath: Path) -> list[tuple[int, str]]:
         tree = ast.parse(content, filename=str(filepath))
 
         # Check for violations
-        checker = PathViolationChecker(str(filepath))
+        checker = PathViolationChecker(str(filepath), lines)
         checker.visit(tree)
 
         return checker.violations
