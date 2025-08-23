@@ -37,7 +37,7 @@ class PathViolationChecker(ast.NodeVisitor):
         # Skip if line is suppressed
         if self._is_suppressed(node.lineno):
             return
-            
+
         # Check for str(path_like_variable)
         if isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1:
             arg = node.args[0]
@@ -71,7 +71,7 @@ class PathViolationChecker(ast.NodeVisitor):
         # Skip if line is suppressed
         if self._is_suppressed(node.lineno):
             return
-            
+
         for value in node.values:
             if isinstance(value, ast.FormattedValue):
                 if isinstance(value.value, ast.Name) and self._looks_like_path_variable(
@@ -92,19 +92,19 @@ class PathViolationChecker(ast.NodeVisitor):
         false_positives = [
             "module_path",  # Python module path (e.g., "os.path")
             "import_path",  # Import path
-            "xpath",        # XML path
-            "jsonpath",     # JSON path
-            "classpath",    # Java classpath
-            "pythonpath",   # Python module search path
-            "sys_path",     # sys.path
+            "xpath",  # XML path
+            "jsonpath",  # JSON path
+            "classpath",  # Java classpath
+            "pythonpath",  # Python module search path
+            "sys_path",  # sys.path
         ]
-        
+
         name_lower = name.lower()
-        
+
         # Check if it's a known false positive
         if any(fp in name_lower for fp in false_positives):
             return False
-            
+
         # Check for path indicators
         path_indicators = [
             "path",

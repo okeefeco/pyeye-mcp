@@ -271,7 +271,9 @@ class GranularCache(ProjectCache):
                 self.module_cache[module_name].add(key)
 
             self.metrics.total_entries = len(self.cache)
-            logger.debug(f"Cache set: {key} (file={file_path.as_posix() if file_path else None}, module={module_name})")
+            logger.debug(
+                f"Cache set: {key} (file={file_path.as_posix() if file_path else None}, module={module_name})"
+            )
 
     def invalidate_file(self, file_path: Path) -> int:
         """Invalidate cache entries associated with a specific file.
@@ -304,7 +306,9 @@ class GranularCache(ProjectCache):
 
                 self.metrics.record_invalidation(invalidated_count)
 
-                logger.info(f"Invalidated {invalidated_count} cache entries for {file_path.as_posix()}")
+                logger.info(
+                    f"Invalidated {invalidated_count} cache entries for {file_path.as_posix()}"
+                )
 
             # Also invalidate affected modules
             affected_modules = self.dependency_tracker.get_affected_modules(file_path)

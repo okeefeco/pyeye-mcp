@@ -206,7 +206,9 @@ class ProjectConfig:
                         if validated.exists():
                             paths.append(str(validated))
                 except ValidationError as e:
-                    logger.warning(f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}")
+                    logger.warning(
+                        f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"
+                    )
                     continue
 
         # Always include current project

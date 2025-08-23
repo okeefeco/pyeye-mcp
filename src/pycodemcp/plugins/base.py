@@ -213,7 +213,9 @@ class AnalyzerPlugin(ABC):
                 if pkg_path.exists():
                     paths.add(pkg_path)
                 else:
-                    logger.warning(f"Plugin {self.name()}: Package path does not exist: {pkg_path.as_posix()}")
+                    logger.warning(
+                        f"Plugin {self.name()}: Package path does not exist: {pkg_path.as_posix()}"
+                    )
 
             else:
                 logger.warning(f"Plugin {self.name()}: Unknown scope specification: {s}")

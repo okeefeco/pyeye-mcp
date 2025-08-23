@@ -102,7 +102,9 @@ class PathValidator:
                 )
                 check_path.relative_to(base)
             except ValueError as e:
-                raise ValidationError(f"Path {check_path.as_posix()} is outside base directory {base}") from e
+                raise ValidationError(
+                    f"Path {check_path.as_posix()} is outside base directory {base}"
+                ) from e
 
         # Check for dangerous file names
         path_str_normalized = resolved_path.as_posix().replace("\\", "/")
@@ -154,7 +156,9 @@ class PathValidator:
                 # Could add additional checks here
                 import logging
 
-                logging.getLogger(__name__).info(f"Following symlink: {path_obj.as_posix()} -> {target.as_posix()}")
+                logging.getLogger(__name__).info(
+                    f"Following symlink: {path_obj.as_posix()} -> {target.as_posix()}"
+                )
 
             return True
 
