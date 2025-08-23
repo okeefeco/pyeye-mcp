@@ -102,8 +102,8 @@ jobs:
       - name: Verify version consistency
         if: steps.version-info.outputs.is_dev_version == 'true'
         run: |
-          # Run our version consistency tests to ensure everything is updated correctly
-          uv run pytest tests/test_version_consistency.py -v
+          # Run our version consistency tests (skip coverage for dev version bumps)
+          uv run pytest tests/test_version_consistency.py -v --no-cov
           echo "✅ Version consistency verified"
 
       - name: Commit version increment

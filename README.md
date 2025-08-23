@@ -9,8 +9,6 @@
 
 An extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis, navigation, and understanding capabilities for AI assistants like Claude.
 
-<!-- Test comment to trigger dev version workflow -->
-
 ## Features
 
 - 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references
