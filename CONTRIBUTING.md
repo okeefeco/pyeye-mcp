@@ -100,8 +100,22 @@ For features:
 - Python 3.10+
 - uv (for package management)
 - Git
+- pre-commit (user-level installation recommended)
 
 ### Initial Setup
+
+1. **Install pre-commit at user level (one-time setup)**
+
+```bash
+# For modern Python environments (recommended)
+python3 -m pip install --user --break-system-packages pre-commit
+
+# Alternative: if pipx is available
+# pipx install pre-commit
+
+# Verify installation
+which pre-commit  # Should show ~/.local/bin/pre-commit
+```
 
 1. **Clone the repository**
 
@@ -123,7 +137,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e ".[dev]"
 ```
 
-1. **Install pre-commit hooks**
+1. **Install pre-commit hooks (one-time per repository)**
 
 ```bash
 pre-commit install
@@ -135,6 +149,8 @@ pre-commit install --hook-type commit-msg  # For commit message validation
 ```bash
 detect-secrets scan > .secrets.baseline
 ```
+
+> **Note**: Installing pre-commit at the user level (step 1) ensures it works seamlessly across all git worktrees without needing reinstallation. This is especially important for multi-worktree development workflows.
 
 ## Local Development Tools
 
@@ -196,12 +212,10 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
    uv venv
    uv pip install -e ".[dev]"
 
-   # Install pre-commit hooks (CRITICAL - must be done in each worktree!)
-   pre-commit install
-   pre-commit install --hook-type commit-msg  # For commit message validation
+   # Pre-commit hooks work automatically (no installation needed!)
+   # Since pre-commit is installed at user level, hooks work in all worktrees
 
-   # Note: If you've installed dogfooding metrics hooks, pre-commit will overwrite them.
-   # To use both, install pre-commit first, then run scripts/install_hooks.sh
+   # Note: If you've installed dogfooding metrics hooks, they work alongside pre-commit
    ```
 
 2. **Recommended structure**:
@@ -269,6 +283,7 @@ Git worktrees allow you to have multiple branches checked out simultaneously in 
    - Main branch stays clean for testing/running
    - Each issue gets its own isolated workspace
    - Faster context switching
+   - **Pre-commit hooks work seamlessly** across all worktrees
 
 ## Development Workflow
 
