@@ -166,8 +166,9 @@ If a release has issues:
 
 Version is maintained in:
 
-- `pyproject.toml` - Single source of truth
+- `pyproject.toml` - Single source of truth for package metadata
+- `src/pycodemcp/__init__.py` - Package version accessible at runtime
 - Git tags - Version control markers
 - CHANGELOG.md - Version history
 
-Commitizen keeps these in sync via `version_files` configuration.
+Commitizen automatically keeps `pyproject.toml` and `__init__.py` in sync via `version_files` configuration. When you run `cz bump`, both files are updated simultaneously to prevent version drift.

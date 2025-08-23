@@ -144,7 +144,8 @@ name = "cz_conventional_commits"
 version = "0.1.0"
 tag_format = "v$version"
 version_files = [
-    "pyproject.toml:version"
+    "pyproject.toml:version",
+    "src/pycodemcp/__init__.py:__version__"
 ]
 
 [dependency-groups]
