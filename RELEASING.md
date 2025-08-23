@@ -33,6 +33,76 @@ This project follows [Semantic Versioning](https://semver.org/) (SemVer):
 - Require newer Python version
 - Make breaking changes to plugin API
 
+## Development Versioning Strategy
+
+We use a **development versioning strategy** to clearly distinguish between unreleased development code and published releases.
+
+### Version Types
+
+#### Development Versions (Main Branch)
+
+- Format: `X.Y.Z.dev0`, `X.Y.Z.dev1`, etc.
+- **Purpose**: Clearly identify unreleased development code
+- **Auto-increment**: Automatically bumped on each main branch commit
+- **Examples**: `0.1.0.dev0`, `0.1.1.dev5`, `1.0.0.dev12`
+
+#### Pre-release Versions
+
+- **Alpha**: `X.Y.ZaN` (e.g., `0.2.0a0`, `0.2.0a1`)
+- **Beta**: `X.Y.ZbN` (e.g., `0.2.0b0`, `0.2.0b1`)
+- **Release Candidate**: `X.Y.ZrcN` (e.g., `0.2.0rc0`, `0.2.0rc1`)
+
+#### Release Versions
+
+- Format: `X.Y.Z` (clean semantic versions)
+- **Purpose**: Tagged releases available on GitHub and PyPI
+- **Examples**: `0.1.0`, `0.2.0`, `1.0.0`
+
+### Development Workflow
+
+#### Continuous Development
+
+```bash
+# Main branch always has development versions
+0.1.0.dev0  →  commit  →  0.1.0.dev1  →  commit  →  0.1.0.dev2
+```
+
+#### Release Preparation
+
+```bash
+# Commitizen removes .dev suffix and creates clean version
+0.1.0.dev15  →  cz bump  →  0.1.0  →  tag v0.1.0  →  GitHub Release
+```
+
+#### Post-Release
+
+```bash
+# Automatic bump to next development version
+v0.1.0 released  →  auto-bump  →  0.1.1.dev0  →  development continues
+```
+
+### Benefits
+
+- **Clear Identification**: `pip list` shows `0.1.0.dev5` vs `0.1.0`
+- **Proper Pip Handling**: Development versions are treated as pre-releases
+- **User Clarity**: No confusion about installed version vs release
+- **Testing**: Easy to identify which development version has issues
+- **CI/CD**: Build artifacts clearly labeled with development versions
+
+### Automated Version Management
+
+#### Main Branch Commits
+
+- **Trigger**: Any commit to main branch
+- **Action**: Auto-increment dev version (e.g., `0.1.0.dev0` → `0.1.0.dev1`)
+- **Workflow**: `.github/workflows/dev-version.yml`
+
+#### Release Process
+
+- **Trigger**: Push version tag (`v*`)
+- **Action**: Create release, then bump to next dev version
+- **Workflow**: `.github/workflows/release.yml`
+
 ## Release Workflow
 
 We use **automated GitHub Actions workflows** for consistent, reliable releases. The process involves two workflows:
@@ -54,14 +124,15 @@ Ensure you have:
 #### 1. **Version Bump and Tag Creation** (Manual)
 
 ```bash
-# Update version using commitizen (updates both pyproject.toml and __init__.py)
+# Update version using commitizen (removes .dev suffix, creates clean release version)
 cz bump --changelog
 
 # This automatically:
+# - Converts 0.1.0.dev15 → 0.1.0 (or increments: 0.1.0 → 0.1.1)
 # - Updates version in pyproject.toml and src/pycodemcp/__init__.py
 # - Creates/updates CHANGELOG.md
 # - Creates a git commit
-# - Creates a version tag (e.g., v0.2.0)
+# - Creates a version tag (e.g., v0.1.0)
 ```
 
 #### 2. **Trigger Automated Release** (Push the Tag)
@@ -92,11 +163,12 @@ Once the tag is pushed, the release workflow automatically:
 - Uploads package artifacts to the release
 - Detects pre-release versions (alpha/beta/rc) automatically
 
-✅ **Provides Next Steps:**
+✅ **Post-Release Development Setup:**
 
-- Reports success/failure status
-- Provides links to created release
-- Shows commands for optional PyPI publishing
+- Automatically bumps main branch to next development version
+- Example: `v0.1.0` released → main branch becomes `0.1.1.dev0`
+- Ensures continued development is clearly distinguished from release
+- Reports success/failure status and provides links to created release
 
 ### Manual PyPI Publishing (Optional)
 
@@ -174,7 +246,13 @@ Before releasing, ensure:
   - Validates release with full test suite
   - Creates GitHub release with changelog
   - Uploads package artifacts
-  - Provides clear success/failure feedback
+  - **Post-release**: Auto-bumps main to next dev version
+
+- ✅ **Development Version Workflow** (`.github/workflows/dev-version.yml`)
+  - Triggers on main branch commits
+  - Auto-increments development version numbers
+  - Maintains clear dev/release distinction
+  - Skips version/release commits to avoid loops
 
 - ✅ **CI Workflow** (`.github/workflows/ci.yml`)
   - Runs on every PR and main branch push

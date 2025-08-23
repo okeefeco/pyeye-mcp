@@ -1,6 +1,6 @@
 [project]
 name = "python-code-intelligence-mcp"
-version = "0.1.0"
+version = "0.1.0.dev0"
 description = "Extensible Python code intelligence MCP server for semantic analysis and code navigation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -141,7 +141,7 @@ exclude_lines = [
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.1.0.dev0"
 tag_format = "v$version"
 version_files = [
     "pyproject.toml:version",

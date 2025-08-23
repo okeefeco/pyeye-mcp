@@ -61,7 +61,8 @@ def test_version_import():
     assert len(__version__.strip()) > 0
 
     # Should follow semantic versioning pattern (basic check)
-    version_pattern = r"^\d+\.\d+\.\d+(\w.*)?$"
+    # Supports: X.Y.Z, X.Y.Z.devN, X.Y.ZaN, X.Y.ZbN, X.Y.ZrcN
+    version_pattern = r"^\d+\.\d+\.\d+(\.(dev|a|b|rc)\d+|\w.*)?$"
     assert re.match(
         version_pattern, __version__
     ), f"Version '{__version__}' doesn't follow semantic versioning pattern"
