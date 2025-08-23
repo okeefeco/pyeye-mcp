@@ -124,7 +124,7 @@ class MyClass:
         module = result[0]
         assert module["name"] == "module"
         assert module["import_path"] == "module"
-        assert module["file"] == str(module_file)
+        assert module["file"] == module_file.as_posix()
         assert "public_func" in module["functions"]
         assert "_private_func" not in module["functions"]  # Private functions not in exports
         assert "MyClass" in module["classes"]
@@ -305,7 +305,7 @@ class MyClass:
 
         result = await get_module_info("module", str(tmp_path))
         assert result["module"] == "module"
-        assert result["file"] == str(module_file)
+        assert result["file"] == module_file.as_posix()
         assert result["docstring"] == "Module documentation."
 
         # Check exports
