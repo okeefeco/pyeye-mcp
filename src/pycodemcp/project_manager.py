@@ -188,7 +188,7 @@ class ProjectManager:
                     results[project_path.as_posix()] = [
                         {
                             "name": r.name,
-                            "file": str(r.module_path) if r.module_path else None,
+                            "file": Path(r.module_path).as_posix() if r.module_path else None,
                             "line": r.line,
                             "type": r.type,
                         }

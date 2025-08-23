@@ -398,7 +398,7 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
                         if isinstance(found_at_list, list):
                             found_at_list.append(
                                 {
-                                    "file": str(result.module_path),
+                                    "file": Path(result.module_path).as_posix() if result.module_path else None,
                                     "line": result.line,
                                     "type": result.type,
                                     "description": result.description,
@@ -447,7 +447,7 @@ def find_symbol_multi(
                 results.append(
                     {
                         "name": result.name,
-                        "file": str(result.module_path) if result.module_path else None,
+                        "file": Path(result.module_path).as_posix() if result.module_path else None,
                         "line": result.line,
                         "column": result.column,
                         "type": result.type,

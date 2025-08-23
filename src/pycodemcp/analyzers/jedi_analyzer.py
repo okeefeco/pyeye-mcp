@@ -591,7 +591,7 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
-                                "file": str(ref.module_path) if ref.module_path else None,
+                                "file": Path(ref.module_path).as_posix() if ref.module_path else None,
                                 "line": ref.line,
                                 "column": ref.column,
                                 "context": (
@@ -1325,7 +1325,7 @@ class JediAnalyzer:
         }
 
         if name.module_path:
-            result["file"] = str(name.module_path)
+            result["file"] = Path(name.module_path).as_posix()
 
         if include_docstring:
             result["docstring"] = name.docstring()
@@ -1336,7 +1336,7 @@ class JediAnalyzer:
             parts = name.full_name.split(".")
             if len(parts) > 1:
                 module_path = ".".join(parts[:-1])
-                file_path = str(name.module_path) if name.module_path else None
+                file_path = Path(name.module_path).as_posix() if name.module_path else None
                 import_paths = await self.find_reexports(name.name, module_path, file_path)
                 if import_paths:
                     result["import_paths"] = import_paths
