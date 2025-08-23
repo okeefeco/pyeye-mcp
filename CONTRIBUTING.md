@@ -466,6 +466,7 @@ When working with file paths in this project, it's crucial to ensure cross-platf
 #### Key Principles
 
 1. **Always use `.as_posix()` for paths that will be stored or compared as strings**
+   - API responses (all file paths returned to clients)
    - Template names, configuration paths, dictionary keys
    - Any path displayed to users or stored in data structures
    - Paths used in assertions during testing
@@ -502,12 +503,14 @@ if paths_equal(path1, path2):
 
 | Use Case | Method | Example |
 |----------|--------|---------|
+| API responses | `.as_posix()` | `{"file": path.as_posix()}` |
 | Display paths | `.as_posix()` | `print(f"File: {path.as_posix()}")` |
 | Dictionary keys | `path_to_key()` | `cache[path_to_key(file_path)]` |
 | Config values | `.as_posix()` | `config["template_dir"] = path.as_posix()` |
 | Path comparison | `paths_equal()` | `if paths_equal(p1, p2):` |
 | JSON/YAML storage | `.as_posix()` | `data["path"] = path.as_posix()` |
 | Test assertions | `.as_posix()` | `assert result == expected.as_posix()` |
+| OS operations | `str()` or `to_os_path()` | `subprocess.run([str(path)])` |
 
 #### Testing Considerations
 
@@ -637,6 +640,7 @@ To enforce this strategy, disable squash merging in repository settings:
 - Line length: 100 characters
 - Use type hints for all functions
 - Google-style docstrings
+- **Path handling**: Always use `.as_posix()` for paths in API responses, configs, and display. Only use `str(path)` for OS operations
 
 ### Docstring Example
 
