@@ -1,0 +1,219 @@
+# Release Workflow
+# Automated release process triggered by version tags
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0, v0.1.1, etc.
+  workflow_dispatch:  # Allow manual trigger for testing
+
+permissions:
+  contents: write  # Needed to create releases
+  packages: write  # Future PyPI publishing
+
+jobs:
+  # Validate the release before creating it
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # Fetch full history for changelog generation
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Validate version consistency
+        run: |
+          # Run our new version consistency tests
+          pytest tests/test_version_consistency.py -v
+          echo "✅ Version consistency validated"
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "Tag version: $TAG_VERSION"
+
+      - name: Verify tag matches package version
+        run: |
+          PACKAGE_VERSION=$(python -c "from pycodemcp import __version__; print(__version__)")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+
+          echo "Package version: $PACKAGE_VERSION"
+          echo "Tag version: $TAG_VERSION"
+
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch: package=$PACKAGE_VERSION, tag=$TAG_VERSION"
+            echo "Please ensure the tag matches the package version"
+            exit 1
+          fi
+          echo "✅ Version verification passed"
+
+      - name: Run comprehensive tests
+        run: |
+          # Run the full test suite with coverage
+          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=85
+          echo "✅ All tests passed"
+
+      - name: Run type checking
+        run: |
+          mypy src/pycodemcp --ignore-missing-imports
+          echo "✅ Type checking passed"
+
+      - name: Run security checks
+        run: |
+          bandit -r src/ -ll
+          echo "✅ Security checks passed"
+
+      - name: Run pre-commit checks
+        uses: pre-commit/action@v3.0.1
+
+  # Create the GitHub release
+  release:
+    name: Create GitHub Release
+    needs: validate
+    runs-on: ubuntu-latest
+
+    outputs:
+      release-url: ${{ steps.create-release.outputs.html_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # Fetch full history for changelog
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Extract version info
+        id: version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$TAG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Use commitizen to generate changelog for this version
+          cz changelog --incremental --file-format md > RELEASE_NOTES.md
+
+          # If cz changelog didn't generate content, create basic release notes
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "## Release ${{ steps.version.outputs.tag }}" > RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            echo "### Changes" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            # Get commits since last tag
+            git log $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")..HEAD --oneline --pretty=format:"- %s" >> RELEASE_NOTES.md || echo "- Initial release" >> RELEASE_NOTES.md
+          fi
+
+          echo "Generated release notes:"
+          cat RELEASE_NOTES.md
+
+      - name: Build package
+        run: |
+          # Build the Python package
+          uv build
+
+          # List built artifacts
+          echo "Built packages:"
+          ls -la dist/
+
+      - name: Create GitHub Release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          release_name: "Release ${{ steps.version.outputs.tag }}"
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'a') || contains(steps.version.outputs.version, 'b') || contains(steps.version.outputs.version, 'rc') }}
+
+      - name: Upload package artifacts to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: dist/python_code_intelligence_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
+          asset_name: python_code_intelligence_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
+          asset_content_type: application/octet-stream
+
+      - name: Upload source distribution to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create-release.outputs.upload_url }}
+          asset_path: dist/python-code-intelligence-mcp-${{ steps.version.outputs.version }}.tar.gz
+          asset_name: python-code-intelligence-mcp-${{ steps.version.outputs.version }.tar.gz
+          asset_content_type: application/gzip
+
+  # Notify about the release
+  notify:
+    name: Notify Release Created
+    needs: [validate, release]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Release Success Notification
+        if: needs.release.result == 'success'
+        run: |
+          echo "🎉 Release successful!"
+          echo "📦 GitHub Release: ${{ needs.release.outputs.release-url }}"
+          echo "🔗 The release includes built packages ready for distribution"
+          echo ""
+          echo "Next steps:"
+          echo "1. ✅ GitHub release created automatically"
+          echo "2. 📦 Package artifacts uploaded to release"
+          echo "3. 🚀 Manual PyPI publishing can be done with: uv publish dist/*"
+          echo "4. 📢 Consider announcing the release to users"
+
+      - name: Release Failure Notification
+        if: needs.validate.result == 'failure' || needs.release.result == 'failure'
+        run: |
+          echo "❌ Release failed!"
+          echo "Check the logs above for detailed error information."
+          echo ""
+          echo "Common issues:"
+          echo "- Version mismatch between tag and package"
+          echo "- Test failures or coverage below threshold"
+          echo "- Type checking or security check failures"
+          echo "- Pre-commit hook failures"
+          exit 1
