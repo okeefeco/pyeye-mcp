@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from pycodemcp.config import ProjectConfig
 
 from .test_utils import assert_path_equal, assert_path_in_list

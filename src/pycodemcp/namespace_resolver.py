@@ -32,7 +32,7 @@ class NamespaceResolver:
                 resolved_paths.append(p)
                 logger.info(f"Registered {namespace} at {p}")
             else:
-                logger.warning(f"Path does not exist: {path}")
+                logger.warning(f"Path does not exist: {Path(path).as_posix()}")
 
         self.namespace_paths[namespace] = resolved_paths
 
@@ -119,7 +119,7 @@ class NamespaceResolver:
                                 return self._path_to_namespace(init_file.parent, init_file.parent)
 
         except Exception as e:
-            logger.debug(f"Error checking {init_file}: {e}")
+            logger.debug(f"Error checking {init_file.as_posix()}: {e}")
 
         return None
 

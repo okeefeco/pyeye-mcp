@@ -65,9 +65,9 @@ class MetricStats:
         return {
             "count": self.count,
             "errors": self.errors,
-            "error_rate": self.errors / (self.count + self.errors)
-            if (self.count + self.errors) > 0
-            else 0,
+            "error_rate": (
+                self.errors / (self.count + self.errors) if (self.count + self.errors) > 0 else 0
+            ),
             "avg_ms": self.total_ms / self.count if self.count > 0 else 0,
             "min_ms": self.min_ms,
             "max_ms": self.max_ms,

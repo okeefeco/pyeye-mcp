@@ -156,7 +156,7 @@ class AnalyzerPlugin(ABC):
 
                 all_files.extend(files)
             except Exception as e:
-                logger.warning(f"Plugin {self.name()}: Error searching {path}: {e}")
+                logger.warning(f"Plugin {self.name()}: Error searching {path.as_posix()}: {e}")
 
         # Remove duplicates while preserving order
         seen = set()
@@ -213,7 +213,9 @@ class AnalyzerPlugin(ABC):
                 if pkg_path.exists():
                     paths.add(pkg_path)
                 else:
-                    logger.warning(f"Plugin {self.name()}: Package path does not exist: {pkg_path}")
+                    logger.warning(
+                        f"Plugin {self.name()}: Package path does not exist: {pkg_path.as_posix()}"
+                    )
 
             else:
                 logger.warning(f"Plugin {self.name()}: Unknown scope specification: {s}")

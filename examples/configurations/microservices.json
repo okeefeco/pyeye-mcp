@@ -1,0 +1,47 @@
+{
+  "description": "Configuration for a microservices architecture",
+  "namespaces": {
+    "clients": [
+      "../service-clients"
+    ],
+    "services": [
+      "../auth-service",
+      "../api-service",
+      "../payment-service",
+      "../notification-service",
+      "../worker-service"
+    ],
+    "shared": [
+      "../shared-models",
+      "../shared-utils"
+    ]
+  },
+  "scope_aliases": {
+    "all-services": [
+      "namespace:services",
+      "namespace:shared",
+      "namespace:clients"
+    ],
+    "api-layer": [
+      "namespace:services.api",
+      "namespace:services.auth"
+    ],
+    "background-jobs": [
+      "namespace:services.worker",
+      "namespace:services.notification"
+    ],
+    "data-layer": [
+      "namespace:shared.models",
+      "namespace:services.payment"
+    ]
+  },
+  "scope_defaults": {
+    "global": "namespace:services",
+    "methods": {
+      "analyze_dependencies": "all",
+      "find_models": "namespace:shared",
+      "find_references": "all",
+      "find_routes": "namespace:services"
+    }
+  }
+}

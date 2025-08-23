@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
+
 from pycodemcp.cache import CacheMetrics, GranularCache
 from pycodemcp.dependency_tracker import DependencyTracker
 

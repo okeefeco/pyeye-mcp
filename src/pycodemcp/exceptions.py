@@ -4,6 +4,7 @@ This module defines a hierarchy of exceptions for better error handling
 and debugging throughout the application.
 """
 
+from pathlib import Path
 from typing import Any
 
 
@@ -165,7 +166,7 @@ class ProjectNotFoundError(MCPError):
         """
         details = kwargs
         details["project_path"] = project_path
-        super().__init__(f"Project not found: {project_path}", details)
+        super().__init__(f"Project not found: {Path(project_path).as_posix()}", details)
 
 
 class FileAccessError(MCPError):

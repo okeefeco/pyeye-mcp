@@ -175,7 +175,9 @@ async def find_symbol(
         results = await analyzer.find_symbol(name, fuzzy=fuzzy, include_import_paths=True)
 
     except FileNotFoundError as e:
-        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+        raise FileAccessError(
+            f"Project path not found: {Path(project_path).as_posix()}", project_path
+        ) from e
     except Exception as e:
         logger.error(f"Error searching for symbol {name}: {e}")
         raise AnalysisError(
@@ -396,14 +398,18 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
                         if isinstance(found_at_list, list):
                             found_at_list.append(
                                 {
-                                    "file": str(result.module_path),
+                                    "file": (
+                                        Path(result.module_path).as_posix()
+                                        if result.module_path
+                                        else None
+                                    ),
                                     "line": result.line,
                                     "type": result.type,
                                     "description": result.description,
                                 }
                             )
             except Exception as e:
-                logger.error(f"Error searching in {path}: {e}")
+                logger.error(f"Error searching in {Path(path).as_posix()}: {e}")
 
     # Add namespace structure
     results["namespace_structure"] = resolver.build_namespace_map(namespace_repos)
@@ -445,7 +451,7 @@ def find_symbol_multi(
                 results.append(
                     {
                         "name": result.name,
-                        "file": str(result.module_path) if result.module_path else None,
+                        "file": Path(result.module_path).as_posix() if result.module_path else None,
                         "line": result.line,
                         "column": result.column,
                         "type": result.type,
@@ -457,7 +463,7 @@ def find_symbol_multi(
                 all_results[path] = results
 
         except Exception as e:
-            logger.error(f"Error searching in {path}: {e}")
+            logger.error(f"Error searching in {Path(path).as_posix()}: {e}")
             all_results[path] = [{"error": str(e)}]
 
     return all_results
@@ -478,7 +484,9 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
         analyzer = get_analyzer(project_path)
         return await analyzer.list_packages()
     except ProjectNotFoundError as e:
-        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+        raise FileAccessError(
+            f"Project path not found: {Path(project_path).as_posix()}", project_path
+        ) from e
     except Exception as e:
         logger.error(f"Error listing packages: {e}")
         raise AnalysisError(
@@ -504,7 +512,9 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
         analyzer = get_analyzer(project_path)
         return await analyzer.list_modules()
     except ProjectNotFoundError as e:
-        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+        raise FileAccessError(
+            f"Project path not found: {Path(project_path).as_posix()}", project_path
+        ) from e
     except Exception as e:
         logger.error(f"Error listing modules: {e}")
         raise AnalysisError(
@@ -535,7 +545,9 @@ async def analyze_dependencies(
         analyzer = get_analyzer(project_path)
         return await analyzer.analyze_dependencies(module_path, scope=scope)
     except ProjectNotFoundError as e:
-        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+        raise FileAccessError(
+            f"Project path not found: {Path(project_path).as_posix()}", project_path
+        ) from e
     except FileAccessError:
         raise  # Re-raise module not found errors
     except Exception as e:
@@ -564,7 +576,9 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
         analyzer = get_analyzer(project_path)
         return await analyzer.get_module_info(module_path)
     except ProjectNotFoundError as e:
-        raise FileAccessError(f"Project path not found: {project_path}", project_path) from e
+        raise FileAccessError(
+            f"Project path not found: {Path(project_path).as_posix()}", project_path
+        ) from e
     except FileAccessError:
         raise  # Re-raise module not found errors
     except Exception as e:

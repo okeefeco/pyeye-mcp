@@ -5,14 +5,14 @@ default_language_version:
 repos:
   # Security checks
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+    rev: v1.5.0
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: .*\.lock
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
+    rev: 1.8.6
     hooks:
       - id: bandit
         args: ['-ll', '--skip', 'B101,B601']
@@ -20,7 +20,7 @@ repos:
 
   # Code formatting
   - repo: https://github.com/psf/black
-    rev: 23.12.1
+    rev: 25.1.0
     hooks:
       - id: black
         language_version: python3.12
@@ -28,15 +28,15 @@ repos:
 
   # Linting (Note: Ruff handles import sorting via the "I" rule)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
+    rev: v0.12.10
     hooks:
       - id: ruff
         args: ['--fix', '--exit-non-zero-on-fix']
-      - id: ruff-format
+      # Note: ruff-format disabled since we use black for formatting
 
   # Type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.17.1
     hooks:
       - id: mypy
         additional_dependencies:
@@ -74,6 +74,18 @@ repos:
       - id: name-tests-test
         args: ['--pytest-test-first']
         exclude: '^tests/(fixtures|utils)/'
+
+  # Project-specific checks
+  # Cross-platform path checker - useful for periodic audits but has false positives
+  # To run manually: python scripts/check_cross_platform_paths.py src/pycodemcp/**/*.py
+  # - repo: local
+  #   hooks:
+  #     - id: check-cross-platform-paths
+  #       name: Check cross-platform path usage
+  #       entry: python scripts/check_cross_platform_paths.py
+  #       language: system
+  #       files: '\.py$'
+  #       exclude: '^(tests/fixtures/|scripts/check_cross_platform_paths\.py)'
 
   # JSON validation
   - repo: https://github.com/pre-commit/pre-commit-hooks

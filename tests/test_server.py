@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+
 from pycodemcp.exceptions import AnalysisError, FileAccessError
 from pycodemcp.server import (
     configure_namespace_package,

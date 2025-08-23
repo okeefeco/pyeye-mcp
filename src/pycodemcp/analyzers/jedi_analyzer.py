@@ -10,9 +10,18 @@ from typing import Any
 import jedi
 
 from ..async_utils import read_file_async, rglob_async
+from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..import_analyzer import ImportAnalyzer
+from ..scope_utils import (
+    LazyNamespaceLoader,
+    ScopedCache,
+    ScopeDebugger,
+    ScopeValidator,
+    SmartScopeResolver,
+    parallel_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +32,12 @@ Scope = str | list[str]
 class JediAnalyzer:
     """Wrapper around Jedi for semantic Python analysis."""
 
-    def __init__(self, project_path: str = "."):
+    def __init__(self, project_path: str = ".", config: ProjectConfig | None = None):
         """Initialize the Jedi analyzer.
 
         Args:
             project_path: Root path of the project to analyze
+            config: Optional project configuration for smart defaults
 
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
@@ -35,19 +45,29 @@ class JediAnalyzer:
         self.project_path = Path(project_path)
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
+        self.config = config
+
+        # Initialize scope utilities
+        self.smart_resolver = SmartScopeResolver(config)
+        self.scoped_cache = ScopedCache(ttl_seconds=300)
+        self.lazy_loader = LazyNamespaceLoader()
+        self.scope_debugger = ScopeDebugger(self._resolve_scope_to_paths)
+
+        # Validator will be initialized after paths are set
+        self.scope_validator: ScopeValidator | None = None
 
         # Validate project path exists
         if not self.project_path.exists():
-            raise ProjectNotFoundError(str(project_path))
+            raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
             self.project = jedi.Project(path=self.project_path)
-            logger.info(f"Initialized JediAnalyzer for {self.project_path}")
+            logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
             raise AnalysisError(
-                f"Failed to initialize analyzer for {project_path}",
-                file_path=str(project_path),
+                f"Failed to initialize analyzer for {self.project_path.as_posix()}",
+                file_path=self.project_path.as_posix(),
                 error=str(e),
             ) from e
 
@@ -59,6 +79,7 @@ class JediAnalyzer:
         """
         self.additional_paths = paths
         logger.info(f"Set {len(paths)} additional paths for {self.project_path}")
+        self._update_validator()
 
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
@@ -68,8 +89,23 @@ class JediAnalyzer:
         """
         self.namespace_paths = {ns: [Path(p) for p in paths] for ns, paths in namespaces.items()}
         logger.info(f"Set {len(self.namespace_paths)} namespace mappings for {self.project_path}")
+        self._update_validator()
+        # Invalidate lazy loader cache when namespaces change
+        self.lazy_loader.invalidate()
 
-    async def get_project_files(self, pattern: str = "*.py", scope: Scope = "all") -> list[Path]:
+    def _update_validator(self) -> None:
+        """Update the scope validator with current configuration."""
+        scope_aliases = self.config.get_scope_aliases() if self.config else {}
+        self.scope_validator = ScopeValidator(
+            self.namespace_paths, self.additional_paths, scope_aliases
+        )
+
+    async def get_project_files(
+        self,
+        pattern: str = "*.py",
+        scope: Scope | None = None,
+        method_name: str | None = None,
+    ) -> list[Path]:
         """Get files from project based on scope specification.
 
         Args:
@@ -82,6 +118,8 @@ class JediAnalyzer:
                 - "namespace:name.sub": Sub-namespace (e.g., "namespace:aac.tools")
                 - "package:path": Specific package path
                 - List of scopes: Multiple scopes combined
+                - None: Use smart default based on method_name
+            method_name: Name of the calling method (for smart defaults)
 
         Returns:
             List of matching file paths
@@ -95,24 +133,32 @@ class JediAnalyzer:
 
             # Get files from multiple scopes
             files = await analyzer.get_project_files(scope=["main", "namespace:utils"])
+
+            # Use smart defaults
+            files = await analyzer.get_project_files(method_name="list_modules")
         """
+        # Apply smart defaults if no scope specified
+        if scope is None and method_name:
+            scope = self.smart_resolver.get_smart_default(method_name)
+        elif scope is None:
+            scope = "all"  # Fallback default
+
+        # Resolve aliases
+        scope = self.smart_resolver.resolve_aliases(scope)
+
+        # Check cache first
+        cache_key = f"files:{pattern}"
+        cached = self.scoped_cache.get(cache_key, scope)
+        if cached is not None:
+            return list(cached) if isinstance(cached, list) else []
+
         search_paths = await self._resolve_scope_to_paths(scope)
 
-        all_files = []
-        for path in search_paths:
-            try:
-                files = await rglob_async(pattern, path)
-                all_files.extend(files)
-            except Exception as e:
-                logger.warning(f"Error searching {path}: {e}")
+        # Use parallel search for better performance
+        unique_files = await parallel_search(pattern, list(search_paths))
 
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_files = []
-        for f in all_files:
-            if f not in seen:
-                seen.add(f)
-                unique_files.append(f)
+        # Cache the result
+        self.scoped_cache.set(cache_key, unique_files, scope)
 
         return unique_files
 
@@ -160,7 +206,7 @@ class JediAnalyzer:
                 if pkg_path.exists():
                     paths.add(pkg_path)
                 else:
-                    logger.warning(f"Package path does not exist: {pkg_path}")
+                    logger.warning(f"Package path does not exist: {pkg_path.as_posix()}")
 
             else:
                 logger.warning(f"Unknown scope specification: {s}")
@@ -480,7 +526,7 @@ class JediAnalyzer:
                         if name.type in ["module", "import"] and module_name in name.full_name:
                             results.append(
                                 {
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": name.line,
                                     "column": name.column,
                                     "import_statement": name.description,
@@ -545,7 +591,9 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
-                                "file": str(ref.module_path) if ref.module_path else None,
+                                "file": (
+                                    Path(ref.module_path).as_posix() if ref.module_path else None
+                                ),
                                 "line": ref.line,
                                 "column": ref.column,
                                 "context": (
@@ -756,7 +804,7 @@ class JediAnalyzer:
                     packages.append(
                         {
                             "name": package_name,
-                            "path": str(package_dir),
+                            "path": package_dir.as_posix(),
                             "is_namespace": not (package_dir / "__init__.py").exists(),
                             "subpackages": sorted(subpackages),
                             "modules": sorted(modules),
@@ -878,7 +926,7 @@ class JediAnalyzer:
                         {
                             "name": py_file.stem if py_file.name != "__init__.py" else "__init__",
                             "import_path": import_path,
-                            "file": str(py_file),
+                            "file": py_file.as_posix(),
                             "exports": sorted(exports),
                             "classes": sorted(classes),
                             "functions": sorted(functions),
@@ -1160,7 +1208,7 @@ class JediAnalyzer:
             if not module_file:
                 raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
 
-            info["file"] = str(module_file)
+            info["file"] = module_file.as_posix()
 
             # Read and parse the module
             source = await read_file_async(module_file)
@@ -1279,7 +1327,7 @@ class JediAnalyzer:
         }
 
         if name.module_path:
-            result["file"] = str(name.module_path)
+            result["file"] = Path(name.module_path).as_posix()
 
         if include_docstring:
             result["docstring"] = name.docstring()
@@ -1290,7 +1338,7 @@ class JediAnalyzer:
             parts = name.full_name.split(".")
             if len(parts) > 1:
                 module_path = ".".join(parts[:-1])
-                file_path = str(name.module_path) if name.module_path else None
+                file_path = Path(name.module_path).as_posix() if name.module_path else None
                 import_paths = await self.find_reexports(name.name, module_path, file_path)
                 if import_paths:
                     result["import_paths"] = import_paths
@@ -1414,7 +1462,7 @@ class JediAnalyzer:
     async def find_subclasses(
         self,
         base_class: str,
-        scope: Scope = "all",
+        scope: Scope | None = None,
         include_indirect: bool = True,
         show_hierarchy: bool = False,
     ) -> list[dict[str, Any]]:
@@ -1422,11 +1470,12 @@ class JediAnalyzer:
 
         Args:
             base_class: Name of the base class to find subclasses for
-            scope: Search scope (default "all"):
+            scope: Search scope (default from smart defaults):
                 - "main": Only the main project
                 - "all": Main project + configured namespaces
                 - "namespace:name": Specific namespace
                 - ["main", "namespace:x"]: Multiple scopes
+                - None: Use smart default ("all" for this method)
             include_indirect: Include indirect inheritance (grandchildren, etc.)
             show_hierarchy: Show the full inheritance chain
 
@@ -1445,13 +1494,13 @@ class JediAnalyzer:
                     f"Base class '{base_class}' not found in project, checking for subclasses anyway"
                 )
 
-            # Get all Python files in the project
-            py_files = await self.get_project_files("*.py", scope)
+            # Get all Python files in the project (with smart default)
+            py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
 
             for py_file in py_files:
                 try:
                     content = await read_file_async(py_file)
-                    tree = ast.parse(content, filename=str(py_file))
+                    tree = ast.parse(content, filename=py_file.as_posix())
 
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef):
@@ -1465,7 +1514,7 @@ class JediAnalyzer:
 
                                 subclass_info = {
                                     "name": node.name,
-                                    "file": str(py_file),
+                                    "file": py_file.as_posix(),
                                     "line": node.lineno,
                                     "column": node.col_offset,
                                     "direct_parent": inheritance_info["direct_parent"],
@@ -1474,9 +1523,9 @@ class JediAnalyzer:
 
                                 # Add inheritance chain if requested
                                 if show_hierarchy:
-                                    subclass_info[
-                                        "inheritance_chain"
-                                    ] = await self._get_inheritance_chain(node, tree)
+                                    subclass_info["inheritance_chain"] = (
+                                        await self._get_inheritance_chain(node, tree)
+                                    )
 
                                 subclasses.append(subclass_info)
 

@@ -1,6 +1,7 @@
 """Tests for custom exception handling."""
 
 import pytest
+
 from pycodemcp.exceptions import (
     AnalysisError,
     CacheError,

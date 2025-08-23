@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from pycodemcp.cache import GranularCache, ProjectCache
 from pycodemcp.import_analyzer import ImportAnalyzer
-
 from tests.utils.performance import (
     get_ci_tolerance_factor,
     get_platform_name,
@@ -123,13 +123,11 @@ def function_{pkg_num}_{mod_num}():
 
         # Populate cache with many entries
         start_populate = time.perf_counter()
-        file_index = 0
-        for i in range(1000):
+        for file_index, i in enumerate(range(1000)):
             # Associate entries with different files
             file_path = python_files[file_index % len(python_files)]
             module_name = cache.dependency_tracker.file_to_module.get(file_path)
             cache.set(f"key_{i}", f"value_{i}", file_path=file_path, module_name=module_name)
-            file_index += 1
         populate_time = time.perf_counter() - start_populate
 
         # Simulate file changes and measure invalidation time

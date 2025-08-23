@@ -1,6 +1,7 @@
 """Tests for module analysis functionality."""
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.exceptions import FileAccessError
 from pycodemcp.server import (
@@ -33,7 +34,7 @@ class TestListPackages:
         result = await list_packages(str(tmp_path))
         assert len(result) == 1
         assert result[0]["name"] == "mypackage"
-        assert result[0]["path"] == str(package_dir)
+        assert result[0]["path"] == package_dir.as_posix()
         assert result[0]["is_namespace"] is False
         assert "module1" in result[0]["modules"]
         assert "module2" in result[0]["modules"]
@@ -124,7 +125,7 @@ class MyClass:
         module = result[0]
         assert module["name"] == "module"
         assert module["import_path"] == "module"
-        assert module["file"] == str(module_file)
+        assert module["file"] == module_file.as_posix()
         assert "public_func" in module["functions"]
         assert "_private_func" not in module["functions"]  # Private functions not in exports
         assert "MyClass" in module["classes"]
@@ -305,7 +306,7 @@ class MyClass:
 
         result = await get_module_info("module", str(tmp_path))
         assert result["module"] == "module"
-        assert result["file"] == str(module_file)
+        assert result["file"] == module_file.as_posix()
         assert result["docstring"] == "Module documentation."
 
         # Check exports

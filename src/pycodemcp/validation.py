@@ -41,7 +41,7 @@ class PathValidator:
             raise ValidationError("Path cannot be empty")
 
         # Convert to string for validation
-        path_str = str(path)
+        path_str = Path(path).as_posix()
 
         # Check for null bytes
         if "\x00" in path_str:
@@ -74,7 +74,7 @@ class PathValidator:
             raise ValidationError(f"Invalid path: {e}") from e
 
         # Check the path (resolved or not) for dangerous locations
-        path_to_check = str(resolved_path)
+        path_to_check = resolved_path.as_posix()
 
         # Check for actual security issues in paths
         suspicious_resolved_patterns = [
@@ -102,10 +102,12 @@ class PathValidator:
                 )
                 check_path.relative_to(base)
             except ValueError as e:
-                raise ValidationError(f"Path {check_path} is outside base directory {base}") from e
+                raise ValidationError(
+                    f"Path {check_path.as_posix()} is outside base directory {base}"
+                ) from e
 
         # Check for dangerous file names
-        path_str_normalized = str(resolved_path).replace("\\", "/")
+        path_str_normalized = resolved_path.as_posix().replace("\\", "/")
         for pattern in cls.DANGEROUS_NAMES:
             if re.search(pattern, path_str_normalized, re.IGNORECASE):
                 # Log warning but don't block - these might be legitimate
@@ -144,7 +146,7 @@ class PathValidator:
                 import logging
 
                 logging.getLogger(__name__).warning(
-                    f"File too large: {path_obj} ({path_obj.stat().st_size} bytes)"
+                    f"File too large: {path_obj.as_posix()} ({path_obj.stat().st_size} bytes)"
                 )
                 return False
 
@@ -154,7 +156,9 @@ class PathValidator:
                 # Could add additional checks here
                 import logging
 
-                logging.getLogger(__name__).info(f"Following symlink: {path_obj} -> {target}")
+                logging.getLogger(__name__).info(
+                    f"Following symlink: {path_obj.as_posix()} -> {target.as_posix()}"
+                )
 
             return True
 

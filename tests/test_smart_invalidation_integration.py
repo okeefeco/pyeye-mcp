@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+
 from pycodemcp.cache import GranularCache
 from pycodemcp.dependency_tracker import DependencyTracker
 from pycodemcp.import_analyzer import ImportAnalyzer

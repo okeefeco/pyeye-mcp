@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from pycodemcp.plugins.pydantic import PydanticPlugin
 
 

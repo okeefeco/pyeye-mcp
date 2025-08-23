@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+
 from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
 from pycodemcp.exceptions import AnalysisError, FileAccessError
 

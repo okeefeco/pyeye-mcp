@@ -87,7 +87,7 @@ class ImportAnalyzer:
             with open(file_path, encoding="utf-8") as f:
                 source = f.read()
 
-            tree = ast.parse(source, filename=str(file_path))
+            tree = ast.parse(source, filename=file_path.as_posix())
 
             # Extract imports
             for node in ast.walk(tree):
@@ -132,7 +132,7 @@ class ImportAnalyzer:
             )
 
         except Exception as e:
-            logger.warning(f"Failed to analyze imports for {file_path}: {e}")
+            logger.warning(f"Failed to analyze imports for {file_path.as_posix()}: {e}")
 
         return result
 
@@ -197,7 +197,7 @@ class ImportAnalyzer:
                     module_name = analysis["module_name"]
 
                     # Track module location
-                    graph["modules"][module_name] = str(file_path)
+                    graph["modules"][module_name] = file_path.as_posix()
 
                     # Track imports
                     all_imports = set(analysis["imports"])
@@ -211,8 +211,8 @@ class ImportAnalyzer:
                         graph["symbols"][module_name] = analysis["symbols"]
 
             except Exception as e:
-                logger.error(f"Failed to process {file_path}: {e}")
-                graph["errors"].append(str(file_path))
+                logger.error(f"Failed to process {file_path.as_posix()}: {e}")
+                graph["errors"].append(file_path.as_posix())
 
         logger.info(
             f"Built dependency graph: {len(graph['modules'])} modules, {len(graph['imports'])} with imports"
