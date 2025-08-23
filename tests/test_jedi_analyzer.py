@@ -18,7 +18,8 @@ class TestJediAnalyzer:
             analyzer = JediAnalyzer(str(temp_project_dir))
 
             assert analyzer.project_path == temp_project_dir
-            mock_project.assert_called_once_with(path=temp_project_dir)
+            # We now pass POSIX string to jedi.Project to avoid Path object cache issues
+            mock_project.assert_called_once_with(path=temp_project_dir.as_posix())
 
     @patch("pycodemcp.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
@@ -565,10 +566,10 @@ def main():
         # Should create two different project instances
         assert mock_project_class.call_count == 2
 
-        # Check paths
+        # Check paths - we now pass POSIX strings to Jedi
         calls = mock_project_class.call_args_list
-        assert calls[0][1]["path"] == project1
-        assert calls[1][1]["path"] == project2
+        assert calls[0][1]["path"] == project1.as_posix()
+        assert calls[1][1]["path"] == project2.as_posix()
 
     @pytest.mark.asyncio
     async def test_get_type_info_error_handling(self, temp_project_dir):

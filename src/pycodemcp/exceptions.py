@@ -24,12 +24,26 @@ class MCPError(Exception):
         """
         super().__init__(message)
         self.message = message
-        self.details = details or {}
+        # Convert Path objects to strings in details to ensure JSON serialization
+        self.details = {}
+        if details:
+            for k, v in details.items():
+                if isinstance(v, Path):
+                    self.details[k] = v.as_posix()
+                else:
+                    self.details[k] = v
 
     def __str__(self) -> str:
         """Return a formatted error message."""
         if self.details:
-            details_str = ", ".join(f"{k}={v}" for k, v in self.details.items())
+            # Convert Path objects to strings to avoid serialization issues
+            formatted_details = {}
+            for k, v in self.details.items():
+                if isinstance(v, Path):
+                    formatted_details[k] = v.as_posix()
+                else:
+                    formatted_details[k] = v
+            details_str = ", ".join(f"{k}={v}" for k, v in formatted_details.items())
             return f"{self.message} ({details_str})"
         return self.message
 
