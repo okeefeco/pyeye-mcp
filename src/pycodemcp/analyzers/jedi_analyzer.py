@@ -61,8 +61,9 @@ class JediAnalyzer:
             raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
-            # Pass string to Jedi to avoid potential Path object issues in Jedi's cache
-            self.project = jedi.Project(path=str(self.project_path))
+            # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
+            # Using as_posix() ensures cross-platform compatibility with forward slashes
+            self.project = jedi.Project(path=self.project_path.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -381,7 +382,7 @@ class JediAnalyzer:
                 # Convert Path objects in exception to strings for serialization
                 error_str = str(e)
                 # Special handling for exceptions that contain Path objects
-                if hasattr(e, 'args') and e.args and any(isinstance(arg, Path) for arg in e.args):
+                if hasattr(e, "args") and e.args and any(isinstance(arg, Path) for arg in e.args):
                     # If the exception has Path objects in args, convert them
                     converted_args = []
                     for arg in e.args:
@@ -389,8 +390,8 @@ class JediAnalyzer:
                             converted_args.append(arg.as_posix())
                         else:
                             converted_args.append(str(arg))
-                    error_str = ' '.join(converted_args) if converted_args else str(e)
-                
+                    error_str = " ".join(converted_args) if converted_args else str(e)
+
                 raise AnalysisError(
                     f"Failed to search for symbol '{name}'",
                     operation="find_symbol",
@@ -595,7 +596,15 @@ class JediAnalyzer:
 
             # Get the function's source
             source = await read_file_async(function_def.module_path)
-            script = jedi.Script(source, path=function_def.module_path.as_posix() if isinstance(function_def.module_path, Path) else function_def.module_path, project=self.project)
+            script = jedi.Script(
+                source,
+                path=(
+                    function_def.module_path.as_posix()
+                    if isinstance(function_def.module_path, Path)
+                    else function_def.module_path
+                ),
+                project=self.project,
+            )
 
             # Find references (callers)
             refs = script.get_references(function_def.line, function_def.column)
