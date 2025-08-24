@@ -11,16 +11,18 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Features
 
-- 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references
+- 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references using Jedi
 - 📊 **Module & Package Analysis**: List packages/modules, analyze dependencies, detect circular imports
 - 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
-- 🔄 **Auto-Update**: Automatically detects and reflects file changes
+- 🔄 **Auto-Update**: Automatically detects and reflects file changes with smart cache invalidation
 - ⚙️ **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
-- 🔌 **Extensible Plugin System**: Add custom analyzers for your project patterns
-- 🚀 **Fast & Cached**: Intelligent caching with LRU eviction
+- 🔌 **Extensible Plugin System**: Framework-specific analyzers (Pydantic, Django, Flask)
+- 🚀 **Fast & Cached**: Intelligent caching with LRU eviction and performance optimization
 - 🎯 **Type-Aware**: Full understanding of Python type hints and annotations
 - 📈 **Performance Monitoring**: Built-in metrics tracking with p50/p95/p99 latencies
+- 🛡️ **Input Validation**: Secure parameter validation and path checking
+- 🤖 **Development Automation**: Release automation, dogfooding metrics, and worktree safety
 
 ## Installation
 
@@ -422,20 +424,38 @@ The server uses file watching to automatically update when code changes:
 ```text
 Python Code Intelligence MCP
 ├── Core Server (FastMCP)
+│   └── 17 MCP tools registered
 ├── Project Manager
-│   ├── Multi-project support (LRU cache)
+│   ├── Multi-project support (LRU cache, max 10)
 │   ├── Connection pooling (optional optimization)
 │   ├── Namespace resolver
-│   └── Configuration loader
-├── Analysis Engines
-│   ├── Jedi (semantic analysis)
-│   └── Tree-sitter (pattern matching)
-├── Caching Layer
-│   ├── File watchers (watchdog)
-│   └── Result cache (5min TTL)
-└── Plugin System
-    ├── Base plugin class
-    └── Framework plugins (Django, Pydantic, Flask)
+│   └── Configuration loader (multiple sources)
+├── Analysis Engine
+│   └── Jedi (semantic analysis & type inference)
+├── Caching & Performance
+│   ├── File watchers (watchdog with debouncing)
+│   ├── Granular cache (5min TTL with smart invalidation)
+│   ├── Metrics collection (p50/p95/p99 latencies)
+│   └── Performance monitoring & reporting
+├── Validation & Security
+│   ├── Input validation (MCP tool parameters)
+│   ├── Path security checks
+│   └── Safe file operations
+├── Plugin System
+│   ├── Base plugin class (AnalyzerPlugin)
+│   ├── Pydantic plugin (7 specialized tools)
+│   ├── Django plugin (5 specialized tools)
+│   └── Flask plugin (8 specialized tools)
+├── Utility Systems
+│   ├── Dependency tracking & circular detection
+│   ├── Import analysis & re-export resolution
+│   ├── Scope management (main/all/namespace scoping)
+│   ├── Async utilities (concurrent operations)
+│   └── Cross-platform path handling
+└── Development & Automation
+    ├── Release automation agent
+    ├── Dogfooding metrics tracking
+    └── Worktree safety management
 ```
 
 ## Plugin Development
@@ -566,6 +586,6 @@ MIT License - see LICENSE file for details
 
 Built on top of:
 
-- [Jedi](https://github.com/davidhalter/jedi) - Python static analysis
-- [Tree-sitter](https://tree-sitter.github.io/) - Incremental parsing
+- [Jedi](https://github.com/davidhalter/jedi) - Python static analysis and type inference
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
+- [Watchdog](https://github.com/gorakhargosh/watchdog) - File system monitoring
