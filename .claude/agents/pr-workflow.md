@@ -104,6 +104,17 @@ Returns: "✅ PR #199 merged successfully
 📋 Next: Use worktree-manager to clean up local worktree"
 ```
 
+### Merge Persistent Branch (claude/development)
+
+```text
+Task: "Merge PR #200 from claude/development"
+Returns: "✅ PR #200 merged successfully
+- Main branch updated
+- Remote branch claude/development kept (persistent branch)
+- Automatically merged main back into claude/development
+✅ claude/development is up-to-date and ready for next changes"
+```
+
 ## Implementation Strategy
 
 ### 1. Git Status Check
@@ -162,17 +173,60 @@ gh run view $RUN_ID --log-failed
 
 ```bash
 # Check PR status and linked issues
-gh pr view PR-NUMBER --json state,mergeable,body,title
+gh pr view PR-NUMBER --json state,mergeable,body,title,headRefName
+
+# Get the branch name
+BRANCH=$(gh pr view PR-NUMBER --json headRefName -q .headRefName)
 
 # Extract issue references (Fixes #123, Closes #456, etc.)
 ISSUES=$(gh pr view PR-NUMBER --json body -q .body | grep -oE "(Fixes|Closes|Resolves) #[0-9]+" | grep -oE "[0-9]+")
 
-# Merge with regular merge (not squash)
-gh pr merge PR-NUMBER --merge --delete-branch
+# Store current directory to return to worktree if needed
+CURRENT_DIR=$(pwd)
 
-# Update local main
-git checkout main
-git pull origin main
+# Check if this is a persistent branch
+if [[ "$BRANCH" == "claude/development" ]]; then
+    # Merge WITHOUT deleting the branch
+    gh pr merge PR-NUMBER --merge
+    echo "✅ Kept claude/development branch (persistent)"
+
+    # Update main repo's main branch
+    MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+    cd "$MAIN_REPO"
+    git checkout main
+    git pull origin main
+    echo "✅ Main branch updated in main repo"
+
+    # Now update claude/development in its worktree
+    echo "🔄 Updating claude/development with main..."
+    CLAUDE_WORKTREE=$(git worktree list | grep "claude/development" | awk '{print $1}')
+    if [[ -n "$CLAUDE_WORKTREE" ]]; then
+        cd "$CLAUDE_WORKTREE"
+        git pull origin claude/development  # Get any remote changes first
+        git merge main --no-edit -m "Merge main into claude/development after PR merge"
+        git push origin claude/development
+        echo "✅ claude/development updated with latest main in worktree"
+    else
+        echo "⚠️ claude/development worktree not found, skipping local update"
+    fi
+
+    # Return to original directory
+    cd "$CURRENT_DIR"
+    CLEANUP_MSG="✅ claude/development is up-to-date and ready for next changes"
+else
+    # Normal merge with branch deletion
+    gh pr merge PR-NUMBER --merge --delete-branch
+
+    # Update main repo's main branch
+    MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
+    cd "$MAIN_REPO"
+    git checkout main
+    git pull origin main
+
+    # Return to worktree
+    cd "$CURRENT_DIR"
+    CLEANUP_MSG="📋 Next: Use worktree-manager to remove worktree"
+fi
 
 # Check if issues were auto-closed
 for ISSUE in $ISSUES; do
@@ -185,8 +239,8 @@ for ISSUE in $ISSUES; do
     fi
 done
 
-# Return to worktree or provide cleanup instructions
-echo "📋 Next: Use worktree-manager to remove worktree"
+# Return appropriate cleanup instructions
+echo "$CLEANUP_MSG"
 ```
 
 ### 6. Error Parsing Patterns
@@ -256,6 +310,13 @@ if "error: " in log and ".py:" in log:
 - Parse job names (windows-latest, ubuntu-latest)
 - Group failures by platform
 - Provide platform-specific fixes
+
+### 5. Persistent Branch Handling
+
+- Detect `claude/development` branch
+- Merge WITHOUT `--delete-branch` flag
+- Provide update instructions instead of cleanup
+- Keep worktree active for future work
 
 ## Error Recovery
 

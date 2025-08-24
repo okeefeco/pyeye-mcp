@@ -526,6 +526,43 @@ These commands trigger multiple agents in sequence:
 
 **Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
 
+### Special Workflow: Claude Development Branch
+
+The `claude-development` worktree has a **special merge workflow** that differs from standard issue branches:
+
+#### Standard Issue Workflow (Delete After Merge)
+
+```bash
+# Normal issue branches:
+1. Create PR from feat/123-feature → main
+2. Merge PR
+3. Delete remote branch
+4. Remove worktree (worktree-manager does this)
+```
+
+#### Claude Development Workflow (Keep and Update)
+
+```bash
+# For claude/development branch:
+1. Create PR from claude/development → main
+2. Merge PR (keeps branch)
+3. DO NOT delete remote branch
+4. DO NOT remove worktree
+5. Update local branch:
+   cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+   git checkout main
+   git pull origin main
+   git checkout claude/development
+   git merge main  # or rebase if preferred
+   git push origin claude/development
+```
+
+**Important for Agents**:
+
+- When using `pr-workflow` agent with claude/development, specify `--no-delete-branch`
+- When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
+- The worktree at `/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development` is **persistent**
+
 ## Project Overview
 
 This is the Python Code Intelligence MCP Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
