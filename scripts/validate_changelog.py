@@ -4,16 +4,26 @@
 import re
 import sys
 from pathlib import Path
-from typing import Any
-
-import tomllib
 
 
 def get_current_version(pyproject_path: Path) -> str:
     """Extract version from pyproject.toml."""
-    with open(pyproject_path, "rb") as f:
-        data: dict[str, Any] = tomllib.load(f)
-    return str(data["project"]["version"])
+    # Parse TOML manually to avoid dependency on tomllib/tomli
+    content = pyproject_path.read_text()
+
+    # Find the [project] section
+    project_section = re.search(r"\[project\].*?(?=\n\[|\Z)", content, re.DOTALL)
+    if not project_section:
+        raise ValueError("Could not find [project] section in pyproject.toml")
+
+    # Extract version from the project section
+    version_match = re.search(
+        r'^version\s*=\s*["\']([^"\']+)["\']', project_section.group(), re.MULTILINE
+    )
+    if not version_match:
+        raise ValueError("Could not find version in [project] section")
+
+    return version_match.group(1)
 
 
 def parse_changelog(changelog_path: Path) -> dict:

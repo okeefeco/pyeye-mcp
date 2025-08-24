@@ -6,8 +6,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import tomllib
-
 # Semantic versioning pattern with optional pre-release and build metadata
 # Matches: X.Y.Z, X.Y.Z.devN, X.Y.Z.alphaN, X.Y.Z.betaN, X.Y.Z.rcN, X.Y.Z+build
 SEMVER_PATTERN = re.compile(
@@ -37,9 +35,22 @@ PEP440_PATTERN = re.compile(
 
 def get_current_version(pyproject_path: Path) -> str:
     """Extract version from pyproject.toml."""
-    with open(pyproject_path, "rb") as f:
-        data: dict[str, Any] = tomllib.load(f)
-    return str(data["project"]["version"])
+    # Parse TOML manually to avoid dependency on tomllib/tomli
+    content = pyproject_path.read_text()
+
+    # Find the [project] section
+    project_section = re.search(r"\[project\].*?(?=\n\[|\Z)", content, re.DOTALL)
+    if not project_section:
+        raise ValueError("Could not find [project] section in pyproject.toml")
+
+    # Extract version from the project section
+    version_match = re.search(
+        r'^version\s*=\s*["\']([^"\']+)["\']', project_section.group(), re.MULTILINE
+    )
+    if not version_match:
+        raise ValueError("Could not find version in [project] section")
+
+    return version_match.group(1)
 
 
 def validate_semver(version: str) -> tuple[bool, str]:
