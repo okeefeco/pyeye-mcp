@@ -65,6 +65,11 @@ def test_session_hierarchy_parent_child_relationships():
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child1"}
         )
 
+        # Small delay to ensure atomic operations complete on Windows
+        import time
+
+        time.sleep(0.1)
+
         subagent2_id = collector.start_session(
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child2"}
         )
