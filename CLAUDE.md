@@ -1,5 +1,29 @@
 # Python Code Intelligence MCP Server - Claude Instructions
 
+## 🎯 SESSION STARTUP: Detect Context First
+
+**MANDATORY at session start - Run immediately:**
+
+```bash
+# Store where Claude was started from
+export CLAUDE_STARTUP_DIR=$(pwd)
+export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
+export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
+
+# Report context
+echo "Claude started from: $CLAUDE_STARTUP_DIR"
+echo "Is worktree: $CLAUDE_IS_WORKTREE"
+echo "Branch: $CLAUDE_WORKTREE_BRANCH"
+```
+
+**This determines:**
+
+- Where Claude configuration files (.claude/) are read from
+- Where agent/instruction edits should be saved
+- How to create new worktrees (sibling vs child)
+
+@.claude/startup-context.md - Detailed worktree-aware workflow instructions
+
 ## 📚 Required Context Files
 
 These files are automatically loaded to provide essential workflow context:
@@ -446,6 +470,61 @@ We're tracking progress toward these goals:
    info = mcp__python-intelligence__get_module_info("pycodemcp.cache")
    # Instant view of exports, metrics, dependencies
    ```
+
+## 🤖 Mandatory Agent Usage
+
+### ALWAYS Use These Agents (Never Manual Commands)
+
+**When the user says any variant of:**
+
+#### "Let's commit this" / "Commit these changes" / "Create a commit"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="smart-commit"`
+→ **NEVER use**: Manual `git status`, `git add`, `git commit` commands
+
+#### "Validate this works on Windows/Mac/Linux" / "Check cross-platform"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="cross-platform-validator"`
+→ **NEVER use**: Manual path checking or grep for .as_posix()
+
+#### "Setup a worktree" / "Switch to issue X" / "Clean up worktrees"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **NEVER use**: Manual `git worktree add` commands
+
+#### "Push and create PR" / "Create a PR" / "Monitor CI" / "Check if CI passes"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
+→ **NEVER use**: Manual `git push`, `gh pr create`, `gh run list` sequences
+
+### Composite Agent Workflows
+
+These commands trigger multiple agents in sequence:
+
+#### "Merge and cleanup" / "Merge PR and clean up" / "Finish this PR"
+
+→ **EXECUTE IN SEQUENCE**:
+
+1. `Task tool with subagent_type="pr-workflow"` - Merge the PR, update main, delete remote branch
+2. `Task tool with subagent_type="worktree-manager"` - Remove the worktree safely after confirming no uncommitted changes
+
+#### "Start issue X" / "Begin work on issue X"
+
+→ **EXECUTE IN SEQUENCE**:
+
+1. `Task tool with subagent_type="worktree-manager"` - Create worktree for the issue
+2. Review issue with `gh issue view X`
+3. Create initial todo list based on issue requirements
+
+### Available Agents
+
+- **smart-commit**: Intelligent git commit workflow with pre-commit validation
+- **cross-platform-validator**: Validates cross-platform compatibility
+- **worktree-manager**: Safe worktree operations with session tracking
+- **pr-workflow**: Complete PR lifecycle - push, create/update PR, monitor CI
+- **general-purpose**: For complex multi-step research tasks
+
+**Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
 
 ## Project Overview
 
