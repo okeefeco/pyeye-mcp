@@ -65,6 +65,13 @@ def test_session_hierarchy_parent_child_relationships():
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child1"}
         )
 
+        # Small delay for Windows file system to sync
+        # Even with filelock, Windows NTFS can have brief delays in file visibility
+        # This is a known issue with rapid file operations on Windows
+        import time
+
+        time.sleep(0.05)  # 50ms delay
+
         subagent2_id = collector.start_session(
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child2"}
         )
