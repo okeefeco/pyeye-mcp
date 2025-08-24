@@ -1,5 +1,29 @@
 # Python Code Intelligence MCP Server - Claude Instructions
 
+## 🎯 SESSION STARTUP: Detect Context First
+
+**MANDATORY at session start - Run immediately:**
+
+```bash
+# Store where Claude was started from
+export CLAUDE_STARTUP_DIR=$(pwd)
+export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
+export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
+
+# Report context
+echo "Claude started from: $CLAUDE_STARTUP_DIR"
+echo "Is worktree: $CLAUDE_IS_WORKTREE"
+echo "Branch: $CLAUDE_WORKTREE_BRANCH"
+```
+
+**This determines:**
+
+- Where Claude configuration files (.claude/) are read from
+- Where agent/instruction edits should be saved
+- How to create new worktrees (sibling vs child)
+
+@.claude/startup-context.md - Detailed worktree-aware workflow instructions
+
 ## 📚 Required Context Files
 
 These files are automatically loaded to provide essential workflow context:

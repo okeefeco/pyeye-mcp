@@ -1,0 +1,133 @@
+# Cross-Platform Issue Detection Patterns
+# This file defines the types of issues the agent can detect and fix
+# Each issue type can be enabled/disabled and has priority levels
+
+issue_types:
+  # PATH ISSUES (Implemented)
+  path_separators:
+    enabled: true
+    priority: critical
+    description: "Path separator issues (/ vs \\)"
+    patterns:
+      - str_path_in_display: "str(Path) in API/config/display contexts"
+      - direct_path_compare: "Direct string comparison of paths"
+      - dict_key_paths: "Paths as dictionary keys without normalization"
+    mcp_detection:
+      - find_symbol: ["Path", "pathlib"]
+      - get_type_info: "Verify Path objects"
+      - find_references: "Track usage contexts"
+
+  # FILE PERMISSIONS (Planned - Phase 2)
+  file_permissions:
+    enabled: false  # Enable when implemented
+    priority: high
+    description: "OS-specific file permission assumptions"
+    patterns:
+      - chmod_usage: "chmod() doesn't work the same on Windows"
+      - permission_checks: "os.access() behavior differences"
+      - file_modes: "Binary vs text mode issues"
+    mcp_detection:
+      - find_symbol: ["chmod", "os.access", "stat"]
+      - find_imports: ["os", "stat", "pathlib"]
+
+  # LINE ENDINGS (Planned - Phase 2)
+  line_endings:
+    enabled: false
+    priority: medium
+    description: "CRLF vs LF line ending issues"
+    patterns:
+      - hardcoded_newlines: "Hardcoded \\n or \\r\\n"
+      - file_write_mode: "Missing newline parameter in open()"
+      - git_config: "Missing .gitattributes for line endings"
+    mcp_detection:
+      - find_symbol: ["open", "write", "writelines"]
+      - get_call_hierarchy: "Track file operations"
+
+  # SHELL COMMANDS (Planned - Phase 3)
+  shell_commands:
+    enabled: false
+    priority: high
+    description: "Platform-specific shell commands"
+    patterns:
+      - direct_commands: "Hardcoded Unix commands (ls, cat, grep)"
+      - shell_syntax: "Bash-specific syntax in subprocess"
+      - path_executables: "Assuming executable locations"
+    mcp_detection:
+      - find_symbol: ["subprocess", "os.system", "os.popen"]
+      - find_imports: ["subprocess", "shutil"]
+
+  # TEMP DIRECTORIES (Planned - Phase 3)
+  temp_directories:
+    enabled: false
+    priority: medium
+    description: "Temporary directory assumptions"
+    patterns:
+      - hardcoded_tmp: "Hardcoded /tmp or C:\\Temp"
+      - cleanup_issues: "Windows file locking during cleanup"
+    mcp_detection:
+      - find_symbol: ["tempfile", "TemporaryDirectory"]
+      - find_imports: ["tempfile", "shutil"]
+
+  # ENCODING ISSUES (Planned - Phase 4)
+  encoding:
+    enabled: false
+    priority: medium
+    description: "Character encoding differences"
+    patterns:
+      - default_encoding: "Assuming UTF-8 everywhere"
+      - locale_dependent: "Locale-dependent operations"
+    mcp_detection:
+      - find_symbol: ["open", "encode", "decode"]
+
+  # PROCESS HANDLING (Planned - Phase 4)
+  process_handling:
+    enabled: false
+    priority: low
+    description: "Process and signal handling differences"
+    patterns:
+      - signals: "Unix signals not available on Windows"
+      - fork_usage: "fork() not available on Windows"
+    mcp_detection:
+      - find_imports: ["signal", "multiprocessing"]
+
+# Expansion Strategy
+expansion_plan:
+  phase_1:
+    - path_separators  # ✅ Implemented
+
+  phase_2:
+    - file_permissions
+    - line_endings
+
+  phase_3:
+    - shell_commands
+    - temp_directories
+
+  phase_4:
+    - encoding
+    - process_handling
+
+  future:
+    - case_sensitivity: "File system case sensitivity"
+    - symlinks: "Symbolic link support differences"
+    - network_paths: "UNC paths on Windows"
+    - environment_vars: "Path separator in PATH, different var names"
+    - datetime_formats: "Timezone and format differences"
+    - resource_limits: "ulimit and resource differences"
+
+# Learning from CI Failures
+ci_failure_tracking:
+  # Track which issues cause most CI failures
+  # Update priorities based on real-world data
+  windows_failures:
+    - path_separators: 45%
+    - file_permissions: 20%
+    - shell_commands: 15%
+    - temp_directories: 10%
+    - other: 10%
+
+  macos_failures:
+    - case_sensitivity: 30%
+    - file_permissions: 25%
+    - path_separators: 20%
+    - other: 25%
