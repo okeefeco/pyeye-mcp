@@ -42,6 +42,11 @@ echo "🔗 Setting up shell aliases..."
 bash "$SCRIPT_DIR/setup_aliases.sh"
 echo ""
 
+# Setup grep tracking
+echo "🔍 Setting up grep usage tracking..."
+bash "$SCRIPT_DIR/setup_grep_tracking.sh"
+echo ""
+
 # Create metrics directory
 echo "📁 Creating metrics directory..."
 mkdir -p "$HOME/.pycodemcp/metrics"
