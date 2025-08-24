@@ -471,6 +471,36 @@ We're tracking progress toward these goals:
    # Instant view of exports, metrics, dependencies
    ```
 
+## 🤖 Mandatory Agent Usage
+
+### ALWAYS Use These Agents (Never Manual Commands)
+
+**When the user says any variant of:**
+
+#### "Let's commit this" / "Commit these changes" / "Create a commit"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="smart-commit"`
+→ **NEVER use**: Manual `git status`, `git add`, `git commit` commands
+
+#### "Validate this works on Windows/Mac/Linux" / "Check cross-platform"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="cross-platform-validator"`
+→ **NEVER use**: Manual path checking or grep for .as_posix()
+
+#### "Setup a worktree" / "Switch to issue X" / "Clean up worktrees"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **NEVER use**: Manual `git worktree add` commands
+
+### Available Agents
+
+- **smart-commit**: Intelligent git commit workflow with pre-commit validation
+- **cross-platform-validator**: Validates cross-platform compatibility
+- **worktree-manager**: Safe worktree operations with session tracking
+- **general-purpose**: For complex multi-step research tasks
+
+**Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
+
 ## Project Overview
 
 This is the Python Code Intelligence MCP Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
