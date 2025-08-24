@@ -115,15 +115,15 @@ def main() -> int:
         # Development versions should have an Unreleased section
         if not validate_unreleased_section(changelog_content):
             print(
-                f"\n⚠️  WARNING: Development version {current_version} but no 'Unreleased' section in changelog"
+                f"\n[WARNING] Development version {current_version} but no 'Unreleased' section in changelog"
             )
             print("Consider adding an 'Unreleased' section for ongoing development")
         else:
-            print("✅ Found 'Unreleased' section for development version")
+            print("[PASS] Found 'Unreleased' section for development version")
     else:
         # Release versions must have a changelog entry
         if current_version not in versions:
-            print("\n❌ CHANGELOG VALIDATION FAILED!")
+            print("\n[ERROR] CHANGELOG VALIDATION FAILED!")
             print(f"  Version {current_version} not found in CHANGELOG.md")
             print(f"  Found versions: {', '.join(sorted(versions.keys(), reverse=True)[:5])}")
             print("\nPlease add a changelog entry for the current version.")
@@ -133,17 +133,17 @@ def main() -> int:
 
         # Check if entry has content
         if not version_info["content"] or len(version_info["content"].strip()) < 10:
-            print("\n❌ CHANGELOG VALIDATION FAILED!")
+            print("\n[ERROR] CHANGELOG VALIDATION FAILED!")
             print(f"  Version {current_version} has no meaningful content in changelog")
             print("\nPlease add details about what changed in this version.")
             return 1
 
         # Check if entry has a date (warning only)
         if not version_info["date"]:
-            print(f"\n⚠️  WARNING: Version {current_version} has no date in changelog")
+            print(f"\n[WARNING] Version {current_version} has no date in changelog")
             print("Consider adding a date in format: ## [x.y.z] - YYYY-MM-DD")
 
-        print(f"\n✅ Changelog validation passed for version {current_version}")
+        print(f"\n[PASS] Changelog validation passed for version {current_version}")
         if version_info["date"]:
             print(f"  Date: {version_info['date']}")
         print(f"  Content length: {len(version_info['content'])} characters")

@@ -70,13 +70,13 @@ def main() -> int:
 
     # Compare versions
     if pyproject_version != init_version:
-        print("\n❌ VERSION MISMATCH!")
+        print("\n[ERROR] VERSION MISMATCH!")
         print(f"  pyproject.toml: {pyproject_version}")
         print(f"  __init__.py:    {init_version}")
         print("\nVersions must match across all files.")
         return 1
 
-    print(f"\n✅ Version consistency check passed: {pyproject_version}")
+    print(f"\n[PASS] Version consistency check passed: {pyproject_version}")
     return 0
 
 

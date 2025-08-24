@@ -108,11 +108,11 @@ def main() -> int:
 
     # Validate against semantic versioning
     semver_valid, semver_msg = validate_semver(current_version)
-    print(f"  Semantic versioning: {'✅' if semver_valid else '❌'} {semver_msg}")
+    print(f"  Semantic versioning: {'[PASS]' if semver_valid else '[FAIL]'} {semver_msg}")
 
     # Validate against PEP 440 (Python standard)
     pep440_valid, pep440_msg = validate_pep440(current_version)
-    print(f"  PEP 440 compliance: {'✅' if pep440_valid else '❌'} {pep440_msg}")
+    print(f"  PEP 440 compliance: {'[PASS]' if pep440_valid else '[FAIL]'} {pep440_msg}")
 
     # Parse components if valid
     if semver_valid:
@@ -129,7 +129,7 @@ def main() -> int:
 
     # Require at least semantic versioning compliance
     if not semver_valid:
-        print("\n❌ VERSION FORMAT VALIDATION FAILED!")
+        print("\n[ERROR] VERSION FORMAT VALIDATION FAILED!")
         print(f"  Version '{current_version}' does not follow semantic versioning")
         print("\nExpected format: X.Y.Z or X.Y.Z.devN or X.Y.Z.alphaN etc.")
         print("Examples: 1.0.0, 0.2.1, 1.0.0.dev0, 2.1.0.beta1, 3.0.0.rc2")
@@ -141,13 +141,13 @@ def main() -> int:
 
         # Warn about 0.0.0
         if components and all(components[k] == 0 for k in ["major", "minor", "patch"]):
-            print("\n⚠️  WARNING: Version 0.0.0 is not recommended for releases")
+            print("\n[WARNING] Version 0.0.0 is not recommended for releases")
 
         # Suggest using dev versions for unreleased code
         if components and components["major"] == 0 and not components["prerelease"]:
-            print("\n⚠️  NOTE: Consider using 0.x.y.dev0 for development versions")
+            print("\n[NOTE] Consider using 0.x.y.dev0 for development versions")
 
-    print("\n✅ Version format validation passed")
+    print("\n[PASS] Version format validation passed")
     return 0
 
 
