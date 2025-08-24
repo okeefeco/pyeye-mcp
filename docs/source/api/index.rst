@@ -57,31 +57,10 @@ Analysis Tools
 Framework-Specific Tools
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Pydantic Tools
-..............
+Framework-specific tools are available via MCP when the respective frameworks are detected in your project:
 
-.. autosummary::
-   :toctree: generated
+* **Pydantic**: find_models, get_model_schema, find_validators, etc.
+* **Django**: find_django_models, find_django_views, etc.
+* **Flask**: find_routes, find_blueprints, find_views, etc.
 
-   pycodemcp.plugins.pydantic.find_models
-   pycodemcp.plugins.pydantic.get_model_schema
-   pycodemcp.plugins.pydantic.find_validators
-
-Django Tools
-............
-
-.. autosummary::
-   :toctree: generated
-
-   pycodemcp.plugins.django.find_django_models
-   pycodemcp.plugins.django.find_django_views
-
-Flask Tools
-...........
-
-.. autosummary::
-   :toctree: generated
-
-   pycodemcp.plugins.flask.find_routes
-   pycodemcp.plugins.flask.find_blueprints
-   pycodemcp.plugins.flask.find_views
+These tools are dynamically provided by the MCP server plugins and detailed in the main API documentation.
