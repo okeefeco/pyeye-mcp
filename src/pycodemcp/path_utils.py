@@ -49,23 +49,22 @@ def normalize_path(path: str | Path) -> Path:
     """
     path_obj = Path(path)
 
-    # If path is already absolute, just resolve it normally
-    if path_obj.is_absolute():
-        try:
-            # Try to resolve symlinks if the path exists
-            return path_obj.resolve()
-        except (OSError, RuntimeError):
-            # If resolve fails (path doesn't exist or permission issues),
-            # fall back to manual normalization
-            return path_obj.absolute()
-    else:
-        # For relative paths, make absolute first then try to resolve
-        abs_path = path_obj.absolute()
-        try:
-            return abs_path.resolve()
-        except (OSError, RuntimeError):
-            # If resolve fails, return the absolute path
-            return abs_path
+    # Always use the safer approach that doesn't require file existence
+    # This handles both relative and absolute paths consistently
+    try:
+        # Try to resolve normally (works for existing paths)
+        return path_obj.resolve()
+    except (OSError, RuntimeError, FileNotFoundError):
+        # If resolve fails, manually construct absolute path
+        # without requiring filesystem access
+        if path_obj.is_absolute():
+            return path_obj
+        else:
+            # For relative paths, make them absolute by joining with cwd
+            # but don't use .absolute() as it can trigger filesystem checks
+            import os
+
+            return Path(os.getcwd()) / path_obj
 
 
 def path_to_key(path: str | Path) -> str:
@@ -141,7 +140,18 @@ def ensure_posix_path(path_str: str) -> str:
         >>> template_name = ensure_posix_path(str(template_file.relative_to(template_dir)))
         >>> # template_name is always "admin/dashboard.html"
     """
-    return Path(path_str).as_posix()
+    import os
+
+    if not path_str:
+        return "."
+
+    # On Unix systems, backslashes are literal characters, not separators
+    # On Windows, we want to convert them to forward slashes
+    if os.name == "nt":
+        return path_str.replace("\\", "/")
+    else:
+        # On Unix, preserve the string as-is since backslashes are literal
+        return path_str
 
 
 def paths_equal(path1: str | Path, path2: str | Path) -> bool:
