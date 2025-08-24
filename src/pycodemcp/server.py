@@ -29,7 +29,11 @@ except ImportError:
         _ = tool_name  # Mark as intentionally unused
 
         def decorator(func):  # type: ignore[no-untyped-def]
-            return func
+            # Preserve the original function without modification
+            # This is critical for maintaining async compatibility
+            import functools
+
+            return functools.wraps(func)(func)
 
         return decorator
 
