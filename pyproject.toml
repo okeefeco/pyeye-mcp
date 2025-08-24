@@ -31,6 +31,7 @@ dependencies = [
     "mcp[cli]>=1.13.0",
     "aiofiles>=24.0.0",
     "filelock>=3.13.0",  # Cross-platform file locking for atomic operations
+    "psutil>=6.0.0",  # System and process metrics
 ]
 
 [project.optional-dependencies]
@@ -152,7 +153,4 @@ version_files = [
     "src/pycodemcp/__init__.py:__version__"
 ]
 
-[dependency-groups]
-dev = [
-    "psutil>=6.0.0",
-]
+# Note: dependency-groups removed as psutil moved to main dependencies
