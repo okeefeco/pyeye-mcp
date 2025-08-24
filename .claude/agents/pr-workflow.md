@@ -12,6 +12,7 @@ An intelligent agent that handles the complete pull request workflow including p
 
 - **Git Operations**: Push branches, handle tracking, force-push when needed
 - **PR Management**: Create PRs with smart descriptions, update existing PRs, link issues
+- **PR Merging**: Merge approved PRs, update main, delete remote branches
 - **CI Monitoring**: Watch builds, parse failures, provide actionable feedback
 - **Error Recovery**: Retry transient failures, suggest fixes for common issues
 - **Context Efficiency**: Returns only essential information, handles all intermediate steps
@@ -81,6 +82,28 @@ Task: "Push the fixes and monitor CI for PR #198"
 Returns: "✅ PR #198 updated, CI passed after retry (flaky network test)"
 ```
 
+### Merge Approved PR
+
+```text
+Task: "Merge PR #198 which fixes issue #175"
+Returns: "✅ PR #198 merged successfully
+- Main branch updated
+- Remote branch feat/175-cross-platform deleted
+- Issue #175 auto-closed by merge
+📋 Next: Use worktree-manager to clean up local worktree"
+```
+
+### Merge PR with Manual Issue Closure
+
+```text
+Task: "Merge PR #199 (addresses part of issue #176)"
+Returns: "✅ PR #199 merged successfully
+- Main branch updated
+- Remote branch deleted
+⚠️ Issue #176 still open (partial fix) - close manually if complete
+📋 Next: Use worktree-manager to clean up local worktree"
+```
+
 ## Implementation Strategy
 
 ### 1. Git Status Check
@@ -135,7 +158,38 @@ done
 gh run view $RUN_ID --log-failed
 ```
 
-### 5. Error Parsing Patterns
+### 5. PR Merge Process
+
+```bash
+# Check PR status and linked issues
+gh pr view PR-NUMBER --json state,mergeable,body,title
+
+# Extract issue references (Fixes #123, Closes #456, etc.)
+ISSUES=$(gh pr view PR-NUMBER --json body -q .body | grep -oE "(Fixes|Closes|Resolves) #[0-9]+" | grep -oE "[0-9]+")
+
+# Merge with regular merge (not squash)
+gh pr merge PR-NUMBER --merge --delete-branch
+
+# Update local main
+git checkout main
+git pull origin main
+
+# Check if issues were auto-closed
+for ISSUE in $ISSUES; do
+    STATE=$(gh issue view $ISSUE --json state -q .state)
+    if [ "$STATE" = "OPEN" ]; then
+        # Issue wasn't auto-closed, ask if it should be
+        echo "Issue #$ISSUE is still open. Should it be closed?"
+    else
+        echo "✅ Issue #$ISSUE was auto-closed by merge"
+    fi
+done
+
+# Return to worktree or provide cleanup instructions
+echo "📋 Next: Use worktree-manager to remove worktree"
+```
+
+### 6. Error Parsing Patterns
 
 #### Windows Path Issues
 

@@ -497,6 +497,25 @@ We're tracking progress toward these goals:
 → **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
 → **NEVER use**: Manual `git push`, `gh pr create`, `gh run list` sequences
 
+### Composite Agent Workflows
+
+These commands trigger multiple agents in sequence:
+
+#### "Merge and cleanup" / "Merge PR and clean up" / "Finish this PR"
+
+→ **EXECUTE IN SEQUENCE**:
+
+1. `Task tool with subagent_type="pr-workflow"` - Merge the PR, update main, delete remote branch
+2. `Task tool with subagent_type="worktree-manager"` - Remove the worktree safely after confirming no uncommitted changes
+
+#### "Start issue X" / "Begin work on issue X"
+
+→ **EXECUTE IN SEQUENCE**:
+
+1. `Task tool with subagent_type="worktree-manager"` - Create worktree for the issue
+2. Review issue with `gh issue view X`
+3. Create initial todo list based on issue requirements
+
 ### Available Agents
 
 - **smart-commit**: Intelligent git commit workflow with pre-commit validation
