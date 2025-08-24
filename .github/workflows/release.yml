@@ -191,8 +191,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: dist/python-code-intelligence-mcp-${{ steps.version.outputs.version }}.tar.gz
-          asset_name: python-code-intelligence-mcp-${{ steps.version.outputs.version }}.tar.gz
+          asset_path: dist/python_code_intelligence_mcp-${{ steps.version.outputs.version }}.tar.gz
+          asset_name: python_code_intelligence_mcp-${{ steps.version.outputs.version }}.tar.gz
           asset_content_type: application/gzip
 
   # Notify about the release

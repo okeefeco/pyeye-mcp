@@ -26,6 +26,48 @@ For personal development settings (worktrees, local paths, etc.):
 
 ## 🚨 MANDATORY REQUIREMENTS
 
+### ⚠️ CRITICAL: Worktree Safety Rules
+
+#### NEVER force-delete worktrees without explicit permission
+
+1. **Before ANY worktree removal**:
+
+   ```bash
+   # Check for uncommitted changes
+   git -C <worktree-path> status --short
+
+   # Or use our safety script
+   python scripts/worktree_safety.py check <worktree-path>
+   ```
+
+2. **Worktree Ownership**:
+   - Only remove worktrees YOU created in current session
+   - Check `.worktree-ownership.json` if it exists
+   - When in doubt, ASK the user
+
+3. **Safe Cleanup Process**:
+
+   ```bash
+   # List all worktrees with safety status
+   python scripts/worktree_safety.py list
+
+   # Check specific worktree
+   python scripts/worktree_safety.py check <path>
+
+   # Safe removal (prompts if changes detected)
+   python scripts/worktree_safety.py remove <path>
+
+   # NEVER use --force without explicit user permission
+   ```
+
+4. **If you see "contains modified or untracked files"**:
+   - STOP immediately
+   - Report to user
+   - Ask for explicit instructions
+   - Do NOT proceed with --force
+
+**Remember**: Worktrees can contain days of uncommitted work from other sessions!
+
 ### Critical Development Rules
 
 **These are non-negotiable - violations will cause CI failures:**
