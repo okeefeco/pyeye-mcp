@@ -47,24 +47,34 @@ def normalize_path(path: str | Path) -> Path:
     Returns:
         Normalized absolute Path object
     """
+    import os
+    from pathlib import Path
+
     path_obj = Path(path)
 
-    # Always use the safer approach that doesn't require file existence
-    # This handles both relative and absolute paths consistently
+    # Try to use Path.resolve() if the path exists (for symlink resolution)
+    # Fall back to safe normalization if it doesn't exist or fails
     try:
-        # Try to resolve normally (works for existing paths)
-        return path_obj.resolve()
-    except (OSError, RuntimeError, FileNotFoundError):
-        # If resolve fails, manually construct absolute path
-        # without requiring filesystem access
-        if path_obj.is_absolute():
-            return path_obj
-        else:
-            # For relative paths, make them absolute by joining with cwd
-            # but don't use .absolute() as it can trigger filesystem checks
-            import os
+        # First check if the path exists (quick check without resolve)
+        if path_obj.exists():
+            return path_obj.resolve()
+    except (OSError, RuntimeError):
+        # If exists() fails, continue with safe method
+        pass
 
-            return Path(os.getcwd()) / path_obj
+    # Safe path normalization without filesystem checks
+    if path_obj.is_absolute():
+        # Already absolute, just normalize the path components
+        # Use os.path.normpath for safe normalization
+        normalized_str = os.path.normpath(str(path_obj))
+        return Path(normalized_str)
+    else:
+        # For relative paths, join with current directory
+        # and normalize to handle .. and . components
+        cwd = Path(os.getcwd())
+        full_path = cwd / path_obj
+        normalized_str = os.path.normpath(str(full_path))
+        return Path(normalized_str)
 
 
 def path_to_key(path: str | Path) -> str:
