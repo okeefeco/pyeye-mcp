@@ -372,6 +372,34 @@
     <span class="n">ProjectNotFoundError</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">metrics</span>
+
+<span class="c1"># Import metrics_hook only if available (for optional unified metrics support)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.metrics_hook</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto_session_for_mcp</span><span class="p">,</span> <span class="n">track_mcp_operation</span>
+
+    <span class="n">UNIFIED_METRICS_AVAILABLE</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="c1"># Fallback if unified metrics not available</span>
+    <span class="n">UNIFIED_METRICS_AVAILABLE</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">track_mcp_operation</span><span class="p">(</span><span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>  <span class="c1"># type: ignore[misc]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;No-op decorator when unified metrics not available.&quot;&quot;&quot;</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="n">tool_name</span>  <span class="c1"># Mark as intentionally unused</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>  <span class="c1"># type: ignore[no-untyped-def]</span>
+            <span class="c1"># Preserve the original function without modification</span>
+            <span class="c1"># This is critical for maintaining async compatibility</span>
+            <span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+
+            <span class="k">return</span> <span class="n">functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)(</span><span class="n">func</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">decorator</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">auto_session_for_mcp</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;No-op when unified metrics not available.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;default_session&quot;</span>
+
+
 <span class="kn">from</span><span class="w"> </span><span class="nn">.plugins.django</span><span class="w"> </span><span class="kn">import</span> <span class="n">DjangoPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.plugins.flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlaskPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.plugins.pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">PydanticPlugin</span>
@@ -384,6 +412,17 @@
 
 <span class="c1"># Initialize the MCP server</span>
 <span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;Python Code Intelligence&quot;</span><span class="p">)</span>
+
+<span class="c1"># Initialize unified metrics session</span>
+<span class="n">_unified_session_id</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">ensure_unified_session</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure unified metrics session is started.&quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_unified_session_id</span>
+    <span class="k">if</span> <span class="n">_unified_session_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_unified_session_id</span> <span class="o">=</span> <span class="n">auto_session_for_mcp</span><span class="p">()</span>
+
 
 <span class="c1"># Global plugin registry</span>
 <span class="n">_plugins</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
@@ -526,6 +565,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_symbol</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">use_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
@@ -603,6 +643,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;goto_definition&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;goto_definition&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">goto_definition</span><span class="p">(</span>
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
@@ -627,6 +668,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_references</span><span class="p">(</span>
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
@@ -1179,9 +1221,18 @@
         <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%(asctime)s</span><span class="s2"> - </span><span class="si">%(name)s</span><span class="s2"> - </span><span class="si">%(levelname)s</span><span class="s2"> - </span><span class="si">%(message)s</span><span class="s2">&quot;</span>
     <span class="p">)</span>
 
+    <span class="c1"># Initialize unified metrics session</span>
+    <span class="n">ensure_unified_session</span><span class="p">()</span>
+
     <span class="c1"># Cleanup on exit</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Clean up all projects and watchers on exit.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.unified_metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_unified_collector</span>
+
+        <span class="c1"># End unified metrics session</span>
+        <span class="n">collector</span> <span class="o">=</span> <span class="n">get_unified_collector</span><span class="p">()</span>
+        <span class="n">collector</span><span class="o">.</span><span class="n">end_session</span><span class="p">()</span>
+
         <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
         <span class="n">manager</span><span class="o">.</span><span class="n">cleanup_all</span><span class="p">()</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Cleaned up all projects and watchers&quot;</span><span class="p">)</span>
