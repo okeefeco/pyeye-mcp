@@ -217,20 +217,25 @@ class TestEnhancedTestCoverageAgent:
             "analysis": agent._create_analysis_instructions(),
             "generation": agent._create_generation_instructions({"focus": "comprehensive"}),
             "validation": agent._create_validation_instructions(),
+            "guidelines": agent._create_quality_guidelines(),  # Include guidelines for new phase
         }
 
         plan = agent._create_execution_plan(instructions)
 
         assert "overview" in plan
         assert "phases" in plan
-        assert len(plan["phases"]) == 4
+        assert len(plan["phases"]) == 5  # Now includes Quality Assurance phase
 
         # Check phase structure
         for phase in plan["phases"]:
             assert "name" in phase
             assert "description" in phase
             assert "steps" in phase
-            assert "mcp_tools" in phase
+            # Quality Assurance phase has guidelines instead of mcp_tools
+            if phase["name"] != "Quality Assurance":
+                assert "mcp_tools" in phase
+            else:
+                assert "guidelines" in phase
             assert "output" in phase
 
     def test_analyze_and_generate_workflow(self, tmp_path):

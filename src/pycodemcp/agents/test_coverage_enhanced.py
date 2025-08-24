@@ -105,12 +105,16 @@ class EnhancedTestCoverageAgent:
         # Phase 4: Validation - Ensure tests are correct
         validation_instructions = self._create_validation_instructions()
 
+        # Phase 5: Quality Guidelines - Prevent common failures
+        quality_guidelines = self._create_quality_guidelines()
+
         # Compile all instructions for Claude
         all_instructions = {
             "discovery": discovery_instructions,
             "analysis": analysis_instructions,
             "generation": generation_instructions,
             "validation": validation_instructions,
+            "guidelines": quality_guidelines,
         }
 
         # Create execution plan
@@ -124,6 +128,7 @@ class EnhancedTestCoverageAgent:
             "execution_plan": execution_plan,
             "mcp_instructions": self._format_mcp_instructions(),
             "expected_results": self._describe_expected_results(parsed),
+            "quality_guidelines": quality_guidelines,
         }
 
     def _parse_request(self, request: str) -> dict[str, Any]:
@@ -368,9 +373,87 @@ class EnhancedTestCoverageAgent:
         self.mcp_instructions.extend(instructions)
         return instructions
 
-    def _create_execution_plan(
-        self, instructions: dict[str, list[MCPInstruction]]
-    ) -> dict[str, Any]:
+    def _create_quality_guidelines(self) -> dict[str, Any]:
+        """Create quality guidelines based on learnings from feedback loops.
+
+        These guidelines prevent common test generation failures discovered
+        through real-world usage and CI/CD pipeline experiences.
+        """
+        return {
+            "critical_rules": [
+                {
+                    "rule": "Import Order",
+                    "description": "ALL imports must be at the top of the file",
+                    "violations": ["E402"],
+                    "example_wrong": "cli_module = import_module('cli')\\nfrom pycodemcp.module import Class",
+                    "example_right": "from pycodemcp.module import Class\\nimport importlib\\n\\ncli_module = importlib.import_module('cli')",
+                },
+                {
+                    "rule": "Unused Fixtures",
+                    "description": "Only include fixtures that are actually used",
+                    "violations": ["ARG002"],
+                    "example_wrong": "def test_something(self, mock_fixture, capsys): # mock_fixture never used",
+                    "example_right": "def test_something(self, capsys): # only what's needed",
+                },
+                {
+                    "rule": "Performance Assertions",
+                    "description": "NEVER use naive timing assertions - use PerformanceThresholds",
+                    "violations": ["CI failures"],
+                    "example_wrong": "assert elapsed < 0.2",
+                    "example_right": "assert_performance_threshold(elapsed_ms, CommonThresholds.SYMBOL_SEARCH_P95, 'Search')",
+                },
+                {
+                    "rule": "Cross-Platform Paths",
+                    "description": "Always use .as_posix() for path comparisons",
+                    "violations": ["Windows CI failures"],
+                    "example_wrong": "assert str(path) == 'folder/file.py'",
+                    "example_right": "assert path.as_posix() == 'folder/file.py'",
+                },
+                {
+                    "rule": "Mock vs Real Objects",
+                    "description": "Prefer real objects for file ops, data structures, JSON parsing",
+                    "violations": ["Over-mocking"],
+                    "use_real": [
+                        "tmp_path for files",
+                        "actual data structures",
+                        "json.loads/dumps",
+                    ],
+                    "use_mocks": ["external APIs", "network calls", "third-party libraries"],
+                },
+            ],
+            "pre_generation_checklist": [
+                "Read the actual module to understand API",
+                "Check existing test patterns in directory",
+                "Plan imports (all at top, only what used)",
+                "Identify performance requirements",
+                "Choose real objects over mocking when possible",
+                "Use descriptive test names (3+ words)",
+            ],
+            "test_structure": {
+                "organization": "Group tests by functionality using test classes",
+                "async_tests": "Use @pytest.mark.asyncio class decorator",
+                "naming": "test_<what>_<condition>_<expected> (e.g., test_find_symbol_fuzzy_returns_matches)",
+                "assertions": "Test behavior, not implementation details",
+                "independence": "No shared state or order dependencies",
+            },
+            "common_patterns": {
+                "file_operations": "Always use tmp_path fixture",
+                "unicode_handling": "Test with Unicode content: 'Hello 世界'",
+                "error_conditions": "Test FileNotFoundError, PermissionError, ValueError",
+                "platform_specific": "Use pytest.mark.skipif(os.name == 'nt') when needed",
+                "concurrency": "Test with asyncio.gather for batch operations",
+            },
+            "validation_before_delivery": [
+                "Run pytest with coverage to verify tests pass",
+                "Check no linting violations (ruff, black)",
+                "Ensure imports are at top of file",
+                "Verify no unused fixtures or parameters",
+                "Confirm performance tests use thresholds",
+                "Check paths use .as_posix() for comparisons",
+            ],
+        }
+
+    def _create_execution_plan(self, instructions: dict[str, Any]) -> dict[str, Any]:
         """Create a detailed execution plan for Claude."""
         plan: dict[str, Any] = {
             "overview": "Systematic test coverage enhancement using MCP semantic understanding",
@@ -439,6 +522,24 @@ class EnhancedTestCoverageAgent:
                 ],
                 "mcp_tools": [inst.tool for inst in instructions.get("validation", [])],
                 "output": "Validated, ready-to-run tests",
+            }
+        )
+
+        # Phase 5: Quality Assurance
+        plan["phases"].append(
+            {
+                "name": "Quality Assurance",
+                "description": "Apply learnings from feedback loops to prevent common failures",
+                "steps": [
+                    "Ensure all imports are at top of file (prevent E402)",
+                    "Remove unused fixtures (prevent ARG002)",
+                    "Replace naive timing with PerformanceThresholds",
+                    "Use .as_posix() for all path comparisons",
+                    "Verify real objects used instead of excessive mocking",
+                    "Run validation script if available",
+                ],
+                "guidelines": instructions.get("guidelines", {}),
+                "output": "CI-ready tests that will pass all checks",
             }
         )
 
