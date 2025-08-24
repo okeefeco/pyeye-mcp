@@ -464,7 +464,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 
 - **Core Server**: FastMCP-based MCP server implementation
 - **Project Manager**: Handles multiple projects with LRU caching (max 10)
-- **Analysis Engines**: Jedi for semantic analysis, Tree-sitter ready for patterns
+- **Analysis Engine**: Jedi for semantic analysis and type inference
 - **Caching Layer**: File watchers (watchdog) + result cache (5min TTL)
 - **Plugin System**: Base class + framework plugins (Django example included)
 
@@ -574,7 +574,7 @@ uv run ruff check src/
 Potential enhancements to consider:
 
 - Add more framework plugins (FastAPI)
-- Implement Tree-sitter for pattern matching
+- Consider Tree-sitter for advanced pattern matching (future enhancement)
 - Add test coverage
 - Publish to PyPI for easier installation
 - Add more sophisticated caching strategies
@@ -593,7 +593,7 @@ Potential enhancements to consider:
 
 ```text
 src/pycodemcp/
-├── server.py              # Main MCP server with 11+ tools
+├── server.py              # Main MCP server with 17 core tools
 ├── project_manager.py     # Multi-project management with LRU
 ├── namespace_resolver.py  # Distributed package handling
 ├── config.py             # Configuration system
