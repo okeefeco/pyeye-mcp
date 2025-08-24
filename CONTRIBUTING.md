@@ -925,15 +925,31 @@ Before submitting your PR:
 
 ## Coverage Goals and Requirements
 
-### 📈 Progressive Coverage Targets
+### 📈 Pragmatic Coverage Approach
 
-We're committed to continuously improving our test coverage through progressive milestones:
+Based on Epic #120 results, we follow a pragmatic approach that balances coverage quality with maintenance effort:
 
-- **Phase 1**: 85% ✅ (Current CI threshold - achieved)
-- **Phase 2**: 85% 🎯 (Active target)
-- **Phase 3**: 90% 🚀 (Future goal when project is widely adopted)
+- **Current Achievement**: 89.76% ✅ (Achieved through Epic #120)
+- **CI Minimum**: 85% (Enforced threshold)
+- **Target for new code**: >90% for business logic modules
+- **Integration modules**: 70-80% focusing on critical paths
 
-**Current Coverage**: ~86% (See [codecov badge](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp) for live status)
+**Current Coverage**: ~90% (See [codecov badge](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp) for live status)
+
+### Coverage Quality Guidelines
+
+#### Focus Areas by Module Type
+
+- **High-value modules**: Business logic, utilities, core functionality - Aim for 90%+
+- **Integration modules**: MCP server, complex external integrations - 70-80% adequate
+- **Plugin code**: Framework-specific plugins - 85%+ for core functionality
+
+#### Quality over Quantity
+
+- **Meaningful tests** over coverage percentage
+- **Edge cases and error conditions** are more valuable than happy path coverage
+- **Integration tests** should focus on critical user journeys, not internal implementation
+- **Avoid diminishing returns** - complex mocking for low business value
 
 ### Coverage Improvement Strategy
 
@@ -943,7 +959,7 @@ Every PR must maintain or improve coverage - we never go backwards:
 
 - Check current coverage before starting work: `pytest --cov=src/pycodemcp --cov-report=term`
 - Your PR's coverage should be ≥ the baseline
-- Aim to improve coverage by addressing low-coverage files when you touch them
+- Focus on high-value improvements when touching low-coverage files
 
 #### Priority Areas for Improvement
 
