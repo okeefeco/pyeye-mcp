@@ -16,28 +16,52 @@ from typing import Any
 
 # Platform-specific file locking
 if sys.platform == "win32":
-    import msvcrt
+    try:
+        import msvcrt
 
-    def lock_file(file_obj: Any, exclusive: bool = True) -> None:
-        """Lock file on Windows."""
-        with contextlib.suppress(OSError):
-            msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK if exclusive else msvcrt.LK_NBRLCK, 1)
+        HAS_FILE_LOCKING = True
 
-    def unlock_file(file_obj: Any) -> None:
-        """Unlock file on Windows."""
-        with contextlib.suppress(OSError):
-            msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+        def lock_file(file_obj: Any, exclusive: bool = True) -> None:
+            """Lock file on Windows."""
+            with contextlib.suppress(OSError):
+                msvcrt.locking(
+                    file_obj.fileno(), msvcrt.LK_NBLCK if exclusive else msvcrt.LK_NBRLCK, 1
+                )
 
+        def unlock_file(file_obj: Any) -> None:
+            """Unlock file on Windows."""
+            with contextlib.suppress(OSError):
+                msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+
+    except ImportError:
+        HAS_FILE_LOCKING = False
 else:
-    import fcntl
+    try:
+        import fcntl
+
+        HAS_FILE_LOCKING = True
+
+        def lock_file(file_obj: Any, exclusive: bool = True) -> None:
+            """Lock file on Unix."""
+            fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+
+        def unlock_file(file_obj: Any) -> None:
+            """Unlock file on Unix."""
+            fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
+
+    except ImportError:
+        HAS_FILE_LOCKING = False
+
+# Fallback if no file locking available
+if not HAS_FILE_LOCKING:
 
     def lock_file(file_obj: Any, exclusive: bool = True) -> None:
-        """Lock file on Unix."""
-        fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        """No-op when file locking not available."""
+        pass
 
     def unlock_file(file_obj: Any) -> None:
-        """Unlock file on Unix."""
-        fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
+        """No-op when file locking not available."""
+        pass
 
 
 @dataclass

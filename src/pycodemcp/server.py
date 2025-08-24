@@ -14,7 +14,30 @@ from .exceptions import (
     ProjectNotFoundError,
 )
 from .metrics import metrics
-from .metrics_hook import auto_session_for_mcp, track_mcp_operation
+
+# Import metrics_hook only if available (for optional unified metrics support)
+try:
+    from .metrics_hook import auto_session_for_mcp, track_mcp_operation
+
+    UNIFIED_METRICS_AVAILABLE = True
+except ImportError:
+    # Fallback if unified metrics not available
+    UNIFIED_METRICS_AVAILABLE = False
+
+    def track_mcp_operation(tool_name: str | None = None) -> Any:  # type: ignore[misc]
+        """No-op decorator when unified metrics not available."""
+        _ = tool_name  # Mark as intentionally unused
+
+        def decorator(func):  # type: ignore[no-untyped-def]
+            return func
+
+        return decorator
+
+    def auto_session_for_mcp() -> str:
+        """No-op when unified metrics not available."""
+        return "default_session"
+
+
 from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
 from .plugins.pydantic import PydanticPlugin

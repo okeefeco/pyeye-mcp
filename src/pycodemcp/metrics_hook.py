@@ -9,7 +9,28 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from pycodemcp.unified_metrics import get_unified_collector
+try:
+    from pycodemcp.unified_metrics import get_unified_collector
+
+    METRICS_AVAILABLE = True
+except ImportError:
+    # Handle case where unified_metrics is not available
+    METRICS_AVAILABLE = False
+
+    def get_unified_collector() -> Any:  # type: ignore[misc]
+        """Dummy collector when metrics not available."""
+
+        class DummyCollector:
+            def record_mcp_operation(self, **kwargs):  # type: ignore[no-untyped-def]
+                _ = kwargs  # Mark as intentionally unused
+                pass
+
+            def start_session(self, **kwargs):  # type: ignore[no-untyped-def]
+                _ = kwargs  # Mark as intentionally unused
+                return "dummy_session"
+
+        return DummyCollector()
+
 
 F = TypeVar("F", bound=Callable[..., Any])
 
