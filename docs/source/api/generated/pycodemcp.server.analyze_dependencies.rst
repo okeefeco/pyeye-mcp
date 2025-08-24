@@ -1,0 +1,6 @@
+﻿pycodemcp.server.analyze\_dependencies
+======================================
+
+.. currentmodule:: pycodemcp.server
+
+.. autofunction:: analyze_dependencies
