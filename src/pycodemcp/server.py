@@ -14,6 +14,7 @@ from .exceptions import (
     ProjectNotFoundError,
 )
 from .metrics import metrics
+from .metrics_hook import auto_session_for_mcp, track_mcp_operation
 from .plugins.django import DjangoPlugin
 from .plugins.flask import FlaskPlugin
 from .plugins.pydantic import PydanticPlugin
@@ -26,6 +27,17 @@ logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
 mcp = FastMCP("Python Code Intelligence")
+
+# Initialize unified metrics session
+_unified_session_id = None
+
+
+def ensure_unified_session() -> None:
+    """Ensure unified metrics session is started."""
+    global _unified_session_id
+    if _unified_session_id is None:
+        _unified_session_id = auto_session_for_mcp()
+
 
 # Global plugin registry
 _plugins: list[Any] = []
@@ -163,6 +175,7 @@ def configure_packages(
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_symbol")
+@track_mcp_operation("find_symbol")
 async def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
@@ -237,6 +250,7 @@ async def find_symbol(
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("goto_definition")
+@track_mcp_operation("goto_definition")
 async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
@@ -258,6 +272,7 @@ async def goto_definition(
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_references")
+@track_mcp_operation("find_references")
 async def find_references(
     file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
 ) -> list[dict[str, Any]]:
@@ -776,9 +791,18 @@ if __name__ == "__main__":
         level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
+    # Initialize unified metrics session
+    ensure_unified_session()
+
     # Cleanup on exit
     def cleanup() -> None:
         """Clean up all projects and watchers on exit."""
+        from .unified_metrics import get_unified_collector
+
+        # End unified metrics session
+        collector = get_unified_collector()
+        collector.end_session()
+
         manager = get_project_manager()
         manager.cleanup_all()
         logger.info("Cleaned up all projects and watchers")
