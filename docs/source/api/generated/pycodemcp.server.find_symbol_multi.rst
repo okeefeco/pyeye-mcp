@@ -1,0 +1,6 @@
+﻿pycodemcp.server.find\_symbol\_multi
+====================================
+
+.. currentmodule:: pycodemcp.server
+
+.. autofunction:: find_symbol_multi
