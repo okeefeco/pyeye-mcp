@@ -30,6 +30,7 @@ dependencies = [
     "diskcache>=5.6.0",
     "mcp[cli]>=1.13.0",
     "aiofiles>=24.0.0",
+    "filelock>=3.13.0",  # Cross-platform file locking for atomic operations
 ]
 
 [project.optional-dependencies]

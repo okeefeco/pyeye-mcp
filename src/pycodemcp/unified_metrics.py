@@ -4,64 +4,17 @@ This module provides persistent metrics storage that captures MCP operations
 across all Claude sessions, including subagents and parallel sessions.
 """
 
-import contextlib
 import json
-import os
-import sys
+import logging
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# Platform-specific file locking
-if sys.platform == "win32":
-    try:
-        import msvcrt
+from filelock import FileLock, Timeout
 
-        HAS_FILE_LOCKING = True
-
-        def lock_file(file_obj: Any, exclusive: bool = True) -> None:
-            """Lock file on Windows."""
-            with contextlib.suppress(OSError):
-                msvcrt.locking(
-                    file_obj.fileno(), msvcrt.LK_NBLCK if exclusive else msvcrt.LK_NBRLCK, 1
-                )
-
-        def unlock_file(file_obj: Any) -> None:
-            """Unlock file on Windows."""
-            with contextlib.suppress(OSError):
-                msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
-
-    except ImportError:
-        HAS_FILE_LOCKING = False
-else:
-    try:
-        import fcntl
-
-        HAS_FILE_LOCKING = True
-
-        def lock_file(file_obj: Any, exclusive: bool = True) -> None:
-            """Lock file on Unix."""
-            fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-
-        def unlock_file(file_obj: Any) -> None:
-            """Unlock file on Unix."""
-            fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
-
-    except ImportError:
-        HAS_FILE_LOCKING = False
-
-# Fallback if no file locking available
-if not HAS_FILE_LOCKING:
-
-    def lock_file(file_obj: Any, exclusive: bool = True) -> None:
-        """No-op when file locking not available."""
-        pass
-
-    def unlock_file(file_obj: Any) -> None:
-        """No-op when file locking not available."""
-        pass
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -87,31 +40,38 @@ class UnifiedMetricsCollector:
     """Persistent metrics collector that aggregates across all sessions."""
 
     def __init__(self, storage_dir: Path | None = None):
-        """Initialize unified metrics collector.
+        """Initialize collector with storage directory.
 
         Args:
-            storage_dir: Directory for metrics storage (defaults to ~/.pycodemcp/unified_metrics)
+            storage_dir: Directory for metrics storage (defaults to ~/.pycodemcp/metrics)
         """
-        self.storage_dir = storage_dir or Path.home() / ".pycodemcp" / "unified_metrics"
+        if storage_dir is None:
+            storage_dir = Path.home() / ".pycodemcp" / "metrics"
+
+        self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
+        # File paths
         self.active_sessions_file = self.storage_dir / "active_sessions.json"
         self.completed_sessions_file = self.storage_dir / "completed_sessions.jsonl"
         self.aggregated_stats_file = self.storage_dir / "aggregated_stats.json"
 
-        # Thread-local storage for current session
+        # Thread-local storage for session tracking
         self._local = threading.local()
 
         # Initialize files if they don't exist
+        self._init_storage_files()
+
+    def _init_storage_files(self) -> None:
+        """Initialize storage files if they don't exist."""
         if not self.active_sessions_file.exists():
             self._write_json(self.active_sessions_file, {})
-        if not self.completed_sessions_file.exists():
-            self.completed_sessions_file.touch()
-        if not self.aggregated_stats_file.exists():
-            self._write_json(self.aggregated_stats_file, self._empty_aggregated_stats())
 
-    def _empty_aggregated_stats(self) -> dict[str, Any]:
-        """Create empty aggregated statistics structure."""
+        if not self.aggregated_stats_file.exists():
+            self._write_json(self.aggregated_stats_file, self._default_aggregated_stats())
+
+    def _default_aggregated_stats(self) -> dict[str, Any]:
+        """Create default aggregated statistics structure."""
         return {
             "last_updated": datetime.now().isoformat(),
             "total_sessions": 0,
@@ -128,72 +88,59 @@ class UnifiedMetricsCollector:
         }
 
     def _read_json(self, file_path: Path) -> dict[str, Any]:
-        """Read JSON file with file locking."""
-        with open(file_path) as f:
-            lock_file(f, exclusive=False)
-            try:
-                data: dict[str, Any] = json.load(f)
-                return data
-            finally:
-                unlock_file(f)
+        """Read JSON file safely."""
+        if not file_path.exists():
+            return {}
+
+        try:
+            with open(file_path) as f:
+                content: dict[str, Any] = json.load(f)
+                return content
+        except (json.JSONDecodeError, FileNotFoundError):
+            return {}
 
     def _write_json(self, file_path: Path, data: dict[str, Any]) -> None:
-        """Write JSON file with file locking."""
+        """Write JSON file."""
         with open(file_path, "w") as f:
-            lock_file(f, exclusive=True)
-            try:
-                json.dump(data, f, indent=2, default=str)
-            finally:
-                unlock_file(f)
+            json.dump(data, f, indent=2, default=str)
 
     def _update_json_atomic(self, file_path: Path, update_func: Any) -> None:
-        """Atomically read, update, and write JSON file.
+        """Atomically read, update, and write JSON file using filelock.
 
         This ensures that read-modify-write operations are atomic,
-        preventing race conditions on Windows where file locking
-        may not work as expected.
+        preventing race conditions on all platforms including Windows.
         """
-        # Use a lock file to ensure atomicity across processes
-        lock_path = file_path.with_suffix(file_path.suffix + ".lock")
-        max_retries = 10
-        retry_delay = 0.1
+        lock_path = f"{file_path}.lock"
+        lock = FileLock(lock_path, timeout=10)
 
-        for attempt in range(max_retries):
-            try:
-                # Try to create lock file exclusively
-                lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    # Read current data
-                    data = self._read_json(file_path)
-                    # Apply update function
-                    update_func(data)
-                    # Write updated data
-                    self._write_json(file_path, data)
-                finally:
-                    # Always release lock
-                    os.close(lock_fd)
-                    lock_path.unlink(missing_ok=True)
-                return
-            except FileExistsError:
-                # Lock file exists, another process is updating
-                if attempt < max_retries - 1:
-                    import time
-
-                    time.sleep(retry_delay)
-                else:
-                    # Fall back to non-atomic operation
-                    data = self._read_json(file_path)
-                    update_func(data)
-                    self._write_json(file_path, data)
+        try:
+            with lock:
+                # Read current data
+                data = self._read_json(file_path)
+                # Apply update function
+                update_func(data)
+                # Write updated data
+                self._write_json(file_path, data)
+        except Timeout:
+            logger.warning(f"Could not acquire lock for {file_path} after 10 seconds")
+            # Fall back to non-atomic operation as last resort
+            data = self._read_json(file_path)
+            update_func(data)
+            self._write_json(file_path, data)
 
     def _append_jsonl(self, file_path: Path, data: dict[str, Any]) -> None:
         """Append to JSONL file with file locking."""
-        with open(file_path, "a") as f:
-            lock_file(f, exclusive=True)
-            try:
+        lock_path = f"{file_path}.lock"
+        lock = FileLock(lock_path, timeout=10)
+
+        try:
+            with lock, open(file_path, "a") as f:
                 f.write(json.dumps(data, default=str) + "\n")
-            finally:
-                unlock_file(f)
+        except Timeout:
+            logger.warning(f"Could not acquire lock for {file_path} after 10 seconds")
+            # Fall back to non-atomic append
+            with open(file_path, "a") as f:
+                f.write(json.dumps(data, default=str) + "\n")
 
     def start_session(
         self,
@@ -372,41 +319,41 @@ class UnifiedMetricsCollector:
 
     def _update_aggregated_stats(self, session: dict[str, Any]) -> None:
         """Update aggregated statistics with completed session data."""
-        stats = self._read_json(self.aggregated_stats_file)
 
-        stats["total_sessions"] += 1
-        stats["total_mcp_operations"] += sum(session["mcp_operations"].values())
-        stats["total_grep_operations"] += session["grep_operations"]
+        def update_stats(stats: dict[str, Any]) -> None:
+            stats["total_sessions"] += 1
+            stats["total_mcp_operations"] += sum(session["mcp_operations"].values())
+            stats["total_grep_operations"] += session["grep_operations"]
 
-        # Update tool usage counts
-        for tool, count in session["mcp_operations"].items():
-            stats["tool_usage"][tool] = stats["tool_usage"].get(tool, 0) + count
+            # Update tool usage counts
+            for tool, count in session["mcp_operations"].items():
+                stats["tool_usage"][tool] = stats["tool_usage"].get(tool, 0) + count
 
-        # Update session type counts
-        session_type = session.get("session_type", "unknown")
-        stats["session_types"][session_type] = stats["session_types"].get(session_type, 0) + 1
+            # Update session type counts
+            session_type = session.get("session_type", "unknown")
+            stats["session_types"][session_type] = stats["session_types"].get(session_type, 0) + 1
 
-        # Update activity patterns
-        start_time = datetime.fromisoformat(session["start_time"])
-        hour_key = start_time.strftime("%H")
-        day_key = start_time.strftime("%Y-%m-%d")
-        stats["hourly_activity"][hour_key] = stats["hourly_activity"].get(hour_key, 0) + 1
-        stats["daily_activity"][day_key] = stats["daily_activity"].get(day_key, 0) + 1
+            # Update activity patterns
+            start_time = datetime.fromisoformat(session["start_time"])
+            hour_key = start_time.strftime("%H")
+            day_key = start_time.strftime("%Y-%m-%d")
+            stats["hourly_activity"][hour_key] = stats["hourly_activity"].get(hour_key, 0) + 1
+            stats["daily_activity"][day_key] = stats["daily_activity"].get(day_key, 0) + 1
 
-        # Recalculate rates
-        total_ops = stats["total_mcp_operations"] + stats["total_grep_operations"]
-        stats["mcp_adoption_rate"] = (
-            stats["total_mcp_operations"] / total_ops if total_ops > 0 else 0
-        )
+            # Recalculate rates
+            total_ops = stats["total_mcp_operations"] + stats["total_grep_operations"]
+            stats["mcp_adoption_rate"] = (
+                stats["total_mcp_operations"] / total_ops if total_ops > 0 else 0
+            )
 
-        # Update top tools
-        stats["top_tools"] = sorted(stats["tool_usage"].items(), key=lambda x: x[1], reverse=True)[
-            :10
-        ]
+            # Update top tools
+            stats["top_tools"] = sorted(
+                stats["tool_usage"].items(), key=lambda x: x[1], reverse=True
+            )[:10]
 
-        stats["last_updated"] = datetime.now().isoformat()
+            stats["last_updated"] = datetime.now().isoformat()
 
-        self._write_json(self.aggregated_stats_file, stats)
+        self._update_json_atomic(self.aggregated_stats_file, update_stats)
 
     def get_active_sessions(self) -> dict[str, Any]:
         """Get all active sessions."""
@@ -453,76 +400,94 @@ class UnifiedMetricsCollector:
         if include_sessions and self.completed_sessions_file.exists():
             with open(self.completed_sessions_file) as f:
                 for line in f:
-                    session = json.loads(line)
-                    if datetime.fromisoformat(session["start_time"]) >= cutoff_date:
-                        recent_sessions.append(session)
-
-        # Calculate period statistics
-        period_mcp = sum(sum(s["mcp_operations"].values()) for s in recent_sessions)
-        period_grep = sum(s["grep_operations"] for s in recent_sessions)
-
-        report = {
-            "period": f"Last {days} days",
-            "generated_at": datetime.now().isoformat(),
-            "summary": {
-                "total_sessions": len(recent_sessions),
-                "active_sessions": len(self.get_active_sessions()),
-                "mcp_operations": period_mcp,
-                "grep_operations": period_grep,
-                "mcp_adoption_rate": (
-                    period_mcp / (period_mcp + period_grep) if (period_mcp + period_grep) > 0 else 0
-                ),
-            },
-            "global_stats": stats,
-            "active_sessions": self.get_session_tree(),
-        }
-
-        if include_sessions:
-            report["recent_sessions"] = recent_sessions
-
-        return report
-
-    def export_for_dashboard(self) -> dict[str, Any]:
-        """Export metrics in format suitable for dashboard/visualization."""
-        stats = self._read_json(self.aggregated_stats_file)
-        active = self.get_active_sessions()
+                    try:
+                        session = json.loads(line)
+                        session_date = datetime.fromisoformat(session["start_time"])
+                        if session_date >= cutoff_date:
+                            recent_sessions.append(session)
+                    except (json.JSONDecodeError, KeyError):
+                        continue
 
         return {
-            "timestamp": datetime.now().isoformat(),
-            "overview": {
-                "active_sessions": len(active),
-                "total_sessions": stats["total_sessions"],
-                "mcp_adoption": f"{stats['mcp_adoption_rate'] * 100:.1f}%",
-                "total_operations": stats["total_mcp_operations"] + stats["total_grep_operations"],
-            },
-            "charts": {
-                "tool_usage": dict(stats["top_tools"]),
-                "hourly_activity": dict(stats["hourly_activity"]),
-                "daily_trend": dict(sorted(stats["daily_activity"].items())[-30:]),  # Last 30 days
-                "session_types": dict(stats["session_types"]),
-            },
-            "live_activity": [
-                {
-                    "session": sid,
-                    "type": s["session_type"],
-                    "operations": sum(s["mcp_operations"].values()),
-                    "duration": (
-                        datetime.now() - datetime.fromisoformat(s["start_time"])
-                    ).total_seconds()
-                    / 60,
-                }
-                for sid, s in active.items()
-            ],
+            "summary": stats,
+            "period_days": days,
+            "generated_at": datetime.now().isoformat(),
+            "recent_sessions": recent_sessions if include_sessions else None,
         }
 
+    def cleanup_old_sessions(self, days: int = 30) -> int:
+        """Clean up old completed sessions.
 
-# Global instance for easy access
-_unified_collector = None
+        Args:
+            days: Remove sessions older than this many days
+
+        Returns:
+            Number of sessions removed
+        """
+        if not self.completed_sessions_file.exists():
+            return 0
+
+        cutoff_date = datetime.now() - timedelta(days=days)
+        kept_sessions = []
+        removed_count = 0
+
+        # Use filelock for cleanup operation
+        lock_path = f"{self.completed_sessions_file}.lock"
+        lock = FileLock(lock_path, timeout=30)
+
+        try:
+            with lock:
+                # Read all sessions
+                with open(self.completed_sessions_file) as f:
+                    for line in f:
+                        try:
+                            session = json.loads(line)
+                            session_date = datetime.fromisoformat(session["start_time"])
+                            if session_date >= cutoff_date:
+                                kept_sessions.append(line.strip())
+                            else:
+                                removed_count += 1
+                        except (json.JSONDecodeError, KeyError):
+                            # Keep malformed lines to avoid data loss
+                            kept_sessions.append(line.strip())
+
+                # Rewrite file with kept sessions
+                with open(self.completed_sessions_file, "w") as f:
+                    for line in kept_sessions:
+                        f.write(line + "\n")
+        except Timeout:
+            logger.warning("Could not acquire lock for cleanup operation")
+            return 0
+
+        return removed_count
+
+    def export_metrics(self, output_path: Path) -> None:
+        """Export all metrics to a JSON file.
+
+        Args:
+            output_path: Path for export file
+        """
+        report = self.get_aggregated_report(days=365, include_sessions=True)
+        report["active_sessions"] = self.get_active_sessions()
+
+        with open(output_path, "w") as f:
+            json.dump(report, f, indent=2, default=str)
 
 
-def get_unified_collector() -> UnifiedMetricsCollector:
-    """Get or create the global unified metrics collector."""
-    global _unified_collector
-    if _unified_collector is None:
-        _unified_collector = UnifiedMetricsCollector()
-    return _unified_collector
+# Singleton instance for global access
+_collector: UnifiedMetricsCollector | None = None
+
+
+def get_unified_collector(storage_dir: Path | None = None) -> UnifiedMetricsCollector:
+    """Get or create the singleton unified metrics collector.
+
+    Args:
+        storage_dir: Optional custom storage directory
+
+    Returns:
+        The unified metrics collector instance
+    """
+    global _collector
+    if _collector is None:
+        _collector = UnifiedMetricsCollector(storage_dir)
+    return _collector

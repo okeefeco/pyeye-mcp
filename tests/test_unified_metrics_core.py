@@ -65,11 +65,6 @@ def test_session_hierarchy_parent_child_relationships():
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child1"}
         )
 
-        # Small delay to ensure atomic operations complete on Windows
-        import time
-
-        time.sleep(0.1)
-
         subagent2_id = collector.start_session(
             session_type="subagent", parent_session=main_session_id, metadata={"role": "child2"}
         )
@@ -160,6 +155,6 @@ def test_persistence_across_instances():
 
         # Verify aggregated statistics were updated
         report = collector3.get_aggregated_report(days=1)
-        assert report["global_stats"]["total_sessions"] >= 1
-        assert report["global_stats"]["total_mcp_operations"] >= 3
-        assert report["global_stats"]["total_grep_operations"] >= 2
+        assert report["summary"]["total_sessions"] >= 1
+        assert report["summary"]["total_mcp_operations"] >= 3
+        assert report["summary"]["total_grep_operations"] >= 2
