@@ -48,7 +48,25 @@ def get_analyzer(project_path: str = ".") -> JediAnalyzer:
 
 
 def initialize_plugins(project_path: str = ".") -> None:
-    """Initialize plugins for the project."""
+    """Initialize and activate framework-specific plugins for the project.
+
+    Scans the project for framework indicators and activates appropriate plugins
+    that provide specialized analysis tools. Currently supports Pydantic, Django,
+    and Flask frameworks.
+
+    Args:
+        project_path: Root directory path of the project to analyze
+
+    Note:
+        Plugin activation is automatic based on project detection. Failed plugin
+        initialization does not prevent server startup - plugins are optional.
+
+    Example:
+        The plugin system will automatically detect frameworks:
+        - Pydantic: Looks for BaseModel imports
+        - Django: Checks for Django imports and settings.py
+        - Flask: Scans for Flask app creation patterns
+    """
     global _plugins
     _plugins = []
 
@@ -148,16 +166,42 @@ def configure_packages(
 async def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
-    """Find symbol definitions in the project.
+    """Find symbol definitions in the project using semantic analysis.
+
+    Searches for class, function, variable, and module definitions using Jedi's
+    semantic analysis engine. Supports exact and fuzzy matching across configured
+    projects and namespace packages.
 
     Args:
-        name: Symbol name to search for
-        project_path: Root path of the project to search
-        fuzzy: Whether to use fuzzy matching
-        use_config: Whether to use configuration file for additional packages
+        name: Symbol name to search for (e.g., 'MyClass', 'my_function')
+        project_path: Root directory of the project to search (defaults to current directory)
+        fuzzy: Enable fuzzy matching for partial names (default False)
+        use_config: Load additional packages from configuration file (default True)
 
     Returns:
-        List of symbol locations with file, line, column, type, and import_paths
+        List of symbol matches with location and type information:
+        [
+            {
+                'name': 'MyClass',
+                'type': 'class',
+                'file': '/path/to/file.py',
+                'line': 10,
+                'column': 0,
+                'import_paths': ['mymodule.MyClass']
+            }
+        ]
+
+    Raises:
+        FileAccessError: If project path is not found or not accessible
+        AnalysisError: If Jedi analysis fails or encounters errors
+        ValidationError: If symbol name is invalid
+
+    Example:
+        >>> await find_symbol('User', project_path='/my/project')
+        [{'name': 'User', 'type': 'class', 'file': '/my/project/models.py', ...}]
+
+        >>> await find_symbol('parse', fuzzy=True)  # Finds 'parse_json', 'html_parser', etc.
+        [{'name': 'parse_json', 'type': 'function', ...}, ...]
     """
     try:
         # Use JediAnalyzer which now supports re-export tracking
