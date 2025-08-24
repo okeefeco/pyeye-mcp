@@ -385,6 +385,7 @@ During development, manually track:
 - **When using grep/find**: `python scripts/dogfooding_metrics.py grep`
 - **When MCP saves time**: `python scripts/dogfooding_metrics.py saved 5 "Found all references instantly"`
 - **When MCP prevents bugs**: `python scripts/dogfooding_metrics.py bug "Would have missed subclass"`
+- **Sync MCP metrics**: `python scripts/dogfooding_metrics.py sync`
 
 End session:
 
@@ -395,6 +396,17 @@ python scripts/dogfooding_metrics.py end
 # Get final MCP metrics
 mcp__python-intelligence__get_performance_metrics()
 ```
+
+### 🔄 New: Automatic MCP Metrics Integration
+
+The dogfooding system now automatically captures MCP tool usage:
+
+- **MCP Tool Calls**: Automatically logged via `pycodemcp.dogfooding_integration`
+- **Grep Detection**: Shell wrappers track grep/rg/find usage
+- **Real-time Sync**: `sync` command updates session with current MCP stats
+- **Adoption Rate**: Calculates MCP vs grep usage percentage
+
+This fixes the issue where 0% MCP adoption was being reported despite heavy MCP usage.
 
 ### Weekly Reporting
 
