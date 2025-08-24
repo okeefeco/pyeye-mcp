@@ -8,7 +8,6 @@ import contextlib
 import json
 import sys
 import threading
-from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -73,7 +72,7 @@ class SessionMetrics:
     parent_session: str | None = None
     start_time: str = field(default_factory=lambda: datetime.now().isoformat())
     end_time: str | None = None
-    mcp_operations: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    mcp_operations: dict[str, int] = field(default_factory=dict)  # Use dict, not defaultdict
     grep_operations: int = 0
     total_operations: int = 0
     errors: int = 0
@@ -119,9 +118,9 @@ class UnifiedMetricsCollector:
             "total_grep_operations": 0,
             "mcp_adoption_rate": 0.0,
             "tool_usage": {},
-            "hourly_activity": defaultdict(int),
-            "daily_activity": defaultdict(int),
-            "session_types": defaultdict(int),
+            "hourly_activity": {},
+            "daily_activity": {},
+            "session_types": {},
             "top_tools": [],
             "error_rate": 0.0,
             "cache_hit_rate": 0.0,
