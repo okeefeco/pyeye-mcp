@@ -103,6 +103,36 @@ class DogfoodingMetrics:
         )
         self._save_session(session)
 
+    def sync_mcp_metrics(self) -> dict[str, Any]:
+        """Sync current MCP metrics to the active session."""
+        if not self.session_file.exists():
+            return {"error": "No active session"}
+
+        try:
+            # Try to get fresh MCP metrics
+            current_metrics = self._get_mcp_metrics()
+
+            session = self._load_session()
+            session["current_metrics"] = current_metrics
+            session["last_sync"] = datetime.now().isoformat()
+
+            # Update MCP query count if we have it
+            if "total_mcp_calls" in current_metrics:
+                baseline_total = session.get("baseline_metrics", {}).get("total_mcp_calls", 0)
+                current_total = current_metrics.get("total_mcp_calls", 0)
+                session["mcp_queries_count"] = max(current_total - baseline_total, 0)
+
+            self._save_session(session)
+
+            return {
+                "synced": True,
+                "mcp_calls": session.get("mcp_queries_count", 0),
+                "session_id": session.get("id"),
+            }
+
+        except Exception as e:
+            return {"error": f"Failed to sync MCP metrics: {e}"}
+
     def generate_report(self, days: int = 7) -> dict[str, Any]:
         """Generate a report for the last N days."""
         if not self.history_file.exists():
@@ -153,20 +183,35 @@ class DogfoodingMetrics:
 
     def _get_mcp_metrics(self) -> dict[str, Any]:
         """Get current MCP performance metrics."""
-        # In production, this would call the actual MCP tool
-        # For now, return a structure that matches what we expect
         try:
-            # Try to get actual metrics if MCP is running
-            result = subprocess.run(
-                ["mcp", "call", "get_performance_metrics"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                return json.loads(result.stdout)  # type: ignore[no-any-return]
-        except Exception:
-            pass
+            # Try to import and use the dogfooding integration
+            import sys
+            from pathlib import Path
+
+            # Add the src directory to Python path to import our module
+            project_root = Path(__file__).parent.parent
+            src_path = project_root / "src"
+            if str(src_path) not in sys.path:
+                sys.path.insert(0, str(src_path))
+
+            from pycodemcp.dogfooding_integration import get_integration
+
+            integration = get_integration()
+            return integration.export_mcp_metrics_for_session()
+
+        except ImportError:
+            # Fallback: try subprocess call if integration not available
+            try:
+                result = subprocess.run(
+                    ["mcp", "call", "get_performance_metrics"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    return json.loads(result.stdout)  # type: ignore[no-any-return]
+            except Exception:
+                pass
 
         # Return empty metrics if MCP not available
         return {
@@ -181,7 +226,19 @@ class DogfoodingMetrics:
         end = datetime.fromisoformat(session["end_time"])
         duration_minutes = (end - start).total_seconds() / 60
 
-        mcp_count = len(session.get("mcp_queries", []))
+        # Get MCP call counts from final metrics if available
+        final_metrics = session.get("final_metrics", {})
+        baseline_metrics = session.get("baseline_metrics", {})
+
+        # Calculate delta in MCP calls
+        final_total = final_metrics.get("total_mcp_calls", 0)
+        baseline_total = baseline_metrics.get("total_mcp_calls", 0)
+        mcp_count = max(final_total - baseline_total, 0)
+
+        # Fallback to old counting method if metrics not available
+        if mcp_count == 0:
+            mcp_count = len(session.get("mcp_queries", []))
+
         grep_count = session.get("grep_count", 0)
 
         return {
@@ -312,6 +369,21 @@ def bug(description: str) -> None:
     metrics = DogfoodingMetrics()
     metrics.log_bug_prevented(description)
     click.echo(f"Logged prevented bug: {description}")
+
+
+@cli.command()
+def sync() -> None:
+    """Sync current MCP metrics to active session."""
+    metrics = DogfoodingMetrics()
+    result = metrics.sync_mcp_metrics()
+
+    if "error" in result:
+        click.echo(f"❌ {result['error']}")
+        return
+
+    mcp_calls = result.get("mcp_calls", 0)
+    session_id = result.get("session_id", "unknown")
+    click.echo(f"✅ Synced {mcp_calls} MCP calls for session {session_id}")
 
 
 if __name__ == "__main__":
