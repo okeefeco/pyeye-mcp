@@ -6,6 +6,7 @@ across all Claude sessions, including subagents and parallel sessions.
 
 import contextlib
 import json
+import os
 import sys
 import threading
 from dataclasses import asdict, dataclass, field
@@ -145,6 +146,46 @@ class UnifiedMetricsCollector:
             finally:
                 unlock_file(f)
 
+    def _update_json_atomic(self, file_path: Path, update_func: Any) -> None:
+        """Atomically read, update, and write JSON file.
+
+        This ensures that read-modify-write operations are atomic,
+        preventing race conditions on Windows where file locking
+        may not work as expected.
+        """
+        # Use a lock file to ensure atomicity across processes
+        lock_path = file_path.with_suffix(file_path.suffix + ".lock")
+        max_retries = 10
+        retry_delay = 0.1
+
+        for attempt in range(max_retries):
+            try:
+                # Try to create lock file exclusively
+                lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                try:
+                    # Read current data
+                    data = self._read_json(file_path)
+                    # Apply update function
+                    update_func(data)
+                    # Write updated data
+                    self._write_json(file_path, data)
+                finally:
+                    # Always release lock
+                    os.close(lock_fd)
+                    lock_path.unlink(missing_ok=True)
+                return
+            except FileExistsError:
+                # Lock file exists, another process is updating
+                if attempt < max_retries - 1:
+                    import time
+
+                    time.sleep(retry_delay)
+                else:
+                    # Fall back to non-atomic operation
+                    data = self._read_json(file_path)
+                    update_func(data)
+                    self._write_json(file_path, data)
+
     def _append_jsonl(self, file_path: Path, data: dict[str, Any]) -> None:
         """Append to JSONL file with file locking."""
         with open(file_path, "a") as f:
@@ -182,10 +223,13 @@ class UnifiedMetricsCollector:
             metadata=metadata or {},
         )
 
-        # Store in active sessions
-        active_sessions = self._read_json(self.active_sessions_file)
-        active_sessions[session_id] = asdict(session)
-        self._write_json(self.active_sessions_file, active_sessions)
+        # Store in active sessions using atomic update
+        session_dict = asdict(session)
+
+        def update_sessions(data: dict[str, Any]) -> None:
+            data[session_id] = session_dict
+
+        self._update_json_atomic(self.active_sessions_file, update_sessions)
 
         # Set as current session for this thread
         self._local.session_id = session_id
@@ -212,23 +256,25 @@ class UnifiedMetricsCollector:
             # Auto-create session if needed
             session_id = self.start_session(session_type="auto")
 
-        active_sessions = self._read_json(self.active_sessions_file)
-        if session_id in active_sessions:
-            session = active_sessions[session_id]
-            session["mcp_operations"][tool_name] = session["mcp_operations"].get(tool_name, 0) + 1
-            session["total_operations"] += 1
-            if not success:
-                session["errors"] = session.get("errors", 0) + 1
+        def update_mcp_op(data: dict[str, Any]) -> None:
+            if session_id in data:
+                session = data[session_id]
+                session["mcp_operations"][tool_name] = (
+                    session["mcp_operations"].get(tool_name, 0) + 1
+                )
+                session["total_operations"] += 1
+                if not success:
+                    session["errors"] = session.get("errors", 0) + 1
 
-            # Store duration if provided
-            if duration_ms is not None:
-                if "operation_times" not in session:
-                    session["operation_times"] = {}
-                if tool_name not in session["operation_times"]:
-                    session["operation_times"][tool_name] = []
-                session["operation_times"][tool_name].append(duration_ms)
+                # Store duration if provided
+                if duration_ms is not None:
+                    if "operation_times" not in session:
+                        session["operation_times"] = {}
+                    if tool_name not in session["operation_times"]:
+                        session["operation_times"][tool_name] = []
+                    session["operation_times"][tool_name].append(duration_ms)
 
-            self._write_json(self.active_sessions_file, active_sessions)
+        self._update_json_atomic(self.active_sessions_file, update_mcp_op)
 
     def record_grep_operation(self, session_id: str | None = None) -> None:
         """Record a grep/text search operation."""
@@ -236,11 +282,12 @@ class UnifiedMetricsCollector:
         if not session_id:
             return
 
-        active_sessions = self._read_json(self.active_sessions_file)
-        if session_id in active_sessions:
-            active_sessions[session_id]["grep_operations"] += 1
-            active_sessions[session_id]["total_operations"] += 1
-            self._write_json(self.active_sessions_file, active_sessions)
+        def update_grep_op(data: dict[str, Any]) -> None:
+            if session_id in data:
+                data[session_id]["grep_operations"] += 1
+                data[session_id]["total_operations"] += 1
+
+        self._update_json_atomic(self.active_sessions_file, update_grep_op)
 
     def update_cache_stats(
         self, hits: int = 0, misses: int = 0, session_id: str | None = None
@@ -250,11 +297,12 @@ class UnifiedMetricsCollector:
         if not session_id:
             return
 
-        active_sessions = self._read_json(self.active_sessions_file)
-        if session_id in active_sessions:
-            active_sessions[session_id]["cache_hits"] += hits
-            active_sessions[session_id]["cache_misses"] += misses
-            self._write_json(self.active_sessions_file, active_sessions)
+        def update_cache(data: dict[str, Any]) -> None:
+            if session_id in data:
+                data[session_id]["cache_hits"] += hits
+                data[session_id]["cache_misses"] += misses
+
+        self._update_json_atomic(self.active_sessions_file, update_cache)
 
     def end_session(self, session_id: str | None = None) -> dict[str, Any]:
         """End a metrics session and move to completed.
@@ -266,12 +314,13 @@ class UnifiedMetricsCollector:
         if not session_id:
             return {}
 
+        # First get the session to calculate stats
         active_sessions = self._read_json(self.active_sessions_file)
         if session_id not in active_sessions:
             return {}
 
-        # Mark session as ended
-        session: dict[str, Any] = active_sessions[session_id]
+        # Get session for calculations
+        session: dict[str, Any] = active_sessions[session_id].copy()
         session["end_time"] = datetime.now().isoformat()
 
         # Calculate session statistics
@@ -304,8 +353,13 @@ class UnifiedMetricsCollector:
 
         # Move to completed sessions
         self._append_jsonl(self.completed_sessions_file, session)
-        del active_sessions[session_id]
-        self._write_json(self.active_sessions_file, active_sessions)
+
+        # Remove from active sessions atomically
+        def remove_session(data: dict[str, Any]) -> None:
+            if session_id in data:
+                del data[session_id]
+
+        self._update_json_atomic(self.active_sessions_file, remove_session)
 
         # Update aggregated statistics
         self._update_aggregated_stats(session)
