@@ -4,14 +4,40 @@ This module provides persistent metrics storage that captures MCP operations
 across all Claude sessions, including subagents and parallel sessions.
 """
 
-import fcntl
+import contextlib
 import json
+import sys
 import threading
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+# Platform-specific file locking
+if sys.platform == "win32":
+    import msvcrt
+
+    def lock_file(file_obj: Any, exclusive: bool = True) -> None:
+        """Lock file on Windows."""
+        with contextlib.suppress(OSError):
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_NBLCK if exclusive else msvcrt.LK_NBRLCK, 1)
+
+    def unlock_file(file_obj: Any) -> None:
+        """Unlock file on Windows."""
+        with contextlib.suppress(OSError):
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def lock_file(file_obj: Any, exclusive: bool = True) -> None:
+        """Lock file on Unix."""
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+
+    def unlock_file(file_obj: Any) -> None:
+        """Unlock file on Unix."""
+        fcntl.flock(file_obj.fileno(), fcntl.LOCK_UN)
 
 
 @dataclass
@@ -80,30 +106,30 @@ class UnifiedMetricsCollector:
     def _read_json(self, file_path: Path) -> dict[str, Any]:
         """Read JSON file with file locking."""
         with open(file_path) as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            lock_file(f, exclusive=False)
             try:
                 data: dict[str, Any] = json.load(f)
                 return data
             finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                unlock_file(f)
 
     def _write_json(self, file_path: Path, data: dict[str, Any]) -> None:
         """Write JSON file with file locking."""
         with open(file_path, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            lock_file(f, exclusive=True)
             try:
                 json.dump(data, f, indent=2, default=str)
             finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                unlock_file(f)
 
     def _append_jsonl(self, file_path: Path, data: dict[str, Any]) -> None:
         """Append to JSONL file with file locking."""
         with open(file_path, "a") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            lock_file(f, exclusive=True)
             try:
                 f.write(json.dumps(data, default=str) + "\n")
             finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                unlock_file(f)
 
     def start_session(
         self,
