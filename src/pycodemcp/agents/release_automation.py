@@ -177,14 +177,14 @@ class ReleaseAutomationAgent:
             )
 
         # Check version consistency
-        print("✅ Checking version consistency...")
+        print("[OK] Checking version consistency...")
         result = self._run_command(
             ["pytest", "tests/test_version_consistency.py", "-v", "--no-cov"], check=False
         )
         if result.returncode != 0:
             raise ValidationError("Version consistency check failed.")
 
-        print("✅ All prerequisites validated successfully")
+        print("[OK] All prerequisites validated successfully")
 
     def _determine_target_version(self, parsed: dict[str, Any]) -> str:
         """Determine the target version for the release.
@@ -267,10 +267,10 @@ class ReleaseAutomationAgent:
         for file_path, pattern, replacement, section_name in all_locations:
             path = self.project_root / file_path
             if not path.exists():
-                print(f"⚠️  Warning: {file_path} not found, skipping")
+                print(f"[WARNING] {file_path} not found, skipping")
                 continue
 
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
 
             # If section specified, only replace within that section
             if section_name:
@@ -285,32 +285,32 @@ class ReleaseAutomationAgent:
                     )
                     content = content.replace(section_content, updated_section)
                 else:
-                    print(f"⚠️  Warning: Section {section_name} not found in {file_path}")
+                    print(f"[WARNING] Section {section_name} not found in {file_path}")
             else:
                 content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
-            path.write_text(content)
-            print(f"✅ Updated version in {file_path}")
+            path.write_text(content, encoding="utf-8")
+            print(f"[OK] Updated version in {file_path}")
 
     def _create_release_branch(self, version: str) -> dict[str, Any]:
         """Create and push release branch."""
         branch_name = f"release/{version}"
 
-        print(f"🌿 Creating release branch: {branch_name}")
+        print(f"[BRANCH] Creating release branch: {branch_name}")
         self._run_command(["git", "checkout", "-b", branch_name])
 
-        print("📝 Committing version changes...")
+        print("[EDIT] Committing version changes...")
         self._run_command(["git", "add", "-A"])
         self._run_command(["git", "commit", "-m", f"chore: prepare release v{version}"])
 
-        print(f"🚀 Pushing branch {branch_name}...")
+        print(f"[DEPLOY] Pushing branch {branch_name}...")
         self._run_command(["git", "push", "-u", "origin", branch_name])
 
         return {"name": branch_name, "commit_message": f"chore: prepare release v{version}"}
 
     def _create_pull_request(self, version: str, branch_info: dict[str, Any]) -> dict[str, Any]:
         """Create pull request for the release."""
-        print("📋 Creating pull request...")
+        print("[INFO] Creating pull request...")
 
         pr_body = f"""Prepare release v{version}
 
@@ -324,7 +324,7 @@ class ReleaseAutomationAgent:
 - [ ] CHANGELOG.md updated
 - [ ] Ready for release
 
-🤖 Generated with Release Automation Agent
+[BOT] Generated with Release Automation Agent
 """
 
         result = self._run_command(
@@ -344,10 +344,10 @@ class ReleaseAutomationAgent:
 
         if result.returncode == 0:
             pr_url = result.stdout.strip()
-            print(f"✅ Pull request created: {pr_url}")
+            print(f"[OK] Pull request created: {pr_url}")
             return {"url": pr_url, "title": f"Release v{version}", "body": pr_body}
         else:
-            print("⚠️  Could not create PR automatically")
+            print("[WARNING] Could not create PR automatically")
             return {
                 "error": result.stderr,
                 "manual_instructions": f"Please create PR manually from branch {branch_info['name']}",
@@ -356,7 +356,7 @@ class ReleaseAutomationAgent:
     def _generate_next_steps(self, version: str) -> list[str]:
         """Generate next steps for the user."""
         return [
-            "✅ Release preparation complete!",
+            "[OK] Release preparation complete!",
             "",
             "Next steps:",
             "1. Review and merge the pull request",

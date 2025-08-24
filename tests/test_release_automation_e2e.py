@@ -54,18 +54,19 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "--cov=src --cov-report=term-missing --cov-fail-under=85"
-"""
+""",
+            encoding="utf-8",
         )
 
         # Create source structure
         src_dir = self.temp_dir / "src" / "pycodemcp"
         src_dir.mkdir(parents=True)
-        (src_dir / "__init__.py").write_text('__version__ = "0.1.0"\n')
+        (src_dir / "__init__.py").write_text('__version__ = "0.1.0"\n', encoding="utf-8")
 
         # Create basic test file
         tests_dir = self.temp_dir / "tests"
         tests_dir.mkdir()
-        (tests_dir / "__init__.py").write_text("")
+        (tests_dir / "__init__.py").write_text("", encoding="utf-8")
         (tests_dir / "test_version_consistency.py").write_text(
             '''
 """Test version consistency across files."""
@@ -89,7 +90,9 @@ def test_version_consistency():
         # Copy the release agent script from the current project
         current_script = Path("scripts/release_agent.py")
         if current_script.exists():
-            (scripts_dir / "release_agent.py").write_text(current_script.read_text())
+            (scripts_dir / "release_agent.py").write_text(
+                current_script.read_text(encoding="utf-8"), encoding="utf-8"
+            )
 
     def test_cli_help_functionality(self):
         """Test that CLI help works correctly."""
@@ -194,14 +197,16 @@ def test_version_consistency():
         agent._update_version("0.2.5")
 
         # Check pyproject.toml
-        content = (self.temp_dir / "pyproject.toml").read_text()
+        content = (self.temp_dir / "pyproject.toml").read_text(encoding="utf-8")
         assert 'version = "0.2.5"' in content
 
         # Check that commitizen version was updated
         assert '[tool.commitizen]\nname = "cz_conventional_commits"\nversion = "0.2.5"' in content
 
         # Check __init__.py
-        init_content = (self.temp_dir / "src" / "pycodemcp" / "__init__.py").read_text()
+        init_content = (self.temp_dir / "src" / "pycodemcp" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
         assert '__version__ = "0.2.5"' in init_content
 
     def test_natural_language_parsing_comprehensive(self):
@@ -275,7 +280,8 @@ description = "Test project"
 
 [tool.commitizen]
 version = "0.2.0.dev0"
-"""
+""",
+            encoding="utf-8",
         )
 
         from pycodemcp.agents.release_automation import create_release_automation_agent
