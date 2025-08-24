@@ -492,11 +492,17 @@ We're tracking progress toward these goals:
 → **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
 → **NEVER use**: Manual `git worktree add` commands
 
+#### "Push and create PR" / "Create a PR" / "Monitor CI" / "Check if CI passes"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
+→ **NEVER use**: Manual `git push`, `gh pr create`, `gh run list` sequences
+
 ### Available Agents
 
 - **smart-commit**: Intelligent git commit workflow with pre-commit validation
 - **cross-platform-validator**: Validates cross-platform compatibility
 - **worktree-manager**: Safe worktree operations with session tracking
+- **pr-workflow**: Complete PR lifecycle - push, create/update PR, monitor CI
 - **general-purpose**: For complex multi-step research tasks
 
 **Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
