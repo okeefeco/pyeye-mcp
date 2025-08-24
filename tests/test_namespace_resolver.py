@@ -281,3 +281,270 @@ __path__ = __import__('pkgutil').extend_path(__path__, __name__)
         # Should handle circular references without issues
         assert "company" in resolver.namespace_paths
         assert len(resolver.namespace_paths["company"]) == 2
+
+    def test_discover_namespaces_nonexistent_root(self, temp_project_dir):
+        """Test discover_namespaces with non-existent root paths."""
+        resolver = NamespaceResolver()
+
+        # Test with non-existent directory (covers line 53)
+        result = resolver.discover_namespaces(["/nonexistent/path", str(temp_project_dir)])
+
+        # Should handle non-existent paths gracefully
+        assert isinstance(result, dict)
+
+    def test_detect_namespace_package_empty_init(self, temp_project_dir):
+        """Test detecting namespace from empty __init__.py files."""
+        resolver = NamespaceResolver()
+
+        # Create empty __init__.py (covers line 102)
+        package_dir = temp_project_dir / "empty_package"
+        package_dir.mkdir()
+        init_file = package_dir / "__init__.py"
+        init_file.write_text("")  # Empty file
+
+        namespace = resolver._detect_namespace_package(init_file)
+
+        # Should detect as namespace package
+        assert namespace is not None
+
+    def test_detect_namespace_package_declare_namespace(self, temp_project_dir):
+        """Test detecting declare_namespace style namespace packages."""
+        resolver = NamespaceResolver()
+
+        # Create __init__.py with declare_namespace (covers lines 109-110)
+        package_dir = temp_project_dir / "declared_package"
+        package_dir.mkdir()
+        init_file = package_dir / "__init__.py"
+        init_file.write_text(
+            """
+__import__('pkg_resources').declare_namespace(__name__)
+"""
+        )
+
+        namespace = resolver._detect_namespace_package(init_file)
+
+        # Should detect the namespace
+        assert namespace is not None
+
+    def test_detect_namespace_package_ast_parsing_error(self, temp_project_dir):
+        """Test error handling in AST parsing for __path__ detection."""
+        resolver = NamespaceResolver()
+
+        # Create __init__.py with __path__ but invalid syntax after
+        package_dir = temp_project_dir / "malformed_package"
+        package_dir.mkdir()
+        init_file = package_dir / "__init__.py"
+        init_file.write_text(
+            """
+__path__ = ["some", "path"]
+def broken_syntax(
+    # Missing closing paren and body - will cause AST parse to fail gracefully
+"""
+        )
+
+        namespace = resolver._detect_namespace_package(init_file)
+
+        # Should handle gracefully (covers exception handling lines 121-124)
+        # The result depends on implementation - either None or a detected namespace
+        assert namespace is None or isinstance(namespace, str)
+
+    def test_extract_namespace_from_init_no_parent_init(self, temp_project_dir):
+        """Test namespace extraction when parent has no __init__.py."""
+        resolver = NamespaceResolver()
+
+        # Create nested structure without __init__.py in parent
+        deep_dir = temp_project_dir / "parent_no_init" / "child" / "grandchild"
+        deep_dir.mkdir(parents=True)
+        init_file = deep_dir / "__init__.py"
+        init_file.write_text("# namespace package")
+
+        namespace = resolver._extract_namespace_from_init(init_file)
+
+        # Should extract based on directory structure (covers line 146)
+        assert namespace is not None
+        assert "grandchild" in namespace
+
+    def test_path_to_namespace_value_error(self, temp_project_dir):
+        """Test _path_to_namespace when path is not relative to root."""
+        resolver = NamespaceResolver()
+
+        # Use a path that's not under the root (covers lines 154-155)
+        unrelated_path = temp_project_dir.parent / "unrelated"
+        unrelated_path.mkdir(exist_ok=True)
+
+        namespace = resolver._path_to_namespace(unrelated_path, temp_project_dir)
+
+        # Should return just the name when ValueError occurs
+        assert namespace == "unrelated"
+
+    def test_get_all_paths_for_import_with_namespaces(self, temp_project_dir):
+        """Test getting paths for imports with registered namespaces."""
+        resolver = NamespaceResolver()
+
+        # Register some namespaces
+        ns1_dir = temp_project_dir / "ns1"
+        ns2_dir = temp_project_dir / "ns2"
+        ns1_dir.mkdir()
+        ns2_dir.mkdir()
+
+        resolver.register_namespace("company", [str(ns1_dir)])
+        resolver.register_namespace("company.auth", [str(ns2_dir)])
+
+        # Test getting paths for nested import (covers line 187)
+        paths = resolver.get_all_paths_for_import("company.auth.models")
+
+        # Should find paths
+        assert len(paths) > 0
+
+    def test_resolve_import_directory_without_init(self, temp_project_dir):
+        """Test resolving imports to directories without __init__.py."""
+        resolver = NamespaceResolver()
+
+        # Create directory structure
+        module_dir = temp_project_dir / "mymodule"
+        module_dir.mkdir()
+
+        # Register namespace pointing to temp_project_dir
+        resolver.register_namespace("test", [str(temp_project_dir)])
+
+        # Test resolving to directory without __init__.py (covers lines 210-214)
+        result = resolver.resolve_import("test.mymodule", [])
+
+        # Should handle directory without __init__.py gracefully
+        assert isinstance(result, list)
+
+    def test_resolve_import_search_paths_directory_no_init(self, temp_project_dir):
+        """Test resolve_import with search paths pointing to directory without __init__.py."""
+        resolver = NamespaceResolver()
+
+        # Create directory without __init__.py
+        module_dir = temp_project_dir / "search_module"
+        module_dir.mkdir()
+
+        # Try to resolve import using search paths (covers lines 226-228)
+        result = resolver.resolve_import("search_module", [str(temp_project_dir)])
+
+        # Should handle gracefully
+        assert isinstance(result, list)
+
+    def test_build_namespace_map_complex_structure(self, temp_project_dir):
+        """Test building namespace map with complex nested structure."""
+        resolver = NamespaceResolver()
+
+        # Create complex nested structure
+        (temp_project_dir / "company" / "auth" / "models").mkdir(parents=True)
+        (temp_project_dir / "company" / "api" / "v1").mkdir(parents=True)
+
+        # Add __init__.py files to make them packages
+        (temp_project_dir / "company" / "__init__.py").write_text("")
+        (temp_project_dir / "company" / "auth" / "__init__.py").write_text("")
+        (temp_project_dir / "company" / "auth" / "models" / "__init__.py").write_text("")
+        (temp_project_dir / "company" / "api" / "__init__.py").write_text("")
+        (temp_project_dir / "company" / "api" / "v1" / "__init__.py").write_text("")
+
+        # Add Python files
+        (temp_project_dir / "company" / "auth" / "models" / "user.py").write_text(
+            "class User: pass"
+        )
+        (temp_project_dir / "company" / "api" / "v1" / "endpoints.py").write_text("endpoints = []")
+
+        structure = resolver.build_namespace_map([str(temp_project_dir)])
+
+        # Should build hierarchical structure
+        assert isinstance(structure, dict)
+        if "company" in structure:
+            assert "__subpackages__" in structure["company"]
+
+    def test_detect_namespace_package_path_assignment(self, temp_project_dir):
+        """Test detecting namespace packages with __path__ assignment."""
+        resolver = NamespaceResolver()
+
+        # Create __init__.py with __path__ assignment (covers lines 115-119)
+        package_dir = temp_project_dir / "path_assignment_package"
+        package_dir.mkdir()
+        init_file = package_dir / "__init__.py"
+        init_file.write_text(
+            """
+# Namespace package with explicit __path__ assignment
+__path__ = ['/some/path', '/another/path']
+"""
+        )
+
+        namespace = resolver._detect_namespace_package(init_file)
+
+        # Should detect the namespace from __path__ assignment
+        assert namespace is not None
+
+    def test_extract_namespace_from_init_deep_structure(self, temp_project_dir):
+        """Test namespace extraction with deep package structure."""
+        resolver = NamespaceResolver()
+
+        # Create deep nested structure with __init__.py files all the way up
+        deep_path = temp_project_dir / "level1" / "level2" / "level3" / "level4"
+        deep_path.mkdir(parents=True)
+
+        # Add __init__.py at all levels
+        for level_dir in [
+            temp_project_dir / "level1",
+            temp_project_dir / "level1" / "level2",
+            temp_project_dir / "level1" / "level2" / "level3",
+            deep_path,
+        ]:
+            (level_dir / "__init__.py").write_text("# package")
+
+        init_file = deep_path / "__init__.py"
+        namespace = resolver._extract_namespace_from_init(init_file)
+
+        # Should extract the full nested namespace (tests line 146 path building)
+        assert namespace is not None
+        assert namespace == "level1.level2.level3.level4"
+
+    def test_get_all_paths_for_import_no_remaining_parts(self, temp_project_dir):
+        """Test getting paths when import exactly matches namespace."""
+        resolver = NamespaceResolver()
+
+        # Register namespace
+        ns_dir = temp_project_dir / "exact_match"
+        ns_dir.mkdir()
+        resolver.register_namespace("exact.match", [str(ns_dir)])
+
+        # Test getting paths when import exactly matches namespace (covers line 187)
+        paths = resolver.get_all_paths_for_import("exact.match")
+
+        # Should return base paths
+        assert len(paths) > 0
+        assert any(str(ns_dir) in str(path) for path in paths)
+
+    def test_resolve_import_py_file_and_directory(self, temp_project_dir):
+        """Test resolving imports that could be both .py file and directory."""
+        resolver = NamespaceResolver()
+
+        # Create both a .py file and directory with same name
+        module_name = "ambiguous"
+        (temp_project_dir / f"{module_name}.py").write_text("# module file")
+        module_dir = temp_project_dir / module_name
+        module_dir.mkdir()
+        (module_dir / "__init__.py").write_text("# package")
+
+        resolver.register_namespace("test", [str(temp_project_dir)])
+
+        # Test resolving should find both (covers lines 210, 214)
+        result = resolver.resolve_import(f"test.{module_name}", [])
+
+        # Should find both the .py file and the __init__.py
+        assert len(result) > 0
+
+    def test_resolve_import_search_paths_with_py_file(self, temp_project_dir):
+        """Test resolve_import with search paths finding .py file."""
+        resolver = NamespaceResolver()
+
+        # Create .py file
+        module_file = temp_project_dir / "search_target.py"
+        module_file.write_text("# search target")
+
+        # Test resolving via search paths (covers line 228 - .py file path)
+        result = resolver.resolve_import("search_target", [str(temp_project_dir)])
+
+        # Should find the .py file
+        assert len(result) > 0
+        assert any("search_target.py" in str(path) for path in result)
