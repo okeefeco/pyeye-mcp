@@ -36,16 +36,36 @@ from pathlib import Path
 def normalize_path(path: str | Path) -> Path:
     """Normalize a path to its canonical form.
 
-    This resolves symlinks, makes the path absolute, and handles
-    platform-specific quirks like /var -> /private/var on macOS.
+    This makes the path absolute and resolves "." and ".." components.
+    For existing files/directories, it will also resolve symlinks.
+    For non-existent paths, it normalizes the path structure without
+    requiring the file to exist.
 
     Args:
         path: Path to normalize
 
     Returns:
-        Resolved absolute Path object
+        Normalized absolute Path object
     """
-    return Path(path).resolve()
+    path_obj = Path(path)
+
+    # If path is already absolute, just resolve it normally
+    if path_obj.is_absolute():
+        try:
+            # Try to resolve symlinks if the path exists
+            return path_obj.resolve()
+        except (OSError, RuntimeError):
+            # If resolve fails (path doesn't exist or permission issues),
+            # fall back to manual normalization
+            return path_obj.absolute()
+    else:
+        # For relative paths, make absolute first then try to resolve
+        abs_path = path_obj.absolute()
+        try:
+            return abs_path.resolve()
+        except (OSError, RuntimeError):
+            # If resolve fails, return the absolute path
+            return abs_path
 
 
 def path_to_key(path: str | Path) -> str:

@@ -307,8 +307,10 @@ class TestEdgeCases:
     def test_normalize_path_error_handling(self, mock_resolve):
         """Test error handling in normalize_path."""
         mock_resolve.side_effect = OSError("Permission denied")
-        with pytest.raises(OSError):
-            normalize_path("/restricted/path")
+        # normalize_path should gracefully handle errors and fall back to absolute()
+        result = normalize_path("/restricted/path")
+        assert result.is_absolute()
+        assert str(result).endswith("/restricted/path") or str(result) == "/restricted/path"
 
     def test_path_with_environment_variables(self):
         """Test paths with environment variables."""
