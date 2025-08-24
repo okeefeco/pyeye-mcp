@@ -1,0 +1,6 @@
+﻿pycodemcp.server.configure\_packages
+====================================
+
+.. currentmodule:: pycodemcp.server
+
+.. autofunction:: configure_packages

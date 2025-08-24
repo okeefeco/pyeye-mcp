@@ -1,0 +1,649 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contributing &mdash; Python Code Intelligence MCP Server v0.1</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Configuration" href="configuration.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Python Code Intelligence MCP Server
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#mcp-server-setup">MCP Server Setup</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#for-claude-code">For Claude Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#for-other-mcp-clients">For Other MCP Clients</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#basic-configuration">Basic Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#first-steps">First Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#framework-detection">Framework Detection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#performance-features">Performance Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#debug-mode">Debug Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#configuration-validation">Configuration Validation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#support">Support</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="architecture/index.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="architecture/overview.html">Architecture Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#system-components">System Components</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#core-server-layer">Core Server Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#analysis-layer">Analysis Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#caching-layer">Caching Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#data-flow">Data Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#request-processing">Request Processing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#cross-project-analysis">Cross-Project Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#configuration-system">Configuration System</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#namespace-resolution">Namespace Resolution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#performance-characteristics">Performance Characteristics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#scalability">Scalability</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#response-times">Response Times</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#memory-usage">Memory Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#graceful-degradation">Graceful Degradation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#error-categories">Error Categories</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#security-considerations">Security Considerations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#input-validation">Input Validation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#access-control">Access Control</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/overview.html#future-architecture">Future Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#planned-enhancements">Planned Enhancements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/overview.html#extension-points">Extension Points</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="architecture/plugin-system.html">Plugin System</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#plugin-architecture">Plugin Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#base-plugin-interface">Base Plugin Interface</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#plugin-lifecycle">Plugin Lifecycle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#auto-detection-logic">Auto-Detection Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#built-in-plugins">Built-in Plugins</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#pydantic-plugin">Pydantic Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#django-plugin">Django Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#flask-plugin">Flask Plugin</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#custom-plugin-development">Custom Plugin Development</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#creating-a-custom-plugin">Creating a Custom Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#plugin-best-practices">Plugin Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#plugin-configuration">Plugin Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#namespace-support">Namespace Support</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#scope-resolution">Scope Resolution</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#framework-integration">Framework Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#plugin-registry">Plugin Registry</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#registration-process">Registration Process</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#dynamic-loading">Dynamic Loading</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/plugin-system.html#plugin-testing">Plugin Testing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#test-structure">Test Structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/plugin-system.html#mock-strategies">Mock Strategies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="architecture/caching-strategy.html">Caching Strategy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#cache-architecture">Cache Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#multi-level-caching">Multi-Level Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#cache-keys-and-scoping">Cache Keys and Scoping</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#cache-entry-format">Cache Entry Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#invalidation-strategies">Invalidation Strategies</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#file-based-invalidation">File-Based Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#smart-invalidation">Smart Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#time-based-invalidation">Time-Based Invalidation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#file-system-watching">File System Watching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#watchdog-integration">Watchdog Integration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#event-filtering">Event Filtering</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#cache-performance">Cache Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#hit-rate-optimization">Hit Rate Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#memory-management">Memory Management</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#persistence-options">Persistence Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#in-memory-default">In-Memory (Default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#file-based-persistence">File-Based Persistence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#redis-backend-future">Redis Backend (Future)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#cache-configuration">Cache Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#per-operation-settings">Per-Operation Settings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#environment-overrides">Environment Overrides</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#cache-monitoring">Cache Monitoring</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#metrics-collection">Metrics Collection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#performance-dashboard">Performance Dashboard</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#debugging-tools">Debugging Tools</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#development-guidelines">Development Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#operational-guidelines">Operational Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#common-pitfalls">Common Pitfalls</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="architecture/caching-strategy.html#future-enhancements">Future Enhancements</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="architecture/caching-strategy.html#planned-improvements">Planned Improvements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#core-mcp-tools">Core MCP Tools</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/index.html#navigation-tools">Navigation Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.find_symbol.html">pycodemcp.server.find_symbol</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.goto_definition.html">pycodemcp.server.goto_definition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.find_references.html">pycodemcp.server.find_references</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.get_type_info.html">pycodemcp.server.get_type_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.find_imports.html">pycodemcp.server.find_imports</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.get_call_hierarchy.html">pycodemcp.server.get_call_hierarchy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.find_subclasses.html">pycodemcp.server.find_subclasses</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/index.html#project-management-tools">Project Management Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.configure_packages.html">pycodemcp.server.configure_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.configure_namespace_package.html">pycodemcp.server.configure_namespace_package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.find_symbol_multi.html">pycodemcp.server.find_symbol_multi</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.list_project_structure.html">pycodemcp.server.list_project_structure</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/index.html#analysis-tools">Analysis Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.list_packages.html">pycodemcp.server.list_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.list_modules.html">pycodemcp.server.list_modules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.get_module_info.html">pycodemcp.server.get_module_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/generated/pycodemcp.server.analyze_dependencies.html">pycodemcp.server.analyze_dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/index.html#framework-specific-tools">Framework-Specific Tools</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="examples/index.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#quick-start-examples">Quick Start Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#basic-symbol-search">Basic Symbol Search</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#navigate-to-definition">Navigate to Definition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#find-all-references">Find All References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#type-information">Type Information</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#project-structure-analysis">Project Structure Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#dependency-analysis">Dependency Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#framework-specific-examples">Framework-Specific Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#pydantic-models">Pydantic Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#django-projects">Django Projects</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#flask-applications">Flask Applications</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#multi-project-configuration">Multi-Project Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#performance-examples">Performance Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#efficient-analysis-patterns">Efficient Analysis Patterns</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#cache-aware-operations">Cache-Aware Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#robust-error-handling">Robust Error Handling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#graceful-degradation">Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples/index.html#integration-examples">Integration Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#with-ides-and-editors">With IDEs and Editors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples/index.html#with-ci-cd-pipelines">With CI/CD Pipelines</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#configuration-sources">Configuration Sources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#project-configuration">Project Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#pycodemcp-json">.pycodemcp.json</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#pyproject-toml">pyproject.toml</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#global-configuration">Global Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#configuration-options">Configuration Options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#package-configuration">Package Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#cache-configuration">Cache Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#performance-configuration">Performance Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#plugin-configuration">Plugin Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#runtime-configuration">Runtime Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#api-configuration">API Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#dynamic-updates">Dynamic Updates</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#configuration-validation">Configuration Validation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#validate-configuration">Validate Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#troubleshooting-configuration">Troubleshooting Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#debug-configuration-loading">Debug Configuration Loading</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="configuration.html#validation-commands">Validation Commands</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#quick-start-for-contributors">Quick Start for Contributors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#development-workflow">Development Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#code-standards">Code Standards</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#critical-requirements">Critical Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#code-style">Code Style</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#testing-guidelines">Testing Guidelines</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#test-requirements">Test Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#performance-testing">Performance Testing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#mcp-first-development">MCP-First Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#required-workflow">Required Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#documentation">Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#documentation-requirements">Documentation Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#building-documentation">Building Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#plugin-development">Plugin Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#creating-custom-plugins">Creating Custom Plugins</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#submitting-changes">Submitting Changes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pull-request-process">Pull Request Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pr-requirements">PR Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#important-links">Important Links</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#recognition">Recognition</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Python Code Intelligence MCP Server</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Contributing</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/contributing.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="contributing">
+<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading"></a></h1>
+<p>Thank you for your interest in contributing to the Python Code Intelligence MCP Server! This guide will help you get started.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a condensed version of the contributing guide. For complete details including mandatory workflows, validation requirements, and development setup, see the main <a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> file.</p>
+</div>
+<section id="quick-start-for-contributors">
+<h2>Quick Start for Contributors<a class="headerlink" href="#quick-start-for-contributors" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p><strong>Fork and Clone</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/yourusername/python-code-intelligence-mcp.git
+<span class="nb">cd</span><span class="w"> </span>python-code-intelligence-mcp
+</pre></div>
+</div>
+</li>
+<li><p><strong>Set Up Development Environment</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>venv
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+pre-commit<span class="w"> </span>install
+</pre></div>
+</div>
+</li>
+<li><p><strong>Run Tests</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w"> </span>--cov<span class="o">=</span>src/pycodemcp<span class="w"> </span>--cov-fail-under<span class="o">=</span><span class="m">85</span>
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="development-workflow">
+<h2>Development Workflow<a class="headerlink" href="#development-workflow" title="Link to this heading"></a></h2>
+<p><strong>CRITICAL</strong>: This project follows a mandatory GitHub issue-based workflow:</p>
+<ol class="arabic simple">
+<li><p><strong>Always create or reference a GitHub issue</strong> before starting work</p></li>
+<li><p><strong>Use branch naming</strong>: <cite>type/issue-number-description</cite> (e.g., <cite>fix/42-symbol-search</cite>)</p></li>
+<li><p><strong>Never work directly on main branch</strong></p></li>
+<li><p><strong>All changes require tests</strong> with minimum 85% coverage</p></li>
+</ol>
+</section>
+<section id="code-standards">
+<h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading"></a></h2>
+<section id="critical-requirements">
+<h3>Critical Requirements<a class="headerlink" href="#critical-requirements" title="Link to this heading"></a></h3>
+<p>These are <strong>non-negotiable</strong> and will cause CI failures:</p>
+<ol class="arabic simple">
+<li><p><strong>Cross-Platform Paths</strong>: Always use <cite>.as_posix()</cite> for display/storage paths</p></li>
+<li><p><strong>Performance Tests</strong>: Use <cite>PerformanceThresholds</cite> framework, never naive timing assertions</p></li>
+<li><p><strong>Comprehensive Tests</strong>: All code changes require tests</p></li>
+</ol>
+</section>
+<section id="code-style">
+<h3>Code Style<a class="headerlink" href="#code-style" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Follow PEP 8 (enforced by black and ruff)</p></li>
+<li><p>Line length: 100 characters</p></li>
+<li><p>Use type hints for all functions</p></li>
+<li><p>Google-style docstrings</p></li>
+</ul>
+<p>Example docstring format:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">find_symbol</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find symbol definitions in the project using semantic analysis.</span>
+
+<span class="sd">    Searches for class, function, variable, and module definitions using Jedi&#39;s</span>
+<span class="sd">    semantic analysis engine. Supports exact and fuzzy matching.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: Symbol name to search for (e.g., &#39;MyClass&#39;, &#39;my_function&#39;)</span>
+<span class="sd">        fuzzy: Enable fuzzy matching for partial names (default False)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of symbol matches with location and type information:</span>
+<span class="sd">        [</span>
+<span class="sd">            {</span>
+<span class="sd">                &#39;name&#39;: &#39;MyClass&#39;,</span>
+<span class="sd">                &#39;type&#39;: &#39;class&#39;,</span>
+<span class="sd">                &#39;file&#39;: &#39;/path/to/file.py&#39;,</span>
+<span class="sd">                &#39;line&#39;: 10,</span>
+<span class="sd">                &#39;column&#39;: 0</span>
+<span class="sd">            }</span>
+<span class="sd">        ]</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        AnalysisError: If Jedi analysis fails</span>
+<span class="sd">        ValidationError: If symbol name is invalid</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; await find_symbol(&#39;User&#39;, project_path=&#39;/my/project&#39;)</span>
+<span class="sd">        [{&#39;name&#39;: &#39;User&#39;, &#39;type&#39;: &#39;class&#39;, ...}]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="testing-guidelines">
+<h2>Testing Guidelines<a class="headerlink" href="#testing-guidelines" title="Link to this heading"></a></h2>
+<section id="test-requirements">
+<h3>Test Requirements<a class="headerlink" href="#test-requirements" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>All new features</strong> must have comprehensive tests</p></li>
+<li><p><strong>All bug fixes</strong> must include regression tests</p></li>
+<li><p><strong>Minimum 85% coverage</strong> (CI enforced)</p></li>
+<li><p>Use the performance testing framework for timing-sensitive tests</p></li>
+</ul>
+</section>
+<section id="performance-testing">
+<h3>Performance Testing<a class="headerlink" href="#performance-testing" title="Link to this heading"></a></h3>
+<p>Always use the performance framework:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tests.utils.performance</span><span class="w"> </span><span class="kn">import</span> <span class="n">PerformanceThresholds</span><span class="p">,</span> <span class="n">assert_performance_threshold</span>
+
+<span class="c1"># Define CI-aware thresholds</span>
+<span class="n">search_threshold</span> <span class="o">=</span> <span class="n">PerformanceThresholds</span><span class="p">(</span>
+    <span class="n">base</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>        <span class="c1"># 100ms for local development</span>
+    <span class="n">linux_ci</span><span class="o">=</span><span class="mf">150.0</span><span class="p">,</span>   <span class="c1"># 150ms for Linux CI</span>
+    <span class="n">macos_ci</span><span class="o">=</span><span class="mf">300.0</span><span class="p">,</span>   <span class="c1"># 300ms for macOS CI</span>
+    <span class="n">windows_ci</span><span class="o">=</span><span class="mf">300.0</span><span class="p">,</span> <span class="c1"># 300ms for Windows CI</span>
+<span class="p">)</span>
+
+<span class="c1"># Use in tests</span>
+<span class="n">elapsed_ms</span> <span class="o">=</span> <span class="n">measure_operation</span><span class="p">()</span>
+<span class="n">assert_performance_threshold</span><span class="p">(</span><span class="n">elapsed_ms</span><span class="p">,</span> <span class="n">search_threshold</span><span class="p">,</span> <span class="s2">&quot;Symbol search&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="mcp-first-development">
+<h2>MCP-First Development<a class="headerlink" href="#mcp-first-development" title="Link to this heading"></a></h2>
+<p><strong>CRITICAL</strong>: We build Python Code Intelligence MCP - we <strong>must</strong> dogfood our own tools!</p>
+<section id="required-workflow">
+<h3>Required Workflow<a class="headerlink" href="#required-workflow" title="Link to this heading"></a></h3>
+<p>When working on Python code, you <strong>must</strong> use MCP tools instead of traditional search:</p>
+<p>❌ <strong>Wrong</strong>: <cite>grep -r “class MyClass”</cite>
+✅ <strong>Right</strong>: <cite>mcp__python-intelligence__find_symbol(“MyClass”)</cite></p>
+<p>❌ <strong>Wrong</strong>: <cite>find . -name “*.py” | xargs grep “import”</cite>
+✅ <strong>Right</strong>: <cite>mcp__python-intelligence__find_imports(“module”)</cite></p>
+<p>Before refactoring:
+1. <cite>mcp__python-intelligence__find_references()</cite> - <strong>NEVER skip this</strong>
+2. <cite>mcp__python-intelligence__find_subclasses()</cite> for inheritance
+3. <cite>mcp__python-intelligence__analyze_dependencies()</cite> for impact</p>
+</section>
+</section>
+<section id="documentation">
+<h2>Documentation<a class="headerlink" href="#documentation" title="Link to this heading"></a></h2>
+<section id="documentation-requirements">
+<h3>Documentation Requirements<a class="headerlink" href="#documentation-requirements" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>API changes</strong>: Update docstrings and API documentation</p></li>
+<li><p><strong>New features</strong>: Add examples and usage documentation</p></li>
+<li><p><strong>Architecture changes</strong>: Update architecture documentation</p></li>
+</ul>
+</section>
+<section id="building-documentation">
+<h3>Building Documentation<a class="headerlink" href="#building-documentation" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install documentation dependencies</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>sphinx<span class="w"> </span>sphinx-autodoc-typehints<span class="w"> </span>sphinx-rtd-theme
+
+<span class="c1"># Build documentation</span>
+<span class="nb">cd</span><span class="w"> </span>docs
+sphinx-build<span class="w"> </span>-b<span class="w"> </span>html<span class="w"> </span><span class="nb">source</span><span class="w"> </span>build
+
+<span class="c1"># Preview documentation</span>
+python<span class="w"> </span>-m<span class="w"> </span>http.server<span class="w"> </span><span class="m">8000</span><span class="w"> </span>-d<span class="w"> </span>build
+</pre></div>
+</div>
+</section>
+</section>
+<section id="plugin-development">
+<h2>Plugin Development<a class="headerlink" href="#plugin-development" title="Link to this heading"></a></h2>
+<section id="creating-custom-plugins">
+<h3>Creating Custom Plugins<a class="headerlink" href="#creating-custom-plugins" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p><strong>Inherit from AnalyzerPlugin</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pycodemcp.plugins.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalyzerPlugin</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyFrameworkPlugin</span><span class="p">(</span><span class="n">AnalyzerPlugin</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;MyFramework&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Implement required methods</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">detect</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect if this plugin should be activated.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_imports_in_files</span><span class="p">(</span><span class="s2">&quot;myframework&quot;</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register_tools</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return MCP tools provided by this plugin.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;find_my_components&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_components</span>
+    <span class="p">}</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Add comprehensive tests</strong> and documentation</p></li>
+</ol>
+</section>
+</section>
+<section id="submitting-changes">
+<h2>Submitting Changes<a class="headerlink" href="#submitting-changes" title="Link to this heading"></a></h2>
+<section id="pull-request-process">
+<h3>Pull Request Process<a class="headerlink" href="#pull-request-process" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p><strong>Ensure all tests pass</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w"> </span>--cov<span class="o">=</span>src/pycodemcp<span class="w"> </span>--cov-fail-under<span class="o">=</span><span class="m">85</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Run pre-commit checks</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>run<span class="w"> </span>--all-files
+</pre></div>
+</div>
+</li>
+<li><p><strong>Create pull request</strong> with:
+- Clear title and description
+- Reference to GitHub issue
+- Tests for all changes
+- Updated documentation if needed</p></li>
+</ol>
+</section>
+<section id="pr-requirements">
+<h3>PR Requirements<a class="headerlink" href="#pr-requirements" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>✅ All CI checks passing</p></li>
+<li><p>✅ Tests with 85%+ coverage</p></li>
+<li><p>✅ Pre-commit hooks passing</p></li>
+<li><p>✅ Issue reference in PR description</p></li>
+<li><p>✅ Documentation updates (if applicable)</p></li>
+</ul>
+</section>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>GitHub Issues</strong>: <a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/issues">Bug reports and feature requests</a></p></li>
+<li><p><strong>Discussions</strong>: <a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/discussions">Ask questions and share ideas</a></p></li>
+<li><p><strong>Documentation</strong>: This guide and API reference</p></li>
+</ul>
+</section>
+<section id="important-links">
+<h2>Important Links<a class="headerlink" href="#important-links" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/blob/main/CONTRIBUTING.md">Complete Contributing Guide</a> - <strong>Read this first!</strong></p></li>
+<li><p><a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/issues">GitHub Issues</a></p></li>
+<li><p><a class="reference external" href="architecture/index.html">Architecture Documentation</a></p></li>
+<li><p><a class="reference external" href="api/index.html">API Reference</a></p></li>
+</ul>
+</section>
+<section id="recognition">
+<h2>Recognition<a class="headerlink" href="#recognition" title="Link to this heading"></a></h2>
+<p>Contributors are recognized in:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/okeefeco/python-code-intelligence-mcp/blob/main/CHANGELOG.md">CHANGELOG.md</a></p></li>
+<li><p>GitHub contributors list</p></li>
+<li><p>Release notes for significant contributions</p></li>
+</ul>
+<p>Thank you for contributing to making Python code analysis more intelligent and accessible!</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="configuration.html" class="btn btn-neutral float-left" title="Configuration" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Python Code Intelligence MCP Contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

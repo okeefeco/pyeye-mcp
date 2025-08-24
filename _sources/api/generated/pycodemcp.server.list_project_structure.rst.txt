@@ -1,0 +1,6 @@
+﻿pycodemcp.server.list\_project\_structure
+=========================================
+
+.. currentmodule:: pycodemcp.server
+
+.. autofunction:: list_project_structure

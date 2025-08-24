@@ -1,0 +1,676 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Caching Strategy &mdash; Python Code Intelligence MCP Server v0.1</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="API Reference" href="../api/index.html" />
+    <link rel="prev" title="Plugin System" href="plugin-system.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Python Code Intelligence MCP Server
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#mcp-server-setup">MCP Server Setup</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#for-claude-code">For Claude Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#for-other-mcp-clients">For Other MCP Clients</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#basic-configuration">Basic Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#first-steps">First Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#framework-detection">Framework Detection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#performance-features">Performance Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#debug-mode">Debug Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#configuration-validation">Configuration Validation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#support">Support</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Architecture</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="overview.html">Architecture Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#system-components">System Components</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#core-server-layer">Core Server Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#analysis-layer">Analysis Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#caching-layer">Caching Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#data-flow">Data Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#request-processing">Request Processing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#cross-project-analysis">Cross-Project Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#configuration-system">Configuration System</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#namespace-resolution">Namespace Resolution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#performance-characteristics">Performance Characteristics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#scalability">Scalability</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#response-times">Response Times</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#memory-usage">Memory Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#graceful-degradation">Graceful Degradation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#error-categories">Error Categories</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#security-considerations">Security Considerations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#input-validation">Input Validation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#access-control">Access Control</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="overview.html#future-architecture">Future Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#planned-enhancements">Planned Enhancements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="overview.html#extension-points">Extension Points</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plugin-system.html">Plugin System</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#plugin-architecture">Plugin Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#base-plugin-interface">Base Plugin Interface</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#plugin-lifecycle">Plugin Lifecycle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#auto-detection-logic">Auto-Detection Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#built-in-plugins">Built-in Plugins</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#pydantic-plugin">Pydantic Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#django-plugin">Django Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#flask-plugin">Flask Plugin</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#custom-plugin-development">Custom Plugin Development</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#creating-a-custom-plugin">Creating a Custom Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#plugin-best-practices">Plugin Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#plugin-configuration">Plugin Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#namespace-support">Namespace Support</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#scope-resolution">Scope Resolution</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#framework-integration">Framework Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#plugin-registry">Plugin Registry</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#registration-process">Registration Process</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#dynamic-loading">Dynamic Loading</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="plugin-system.html#plugin-testing">Plugin Testing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#test-structure">Test Structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="plugin-system.html#mock-strategies">Mock Strategies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Caching Strategy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#cache-architecture">Cache Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#multi-level-caching">Multi-Level Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cache-keys-and-scoping">Cache Keys and Scoping</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cache-entry-format">Cache Entry Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#invalidation-strategies">Invalidation Strategies</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#file-based-invalidation">File-Based Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#smart-invalidation">Smart Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#time-based-invalidation">Time-Based Invalidation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#file-system-watching">File System Watching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#watchdog-integration">Watchdog Integration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#event-filtering">Event Filtering</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cache-performance">Cache Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#hit-rate-optimization">Hit Rate Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#memory-management">Memory Management</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#persistence-options">Persistence Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#in-memory-default">In-Memory (Default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#file-based-persistence">File-Based Persistence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#redis-backend-future">Redis Backend (Future)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cache-configuration">Cache Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#configuration-options">Configuration Options</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#per-operation-settings">Per-Operation Settings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#environment-overrides">Environment Overrides</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cache-monitoring">Cache Monitoring</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#metrics-collection">Metrics Collection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#performance-dashboard">Performance Dashboard</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#debugging-tools">Debugging Tools</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#development-guidelines">Development Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#operational-guidelines">Operational Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#common-pitfalls">Common Pitfalls</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#future-enhancements">Future Enhancements</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#planned-improvements">Planned Improvements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#core-mcp-tools">Core MCP Tools</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#navigation-tools">Navigation Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_symbol.html">pycodemcp.server.find_symbol</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.goto_definition.html">pycodemcp.server.goto_definition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_references.html">pycodemcp.server.find_references</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_type_info.html">pycodemcp.server.get_type_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_imports.html">pycodemcp.server.find_imports</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_call_hierarchy.html">pycodemcp.server.get_call_hierarchy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_subclasses.html">pycodemcp.server.find_subclasses</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#project-management-tools">Project Management Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.configure_packages.html">pycodemcp.server.configure_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.configure_namespace_package.html">pycodemcp.server.configure_namespace_package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_symbol_multi.html">pycodemcp.server.find_symbol_multi</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_project_structure.html">pycodemcp.server.list_project_structure</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#analysis-tools">Analysis Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_packages.html">pycodemcp.server.list_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_modules.html">pycodemcp.server.list_modules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_module_info.html">pycodemcp.server.get_module_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.analyze_dependencies.html">pycodemcp.server.analyze_dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#framework-specific-tools">Framework-Specific Tools</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/index.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#quick-start-examples">Quick Start Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#basic-symbol-search">Basic Symbol Search</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#navigate-to-definition">Navigate to Definition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#find-all-references">Find All References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#type-information">Type Information</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#project-structure-analysis">Project Structure Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#dependency-analysis">Dependency Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#framework-specific-examples">Framework-Specific Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#pydantic-models">Pydantic Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#django-projects">Django Projects</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#flask-applications">Flask Applications</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#multi-project-configuration">Multi-Project Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#performance-examples">Performance Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#efficient-analysis-patterns">Efficient Analysis Patterns</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#cache-aware-operations">Cache-Aware Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#robust-error-handling">Robust Error Handling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#graceful-degradation">Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples/index.html#integration-examples">Integration Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#with-ides-and-editors">With IDEs and Editors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples/index.html#with-ci-cd-pipelines">With CI/CD Pipelines</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-sources">Configuration Sources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#project-configuration">Project Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#pycodemcp-json">.pycodemcp.json</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#pyproject-toml">pyproject.toml</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#global-configuration">Global Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-options">Configuration Options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#package-configuration">Package Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#cache-configuration">Cache Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#performance-configuration">Performance Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#plugin-configuration">Plugin Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#runtime-configuration">Runtime Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#api-configuration">API Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#dynamic-updates">Dynamic Updates</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-validation">Configuration Validation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#validate-configuration">Validate Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#troubleshooting-configuration">Troubleshooting Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#debug-configuration-loading">Debug Configuration Loading</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#validation-commands">Validation Commands</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#quick-start-for-contributors">Quick Start for Contributors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#development-workflow">Development Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#code-standards">Code Standards</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#critical-requirements">Critical Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#code-style">Code Style</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#testing-guidelines">Testing Guidelines</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#test-requirements">Test Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#performance-testing">Performance Testing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#mcp-first-development">MCP-First Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#required-workflow">Required Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#documentation">Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#documentation-requirements">Documentation Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#building-documentation">Building Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#plugin-development">Plugin Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#creating-custom-plugins">Creating Custom Plugins</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#submitting-changes">Submitting Changes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#pull-request-process">Pull Request Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#pr-requirements">PR Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#important-links">Important Links</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#recognition">Recognition</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Python Code Intelligence MCP Server</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Architecture</a></li>
+      <li class="breadcrumb-item active">Caching Strategy</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/architecture/caching-strategy.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="caching-strategy">
+<h1>Caching Strategy<a class="headerlink" href="#caching-strategy" title="Link to this heading"></a></h1>
+<p>The caching system is a critical component that enables high-performance code analysis
+by intelligently caching results and invalidating them when source code changes.
+The system uses multiple layers of caching with sophisticated invalidation strategies.</p>
+<section id="cache-architecture">
+<h2>Cache Architecture<a class="headerlink" href="#cache-architecture" title="Link to this heading"></a></h2>
+<section id="multi-level-caching">
+<h3>Multi-Level Caching<a class="headerlink" href="#multi-level-caching" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>GranularCache (L1)</strong></dt><dd><p>File-level caching with dependency tracking. Stores analysis results with
+metadata about which files contributed to each result.</p>
+</dd>
+<dt><strong>ProjectCache (L2)</strong></dt><dd><p>Project-level caching for expensive operations like full project indexing.
+Uses LRU eviction with configurable size limits.</p>
+</dd>
+<dt><strong>Connection Pool Cache (L3)</strong></dt><dd><p>Caches Jedi Project instances to avoid expensive re-initialization.
+Maintains connection pools with automatic cleanup of stale connections.</p>
+</dd>
+</dl>
+</section>
+<section id="cache-keys-and-scoping">
+<h3>Cache Keys and Scoping<a class="headerlink" href="#cache-keys-and-scoping" title="Link to this heading"></a></h3>
+<p>Cache keys are hierarchical and include:</p>
+<ul class="simple">
+<li><p><strong>Project Path</strong>: Identifies which project the cache entry belongs to</p></li>
+<li><p><strong>Operation Type</strong>: Type of analysis (find_symbol, find_references, etc.)</p></li>
+<li><p><strong>Parameters</strong>: Normalized parameters (symbol name, file path, etc.)</p></li>
+<li><p><strong>Scope</strong>: Analysis scope (main, all, specific namespace)</p></li>
+</ul>
+<p>Example cache key structure:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/path/to/project:find_symbol:MyClass:main:1234567890
+</pre></div>
+</div>
+</section>
+<section id="cache-entry-format">
+<h3>Cache Entry Format<a class="headerlink" href="#cache-entry-format" title="Link to this heading"></a></h3>
+<p>Each cache entry contains:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">],</span>  <span class="c1"># Analysis results</span>
+    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="mi">1234567890</span><span class="p">,</span>  <span class="c1"># Creation timestamp</span>
+    <span class="s2">&quot;dependencies&quot;</span><span class="p">:</span> <span class="p">[</span>  <span class="c1"># Files that contributed to this result</span>
+        <span class="s2">&quot;/path/to/file1.py&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;/path/to/file2.py&quot;</span>
+    <span class="p">],</span>
+    <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="s2">&quot;main&quot;</span><span class="p">,</span>  <span class="c1"># Analysis scope</span>
+    <span class="s2">&quot;ttl&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>  <span class="c1"># Time-to-live in seconds</span>
+    <span class="s2">&quot;metadata&quot;</span><span class="p">:</span> <span class="p">{</span>  <span class="c1"># Additional metadata</span>
+        <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;0.1.0&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;analyzer&quot;</span><span class="p">:</span> <span class="s2">&quot;jedi&quot;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="invalidation-strategies">
+<h2>Invalidation Strategies<a class="headerlink" href="#invalidation-strategies" title="Link to this heading"></a></h2>
+<section id="file-based-invalidation">
+<h3>File-Based Invalidation<a class="headerlink" href="#file-based-invalidation" title="Link to this heading"></a></h3>
+<p><strong>File Modification</strong>: When a file changes, all cache entries that depend on
+that file are invalidated immediately.</p>
+<p><strong>Dependency Tracking</strong>: The system tracks which files contribute to each
+cached result, enabling precise invalidation.</p>
+<p><strong>Batch Invalidation</strong>: Multiple file changes trigger batch invalidation
+to improve performance during large refactoring operations.</p>
+</section>
+<section id="smart-invalidation">
+<h3>Smart Invalidation<a class="headerlink" href="#smart-invalidation" title="Link to this heading"></a></h3>
+<p><strong>Symbol-Level</strong>: Changes to specific symbols only invalidate related cache entries
+rather than the entire project cache.</p>
+<p><strong>Scope-Aware</strong>: Cache invalidation respects analysis scopes - changes in one
+namespace don’t invalidate cache entries for other namespaces.</p>
+<p><strong>Dependency Graph</strong>: Uses import dependency graphs to propagate invalidation
+through related modules.</p>
+</section>
+<section id="time-based-invalidation">
+<h3>Time-Based Invalidation<a class="headerlink" href="#time-based-invalidation" title="Link to this heading"></a></h3>
+<p><strong>TTL (Time-To-Live)</strong>: Default 5-minute TTL for all cache entries with
+configurable per-operation overrides.</p>
+<p><strong>Adaptive TTL</strong>: Frequently accessed entries get longer TTL, rarely accessed
+entries expire faster.</p>
+<p><strong>Background Refresh</strong>: Popular entries are refreshed in background before
+expiration to maintain low latency.</p>
+</section>
+</section>
+<section id="file-system-watching">
+<h2>File System Watching<a class="headerlink" href="#file-system-watching" title="Link to this heading"></a></h2>
+<section id="watchdog-integration">
+<h3>Watchdog Integration<a class="headerlink" href="#watchdog-integration" title="Link to this heading"></a></h3>
+<p>The system uses the <code class="docutils literal notranslate"><span class="pre">watchdog</span></code> library for efficient file system monitoring:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">CodebaseWatcher</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">cache</span><span class="p">:</span> <span class="n">GranularCache</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">observer</span> <span class="o">=</span> <span class="n">Observer</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span> <span class="o">=</span> <span class="n">cache</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">observer</span><span class="o">.</span><span class="n">schedule</span><span class="p">(</span>
+            <span class="n">FileSystemEventHandler</span><span class="p">(),</span>
+            <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">project_path</span><span class="p">),</span>
+            <span class="n">recursive</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">observer</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="event-filtering">
+<h3>Event Filtering<a class="headerlink" href="#event-filtering" title="Link to this heading"></a></h3>
+<p><strong>File Type Filtering</strong>: Only monitor Python files and configuration files</p>
+<p><strong>Directory Exclusions</strong>: Skip common directories like <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">__pycache__</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.venv</span></code> to reduce noise</p>
+<p><strong>Debouncing</strong>: Group multiple rapid changes into single invalidation events</p>
+<p><strong>Pattern Matching</strong>: Use glob patterns to determine which files are relevant</p>
+</section>
+</section>
+<section id="cache-performance">
+<h2>Cache Performance<a class="headerlink" href="#cache-performance" title="Link to this heading"></a></h2>
+<section id="hit-rate-optimization">
+<h3>Hit Rate Optimization<a class="headerlink" href="#hit-rate-optimization" title="Link to this heading"></a></h3>
+<p><strong>Preloading</strong>: Common operations are preloaded during project initialization</p>
+<p><strong>Predictive Caching</strong>: Analyze usage patterns to cache likely-needed results</p>
+<p><strong>Cache Warming</strong>: Background processes warm caches for recently active projects</p>
+</section>
+<section id="memory-management">
+<h3>Memory Management<a class="headerlink" href="#memory-management" title="Link to this heading"></a></h3>
+<p><strong>Size Limits</strong>: Configurable memory limits with LRU eviction</p>
+<p><strong>Compression</strong>: Large result sets are compressed using zlib</p>
+<p><strong>Weak References</strong>: Use weak references where possible to allow garbage collection</p>
+<p><strong>Memory Monitoring</strong>: Track cache memory usage with alerts for excessive growth</p>
+</section>
+</section>
+<section id="persistence-options">
+<h2>Persistence Options<a class="headerlink" href="#persistence-options" title="Link to this heading"></a></h2>
+<section id="in-memory-default">
+<h3>In-Memory (Default)<a class="headerlink" href="#in-memory-default" title="Link to this heading"></a></h3>
+<p>Fast access but lost on restart. Suitable for development and single-user scenarios.</p>
+<p><strong>Pros</strong>: Fastest access times, no I/O overhead
+<strong>Cons</strong>: Lost on restart, memory usage scales with cache size</p>
+</section>
+<section id="file-based-persistence">
+<h3>File-Based Persistence<a class="headerlink" href="#file-based-persistence" title="Link to this heading"></a></h3>
+<p>Cache entries persisted to disk for durability across restarts.</p>
+<p><strong>Location</strong>: <code class="docutils literal notranslate"><span class="pre">~/.cache/pycodemcp/</span></code> or configurable directory
+<strong>Format</strong>: JSON or pickle serialization with compression
+<strong>Cleanup</strong>: Automatic cleanup of expired entries on startup</p>
+</section>
+<section id="redis-backend-future">
+<h3>Redis Backend (Future)<a class="headerlink" href="#redis-backend-future" title="Link to this heading"></a></h3>
+<p>Distributed caching for multi-user or multi-instance deployments.</p>
+<p><strong>Benefits</strong>: Shared cache across instances, persistence, advanced eviction
+<strong>Configuration</strong>: Redis connection parameters in configuration file
+<strong>Scaling</strong>: Handles large teams with shared codebases</p>
+</section>
+</section>
+<section id="cache-configuration">
+<h2>Cache Configuration<a class="headerlink" href="#cache-configuration" title="Link to this heading"></a></h2>
+<section id="configuration-options">
+<h3>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading"></a></h3>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;cache&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;ttl_seconds&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;max_entries&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10000</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;max_memory_mb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">500</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;persistence&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;memory&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;invalidation&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;file_watching&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;dependency_tracking&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;smart_invalidation&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="per-operation-settings">
+<h3>Per-Operation Settings<a class="headerlink" href="#per-operation-settings" title="Link to this heading"></a></h3>
+<p>Different operations can have different cache settings:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;cache_settings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;find_symbol&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;ttl&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">600</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;priority&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;find_references&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;ttl&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;priority&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;get_type_info&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;ttl&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">900</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;priority&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;analyze_dependencies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;ttl&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1800</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;priority&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;low&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="environment-overrides">
+<h3>Environment Overrides<a class="headerlink" href="#environment-overrides" title="Link to this heading"></a></h3>
+<p>Environment variables can override configuration:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PYCODEMCP_CACHE_TTL</span><span class="o">=</span><span class="m">600</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYCODEMCP_CACHE_MAX_ENTRIES</span><span class="o">=</span><span class="m">20000</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYCODEMCP_CACHE_MEMORY_MB</span><span class="o">=</span><span class="m">1000</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="cache-monitoring">
+<h2>Cache Monitoring<a class="headerlink" href="#cache-monitoring" title="Link to this heading"></a></h2>
+<section id="metrics-collection">
+<h3>Metrics Collection<a class="headerlink" href="#metrics-collection" title="Link to this heading"></a></h3>
+<p>The cache system provides detailed metrics:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cache_metrics</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;hit_rate&quot;</span><span class="p">:</span> <span class="mf">0.85</span><span class="p">,</span>
+    <span class="s2">&quot;miss_rate&quot;</span><span class="p">:</span> <span class="mf">0.15</span><span class="p">,</span>
+    <span class="s2">&quot;total_requests&quot;</span><span class="p">:</span> <span class="mi">1000</span><span class="p">,</span>
+    <span class="s2">&quot;cache_size&quot;</span><span class="p">:</span> <span class="mi">5000</span><span class="p">,</span>
+    <span class="s2">&quot;memory_usage_mb&quot;</span><span class="p">:</span> <span class="mi">150</span><span class="p">,</span>
+    <span class="s2">&quot;invalidations&quot;</span><span class="p">:</span> <span class="mi">25</span><span class="p">,</span>
+    <span class="s2">&quot;average_response_time_ms&quot;</span><span class="p">:</span> <span class="mi">15</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="performance-dashboard">
+<h3>Performance Dashboard<a class="headerlink" href="#performance-dashboard" title="Link to this heading"></a></h3>
+<p>Built-in performance monitoring:</p>
+<ul class="simple">
+<li><p>Hit/miss ratios by operation type</p></li>
+<li><p>Memory usage trends</p></li>
+<li><p>Invalidation frequency</p></li>
+<li><p>Response time distributions</p></li>
+<li><p>Cache efficiency scores</p></li>
+</ul>
+</section>
+<section id="debugging-tools">
+<h3>Debugging Tools<a class="headerlink" href="#debugging-tools" title="Link to this heading"></a></h3>
+<p>Development and debugging utilities:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Cache inspection</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">list_entries</span><span class="p">(</span><span class="n">project_path</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">)</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">explain_invalidation</span><span class="p">(</span><span class="n">cache_key</span><span class="o">=</span><span class="s2">&quot;...&quot;</span><span class="p">)</span>
+
+<span class="c1"># Cache manipulation</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">clear_project</span><span class="p">(</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">)</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">force_refresh</span><span class="p">(</span><span class="n">cache_key</span><span class="o">=</span><span class="s2">&quot;...&quot;</span><span class="p">)</span>
+<span class="n">cache</span><span class="o">.</span><span class="n">disable_for_testing</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<section id="development-guidelines">
+<h3>Development Guidelines<a class="headerlink" href="#development-guidelines" title="Link to this heading"></a></h3>
+<p><strong>Cache Key Design</strong>: Use consistent, hierarchical cache keys that include
+all relevant parameters</p>
+<p><strong>Dependency Tracking</strong>: Always record file dependencies when generating
+cache entries</p>
+<p><strong>Graceful Degradation</strong>: Handle cache failures gracefully by falling back
+to fresh analysis</p>
+<p><strong>Testing</strong>: Test both cache hits and misses in your test suite</p>
+</section>
+<section id="operational-guidelines">
+<h3>Operational Guidelines<a class="headerlink" href="#operational-guidelines" title="Link to this heading"></a></h3>
+<p><strong>Monitor Hit Rates</strong>: Aim for &gt;80% cache hit rate in normal operations</p>
+<p><strong>Memory Monitoring</strong>: Set up alerts for excessive cache memory usage</p>
+<p><strong>Regular Cleanup</strong>: Clean up expired entries and monitor cache growth</p>
+<p><strong>Configuration Tuning</strong>: Adjust TTL and size limits based on usage patterns</p>
+</section>
+<section id="common-pitfalls">
+<h3>Common Pitfalls<a class="headerlink" href="#common-pitfalls" title="Link to this heading"></a></h3>
+<p><strong>Over-Caching</strong>: Don’t cache operations that are already fast</p>
+<p><strong>Under-Invalidation</strong>: Ensure all relevant dependencies are tracked</p>
+<p><strong>Memory Leaks</strong>: Use weak references and proper cleanup</p>
+<p><strong>Stale Data</strong>: Balance TTL with data freshness requirements</p>
+</section>
+</section>
+<section id="future-enhancements">
+<h2>Future Enhancements<a class="headerlink" href="#future-enhancements" title="Link to this heading"></a></h2>
+<section id="planned-improvements">
+<h3>Planned Improvements<a class="headerlink" href="#planned-improvements" title="Link to this heading"></a></h3>
+<p><strong>Distributed Locking</strong>: Coordinate cache updates across multiple instances</p>
+<p><strong>Cache Replication</strong>: Replicate hot cache entries across instances</p>
+<p><strong>Machine Learning</strong>: Use ML to predict optimal cache parameters</p>
+<p><strong>Advanced Compression</strong>: More efficient serialization for large results</p>
+<p><strong>Query Planning</strong>: Optimize cache usage based on query patterns</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="plugin-system.html" class="btn btn-neutral float-left" title="Plugin System" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../api/index.html" class="btn btn-neutral float-right" title="API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Python Code Intelligence MCP Contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

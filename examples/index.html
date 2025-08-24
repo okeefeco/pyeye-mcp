@@ -1,0 +1,724 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Examples &mdash; Python Code Intelligence MCP Server v0.1</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Configuration" href="../configuration.html" />
+    <link rel="prev" title="pycodemcp.server.analyze_dependencies" href="../api/generated/pycodemcp.server.analyze_dependencies.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Python Code Intelligence MCP Server
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#mcp-server-setup">MCP Server Setup</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#for-claude-code">For Claude Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#for-other-mcp-clients">For Other MCP Clients</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#basic-configuration">Basic Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#first-steps">First Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#framework-detection">Framework Detection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#performance-features">Performance Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#debug-mode">Debug Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#configuration-validation">Configuration Validation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#support">Support</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/index.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/overview.html">Architecture Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#system-components">System Components</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#core-server-layer">Core Server Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#analysis-layer">Analysis Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#caching-layer">Caching Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#data-flow">Data Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#request-processing">Request Processing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#cross-project-analysis">Cross-Project Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#configuration-system">Configuration System</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#namespace-resolution">Namespace Resolution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#performance-characteristics">Performance Characteristics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#scalability">Scalability</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#response-times">Response Times</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#memory-usage">Memory Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#graceful-degradation">Graceful Degradation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#error-categories">Error Categories</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#security-considerations">Security Considerations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#input-validation">Input Validation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#access-control">Access Control</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/overview.html#future-architecture">Future Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#planned-enhancements">Planned Enhancements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/overview.html#extension-points">Extension Points</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/plugin-system.html">Plugin System</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#plugin-architecture">Plugin Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#base-plugin-interface">Base Plugin Interface</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#plugin-lifecycle">Plugin Lifecycle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#auto-detection-logic">Auto-Detection Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#built-in-plugins">Built-in Plugins</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#pydantic-plugin">Pydantic Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#django-plugin">Django Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#flask-plugin">Flask Plugin</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#custom-plugin-development">Custom Plugin Development</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#creating-a-custom-plugin">Creating a Custom Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#plugin-best-practices">Plugin Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#plugin-configuration">Plugin Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#namespace-support">Namespace Support</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#scope-resolution">Scope Resolution</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#framework-integration">Framework Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#plugin-registry">Plugin Registry</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#registration-process">Registration Process</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#dynamic-loading">Dynamic Loading</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/plugin-system.html#plugin-testing">Plugin Testing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#test-structure">Test Structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/plugin-system.html#mock-strategies">Mock Strategies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/caching-strategy.html">Caching Strategy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#cache-architecture">Cache Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#multi-level-caching">Multi-Level Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#cache-keys-and-scoping">Cache Keys and Scoping</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#cache-entry-format">Cache Entry Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#invalidation-strategies">Invalidation Strategies</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#file-based-invalidation">File-Based Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#smart-invalidation">Smart Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#time-based-invalidation">Time-Based Invalidation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#file-system-watching">File System Watching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#watchdog-integration">Watchdog Integration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#event-filtering">Event Filtering</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#cache-performance">Cache Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#hit-rate-optimization">Hit Rate Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#memory-management">Memory Management</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#persistence-options">Persistence Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#in-memory-default">In-Memory (Default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#file-based-persistence">File-Based Persistence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#redis-backend-future">Redis Backend (Future)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#cache-configuration">Cache Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#per-operation-settings">Per-Operation Settings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#environment-overrides">Environment Overrides</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#cache-monitoring">Cache Monitoring</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#metrics-collection">Metrics Collection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#performance-dashboard">Performance Dashboard</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#debugging-tools">Debugging Tools</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#development-guidelines">Development Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#operational-guidelines">Operational Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#common-pitfalls">Common Pitfalls</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/caching-strategy.html#future-enhancements">Future Enhancements</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/caching-strategy.html#planned-improvements">Planned Improvements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#core-mcp-tools">Core MCP Tools</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#navigation-tools">Navigation Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_symbol.html">pycodemcp.server.find_symbol</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.goto_definition.html">pycodemcp.server.goto_definition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_references.html">pycodemcp.server.find_references</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_type_info.html">pycodemcp.server.get_type_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_imports.html">pycodemcp.server.find_imports</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_call_hierarchy.html">pycodemcp.server.get_call_hierarchy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_subclasses.html">pycodemcp.server.find_subclasses</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#project-management-tools">Project Management Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.configure_packages.html">pycodemcp.server.configure_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.configure_namespace_package.html">pycodemcp.server.configure_namespace_package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.find_symbol_multi.html">pycodemcp.server.find_symbol_multi</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_project_structure.html">pycodemcp.server.list_project_structure</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#analysis-tools">Analysis Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_packages.html">pycodemcp.server.list_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.list_modules.html">pycodemcp.server.list_modules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.get_module_info.html">pycodemcp.server.get_module_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/generated/pycodemcp.server.analyze_dependencies.html">pycodemcp.server.analyze_dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/index.html#framework-specific-tools">Framework-Specific Tools</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#quick-start-examples">Quick Start Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-symbol-search">Basic Symbol Search</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#navigate-to-definition">Navigate to Definition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#find-all-references">Find All References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#type-information">Type Information</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#project-structure-analysis">Project Structure Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#dependency-analysis">Dependency Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#framework-specific-examples">Framework-Specific Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pydantic-models">Pydantic Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#django-projects">Django Projects</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#flask-applications">Flask Applications</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#multi-project-configuration">Multi-Project Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#performance-examples">Performance Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#efficient-analysis-patterns">Efficient Analysis Patterns</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cache-aware-operations">Cache-Aware Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#error-handling">Error Handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#robust-error-handling">Robust Error Handling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#graceful-degradation">Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#integration-examples">Integration Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#with-ides-and-editors">With IDEs and Editors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-ci-cd-pipelines">With CI/CD Pipelines</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-sources">Configuration Sources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#project-configuration">Project Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#pycodemcp-json">.pycodemcp.json</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#pyproject-toml">pyproject.toml</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#global-configuration">Global Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-options">Configuration Options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#package-configuration">Package Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#cache-configuration">Cache Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#performance-configuration">Performance Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#plugin-configuration">Plugin Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#runtime-configuration">Runtime Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#api-configuration">API Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#dynamic-updates">Dynamic Updates</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#configuration-validation">Configuration Validation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#validate-configuration">Validate Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#troubleshooting-configuration">Troubleshooting Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#debug-configuration-loading">Debug Configuration Loading</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../configuration.html#validation-commands">Validation Commands</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#quick-start-for-contributors">Quick Start for Contributors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#development-workflow">Development Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#code-standards">Code Standards</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#critical-requirements">Critical Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#code-style">Code Style</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#testing-guidelines">Testing Guidelines</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#test-requirements">Test Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#performance-testing">Performance Testing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#mcp-first-development">MCP-First Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#required-workflow">Required Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#documentation">Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#documentation-requirements">Documentation Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#building-documentation">Building Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#plugin-development">Plugin Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#creating-custom-plugins">Creating Custom Plugins</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#submitting-changes">Submitting Changes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#pull-request-process">Pull Request Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../contributing.html#pr-requirements">PR Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#important-links">Important Links</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#recognition">Recognition</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Python Code Intelligence MCP Server</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Examples</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/examples/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h1>
+<p>This section provides practical examples of using the Python Code Intelligence MCP Server.</p>
+<div class="toctree-wrapper compound">
+</div>
+<section id="quick-start-examples">
+<h2>Quick Start Examples<a class="headerlink" href="#quick-start-examples" title="Link to this heading"></a></h2>
+<section id="basic-symbol-search">
+<h3>Basic Symbol Search<a class="headerlink" href="#basic-symbol-search" title="Link to this heading"></a></h3>
+<p>Find all definitions of a symbol:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all classes named &#39;User&#39;</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol</span><span class="p">(</span><span class="s1">&#39;User&#39;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> at </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;line&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Fuzzy search for partial matches:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all symbols containing &#39;parse&#39;</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol</span><span class="p">(</span><span class="s1">&#39;parse&#39;</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="c1"># Returns: parse_json, html_parser, argument_parser, etc.</span>
+</pre></div>
+</div>
+</section>
+<section id="navigate-to-definition">
+<h3>Navigate to Definition<a class="headerlink" href="#navigate-to-definition" title="Link to this heading"></a></h3>
+<p>Jump to a symbol’s definition from a usage:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From a position in code, go to definition</span>
+<span class="n">definition</span> <span class="o">=</span> <span class="k">await</span> <span class="n">goto_definition</span><span class="p">(</span>
+    <span class="n">file</span><span class="o">=</span><span class="s2">&quot;src/main.py&quot;</span><span class="p">,</span>
+    <span class="n">line</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span>
+    <span class="n">column</span><span class="o">=</span><span class="mi">10</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">definition</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Definition at </span><span class="si">{</span><span class="n">definition</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">definition</span><span class="p">[</span><span class="s1">&#39;line&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="find-all-references">
+<h3>Find All References<a class="headerlink" href="#find-all-references" title="Link to this heading"></a></h3>
+<p>Find all usages of a symbol:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all references to a symbol at a specific position</span>
+<span class="n">references</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_references</span><span class="p">(</span>
+    <span class="n">file</span><span class="o">=</span><span class="s2">&quot;src/models.py&quot;</span><span class="p">,</span>
+    <span class="n">line</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>
+    <span class="n">column</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+    <span class="n">include_definitions</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="n">ref</span> <span class="ow">in</span> <span class="n">references</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reference at </span><span class="si">{</span><span class="n">ref</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">ref</span><span class="p">[</span><span class="s1">&#39;line&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="type-information">
+<h3>Type Information<a class="headerlink" href="#type-information" title="Link to this heading"></a></h3>
+<p>Get type hints and documentation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get type information at cursor position</span>
+<span class="n">type_info</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_type_info</span><span class="p">(</span>
+    <span class="n">file</span><span class="o">=</span><span class="s2">&quot;src/api.py&quot;</span><span class="p">,</span>
+    <span class="n">line</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+    <span class="n">column</span><span class="o">=</span><span class="mi">15</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Type: </span><span class="si">{</span><span class="n">type_info</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Docstring: </span><span class="si">{</span><span class="n">type_info</span><span class="p">[</span><span class="s1">&#39;docstring&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="project-structure-analysis">
+<h3>Project Structure Analysis<a class="headerlink" href="#project-structure-analysis" title="Link to this heading"></a></h3>
+<p>Analyze project organization:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># List all packages in the project</span>
+<span class="n">packages</span> <span class="o">=</span> <span class="k">await</span> <span class="n">list_packages</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">package</span> <span class="ow">in</span> <span class="n">packages</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Package: </span><span class="si">{</span><span class="n">package</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">package</span><span class="p">[</span><span class="s1">&#39;file_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> files)&quot;</span><span class="p">)</span>
+
+<span class="c1"># Get detailed module information</span>
+<span class="n">module_info</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_module_info</span><span class="p">(</span><span class="s2">&quot;myproject.models&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Exports: </span><span class="si">{</span><span class="n">module_info</span><span class="p">[</span><span class="s1">&#39;exports&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Classes: </span><span class="si">{</span><span class="n">module_info</span><span class="p">[</span><span class="s1">&#39;classes&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Functions: </span><span class="si">{</span><span class="n">module_info</span><span class="p">[</span><span class="s1">&#39;functions&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="dependency-analysis">
+<h3>Dependency Analysis<a class="headerlink" href="#dependency-analysis" title="Link to this heading"></a></h3>
+<p>Analyze module dependencies and detect circular imports:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze dependencies for a module</span>
+<span class="n">deps</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyze_dependencies</span><span class="p">(</span><span class="s2">&quot;myproject.services.user&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Imports:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">imp</span> <span class="ow">in</span> <span class="n">deps</span><span class="p">[</span><span class="s1">&#39;imports&#39;</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">imp</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Imported by:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">ref</span> <span class="ow">in</span> <span class="n">deps</span><span class="p">[</span><span class="s1">&#39;imported_by&#39;</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">ref</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">deps</span><span class="p">[</span><span class="s1">&#39;circular_dependencies&#39;</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⚠️  Circular dependencies detected!&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">cycle</span> <span class="ow">in</span> <span class="n">deps</span><span class="p">[</span><span class="s1">&#39;circular_dependencies&#39;</span><span class="p">]:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="s1">&#39; -&gt; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="framework-specific-examples">
+<h2>Framework-Specific Examples<a class="headerlink" href="#framework-specific-examples" title="Link to this heading"></a></h2>
+<section id="pydantic-models">
+<h3>Pydantic Models<a class="headerlink" href="#pydantic-models" title="Link to this heading"></a></h3>
+<p>Work with Pydantic models and schemas:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all Pydantic models</span>
+<span class="n">models</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_models</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model: </span><span class="si">{</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> in </span><span class="si">{</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Get the full schema</span>
+    <span class="n">schema</span> <span class="o">=</span> <span class="k">await</span> <span class="n">get_model_schema</span><span class="p">(</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Schema: </span><span class="si">{</span><span class="n">schema</span><span class="p">[</span><span class="s1">&#39;schema&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Find validators</span>
+    <span class="n">validators</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_validators</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">&quot;main&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">validator</span> <span class="ow">in</span> <span class="n">validators</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">validator</span><span class="p">[</span><span class="s1">&#39;model&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Validator: </span><span class="si">{</span><span class="n">validator</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="django-projects">
+<h3>Django Projects<a class="headerlink" href="#django-projects" title="Link to this heading"></a></h3>
+<p>Analyze Django applications:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all Django models</span>
+<span class="n">models</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_django_models</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">models</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model: </span><span class="si">{</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;app&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Fields: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">model</span><span class="p">[</span><span class="s1">&#39;fields&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Find views and their URL patterns</span>
+<span class="n">views</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_django_views</span><span class="p">()</span>
+<span class="n">urls</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_django_urls</span><span class="p">()</span>
+
+<span class="c1"># Match views to URLs</span>
+<span class="k">for</span> <span class="n">view</span> <span class="ow">in</span> <span class="n">views</span><span class="p">:</span>
+    <span class="n">matching_urls</span> <span class="o">=</span> <span class="p">[</span><span class="n">u</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">urls</span> <span class="k">if</span> <span class="n">u</span><span class="p">[</span><span class="s1">&#39;view&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">view</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]]</span>
+    <span class="k">if</span> <span class="n">matching_urls</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;View </span><span class="si">{</span><span class="n">view</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">matching_urls</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;pattern&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="flask-applications">
+<h3>Flask Applications<a class="headerlink" href="#flask-applications" title="Link to this heading"></a></h3>
+<p>Explore Flask routes and blueprints:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Find all routes</span>
+<span class="n">routes</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_routes</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">route</span> <span class="ow">in</span> <span class="n">routes</span><span class="p">:</span>
+    <span class="n">methods</span> <span class="o">=</span> <span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">route</span><span class="p">[</span><span class="s1">&#39;methods&#39;</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">methods</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">route</span><span class="p">[</span><span class="s1">&#39;rule&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">route</span><span class="p">[</span><span class="s1">&#39;endpoint&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Find blueprints and their routes</span>
+<span class="n">blueprints</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_blueprints</span><span class="p">()</span>
+<span class="k">for</span> <span class="n">bp</span> <span class="ow">in</span> <span class="n">blueprints</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Blueprint: </span><span class="si">{</span><span class="n">bp</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> (prefix: </span><span class="si">{</span><span class="n">bp</span><span class="p">[</span><span class="s1">&#39;url_prefix&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Find templates used by this blueprint</span>
+    <span class="n">templates</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_templates</span><span class="p">()</span>
+    <span class="n">bp_templates</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">templates</span> <span class="k">if</span> <span class="n">bp</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="n">t</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]]</span>
+    <span class="k">for</span> <span class="n">template</span> <span class="ow">in</span> <span class="n">bp_templates</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Template: </span><span class="si">{</span><span class="n">template</span><span class="p">[</span><span class="s1">&#39;template&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="multi-project-configuration">
+<h2>Multi-Project Configuration<a class="headerlink" href="#multi-project-configuration" title="Link to this heading"></a></h2>
+<p>Configure analysis across multiple related projects:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Configure additional packages</span>
+<span class="n">config</span> <span class="o">=</span> <span class="k">await</span> <span class="n">configure_packages</span><span class="p">(</span>
+    <span class="n">packages</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;../shared-lib&quot;</span><span class="p">,</span> <span class="s2">&quot;~/repos/common-utils&quot;</span><span class="p">],</span>
+    <span class="n">namespaces</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;company&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="s2">&quot;~/repos/company-auth&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;~/repos/company-api&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;~/repos/company-models&quot;</span>
+        <span class="p">]</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configured packages: </span><span class="si">{</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;packages&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configured namespaces: </span><span class="si">{</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;namespaces&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Search across all configured projects</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol_multi</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;UserService&quot;</span><span class="p">,</span>
+    <span class="n">project_paths</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;packages&#39;</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="n">project</span><span class="p">,</span> <span class="n">project_results</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">project_results</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Found in </span><span class="si">{</span><span class="n">project</span><span class="si">}</span><span class="s2">:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">project_results</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> at </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="performance-examples">
+<h2>Performance Examples<a class="headerlink" href="#performance-examples" title="Link to this heading"></a></h2>
+<section id="efficient-analysis-patterns">
+<h3>Efficient Analysis Patterns<a class="headerlink" href="#efficient-analysis-patterns" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Batch operations for better performance</span>
+<span class="n">symbol_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;User&quot;</span><span class="p">,</span> <span class="s2">&quot;Product&quot;</span><span class="p">,</span> <span class="s2">&quot;Order&quot;</span><span class="p">,</span> <span class="s2">&quot;Invoice&quot;</span><span class="p">]</span>
+
+<span class="c1"># Use list comprehension for concurrent searches</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="p">[</span>
+    <span class="n">find_symbol</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">symbol_names</span>
+<span class="p">])</span>
+
+<span class="c1"># Combine results</span>
+<span class="n">all_symbols</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">symbol_names</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="n">all_symbols</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+</pre></div>
+</div>
+</section>
+<section id="cache-aware-operations">
+<h3>Cache-Aware Operations<a class="headerlink" href="#cache-aware-operations" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># First call - cache miss (slower)</span>
+<span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol</span><span class="p">(</span><span class="s2">&quot;MyClass&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;First call: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+<span class="c1"># Second call - cache hit (much faster)</span>
+<span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol</span><span class="p">(</span><span class="s2">&quot;MyClass&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Second call: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+<span class="c1"># Cache is automatically invalidated when files change</span>
+<span class="c1"># Edit a file and the cache will be updated automatically</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading"></a></h2>
+<section id="robust-error-handling">
+<h3>Robust Error Handling<a class="headerlink" href="#robust-error-handling" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pycodemcp.exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AnalysisError</span><span class="p">,</span>
+    <span class="n">FileAccessError</span><span class="p">,</span>
+    <span class="n">ValidationError</span>
+<span class="p">)</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_symbol</span><span class="p">(</span><span class="s2">&quot;MySymbol&quot;</span><span class="p">,</span> <span class="n">project_path</span><span class="o">=</span><span class="s2">&quot;/invalid/path&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">FileAccessError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Project not found: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">ValidationError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid input: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">AnalysisError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Analysis failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="c1"># Might include additional context in e.context</span>
+</pre></div>
+</div>
+</section>
+<section id="graceful-degradation">
+<h3>Graceful Degradation<a class="headerlink" href="#graceful-degradation" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Handle partial failures gracefully</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="c1"># Try comprehensive analysis first</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyze_dependencies</span><span class="p">(</span><span class="s2">&quot;mymodule&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">AnalysisError</span><span class="p">:</span>
+    <span class="c1"># Fall back to simpler analysis</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_imports</span><span class="p">(</span><span class="s2">&quot;mymodule&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⚠️ Using simplified analysis due to errors&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="integration-examples">
+<h2>Integration Examples<a class="headerlink" href="#integration-examples" title="Link to this heading"></a></h2>
+<section id="with-ides-and-editors">
+<h3>With IDEs and Editors<a class="headerlink" href="#with-ides-and-editors" title="Link to this heading"></a></h3>
+<p>The server integrates well with development tools:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Simulate IDE &quot;Go to Definition&quot; functionality</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ide_goto_definition</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">):</span>
+    <span class="n">definition</span> <span class="o">=</span> <span class="k">await</span> <span class="n">goto_definition</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">definition</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="n">definition</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">],</span>
+            <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">definition</span><span class="p">[</span><span class="s1">&#39;line&#39;</span><span class="p">],</span>
+            <span class="s1">&#39;column&#39;</span><span class="p">:</span> <span class="n">definition</span><span class="p">[</span><span class="s1">&#39;column&#39;</span><span class="p">]</span>
+        <span class="p">}</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+<span class="c1"># Simulate &quot;Find All References&quot;</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ide_find_references</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">):</span>
+    <span class="n">references</span> <span class="o">=</span> <span class="k">await</span> <span class="n">find_references</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s1">&#39;file&#39;</span><span class="p">:</span> <span class="n">ref</span><span class="p">[</span><span class="s1">&#39;file&#39;</span><span class="p">],</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">ref</span><span class="p">[</span><span class="s1">&#39;line&#39;</span><span class="p">]}</span>
+        <span class="k">for</span> <span class="n">ref</span> <span class="ow">in</span> <span class="n">references</span>
+    <span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="with-ci-cd-pipelines">
+<h3>With CI/CD Pipelines<a class="headerlink" href="#with-ci-cd-pipelines" title="Link to this heading"></a></h3>
+<p>Use for code quality checks:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check for circular dependencies in CI</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_circular_imports</span><span class="p">():</span>
+    <span class="n">all_modules</span> <span class="o">=</span> <span class="k">await</span> <span class="n">list_modules</span><span class="p">()</span>
+    <span class="n">circular_deps</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">all_modules</span><span class="p">:</span>
+        <span class="n">deps</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyze_dependencies</span><span class="p">(</span><span class="n">module</span><span class="p">[</span><span class="s1">&#39;import_path&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">deps</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;circular_dependencies&#39;</span><span class="p">):</span>
+            <span class="n">circular_deps</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">deps</span><span class="p">[</span><span class="s1">&#39;circular_dependencies&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">circular_deps</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;❌ Circular dependencies found:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">cycle</span> <span class="ow">in</span> <span class="n">circular_deps</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="s1">&#39; -&gt; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;✅ No circular dependencies found&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">True</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../api/generated/pycodemcp.server.analyze_dependencies.html" class="btn btn-neutral float-left" title="pycodemcp.server.analyze_dependencies" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../configuration.html" class="btn btn-neutral float-right" title="Configuration" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Python Code Intelligence MCP Contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
