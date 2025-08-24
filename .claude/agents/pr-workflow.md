@@ -1,3 +1,9 @@
+---
+name: pr-workflow
+description: "Intelligent agent that handles the complete pull request workflow including pushing changes, creating/updating PRs, and monitoring CI builds with minimal context usage"
+tools: Bash, Read, Edit, MultiEdit, Glob, Grep, TodoWrite
+---
+
 # PR Workflow Agent
 
 An intelligent agent that handles the complete pull request workflow including pushing changes, creating/updating PRs, and monitoring CI builds with minimal context usage.

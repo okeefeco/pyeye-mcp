@@ -1,3 +1,9 @@
+---
+name: worktree-manager
+description: "Safely manage git worktrees with automatic main branch updates, issue integration, and session tracking. Prevents accidental deletion of uncommitted work"
+tools: Bash, Read, Edit, MultiEdit, Glob, Grep, TodoWrite
+---
+
 # Worktree Manager Agent
 
 ## Purpose
