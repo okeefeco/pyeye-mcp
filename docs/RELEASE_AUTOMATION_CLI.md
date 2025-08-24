@@ -1,6 +1,22 @@
-# Release Automation Agent
+# Release Automation CLI Tool
 
-The Release Automation Agent is a Claude Code agent that provides natural language interface for automating the complete end-to-end release management process, eliminating the need for manual execution of 15+ steps.
+**Important: This is a Python CLI automation script, NOT a Claude Code subagent.**
+
+The Release Automation Tool is a command-line Python script that provides a natural language interface for automating the complete end-to-end release management process, eliminating the need for manual execution of 15+ steps.
+
+## What This Is NOT
+
+This tool is **NOT a Claude Code subagent**. Important distinctions:
+
+| Aspect | This Tool (CLI Script) | Claude Subagent (Not Implemented) |
+|--------|------------------------|-----------------------------------|
+| **Type** | Python CLI script | Independent Claude context |
+| **Execution** | `python scripts/release_agent.py` | `Task(subagent_type="release")` |
+| **Context Usage** | Output consumes conversation tokens | Runs in isolated context |
+| **Architecture** | Standard Python module | Claude architectural component |
+| **Integration** | Called via Bash tool | Native Claude Task tool |
+
+When Claude runs this tool, the full output appears in the conversation, using context tokens. This is different from a true subagent which would run independently and return only summary results.
 
 ## Features
 
@@ -37,11 +53,11 @@ The Release Automation Agent is a Claude Code agent that provides natural langua
 
 ```text
 src/pycodemcp/agents/
-├── __init__.py                  # Agent exports
-└── release_automation.py       # Main agent implementation
+├── __init__.py                  # Module exports
+└── release_automation.py       # Main automation class implementation
 
 scripts/
-└── release_agent.py            # CLI interface
+└── release_agent.py            # CLI script interface
 
 tests/
 ├── test_release_automation.py    # Unit tests (37 tests)
@@ -50,14 +66,14 @@ tests/
 
 ### Key Classes
 
-- **`ReleaseAutomationAgent`**: Main agent class handling natural language commands
+- **`ReleaseAutomationAgent`**: Main Python class handling natural language command parsing and workflow automation
 - **CLI Interface**: Command-line wrapper for easy integration with Claude Code
 
 ## Usage Examples
 
 ### Via Claude Code
 
-Claude can now use the release automation agent by running:
+The release automation tool can be executed by running:
 
 ```bash
 python scripts/release_agent.py "Prepare release v0.2.0"
@@ -91,7 +107,7 @@ Returns structured JSON with execution results and next steps.
 
 ## Integration with Existing Workflow
 
-The agent maintains 100% compatibility with the existing `scripts/prepare_release.py` workflow:
+The tool maintains 100% compatibility with the existing `scripts/prepare_release.py` workflow:
 
 - **Same validation logic**: Uses identical prerequisites checks
 - **Same version locations**: Updates all the same files
@@ -121,7 +137,7 @@ The agent maintains 100% compatibility with the existing `scripts/prepare_releas
 
 ### ✅ Documentation
 
-- Agent serves as executable release process documentation
+- Tool serves as executable release process documentation
 - Provides clear next steps after automation completes
 - Natural language commands are self-documenting
 
@@ -185,11 +201,11 @@ Potential improvements for future versions:
 
 ## Usage Integration
 
-The agent is designed to be called by Claude Code using natural language. Example workflow:
+The tool is designed to be called from the command line using natural language. Example workflow:
 
 1. **User**: "Can you prepare a patch release?"
 2. **Claude**: Calls `python scripts/release_agent.py "Cut a patch release"`
-3. **Agent**: Executes complete workflow automatically
+3. **Tool**: Executes complete workflow automatically
 4. **Claude**: Reports results and provides next steps
 
 This creates a seamless natural language interface to complex automation.
@@ -198,7 +214,7 @@ This creates a seamless natural language interface to complex automation.
 
 All acceptance criteria from issue #171 have been met:
 
-- ✅ Agent can parse natural language release requests
+- ✅ Tool can parse natural language release requests
 - ✅ Fully automates existing `scripts/prepare_release.py` workflow
 - ✅ Maintains all existing safety checks and validations
 - ✅ Creates properly formatted release branches and PRs
@@ -209,9 +225,9 @@ All acceptance criteria from issue #171 have been met:
 
 ## Performance
 
-- **Agent initialization**: ~50ms
+- **Tool initialization**: ~50ms
 - **Command parsing**: ~1ms
 - **Full workflow execution**: ~30-60s (depends on test suite)
 - **Memory usage**: Minimal (stateless execution)
 
-The agent adds negligible overhead while providing significant automation value.
+The tool adds negligible overhead while providing significant automation value.
