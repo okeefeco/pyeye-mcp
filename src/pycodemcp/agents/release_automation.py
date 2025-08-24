@@ -238,22 +238,33 @@ class ReleaseAutomationAgent:
 
     def _update_version(self, new_version: str) -> None:
         """Update version in all required locations."""
-        locations = [
-            ("pyproject.toml", r'^version = ".+?"', f'version = "{new_version}"'),
+        import re
+        from collections.abc import Callable
+        from re import Match
+
+        def replace_with_indentation(match: Match[str]) -> str:
+            """Replace version while preserving original indentation."""
+            indentation = match.group(1) if match.groups() else ""
+            return f'{indentation}version = "{new_version}"'
+
+        # Process all location updates
+        all_locations: list[tuple[str, str, str | Callable[[Match[str]], str], str | None]] = [
+            ("pyproject.toml", r'^version = ".+?"', f'version = "{new_version}"', None),
             (
                 "pyproject.toml",
-                r'^\s*version = ".+?"',
-                f'  version = "{new_version}"',
+                r'^(\s*)version = ".+?"',
+                replace_with_indentation,
                 "[tool.commitizen]",
             ),
             (
                 "src/pycodemcp/__init__.py",
                 r'^__version__ = ".+?"',
                 f'__version__ = "{new_version}"',
+                None,
             ),
         ]
 
-        for file_path, pattern, replacement, *section in locations:
+        for file_path, pattern, replacement, section_name in all_locations:
             path = self.project_root / file_path
             if not path.exists():
                 print(f"⚠️  Warning: {file_path} not found, skipping")
@@ -262,8 +273,8 @@ class ReleaseAutomationAgent:
             content = path.read_text()
 
             # If section specified, only replace within that section
-            if section:
-                section_pattern = re.escape(section[0])
+            if section_name:
+                section_pattern = re.escape(section_name)
                 section_match = re.search(
                     f"^{section_pattern}.*?(?=^\\[|\\Z)", content, re.MULTILINE | re.DOTALL
                 )
@@ -274,7 +285,7 @@ class ReleaseAutomationAgent:
                     )
                     content = content.replace(section_content, updated_section)
                 else:
-                    print(f"⚠️  Warning: Section {section[0]} not found in {file_path}")
+                    print(f"⚠️  Warning: Section {section_name} not found in {file_path}")
             else:
                 content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
