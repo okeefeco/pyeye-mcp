@@ -296,8 +296,8 @@ jobs:
 
       - name: Verify version consistency
         run: |
-          # Run our version consistency tests
-          uv run pytest tests/test_version_consistency.py -v
+          # Run our version consistency tests (skip coverage for version-only tests)
+          uv run pytest tests/test_version_consistency.py -v --no-cov
           echo "✅ Version consistency verified"
 
       - name: Commit development version
