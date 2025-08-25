@@ -8,6 +8,7 @@ from typing import Any
 
 from .async_utils import rglob_async
 from .config import ProjectConfig
+from .metrics import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -337,10 +338,12 @@ class ScopedCache:
 
         # Ensure cache exists for this scope
         if scope_key not in self.caches:
+            metrics.record_cache_miss()
             return None
 
         # Check if key exists
         if key not in self.caches[scope_key]:
+            metrics.record_cache_miss()
             return None
 
         # Check TTL
@@ -350,8 +353,10 @@ class ScopedCache:
                 # Expired
                 del self.caches[scope_key][key]
                 del self.timestamps[scope_key][key]
+                metrics.record_cache_miss()
                 return None
 
+        metrics.record_cache_hit()
         return self.caches[scope_key][key]
 
     def set(self, key: str, value: Any, scope: Scope) -> None:
