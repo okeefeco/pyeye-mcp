@@ -14,6 +14,25 @@ from pycodemcp.project_manager import ProjectManager  # noqa: E402
 class TestProjectManager:
     """Test the ProjectManager class."""
 
+    @pytest.fixture(autouse=True)
+    def disable_pooling(self, monkeypatch):
+        """Disable connection pooling for tests that depend on direct project management.
+
+        These tests verify the internal LRU behavior of ProjectManager which works
+        differently when pooling is enabled (pool handles its own eviction).
+        """
+        monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "false")
+
+        # Re-initialize settings with pooling disabled
+        from pycodemcp import settings as settings_module
+
+        settings_module.settings = settings_module.PerformanceSettings()
+
+        yield
+
+        # Restore settings after test
+        settings_module.settings = settings_module.PerformanceSettings()
+
     def test_initialization(self):
         """Test ProjectManager initialization."""
         manager = ProjectManager(max_projects=5)
