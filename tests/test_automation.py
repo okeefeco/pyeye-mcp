@@ -211,7 +211,11 @@ class TestDocumentation:
         assert claude_md.exists()
 
         content = claude_md.read_text(encoding="utf-8")
-        assert "Automatic Setup" in content
+        # Check for the new hooks-based approach (recommended)
+        assert "Claude Code Hooks Integration" in content
+        assert "setup_mcp_monitoring.sh" in content
+        # Check for the alternative manual approach
+        assert "Manual Tracking Setup" in content
         assert "setup_dogfooding.sh" in content
         assert "What Happens Automatically" in content
 
