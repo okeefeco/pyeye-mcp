@@ -48,6 +48,23 @@ For personal development settings (worktrees, local paths, etc.):
 - **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp
 - **Python Environment**: uv managed
 
+### ⚠️ CRITICAL: This Project Uses `uv` Package Manager
+
+**ALWAYS prefix Python commands with `uv run`:**
+
+- ❌ **WRONG**: `pytest tests/test_file.py`
+- ✅ **RIGHT**: `uv run pytest tests/test_file.py`
+
+This applies to ALL Python tools:
+
+- `uv run pytest` - Run tests
+- `uv run black` - Format code
+- `uv run ruff` - Lint code
+- `uv run mypy` - Type checking
+- `uv run python` - Run Python scripts
+
+**Why**: Dependencies are installed in the uv-managed virtual environment, not globally.
+
 ## 🚨 MANDATORY REQUIREMENTS
 
 ### ⚠️ CRITICAL: Worktree Safety Rules
@@ -112,7 +129,7 @@ When implementing ANY feature or fix:
 
    ```bash
    # IMPORTANT: Run ALL tests, not just your new tests!
-   pytest --cov=src/pycodemcp --cov-fail-under=85
+   uv run pytest --cov=src/pycodemcp --cov-fail-under=85
    ```
 
 4. **Fix any failing tests or coverage issues**
@@ -131,7 +148,7 @@ Always run these validation commands:
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (not just your new tests!)
-pytest --cov=src/pycodemcp --cov-fail-under=85
+uv run pytest --cov=src/pycodemcp --cov-fail-under=85
 
 # Note: Linting/type checks are handled by pre-commit hooks automatically
 ```
