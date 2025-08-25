@@ -280,7 +280,7 @@ All performance-critical settings can be configured via environment variables to
 | `PYCODEMCP_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
 | `PYCODEMCP_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
 | **Connection Pooling** | | **Optimize multi-project workflows** | |
-| `PYCODEMCP_ENABLE_CONNECTION_POOLING` | false | Enable connection pooling for multiple projects | true/false |
+| `PYCODEMCP_ENABLE_CONNECTION_POOLING` | true | Enable connection pooling for multiple projects | true/false |
 | `PYCODEMCP_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
 | `PYCODEMCP_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
 
@@ -497,15 +497,17 @@ prometheus_data = await get_performance_metrics(export_format="prometheus")
 
 ### Connection Pooling for Multi-Project Workflows
 
-When working with multiple projects simultaneously, enable connection pooling to reduce project initialization overhead:
+Connection pooling is enabled by default to optimize performance when working with multiple projects. You can customize the pooling behavior:
 
 ```bash
-# Enable connection pooling
-export PYCODEMCP_ENABLE_CONNECTION_POOLING=true
-export PYCODEMCP_POOL_MAX_CONNECTIONS=10
-export PYCODEMCP_POOL_TTL=3600
+# Customize connection pooling (already enabled by default)
+export PYCODEMCP_POOL_MAX_CONNECTIONS=20  # Increase pool size for many projects
+export PYCODEMCP_POOL_TTL=7200            # Increase TTL to 2 hours
 
-# Start the server with pooling enabled
+# Or disable pooling if needed
+export PYCODEMCP_ENABLE_CONNECTION_POOLING=false
+
+# Start the server
 uv run mcp dev src/pycodemcp/server.py
 ```
 
