@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from pycodemcp.config import ProjectConfig
+from pycodemcp.metrics import metrics
 from pycodemcp.scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -373,3 +374,57 @@ class TestPerformanceBenchmarks:
         # Should handle 100 paths efficiently
         assert elapsed < 1.0, f"Searching 100 paths took {elapsed:.3f}s"
         assert len(results) == 100
+
+
+@pytest.mark.asyncio
+class TestScopedCacheMetrics:
+    """Test that ScopedCache properly records cache metrics."""
+
+    async def test_cache_metrics_recording(self):
+        """Test that cache hits and misses are properly recorded."""
+        # Reset metrics to get clean baseline
+        initial_hits = metrics.cache_metrics.hits
+        initial_misses = metrics.cache_metrics.misses
+
+        cache = ScopedCache(ttl_seconds=300)
+
+        # Test cache miss (key doesn't exist)
+        result = cache.get("nonexistent", "main")
+        assert result is None
+        assert metrics.cache_metrics.misses == initial_misses + 1
+
+        # Add item to cache
+        cache.set("test_key", "test_value", "main")
+
+        # Test cache hit
+        result = cache.get("test_key", "main")
+        assert result == "test_value"
+        assert metrics.cache_metrics.hits == initial_hits + 1
+
+        # Test cache miss (wrong scope)
+        result = cache.get("test_key", "other_scope")
+        assert result is None
+        assert metrics.cache_metrics.misses == initial_misses + 2
+
+        # Test cache miss (scope doesn't exist)
+        result = cache.get("any_key", "nonexistent_scope")
+        assert result is None
+        assert metrics.cache_metrics.misses == initial_misses + 3
+
+        # Test expired cache (miss)
+        cache_short_ttl = ScopedCache(ttl_seconds=0.1)
+        cache_short_ttl.set("expire_key", "expire_value", "main")
+        time.sleep(0.2)  # Wait for expiration
+
+        result = cache_short_ttl.get("expire_key", "main")
+        assert result is None
+        assert metrics.cache_metrics.misses == initial_misses + 4
+
+        # Verify hit rate calculation
+        total_operations = (metrics.cache_metrics.hits - initial_hits) + (
+            metrics.cache_metrics.misses - initial_misses
+        )
+        if total_operations > 0:
+            hit_rate = (metrics.cache_metrics.hits - initial_hits) / total_operations
+            # We had 1 hit and 4 misses, so hit rate should be 0.2 (20%)
+            assert 0.15 < hit_rate < 0.25, f"Expected ~20% hit rate, got {hit_rate*100:.1f}%"
