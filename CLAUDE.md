@@ -356,12 +356,40 @@ Remember: **We build this tool - we must be its best users!**
 
 To measure our MCP adoption and identify improvement opportunities, we track usage metrics during development sessions.
 
-### 🚀 Automatic Setup (Recommended)
+### 🎯 Claude Code Hooks Integration (NEW - Recommended)
 
-For fully automated tracking, run the setup script once:
+**Automatic MCP monitoring using Claude Code's native hook system:**
 
 ```bash
-# One-time setup for automatic metrics
+# One-time setup for hooks-based monitoring
+bash scripts/claude_hooks/setup_mcp_monitoring.sh
+
+# Load convenience commands
+source ~/.claude/mcp_monitoring/aliases.sh
+
+# View real-time analytics
+mcp-report         # 7-day report
+mcp-report-month   # 30-day report
+mcp-logs          # Watch live activity
+```
+
+**What it tracks automatically:**
+
+- Every MCP Python Intelligence tool call
+- Grep/find/rg usage in Bash commands
+- Session start/end events
+- Tool success rates and response sizes
+
+**Note:** Requires restarting Claude session after setup for hooks to activate.
+
+See `scripts/claude_hooks/README.md` for full documentation.
+
+### 🚀 Manual Tracking Setup (Alternative)
+
+For manual tracking, run the setup script once:
+
+```bash
+# One-time setup for manual metrics
 bash scripts/setup_dogfooding.sh
 ```
 
