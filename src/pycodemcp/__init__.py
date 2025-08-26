@@ -8,7 +8,7 @@ try:
 except ImportError:
     # Package not installed in development mode
     __version__ = "0.0.0+unknown"
-    __version_tuple__ = (0, 0, 0, "+unknown", "")
+    __version_tuple__ = (0, 0, 0, "unknown", "")
 
 from .server import mcp
 

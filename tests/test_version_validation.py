@@ -12,29 +12,16 @@ class TestIntegration:
         """Test that the current project passes all validations."""
         project_root = Path(__file__).parent.parent
 
-        # Test check_version.py
-        result = subprocess.run(
-            [sys.executable, str(project_root / "scripts" / "check_version.py")],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"check_version.py failed: {result.stdout}"
+        # With setuptools_scm, we only need to validate the changelog
+        # The version is automatically managed by git tags
 
-        # Test validate_version_format.py
-        result = subprocess.run(
-            [sys.executable, str(project_root / "scripts" / "validate_version_format.py")],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"validate_version_format.py failed: {result.stdout}"
-
-        # Test validate_changelog.py
+        # Test validate_changelog.py (the only remaining validation script)
         result = subprocess.run(
             [sys.executable, str(project_root / "scripts" / "validate_changelog.py")],
             cwd=project_root,
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, f"validate_changelog.py failed: {result.stdout}"
+        assert (
+            result.returncode == 0
+        ), f"validate_changelog.py failed: {result.stdout}\n{result.stderr}"
