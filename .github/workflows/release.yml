@@ -38,14 +38,12 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # Install setuptools_scm first for version generation
+          uv pip install --system setuptools_scm
+          # Generate version file from git tag
+          python -m setuptools_scm
+          # Then install the package with dependencies
           uv pip install --system -e ".[dev]"
-
-      - name: Validate version consistency
-        run: |
-          # Run our version consistency tests WITHOUT coverage requirements
-          # (These tests only check version files, not the full codebase)
-          pytest tests/test_version_consistency.py -v --no-cov
-          echo "✅ Version consistency validated"
 
       - name: Extract version from tag
         id: version
@@ -56,6 +54,7 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
+          # With setuptools_scm, version is derived from git tag
           PACKAGE_VERSION=$(python -c "from pycodemcp import __version__; print(__version__)")
           TAG_VERSION="${{ steps.version.outputs.version }}"
 
@@ -116,6 +115,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # Install setuptools_scm first for version generation
+          uv pip install --system setuptools_scm
+          # Generate version file from git tag
+          python -m setuptools_scm
+          # Then install the package with dependencies
           uv pip install --system -e ".[dev]"
 
       - name: Extract version info

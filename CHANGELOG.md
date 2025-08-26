@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proper version imports for CI and type checking environments
 - Type annotations for version tuple
 
+### Removed
+
+- Obsolete release automation agent (replaced by simplified git tag process)
+- Manual version sync scripts (no longer needed with setuptools_scm)
+- Version management scripts: check_version_sync.py, prepare_release.py
+- Outdated release documentation: RELEASING.md, RELEASE_CHECKLIST.md
+- Release automation tests (no longer applicable)
+
 ## [0.1.0] - 2025-08-24
 
 ### Added
