@@ -192,6 +192,8 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install --system -e ".[dev]"
+          # Install setuptools_scm for version file generation
+          uv pip install --system setuptools_scm
 
       - name: Generate version file
         run: |
