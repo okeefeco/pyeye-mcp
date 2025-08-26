@@ -193,6 +193,44 @@ jobs:
         run: |
           uv pip install --system -e ".[dev]"
 
+      - name: Generate version file
+        run: |
+          # Generate _version.py using setuptools_scm
+          cat > generate_version.py << 'EOF'
+          from setuptools_scm import get_version
+          import pathlib
+          import re
+
+          version = get_version()
+
+          # Parse version into tuple format
+          # Handle versions like '0.2.1.dev3+gb9bb56f1b.d20250826'
+          parts = re.match(r'(\d+)\.(\d+)\.(\d+)(\.(.+))?', version)
+          if parts:
+              major, minor, patch = int(parts[1]), int(parts[2]), int(parts[3])
+              rest = parts[5] if parts[5] else ''
+              if rest:
+                  # Split dev/pre-release and local parts
+                  if '+' in rest:
+                      pre, local = rest.split('+', 1)
+                      version_tuple = (major, minor, patch, pre, local)
+                  else:
+                      version_tuple = (major, minor, patch, rest, '')
+              else:
+                  version_tuple = (major, minor, patch, 'final', '')
+          else:
+              version_tuple = (0, 0, 0, 'unknown', version)
+
+          # Generate the _version.py file
+          version_file = pathlib.Path('src/pycodemcp/_version.py')
+          version_file.write_text(f'''"""Auto-generated version file."""
+          __version__ = "{version}"
+          __version_tuple__ = {version_tuple}
+          ''')
+          print(f'Generated _version.py with version {version}')
+          EOF
+          python generate_version.py
+
       - name: Run mypy
         run: |
           mypy src/pycodemcp --ignore-missing-imports

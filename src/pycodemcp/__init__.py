@@ -3,13 +3,10 @@
 An extensible MCP server for Python code analysis and navigation.
 """
 
-__version__: str
-__version_tuple__: tuple[int, int, int, str, str]
-
 try:
     from ._version import __version__, __version_tuple__
 except ImportError:
-    # Package not installed in development mode
+    # Package not installed or _version.py not generated yet
     __version__ = "0.0.0+unknown"
     __version_tuple__ = (0, 0, 0, "unknown", "")
 
