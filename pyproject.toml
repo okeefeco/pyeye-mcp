@@ -1,6 +1,6 @@
 [project]
 name = "python-code-intelligence-mcp"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Extensible Python code intelligence MCP server for semantic analysis and code navigation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -59,11 +59,19 @@ Repository = "https://github.com/okeefeco/python-code-intelligence-mcp"
 Issues = "https://github.com/okeefeco/python-code-intelligence-mcp/issues"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/pycodemcp"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+version_file = "src/pycodemcp/_version.py"
+version_file_template = '''
+"""Auto-generated version file."""
+__version__ = "{version}"
+__version_tuple__ = {version_tuple}
+'''
 
 [tool.ruff]
 line-length = 100
@@ -146,11 +154,7 @@ exclude_lines = [
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.2.0"
 tag_format = "v$version"
-version_files = [
-    "pyproject.toml:version",
-    "src/pycodemcp/__init__.py:__version__"
-]
+# Version now managed by setuptools_scm from git tags
 
 # Note: dependency-groups removed as psutil moved to main dependencies

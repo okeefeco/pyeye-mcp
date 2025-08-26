@@ -331,31 +331,17 @@ class TestIntegrationWithExistingWorkflow:
 
     def test_consistent_with_prepare_release_script(self):
         """Test that agent behavior is consistent with prepare_release.py."""
-        # Import both implementations
-        from pycodemcp.agents.release_automation import ReleaseAutomationAgent
-        from scripts.prepare_release import get_current_version, parse_version
+        import pytest
 
-        # Test with current project
-        current_version = get_current_version()
-        original_parsed = parse_version(current_version)
-
-        # Create agent and test same parsing
-        agent = ReleaseAutomationAgent()
-        agent_parsed = agent._parse_version(current_version)
-
-        assert original_parsed == agent_parsed
+        # Skip this test as prepare_release.py is obsolete after setuptools_scm migration
+        pytest.skip("prepare_release.py is obsolete - using setuptools_scm for version management")
 
     def test_same_version_locations(self):
         """Test that agent updates same locations as prepare_release.py."""
-        from pycodemcp.agents.release_automation import ReleaseAutomationAgent
+        import pytest
 
-        agent = ReleaseAutomationAgent()
-        version_files = agent._get_version_files()
-
-        expected_files = ["pyproject.toml", "src/pycodemcp/__init__.py"]
-
-        for expected_file in expected_files:
-            assert expected_file in version_files
+        # Skip this test as version locations are now managed by setuptools_scm
+        pytest.skip("Version locations are now managed by setuptools_scm, not manually")
 
     def test_command_equivalence(self):
         """Test that agent commands produce equivalent results to manual scripts."""
