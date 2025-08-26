@@ -6,24 +6,33 @@ import sys
 from pathlib import Path
 
 
-def get_current_version(pyproject_path: Path) -> str:
-    """Extract version from pyproject.toml."""
-    # Parse TOML manually to avoid dependency on tomllib/tomli
-    content = pyproject_path.read_text()
+def get_current_version(pyproject_path: Path) -> str:  # noqa: ARG001
+    """Extract version from git tags via setuptools_scm.
 
-    # Find the [project] section
-    project_section = re.search(r"\[project\].*?(?=\n\[|\Z)", content, re.DOTALL)
-    if not project_section:
-        raise ValueError("Could not find [project] section in pyproject.toml")
+    Args:
+        pyproject_path: Path to pyproject.toml (kept for compatibility, not used)
+    """
+    import subprocess
 
-    # Extract version from the project section
-    version_match = re.search(
-        r'^version\s*=\s*["\']([^"\']+)["\']', project_section.group(), re.MULTILINE
-    )
-    if not version_match:
-        raise ValueError("Could not find version in [project] section")
-
-    return version_match.group(1)
+    # Try to get version from git describe
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--match", "v*"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        version = result.stdout.strip()
+        # Remove 'v' prefix if present
+        if version.startswith("v"):
+            version = version[1:]
+        # For development versions, extract base version
+        if "-" in version:
+            version = version.split("-")[0]
+        return version
+    except subprocess.CalledProcessError:
+        # No tags found, return a default
+        return "0.0.0"
 
 
 def parse_changelog(changelog_path: Path) -> dict:

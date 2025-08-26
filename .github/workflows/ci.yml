@@ -197,8 +197,8 @@ jobs:
         run: |
           mypy src/pycodemcp --ignore-missing-imports
 
-  version-validation:
-    # Validate version consistency, format, and changelog
+  changelog-validation:
+    # Validate changelog format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -207,14 +207,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      - name: Check version consistency
-        run: |
-          python scripts/check_version.py
-
-      - name: Validate version format
-        run: |
-          python scripts/validate_version_format.py
 
       - name: Validate changelog
         run: |

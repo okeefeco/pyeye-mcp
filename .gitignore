@@ -157,3 +157,5 @@ cython_debug/
 # uv
 uv.lock
 .venv/
+# Auto-generated version file
+src/pycodemcp/_version.py
