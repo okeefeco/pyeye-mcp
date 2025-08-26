@@ -22,9 +22,11 @@ Safely manage git worktrees with automatic main branch updates, issue integratio
 ### 🚀 Smart Worktree Management
 
 - **Auto-update main** before creating new worktrees
+- **Auto-update persistent worktrees** (like claude/development) after main update
 - **Issue-based naming** following `{type}-{issue}-{description}` pattern
 - **Auto-switching** based on issue numbers mentioned in conversation
 - **Bulk operations** for managing multiple worktrees
+- **Special handling** for persistent development branches
 
 ### 📊 State Awareness
 
@@ -38,9 +40,17 @@ All standard tools plus TodoWrite for session persistence
 
 ## Key Workflows
 
-### Creating New Worktrees
+### Updating Main and Persistent Branches
 
 1. **Update main branch** first
+2. **Check for persistent worktrees** (claude/development, etc.)
+3. **Update persistent worktrees** by merging main into them
+4. **Push updated persistent branches** to origin
+5. **Report update status** to user
+
+### Creating New Worktrees
+
+1. **Update main branch** first (and persistent branches)
 2. **Check for existing** worktrees for the same issue
 3. **Follow naming conventions** `{type}-{issue}-{description}`
 4. **Set up isolated environment** (uv venv, dependencies)
@@ -63,6 +73,13 @@ All standard tools plus TodoWrite for session persistence
 
 ## Safety Rules (MANDATORY)
 
+### Persistent Worktrees (NEVER DELETE)
+
+These worktrees are persistent and should NEVER be removed:
+
+- `claude-development` (or paths containing `claude/development` branch)
+- Any worktree explicitly marked as persistent by the user
+
 ### Before ANY Worktree Removal
 
 ```bash
@@ -75,6 +92,10 @@ git -C <worktree-path> log --oneline -1
 # - Added files (A)
 # - Untracked files (??)
 # - Recent commits not in main
+
+# Check if it's a persistent branch:
+git -C <worktree-path> branch --show-current | grep -E "^(claude/development|main)$"
+# If matches, NEVER remove
 ```
 
 ### Session Tracking Strategy
@@ -86,14 +107,27 @@ git -C <worktree-path> log --oneline -1
 
 ## Example Usage Scenarios
 
+### User: "Update main branch" or "Update worktrees"
+
+**Agent Response:**
+
+1. Navigate to main worktree and pull latest changes
+2. Find persistent worktrees (like claude/development)
+3. For each persistent worktree:
+   - Switch to it
+   - Merge main into the branch
+   - Push updated branch to origin
+4. Report: "Updated main and claude/development branches"
+
 ### User: "Let's work on issue 156"
 
 **Agent Response:**
 
 1. Check if worktree for issue 156 exists
-2. If not, update main and create `feat-156-description`
-3. Switch to that worktree
-4. Update todo list with new worktree creation
+2. If not, update main (and persistent branches) first
+3. Create `feat-156-description` from updated main
+4. Switch to that worktree
+5. Update todo list with new worktree creation
 
 ### User: "Clean up my worktrees"
 
@@ -171,9 +205,52 @@ git -C <worktree-path> log --oneline -1
 - Increased confidence in worktree operations
 - Better session continuity across context resets
 
+## Implementation Details
+
+### Updating Persistent Branches Workflow
+
+```bash
+# 1. Update main first
+MAIN_WORKTREE=$(git worktree list | grep -E "\s+\(main\)$" | awk '{print $1}')
+cd "$MAIN_WORKTREE"
+git pull origin main
+
+# 2. Find persistent worktrees
+CLAUDE_DEV=$(git worktree list | grep "claude/development" | awk '{print $1}')
+
+# 3. Update each persistent worktree
+if [ -n "$CLAUDE_DEV" ]; then
+    cd "$CLAUDE_DEV"
+    git merge main
+    git push origin claude/development
+    echo "✅ Updated claude/development branch"
+fi
+
+# 4. Return to original directory
+cd -
+```
+
+### Identifying Persistent Branches
+
+```bash
+# Check if a branch is persistent (should not be deleted)
+is_persistent() {
+    local branch=$1
+    case "$branch" in
+        main|claude/development|release/*)
+            return 0  # True - is persistent
+            ;;
+        *)
+            return 1  # False - not persistent
+            ;;
+    esac
+}
+```
+
 ## Future Enhancements
 
 - Integration with GitHub CLI for issue metadata
 - Automatic stashing/unstashing when switching
 - Conflict resolution assistance
 - Team worktree sharing protocols
+- Configurable list of persistent branches
