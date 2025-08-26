@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-08-27
+
+### Added
+
+- Git-based versioning with setuptools_scm - automatic version management from git tags
+- Persistent branch support in worktree-manager agent for claude/development workflow
+
+### Changed
+
+- Switched from manual version management to setuptools_scm
+- Simplified release process - no more version files to update
+- Version now automatically derived from git tags and commits
+
+### Fixed
+
+- CI installation of setuptools_scm before generating version file
+- Proper version imports for CI and type checking environments
+- Type annotations for version tuple
+
 ## [0.1.0] - 2025-08-24
 
 ### Added
