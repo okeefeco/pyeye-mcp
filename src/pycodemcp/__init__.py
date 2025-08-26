@@ -3,6 +3,9 @@
 An extensible MCP server for Python code analysis and navigation.
 """
 
+__version__: str
+__version_tuple__: tuple[int, int, int, str, str]
+
 try:
     from ._version import __version__, __version_tuple__
 except ImportError:
