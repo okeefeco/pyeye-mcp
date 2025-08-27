@@ -153,8 +153,9 @@ exclude_lines = [
 ]
 
 [tool.commitizen]
+# Commitizen is only used for commit message validation
+# Version management is handled by setuptools_scm
 name = "cz_conventional_commits"
 tag_format = "v$version"
-# Version now managed by setuptools_scm from git tags
 
 # Note: dependency-groups removed as psutil moved to main dependencies
