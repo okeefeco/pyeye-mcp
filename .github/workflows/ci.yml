@@ -205,23 +205,26 @@ jobs:
 
           version = get_version()
 
-          # Parse version into tuple format
-          # Handle versions like '0.2.1.dev3+gb9bb56f1b.d20250826'
+          # Parse version to match setuptools_scm native format
+          # Release versions (e.g., '0.3.0'): 3-tuple
+          # Dev versions (e.g., '0.3.1.dev1+gc7c622c'): 5-tuple
           parts = re.match(r'(\d+)\.(\d+)\.(\d+)(\.(.+))?', version)
           if parts:
               major, minor, patch = int(parts[1]), int(parts[2]), int(parts[3])
               rest = parts[5] if parts[5] else ''
               if rest:
-                  # Split dev/pre-release and local parts
+                  # Dev/pre-release version - use 5-tuple format
                   if '+' in rest:
                       pre, local = rest.split('+', 1)
                       version_tuple = (major, minor, patch, pre, local)
                   else:
                       version_tuple = (major, minor, patch, rest, '')
               else:
-                  version_tuple = (major, minor, patch, 'final', '')
+                  # Clean release - use 3-tuple format
+                  version_tuple = (major, minor, patch)
           else:
-              version_tuple = (0, 0, 0, 'unknown', version)
+              # Fallback - use 3-tuple
+              version_tuple = (0, 0, 0)
 
           # Generate the _version.py file
           version_file = pathlib.Path('src/pycodemcp/_version.py')
