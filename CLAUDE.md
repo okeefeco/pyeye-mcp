@@ -10,6 +10,9 @@ export CLAUDE_STARTUP_DIR=$(pwd)
 export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
 export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
 
+# Initialize working directory tracking
+export CLAUDE_WORKING_DIR=$(pwd)  # This can change when switching to issue worktrees
+
 # Report context
 echo "Claude started from: $CLAUDE_STARTUP_DIR"
 echo "Is worktree: $CLAUDE_IS_WORKTREE"
@@ -18,11 +21,54 @@ echo "Branch: $CLAUDE_WORKTREE_BRANCH"
 
 **This determines:**
 
-- Where Claude configuration files (.claude/) are read from
-- Where agent/instruction edits should be saved
+- Where Claude configuration files (.claude/) are read from (CLAUDE_STARTUP_DIR)
+- Where agent/instruction edits should be saved (CLAUDE_STARTUP_DIR)
+- Where actual work happens (CLAUDE_WORKING_DIR - updates when switching worktrees)
 - How to create new worktrees (sibling vs child)
 
 @.claude/startup-context.md - Detailed worktree-aware workflow instructions
+
+## 🔄 CRITICAL: Working Directory Management
+
+### The Shell Reset Problem
+
+**Issue**: After each command, the shell working directory resets to CLAUDE_STARTUP_DIR (usually claude-development).
+
+### Solution: Update CLAUDE_WORKING_DIR When Switching Worktrees
+
+**When switching to work on an issue:**
+
+```bash
+# After creating/switching to issue worktree
+cd ../python-code-intelligence-mcp-work/fix-123-issue-name
+export CLAUDE_WORKING_DIR=$(pwd)
+
+# Now prefix subsequent commands with cd to stay in context
+cd $CLAUDE_WORKING_DIR && git status
+cd $CLAUDE_WORKING_DIR && uv run pytest
+```
+
+**Better: Use a worktree switch function:**
+
+```bash
+switch_worktree() {
+    local WORKTREE_PATH=$1
+    cd "$WORKTREE_PATH"
+    export CLAUDE_WORKING_DIR=$(pwd)
+    echo "Switched working context to: $CLAUDE_WORKING_DIR"
+    echo "Claude home remains: $CLAUDE_STARTUP_DIR"
+}
+
+# Usage when switching to issue worktree
+switch_worktree "../python-code-intelligence-mcp-work/fix-123-issue-name"
+```
+
+### Best Practices
+
+1. **Always update CLAUDE_WORKING_DIR** when switching to issue worktrees
+2. **Prefix commands with `cd $CLAUDE_WORKING_DIR &&`** to maintain context
+3. **Use absolute paths** in worktree operations to avoid confusion
+4. **Check current context** with `echo $CLAUDE_WORKING_DIR` if uncertain
 
 ## 📚 Required Context Files
 
@@ -537,6 +583,12 @@ We're tracking progress toward these goals:
 → **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
 → **NEVER use**: Manual `git worktree add` commands
 
+#### "PR is merged" / "Update after merge" / "Sync after external merge"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **NEVER use**: Manual `git checkout`, `git merge`, `git pull` sequences
+→ **Note**: Handles special cases like persistent claude/development branch
+
 #### "Push and create PR" / "Create a PR" / "Monitor CI" / "Check if CI passes"
 
 → **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
@@ -552,6 +604,12 @@ These commands trigger multiple agents in sequence:
 
 1. `Task tool with subagent_type="pr-workflow"` - Merge the PR, update main, delete remote branch
 2. `Task tool with subagent_type="worktree-manager"` - Remove the worktree safely after confirming no uncommitted changes
+
+#### "PR is merged. update" / "Update after merge" / "Sync with main" / "Merged externally"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **Purpose**: Handle post-merge updates when PR was merged externally (via GitHub UI or by another user)
+→ **Special handling**: For claude/development, updates the persistent branch without removing worktree
 
 #### "Start issue X" / "Begin work on issue X"
 

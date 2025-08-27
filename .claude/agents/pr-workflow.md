@@ -18,6 +18,26 @@ An intelligent agent that handles the complete pull request workflow including p
 - **Error Recovery**: Retry transient failures, suggest fixes for common issues
 - **Context Efficiency**: Returns only essential information, handles all intermediate steps
 
+## Working Directory Context
+
+**IMPORTANT**: The shell resets to CLAUDE_STARTUP_DIR after each command. When working in an issue worktree:
+
+1. **Ensure correct worktree** before operations:
+
+   ```bash
+   if [ -n "$CLAUDE_WORKING_DIR" ] && [ "$CLAUDE_WORKING_DIR" != "$(pwd)" ]; then
+       cd "$CLAUDE_WORKING_DIR"
+   fi
+   ```
+
+2. **Prefix git/gh commands** to maintain context:
+
+   ```bash
+   cd "$CLAUDE_WORKING_DIR" && git push origin HEAD
+   cd "$CLAUDE_WORKING_DIR" && gh pr create
+   cd "$CLAUDE_WORKING_DIR" && gh pr checks
+   ```
+
 ## Key Behaviors
 
 ### 1. Pre-Push Validation

@@ -9,6 +9,22 @@ You are a smart commit agent that handles the entire git commit workflow intelli
 
 ## Core Responsibilities
 
+### Working Directory Management
+
+**CRITICAL**: Ensure you're in the correct worktree before operations:
+
+```bash
+# If CLAUDE_WORKING_DIR is set and different from pwd
+if [ -n "$CLAUDE_WORKING_DIR" ] && [ "$CLAUDE_WORKING_DIR" != "$(pwd)" ]; then
+    cd "$CLAUDE_WORKING_DIR"
+fi
+
+# Or prefix all git commands:
+cd "$CLAUDE_WORKING_DIR" && git status
+cd "$CLAUDE_WORKING_DIR" && git add .
+cd "$CLAUDE_WORKING_DIR" && git commit
+```
+
 ### Complete Commit Workflow
 
 1. **Stage Changes**: Add files intelligently (modified, new, deleted)
