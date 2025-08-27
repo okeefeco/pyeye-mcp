@@ -419,7 +419,7 @@ Remember: **We build this tool - we must be its best users!**
 
 To measure our MCP adoption and identify improvement opportunities, we track usage metrics during development sessions.
 
-### 🎯 Claude Code Hooks Integration (NEW - Recommended)
+### 🎯 Claude Code Hooks Integration (Active)
 
 **Automatic MCP monitoring using Claude Code's native hook system:**
 
@@ -427,13 +427,15 @@ To measure our MCP adoption and identify improvement opportunities, we track usa
 # One-time setup for hooks-based monitoring
 bash scripts/claude_hooks/setup_mcp_monitoring.sh
 
-# Load convenience commands
+# Load convenience commands (already in ~/.bashrc)
 source ~/.claude/mcp_monitoring/aliases.sh
 
 # View real-time analytics
 mcp-report         # 7-day report
 mcp-report-month   # 30-day report
 mcp-logs          # Watch live activity
+mcp-session       # View active session
+mcp-errors        # Check for hook errors
 ```
 
 **What it tracks automatically:**
@@ -442,86 +444,23 @@ mcp-logs          # Watch live activity
 - Grep/find/rg usage in Bash commands
 - Session start/end events
 - Tool success rates and response sizes
+- Direct Grep tool usage
 
-**Note:** Requires restarting Claude session after setup for hooks to activate.
+**Note:** Hooks are active and tracking. The old shell alias system has been removed in favor of this cleaner approach.
 
 See `scripts/claude_hooks/README.md` for full documentation.
 
-### 🚀 Manual Tracking Setup (Alternative)
-
-For manual tracking, run the setup script once:
-
-```bash
-# One-time setup for manual metrics
-bash scripts/setup_dogfooding.sh
-```
-
-This installs:
-
-- **Git hooks**: Auto-start sessions on branch switch, auto-end on commit
-- **Shell aliases**: Track grep usage automatically
-- **Quick commands**: `mcp-start`, `mcp-end`, `mcp-report`, etc.
-
 ### ⚡ What Happens Automatically
 
-After setup, metrics tracking is completely hands-off:
+After Claude hooks setup, metrics tracking is completely automatic:
 
-1. **Branch Switch**: `git checkout feat/123-feature` → Auto-starts session for issue #123
-2. **Grep Usage**: `grep "function"` → Auto-tracked as manual search
-3. **MCP Usage**: All MCP tool calls → Auto-tracked via `get_performance_metrics()`
-4. **Commit**: `git commit` → Auto-ends session, shows stats in commit message
-5. **CD into project**: `cd python-code-intelligence-mcp` → Auto-starts if no active session
+1. **Session Start**: Claude Code session start → Auto-tracked via hooks
+2. **Grep Usage**: `grep "function"` → Auto-tracked in Bash commands
+3. **MCP Usage**: All MCP tool calls → Auto-tracked via hooks
+4. **Session End**: Claude Code session end → Auto-tracked and reported
+5. **Tool Success**: Response sizes and success rates → Auto-tracked
 
-### 📱 Quick Commands (After Setup)
-
-```bash
-# Manual control (rarely needed)
-mcp-start --issue 135        # Start session manually
-mcp-end                      # End session manually
-mcp-report --days 7          # Weekly report
-mcp-saved 10 "Found refs fast"  # Log time saved
-mcp-bug "Caught circular dep"    # Log prevented bug
-```
-
-### 🔧 Manual Setup (If Needed)
-
-If you prefer manual tracking or the automatic setup fails:
-
-```bash
-# Start metrics tracking
-python scripts/dogfooding_metrics.py start --issue 135
-
-# Get baseline MCP metrics
-mcp__python-intelligence__get_performance_metrics()
-```
-
-During development, manually track:
-
-- **When using grep/find**: `python scripts/dogfooding_metrics.py grep`
-- **When MCP saves time**: `python scripts/dogfooding_metrics.py saved 5 "Found all references instantly"`
-- **When MCP prevents bugs**: `python scripts/dogfooding_metrics.py bug "Would have missed subclass"`
-- **Sync MCP metrics**: `python scripts/dogfooding_metrics.py sync`
-
-End session:
-
-```bash
-# End session and see stats
-python scripts/dogfooding_metrics.py end
-
-# Get final MCP metrics
-mcp__python-intelligence__get_performance_metrics()
-```
-
-### 🔄 New: Automatic MCP Metrics Integration
-
-The dogfooding system now automatically captures MCP tool usage:
-
-- **MCP Tool Calls**: Automatically logged via `pycodemcp.dogfooding_integration`
-- **Grep Detection**: Shell wrappers track grep/rg/find usage
-- **Real-time Sync**: `sync` command updates session with current MCP stats
-- **Adoption Rate**: Calculates MCP vs grep usage percentage
-
-This fixes the issue where 0% MCP adoption was being reported despite heavy MCP usage.
+The Claude hooks system handles everything - no manual intervention needed!
 
 ### Weekly Reporting
 
