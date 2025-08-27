@@ -607,6 +607,16 @@ The `claude-development` worktree has a **special merge workflow** that differs 
 - When using `pr-workflow` agent with claude/development, specify `--no-delete-branch`
 - When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
 - The worktree at `/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development` is **persistent**
+- **NEVER switch this worktree to other branches** - always create new worktrees for releases, features, etc.
+
+#### Release Workflow (Create New Worktree)
+
+```bash
+# For releases, ALWAYS create a new worktree:
+git worktree add ../python-code-intelligence-mcp-work/release-0-3-0 -b release/0.3.0 main
+cd ../python-code-intelligence-mcp-work/release-0-3-0
+# Do release work here, NOT in claude-development worktree
+```
 
 ## Project Overview
 
