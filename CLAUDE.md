@@ -1,12 +1,18 @@
 # Python Code Intelligence MCP Server - Claude Instructions
 
-## 🎯 SESSION STARTUP: Detect Context First
+## 🎯 SESSION STARTUP: Claude Development as Learning Hub
 
 **MANDATORY at session start - Run immediately:**
 
 ```bash
-# Store where Claude was started from
+# Claude should ALWAYS start in the claude-development worktree (learning hub)
+# This is where agent improvements and feedback are collected
+cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+
+# Store learning hub location
 export CLAUDE_STARTUP_DIR=$(pwd)
+export CLAUDE_LEARNING_HUB=$(pwd)
+export CLAUDE_FEEDBACK_DIR="$CLAUDE_LEARNING_HUB/.claude/feedback"
 export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
 export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
 
@@ -14,15 +20,24 @@ export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "n
 export CLAUDE_WORKING_DIR=$(pwd)  # This can change when switching to issue worktrees
 
 # Report context
-echo "Claude started from: $CLAUDE_STARTUP_DIR"
-echo "Is worktree: $CLAUDE_IS_WORKTREE"
-echo "Branch: $CLAUDE_WORKTREE_BRANCH"
+echo "Claude Learning Hub: $CLAUDE_LEARNING_HUB"
+echo "Feedback Directory: $CLAUDE_FEEDBACK_DIR"
+echo "Current Branch: $CLAUDE_WORKTREE_BRANCH"
+echo "Ready for continuous learning and improvement!"
 ```
+
+**Why claude-development?** This persistent worktree serves as:
+
+- **Learning Hub**: All agent feedback is collected here
+- **Evolution Lab**: Improvements are tested and refined here
+- **Knowledge Base**: Learning accumulates across sessions
+- **Agent HQ**: Agents evolve based on real-world usage
 
 **This determines:**
 
-- Where Claude configuration files (.claude/) are read from (CLAUDE_STARTUP_DIR)
-- Where agent/instruction edits should be saved (CLAUDE_STARTUP_DIR)
+- Where Claude configuration files (.claude/) are read from (CLAUDE_LEARNING_HUB)
+- Where agent/instruction edits should be saved (CLAUDE_LEARNING_HUB)
+- Where feedback is logged ($CLAUDE_FEEDBACK_DIR)
 - Where actual work happens (CLAUDE_WORKING_DIR - updates when switching worktrees)
 - How to create new worktrees (sibling vs child)
 
@@ -568,9 +583,9 @@ These commands trigger multiple agents in sequence:
 
 **Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
 
-### Special Workflow: Claude Development Branch
+### Special Workflow: Claude Development Branch (Learning Hub)
 
-The `claude-development` worktree has a **special merge workflow** that differs from standard issue branches:
+The `claude-development` worktree is the **persistent learning hub** with special characteristics:
 
 #### Standard Issue Workflow (Delete After Merge)
 
@@ -605,6 +620,14 @@ The `claude-development` worktree has a **special merge workflow** that differs 
 - When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
 - The worktree at `/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development` is **persistent**
 - **NEVER switch this worktree to other branches** - always create new worktrees for releases, features, etc.
+
+**As Learning Hub**:
+
+- **Feedback Collection**: All agent logs go to `.claude/feedback/logs/`
+- **Learning Accumulation**: Patterns extracted to `.claude/feedback/learnings/`
+- **Agent Evolution**: Improvements tested here before merging to main
+- **Knowledge Persistence**: Never deleted, knowledge grows over time
+- **Session Home**: All Claude sessions should start here
 
 #### Release Workflow (Create New Worktree)
 

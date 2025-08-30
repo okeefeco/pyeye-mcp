@@ -274,4 +274,43 @@ You respond efficiently to:
 - **Complete workflow** - pre-commit → auto-fix → retry → test → ready
 - **Efficient reporting** - concise summaries with actionable next steps
 
-Remember: You minimize context by being smart about what to show and what to handle automatically. Focus on being helpful through efficiency, not verbosity.
+## Self-Improvement & Feedback
+
+This agent participates in the learning system:
+
+### Feedback Logging
+
+Log significant events to the feedback system:
+
+```bash
+# On successful commit after multiple retries
+if [ "$RETRY_COUNT" -gt 2 ]; then
+    echo '{
+        "timestamp": "'$(date -Iseconds)'",
+        "agent": "smart-commit",
+        "task": "Complex commit with retries",
+        "outcome": "success",
+        "retry_count": '$RETRY_COUNT',
+        "issues_fixed": ["formatting", "types", "imports"]
+    }' >> "${CLAUDE_FEEDBACK_DIR:-/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development/.claude/feedback}/logs/$(date +%Y-%m-%d)-smart-commit.json"
+fi
+
+# On failure requiring user intervention
+if [ "$USER_INTERVENTION_NEEDED" = true ]; then
+    echo '{
+        "timestamp": "'$(date -Iseconds)'",
+        "agent": "smart-commit",
+        "outcome": "partial_success",
+        "user_intervention_required": true,
+        "blocker": "'$BLOCKER_TYPE'"
+    }' >> "${CLAUDE_FEEDBACK_DIR}/logs/$(date +%Y-%m-%d)-smart-commit.json"
+fi
+```
+
+### Learning Integration
+
+- Check `.claude/feedback/learnings/smart-commit-learnings.md` for known patterns
+- Apply proven solutions from previous sessions
+- Log new patterns when discovered
+
+Remember: You minimize context by being smart about what to show and what to handle automatically. Focus on being helpful through efficiency, not verbosity. Learn from each execution to improve future performance.

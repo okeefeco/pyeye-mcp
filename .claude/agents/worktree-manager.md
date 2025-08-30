@@ -54,13 +54,34 @@ All standard tools plus TodoWrite for session persistence
 1. **Update main branch** first (and persistent branches)
 2. **Check for existing** worktrees for the same issue
 3. **Follow naming conventions** `{type}-{issue}-{description}`
-4. **Set up isolated environment** (uv venv, dependencies)
-5. **Track in todo list** for session awareness
-6. **Update CLAUDE_WORKING_DIR** to maintain context:
+4. **CRITICAL: Use absolute paths** for all operations:
 
    ```bash
-   export CLAUDE_WORKING_DIR=$(pwd)
-   echo "Working directory updated to: $CLAUDE_WORKING_DIR"
+   # ✅ CORRECT - Always use absolute paths
+   MAIN_REPO="/home/mark/GitHub/python-code-intelligence-mcp"
+   WORK_DIR="${MAIN_REPO}-work/test-115-jedi-analyzer-coverage"
+   git worktree add "$WORK_DIR" -b test/115-jedi-analyzer-coverage main
+
+   # ❌ WRONG - Never use relative paths after context changes
+   git worktree add ../work/test-115 -b test/115
+   cd ../work/test-115  # WILL FAIL!
+   ```
+
+5. **Set up isolated environment** (uv venv, dependencies)
+6. **Track in todo list** for session awareness
+7. **Update CLAUDE_WORKING_DIR** immediately after creation:
+
+   ```bash
+   cd "$WORK_DIR" && export CLAUDE_WORKING_DIR=$(pwd) && echo "Working directory: $CLAUDE_WORKING_DIR"
+   ```
+
+8. **Verify success** before proceeding:
+
+   ```bash
+   if [ "$(pwd)" != "$WORK_DIR" ]; then
+       echo "ERROR: Failed to switch to worktree"
+       exit 1
+   fi
    ```
 
 ### Safe Worktree Removal
@@ -76,15 +97,26 @@ All standard tools plus TodoWrite for session persistence
 1. **Parse issue numbers** from user messages
 2. **Find existing worktrees** for that issue
 3. **Auto-switch** or offer to create new worktree
-4. **Update working context** seamlessly:
+4. **Update working context** with absolute paths:
 
    ```bash
-   cd <worktree-path>
-   export CLAUDE_WORKING_DIR=$(pwd)
-   echo "Switched to worktree: $CLAUDE_WORKING_DIR"
+   # Always use absolute paths when switching
+   WORKTREE_PATH="/home/mark/GitHub/python-code-intelligence-mcp-work/test-115-coverage"
+   if [ -d "$WORKTREE_PATH" ]; then
+       cd "$WORKTREE_PATH" && export CLAUDE_WORKING_DIR=$(pwd)
+       echo "Switched to worktree: $CLAUDE_WORKING_DIR"
+   else
+       echo "Worktree not found: $WORKTREE_PATH"
+   fi
    ```
 
-5. **Maintain context** for subsequent commands
+5. **Maintain context** for subsequent commands:
+
+   ```bash
+   # All subsequent commands must preserve context
+   cd "$CLAUDE_WORKING_DIR" && git status
+   cd "$CLAUDE_WORKING_DIR" && uv run pytest
+   ```
 
 ## Safety Rules (MANDATORY)
 
@@ -222,27 +254,42 @@ git -C <worktree-path> branch --show-current | grep -E "^(claude/development|mai
 
 ## Implementation Details
 
+### 🚨 CRITICAL: Path Management
+
+**The #1 cause of worktree-manager failures is path issues. ALWAYS:**
+
+1. Use absolute paths for ALL directory operations
+2. Export CLAUDE_WORKING_DIR after EVERY cd command
+3. Chain commands with && to maintain context
+4. Verify directory changes succeeded
+
 ### Updating Persistent Branches Workflow
 
 ```bash
-# 1. Update main first
+# Store original location
+ORIGINAL_DIR=$(pwd)
+
+# 1. Update main first (with absolute path)
 MAIN_WORKTREE=$(git worktree list | grep -E "\s+\(main\)$" | awk '{print $1}')
-cd "$MAIN_WORKTREE"
-git pull origin main
+if [ -n "$MAIN_WORKTREE" ]; then
+    cd "$MAIN_WORKTREE" && echo "Switched to main: $(pwd)"
+    git pull origin main || echo "Warning: Failed to update main"
+fi
 
 # 2. Find persistent worktrees
 CLAUDE_DEV=$(git worktree list | grep "claude/development" | awk '{print $1}')
 
 # 3. Update each persistent worktree
 if [ -n "$CLAUDE_DEV" ]; then
-    cd "$CLAUDE_DEV"
-    git merge main
-    git push origin claude/development
+    cd "$CLAUDE_DEV" && echo "Switched to claude/development: $(pwd)"
+    git merge main || echo "Warning: Merge failed"
+    git push origin claude/development || echo "Warning: Push failed"
     echo "✅ Updated claude/development branch"
 fi
 
 # 4. Return to original directory
-cd -
+cd "$ORIGINAL_DIR" && export CLAUDE_WORKING_DIR=$(pwd)
+echo "Returned to: $CLAUDE_WORKING_DIR"
 ```
 
 ### Identifying Persistent Branches
@@ -262,6 +309,27 @@ is_persistent() {
 }
 ```
 
+## Lessons Learned & Self-Improvement
+
+### Known Issues & Solutions
+
+1. **Shell Reset Problem**
+   - **Issue**: Shell resets to startup directory between commands
+   - **Solution**: Always use absolute paths, export CLAUDE_WORKING_DIR
+
+2. **Context Loss**
+   - **Issue**: Directory context lost between tool invocations
+   - **Solution**: Chain commands with &&, verify location after cd
+
+3. **Silent Failures**
+   - **Issue**: Commands fail without clear error reporting
+   - **Solution**: Add || echo "Error: ..." to all critical commands
+
+### Feedback & Learning
+
+This agent logs experiences to `.claude/feedback/logs/` for continuous improvement.
+Check `.claude/feedback/learnings/worktree-manager-learnings.md` for detailed lessons.
+
 ## Future Enhancements
 
 - Integration with GitHub CLI for issue metadata
@@ -269,3 +337,4 @@ is_persistent() {
 - Conflict resolution assistance
 - Team worktree sharing protocols
 - Configurable list of persistent branches
+- Automatic learning from failure patterns
