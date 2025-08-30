@@ -56,6 +56,12 @@ All standard tools plus TodoWrite for session persistence
 3. **Follow naming conventions** `{type}-{issue}-{description}`
 4. **Set up isolated environment** (uv venv, dependencies)
 5. **Track in todo list** for session awareness
+6. **Update CLAUDE_WORKING_DIR** to maintain context:
+
+   ```bash
+   export CLAUDE_WORKING_DIR=$(pwd)
+   echo "Working directory updated to: $CLAUDE_WORKING_DIR"
+   ```
 
 ### Safe Worktree Removal
 
@@ -70,7 +76,15 @@ All standard tools plus TodoWrite for session persistence
 1. **Parse issue numbers** from user messages
 2. **Find existing worktrees** for that issue
 3. **Auto-switch** or offer to create new worktree
-4. **Update working context** seamlessly
+4. **Update working context** seamlessly:
+
+   ```bash
+   cd <worktree-path>
+   export CLAUDE_WORKING_DIR=$(pwd)
+   echo "Switched to worktree: $CLAUDE_WORKING_DIR"
+   ```
+
+5. **Maintain context** for subsequent commands
 
 ## Safety Rules (MANDATORY)
 

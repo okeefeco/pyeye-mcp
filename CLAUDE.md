@@ -10,6 +10,9 @@ export CLAUDE_STARTUP_DIR=$(pwd)
 export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
 export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
 
+# Initialize working directory tracking
+export CLAUDE_WORKING_DIR=$(pwd)  # This can change when switching to issue worktrees
+
 # Report context
 echo "Claude started from: $CLAUDE_STARTUP_DIR"
 echo "Is worktree: $CLAUDE_IS_WORKTREE"
@@ -18,11 +21,54 @@ echo "Branch: $CLAUDE_WORKTREE_BRANCH"
 
 **This determines:**
 
-- Where Claude configuration files (.claude/) are read from
-- Where agent/instruction edits should be saved
+- Where Claude configuration files (.claude/) are read from (CLAUDE_STARTUP_DIR)
+- Where agent/instruction edits should be saved (CLAUDE_STARTUP_DIR)
+- Where actual work happens (CLAUDE_WORKING_DIR - updates when switching worktrees)
 - How to create new worktrees (sibling vs child)
 
 @.claude/startup-context.md - Detailed worktree-aware workflow instructions
+
+## 🔄 CRITICAL: Working Directory Management
+
+### The Shell Reset Problem
+
+**Issue**: After each command, the shell working directory resets to CLAUDE_STARTUP_DIR (usually claude-development).
+
+### Solution: Update CLAUDE_WORKING_DIR When Switching Worktrees
+
+**When switching to work on an issue:**
+
+```bash
+# After creating/switching to issue worktree
+cd ../python-code-intelligence-mcp-work/fix-123-issue-name
+export CLAUDE_WORKING_DIR=$(pwd)
+
+# Now prefix subsequent commands with cd to stay in context
+cd $CLAUDE_WORKING_DIR && git status
+cd $CLAUDE_WORKING_DIR && uv run pytest
+```
+
+**Better: Use a worktree switch function:**
+
+```bash
+switch_worktree() {
+    local WORKTREE_PATH=$1
+    cd "$WORKTREE_PATH"
+    export CLAUDE_WORKING_DIR=$(pwd)
+    echo "Switched working context to: $CLAUDE_WORKING_DIR"
+    echo "Claude home remains: $CLAUDE_STARTUP_DIR"
+}
+
+# Usage when switching to issue worktree
+switch_worktree "../python-code-intelligence-mcp-work/fix-123-issue-name"
+```
+
+### Best Practices
+
+1. **Always update CLAUDE_WORKING_DIR** when switching to issue worktrees
+2. **Prefix commands with `cd $CLAUDE_WORKING_DIR &&`** to maintain context
+3. **Use absolute paths** in worktree operations to avoid confusion
+4. **Check current context** with `echo $CLAUDE_WORKING_DIR` if uncertain
 
 ## 📚 Required Context Files
 
@@ -373,7 +419,7 @@ Remember: **We build this tool - we must be its best users!**
 
 To measure our MCP adoption and identify improvement opportunities, we track usage metrics during development sessions.
 
-### 🎯 Claude Code Hooks Integration (NEW - Recommended)
+### 🎯 Claude Code Hooks Integration (Active)
 
 **Automatic MCP monitoring using Claude Code's native hook system:**
 
@@ -381,13 +427,15 @@ To measure our MCP adoption and identify improvement opportunities, we track usa
 # One-time setup for hooks-based monitoring
 bash scripts/claude_hooks/setup_mcp_monitoring.sh
 
-# Load convenience commands
+# Load convenience commands (already in ~/.bashrc)
 source ~/.claude/mcp_monitoring/aliases.sh
 
 # View real-time analytics
 mcp-report         # 7-day report
 mcp-report-month   # 30-day report
 mcp-logs          # Watch live activity
+mcp-session       # View active session
+mcp-errors        # Check for hook errors
 ```
 
 **What it tracks automatically:**
@@ -396,86 +444,23 @@ mcp-logs          # Watch live activity
 - Grep/find/rg usage in Bash commands
 - Session start/end events
 - Tool success rates and response sizes
+- Direct Grep tool usage
 
-**Note:** Requires restarting Claude session after setup for hooks to activate.
+**Note:** Hooks are active and tracking. The old shell alias system has been removed in favor of this cleaner approach.
 
 See `scripts/claude_hooks/README.md` for full documentation.
 
-### 🚀 Manual Tracking Setup (Alternative)
-
-For manual tracking, run the setup script once:
-
-```bash
-# One-time setup for manual metrics
-bash scripts/setup_dogfooding.sh
-```
-
-This installs:
-
-- **Git hooks**: Auto-start sessions on branch switch, auto-end on commit
-- **Shell aliases**: Track grep usage automatically
-- **Quick commands**: `mcp-start`, `mcp-end`, `mcp-report`, etc.
-
 ### ⚡ What Happens Automatically
 
-After setup, metrics tracking is completely hands-off:
+After Claude hooks setup, metrics tracking is completely automatic:
 
-1. **Branch Switch**: `git checkout feat/123-feature` → Auto-starts session for issue #123
-2. **Grep Usage**: `grep "function"` → Auto-tracked as manual search
-3. **MCP Usage**: All MCP tool calls → Auto-tracked via `get_performance_metrics()`
-4. **Commit**: `git commit` → Auto-ends session, shows stats in commit message
-5. **CD into project**: `cd python-code-intelligence-mcp` → Auto-starts if no active session
+1. **Session Start**: Claude Code session start → Auto-tracked via hooks
+2. **Grep Usage**: `grep "function"` → Auto-tracked in Bash commands
+3. **MCP Usage**: All MCP tool calls → Auto-tracked via hooks
+4. **Session End**: Claude Code session end → Auto-tracked and reported
+5. **Tool Success**: Response sizes and success rates → Auto-tracked
 
-### 📱 Quick Commands (After Setup)
-
-```bash
-# Manual control (rarely needed)
-mcp-start --issue 135        # Start session manually
-mcp-end                      # End session manually
-mcp-report --days 7          # Weekly report
-mcp-saved 10 "Found refs fast"  # Log time saved
-mcp-bug "Caught circular dep"    # Log prevented bug
-```
-
-### 🔧 Manual Setup (If Needed)
-
-If you prefer manual tracking or the automatic setup fails:
-
-```bash
-# Start metrics tracking
-python scripts/dogfooding_metrics.py start --issue 135
-
-# Get baseline MCP metrics
-mcp__python-intelligence__get_performance_metrics()
-```
-
-During development, manually track:
-
-- **When using grep/find**: `python scripts/dogfooding_metrics.py grep`
-- **When MCP saves time**: `python scripts/dogfooding_metrics.py saved 5 "Found all references instantly"`
-- **When MCP prevents bugs**: `python scripts/dogfooding_metrics.py bug "Would have missed subclass"`
-- **Sync MCP metrics**: `python scripts/dogfooding_metrics.py sync`
-
-End session:
-
-```bash
-# End session and see stats
-python scripts/dogfooding_metrics.py end
-
-# Get final MCP metrics
-mcp__python-intelligence__get_performance_metrics()
-```
-
-### 🔄 New: Automatic MCP Metrics Integration
-
-The dogfooding system now automatically captures MCP tool usage:
-
-- **MCP Tool Calls**: Automatically logged via `pycodemcp.dogfooding_integration`
-- **Grep Detection**: Shell wrappers track grep/rg/find usage
-- **Real-time Sync**: `sync` command updates session with current MCP stats
-- **Adoption Rate**: Calculates MCP vs grep usage percentage
-
-This fixes the issue where 0% MCP adoption was being reported despite heavy MCP usage.
+The Claude hooks system handles everything - no manual intervention needed!
 
 ### Weekly Reporting
 
@@ -537,6 +522,12 @@ We're tracking progress toward these goals:
 → **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
 → **NEVER use**: Manual `git worktree add` commands
 
+#### "PR is merged" / "Update after merge" / "Sync after external merge"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **NEVER use**: Manual `git checkout`, `git merge`, `git pull` sequences
+→ **Note**: Handles special cases like persistent claude/development branch
+
 #### "Push and create PR" / "Create a PR" / "Monitor CI" / "Check if CI passes"
 
 → **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
@@ -552,6 +543,12 @@ These commands trigger multiple agents in sequence:
 
 1. `Task tool with subagent_type="pr-workflow"` - Merge the PR, update main, delete remote branch
 2. `Task tool with subagent_type="worktree-manager"` - Remove the worktree safely after confirming no uncommitted changes
+
+#### "PR is merged. update" / "Update after merge" / "Sync with main" / "Merged externally"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **Purpose**: Handle post-merge updates when PR was merged externally (via GitHub UI or by another user)
+→ **Special handling**: For claude/development, updates the persistent branch without removing worktree
 
 #### "Start issue X" / "Begin work on issue X"
 
