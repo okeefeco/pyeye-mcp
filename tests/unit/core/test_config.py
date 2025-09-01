@@ -7,8 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from pycodemcp.config import ProjectConfig
-
-from .test_utils import assert_path_equal, assert_path_in_list
+from tests.test_helpers import assert_path_equal, assert_path_in_list
 
 
 class TestProjectConfig:

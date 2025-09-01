@@ -245,7 +245,7 @@ result = func()
     async def test_find_reexports(self):
         """Test finding re-export paths for symbols."""
         # Create test fixture
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Test finding re-exports for User class
@@ -261,7 +261,7 @@ result = func()
     async def test_find_symbol_with_import_paths(self):
         """Test find_symbol includes import_paths for re-exported symbols."""
         # Use the test fixture
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Find the User symbol
@@ -281,7 +281,7 @@ result = func()
     @pytest.mark.asyncio
     async def test_multi_level_reexports(self):
         """Test multi-level re-exports (core -> auth -> authenticator)."""
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Test finding re-exports for Authenticator class (multi-level)
@@ -301,7 +301,7 @@ result = func()
     @pytest.mark.asyncio
     async def test_find_reexports_with_longer_file_path(self):
         """Test that file path is used when it provides more complete module info."""
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Test with a short module name but complete file path
@@ -352,7 +352,7 @@ __all__ = [
 """
             )
 
-            fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+            fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
             analyzer = JediAnalyzer(str(fixture_path))
 
             # Check symbol that's in __all__ and imported
@@ -364,7 +364,7 @@ __all__ = [
     @pytest.mark.asyncio
     async def test_check_symbol_in_init_error_handling(self):
         """Test _check_symbol_in_init handles file read errors gracefully."""
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Test with non-existent file
@@ -374,7 +374,7 @@ __all__ = [
 
     def test_find_init_file_not_found(self):
         """Test _find_init_file returns None when init file doesn't exist."""
-        fixture_path = Path(__file__).parent / "fixtures" / "reexport_test"
+        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
         analyzer = JediAnalyzer(str(fixture_path))
 
         # Test with module that doesn't exist

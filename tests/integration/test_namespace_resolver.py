@@ -1,8 +1,7 @@
 """Tests for namespace package resolution."""
 
 from pycodemcp.namespace_resolver import NamespaceResolver
-
-from .test_utils import assert_path_in_list
+from tests.test_helpers import assert_path_in_list
 
 
 class TestNamespaceResolver:
