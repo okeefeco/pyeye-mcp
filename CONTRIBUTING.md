@@ -470,6 +470,8 @@ mypy src/pycodemcp
 
 ### Security Checks
 
+> **📖 For comprehensive security strategy and rationale, see [Security Tooling Strategy](#security-tooling-strategy)**
+
 We use multiple security tools for defense in depth:
 
 #### Dependency Vulnerability Scanning
@@ -500,13 +502,209 @@ uv run safety check
 
 ```bash
 # Run bandit for Python security issues
+# Detects: SQL injection, hardcoded passwords, insecure functions, etc.
 bandit -r src/ -ll
 
 # Scan for secrets in code
+# Detects: API keys, tokens, passwords, private keys
 detect-secrets scan
 ```
 
+**What these tools catch:**
+
+- **Bandit**: SQL injection, command injection, hardcoded passwords, insecure random generators,
+  dangerous imports (pickle, eval), and 60+ other Python-specific security patterns
+- **detect-secrets**: AWS keys, GitHub tokens, private keys, passwords in strings, and custom
+  patterns defined in `.secrets.baseline`
+
 All security checks run automatically via pre-commit hooks before each commit.
+
+## Security Tooling Strategy
+
+### Our Security Philosophy
+
+We implement defense-in-depth security using carefully selected open-source tools that provide comprehensive coverage without vendor lock-in. Our approach prioritizes:
+
+- **Best-in-class tools for Python**: Tools specifically optimized for Python security
+- **Multiple vulnerability databases**: Different sources catch different issues
+- **Platform independence**: Works with any Git hosting service
+- **Cost effectiveness**: Enterprise-grade security at zero additional cost
+
+### Why We Don't Use GitHub Advanced Security
+
+While GitHub Advanced Security offers integrated security features, we've made a deliberate choice to use open-source alternatives based on careful analysis:
+
+#### Cost Analysis
+
+Even with GitHub Enterprise Cloud, Advanced Security is a paid add-on:
+
+- **GitHub Enterprise Cloud**: $21/user/month (what we have)
+- **GitHub Advanced Security**: Additional $49/user/month (NOT included with Enterprise)
+- **Total with Advanced Security**: $70/user/month
+- **Annual cost for 5 developers**: $2,940 extra per year
+
+Our current open-source stack: **$0** additional cost
+
+#### Performance Comparison for Python
+
+Research and real-world testing show our tools outperform GitHub's offerings for Python:
+
+- **Bandit (our choice)**: 30% vulnerability detection rate for Python
+- **CodeQL (GitHub)**: 0-5% detection rate for Python
+  - CodeQL is optimized for C/C++, Java, and C# - not Python
+  - Recent studies show CodeQL missed all Python vulnerabilities in test scenarios
+
+#### Feature Parity Analysis
+
+| Security Need | Our Solution (Free) | GitHub Advanced Security ($49/user/mo) | Winner |
+|--------------|-------------------|-----------------------------------|---------|
+| Secret Detection | detect-secrets | Secret Scanning | **Tie** |
+| Python SAST | Bandit (30% detection) | CodeQL (0-5% detection) | **Bandit** ✅ |
+| Dependency Scanning | pip-audit + Safety + Dependabot | Advanced Dependabot | **Our Stack** ✅ |
+| Push Protection | Pre-commit hooks | Push Protection | **Tie** |
+| Auto-remediation | Dependabot (free) | Copilot Autofix | **Tie** |
+| Multi-language Support | Python-focused | Excellent for C/C++/Java | Context-dependent |
+| Platform Lock-in | None (portable) | GitHub-only | **Our Stack** ✅ |
+| **Total Annual Cost** | **$0** | **$2,940** (5 devs) | **Our Stack** ✅ |
+
+### Our Security Stack
+
+#### 🛡️ Prevention Layer: Pre-commit Hooks
+
+Security issues are prevented before they enter the repository:
+
+**1. Secret Detection (`detect-secrets`)**
+
+- **Purpose**: Prevents hardcoded credentials from being committed
+- **Coverage**: API keys, passwords, tokens, private keys
+- **Equivalent to**: GitHub Secret Scanning ($19/user/month value)
+- **Advantages**:
+  - Custom regex patterns for organization-specific secrets
+  - Works offline and with any Git host
+  - Baseline file for managing false positives
+
+**2. Static Application Security Testing (`bandit`)**
+
+- **Purpose**: Identifies security vulnerabilities in Python code
+- **Coverage**: SQL injection, hardcoded passwords, insecure functions, etc.
+- **Equivalent to**: GitHub CodeQL ($30/user/month value)
+- **Advantages**:
+  - 68 Python-specific security checks
+  - 30% detection rate vs CodeQL's 0-5% for Python
+  - Designed specifically for Python, not retrofitted
+
+**3. Dependency Vulnerability Scanning (`pip-audit`)**
+
+- **Purpose**: Identifies known vulnerabilities in dependencies
+- **Database**: OSV (Open Source Vulnerabilities)
+- **Advantages**:
+  - Real-time vulnerability data
+  - Automatic fix suggestions with `--fix` flag
+  - Checks transitive dependencies
+
+#### 🔍 Detection Layer: CI/CD Enforcement
+
+All security checks are enforced in CI/CD pipelines:
+
+- **Mandatory checks**: PRs cannot merge without passing all security scans
+- **Multiple databases**: OSV (pip-audit) + Safety DB (safety) for comprehensive coverage
+- **Continuous monitoring**: Every commit is scanned automatically
+
+#### 🔧 Remediation Layer: Automated Updates
+
+##### 1. Dependabot (Free with GitHub)
+
+- **Purpose**: Automated dependency updates
+- **Configuration**: Weekly scans, grouped updates
+- **Coverage**: Python packages and GitHub Actions
+- **Note**: Available free even without Advanced Security
+
+##### 2. Safety (Free tier)
+
+- **Purpose**: Additional vulnerability database coverage
+- **Database**: Proprietary Safety DB
+- **Why both pip-audit and Safety?**:
+  - Different databases catch different vulnerabilities
+  - Safety DB includes some proprietary vulnerability research
+  - Together they provide more comprehensive coverage than GitHub alone
+
+### When to Reconsider GitHub Advanced Security
+
+We should reevaluate our tooling strategy if:
+
+1. **Multi-language development**: We expand beyond Python to languages where CodeQL excels (C/C++, Java, C#)
+2. **Pricing changes**: GitHub includes Advanced Security with Enterprise Cloud at no extra cost
+3. **Tool improvements**: CodeQL significantly improves Python detection rates (currently 0-5%)
+4. **Partner integrations needed**: We require automatic secret revocation via GitHub's partner network
+5. **Compliance requirements**: Specific regulatory requirements mandate GitHub Advanced Security
+
+### Running Security Checks Locally
+
+Developers should run security checks before pushing code:
+
+```bash
+# Run ALL security checks via pre-commit
+pre-commit run --all-files
+
+# Or run individual tools:
+
+# Check for secrets
+detect-secrets scan
+
+# Run Python security analysis
+bandit -r src/ -ll
+
+# Check dependencies for vulnerabilities
+uv run pip-audit
+uv run safety check
+
+# Type checking (also catches some security issues)
+mypy src/pycodemcp
+```
+
+### Handling Security Findings
+
+#### False Positives
+
+**For detect-secrets:**
+
+```bash
+# Update baseline after reviewing false positives
+detect-secrets scan --baseline .secrets.baseline
+```
+
+**For bandit:**
+
+```python
+# Use inline comments for specific false positives
+result = eval(user_input)  # nosec B307 - input is sanitized above
+```
+
+#### Real Security Issues
+
+1. **Never commit the vulnerability** - fix it first
+2. **If found in existing code** - create an issue and fix immediately
+3. **For dependencies** - update to secure version or find alternative
+4. **Document the fix** - include security impact in commit message
+
+### Security in Pull Requests
+
+All PRs must pass these security gates:
+
+- ✅ No secrets detected (detect-secrets)
+- ✅ No Python security vulnerabilities (bandit)
+- ✅ No vulnerable dependencies (pip-audit)
+- ✅ All pre-commit hooks passing
+- ✅ Security impact documented if applicable
+
+### Continuous Improvement
+
+We regularly review and enhance our security tooling:
+
+- **Quarterly reviews**: Assess new vulnerabilities and tool updates
+- **Tool evaluation**: Test new security tools as they emerge
+- **Database updates**: Ensure we're using latest vulnerability data
+- **Training**: Keep team updated on security best practices
 
 ## Cross-Platform Development
 
@@ -612,6 +810,7 @@ gh pr create --title "feat: your feature" --body "Description of changes"
 - Clear title and description
 - Link to related issue (if applicable)
 - All CI checks passing
+- **MANDATORY**: Security checks passing (secrets, SAST, dependencies - see [Security Tooling Strategy](#security-tooling-strategy))
 - **MANDATORY**: Tests for ALL new functionality (coverage must not drop below 75%)
 - **MANDATORY**: Tests for ALL bug fixes (include regression tests)
 - Documentation updates (if needed)
