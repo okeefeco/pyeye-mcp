@@ -520,7 +520,15 @@ We're tracking progress toward these goals:
 
 ### ALWAYS Use These Agents (Never Manual Commands)
 
+**CRITICAL**: These are TRIGGER PHRASES. When you see these patterns, you MUST use the agent, not manual commands!
+
 **When the user says any variant of:**
+
+#### "Remove worktree for issue X" / "Delete worktree" / "Clean up worktree"
+
+→ **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
+→ **NEVER use**: Manual `git worktree remove` commands
+→ **Why**: Ensures safety checks for uncommitted changes and proper session tracking
 
 #### "Let's commit this" / "Commit these changes" / "Create a commit"
 
@@ -532,10 +540,27 @@ We're tracking progress toward these goals:
 → **IMMEDIATELY use**: `Task tool with subagent_type="cross-platform-validator"`
 → **NEVER use**: Manual path checking or grep for .as_posix()
 
-#### "Setup a worktree" / "Switch to issue X" / "Clean up worktrees"
+#### "Create worktree" / "Setup a worktree" / "Switch to issue X" / "Clean up worktrees" / "Remove worktree" / "Worktree for issue X"
 
 → **IMMEDIATELY use**: `Task tool with subagent_type="worktree-manager"`
-→ **NEVER use**: Manual `git worktree add` commands
+→ **NEVER use**: Manual `git worktree add`, `git worktree remove`, or any direct worktree commands
+→ **INCLUDES**: "create worktree for issue 115", "make a worktree", "new worktree", etc.
+
+**❌ WRONG (what you're doing in the screenshot):**
+
+```bash
+pwd && git worktree list  # NO! Don't check manually
+gh issue view 115         # NO! The agent will handle this
+git worktree add ...      # NO! Never use this directly
+```
+
+**✅ RIGHT:**
+
+```text
+User: create worktree for issue 115
+Claude: I'll use the worktree-manager agent to create that worktree.
+[Uses Task tool with subagent_type="worktree-manager"]
+```
 
 #### "PR is merged" / "Update after merge" / "Sync after external merge"
 
