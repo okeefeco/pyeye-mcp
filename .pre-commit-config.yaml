@@ -19,6 +19,16 @@ repos:
         args: ['-ll', '--skip', 'B101,B601']
         exclude: ^tests/
 
+  # Dependency vulnerability scanning with pip-audit (via uv)
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: Check dependencies with pip-audit
+        entry: uv run pip-audit
+        language: system
+        pass_filenames: false
+        files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
+
   # Code formatting
   - repo: https://github.com/psf/black
     rev: 25.1.0

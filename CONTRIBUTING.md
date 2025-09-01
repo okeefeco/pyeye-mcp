@@ -318,7 +318,7 @@ git checkout -b docs/documentation-update
 
 Before committing, pre-commit will automatically run:
 
-- **Security scanning** (detect-secrets, bandit)
+- **Security scanning** (detect-secrets, bandit, pip-audit)
 - **Code formatting** (black, isort)
 - **Linting** (ruff)
 - **Type checking** (mypy)
@@ -470,16 +470,43 @@ mypy src/pycodemcp
 
 ### Security Checks
 
+We use multiple security tools for defense in depth:
+
+#### Dependency Vulnerability Scanning
+
+We use two complementary tools that check different vulnerability databases:
+
+1. **pip-audit** - Checks the OSV (Open Source Vulnerabilities) database
+2. **safety** - Checks the Safety DB (proprietary database)
+
 ```bash
-# Run bandit
+# Check dependencies with pip-audit (OSV database)
+uv run pip-audit
+
+# Check dependencies with safety (Safety DB)
+uv run safety check
+
+# Both run automatically via pre-commit hooks
+```
+
+**Why both tools?**
+
+- Different vulnerability databases catch different issues
+- pip-audit: Better for transitive dependencies, more frequent updates
+- safety: Long-established tool with extensive proprietary database
+- Together they provide comprehensive coverage
+
+#### Static Security Analysis
+
+```bash
+# Run bandit for Python security issues
 bandit -r src/ -ll
 
-# Check dependencies
-safety check
-
-# Scan for secrets
+# Scan for secrets in code
 detect-secrets scan
 ```
+
+All security checks run automatically via pre-commit hooks before each commit.
 
 ## Cross-Platform Development
 
