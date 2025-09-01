@@ -20,15 +20,15 @@ The core navigation tools provide essential functionality for navigating and und
 
 ## find_symbol
 
-Find symbol definitions in the project.
+Find symbol definitions in the project, including support for compound symbols.
 
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | ✅ | - | Symbol name to search for |
+| `name` | string | ✅ | - | Symbol name to search for (supports compound symbols like "Class.method") |
 | `project_path` | string | ❌ | "." | Root path of the project to search |
-| `fuzzy` | boolean | ❌ | false | Whether to use fuzzy matching |
+| `fuzzy` | boolean | ❌ | false | Whether to use fuzzy matching (only for simple symbols) |
 | `use_config` | boolean | ❌ | true | Whether to use configuration file for additional packages |
 
 ### Returns
@@ -58,13 +58,44 @@ result = find_symbol("UserModel")
 #   "import_paths": ["models.user.UserModel", "models.UserModel"]
 # }]
 
-# Find with fuzzy matching
+# Find a specific method of a class (compound symbol)
+result = find_symbol("UserModel.__init__")
+# Returns: [{
+#   "name": "__init__",
+#   "type": "function",
+#   "file": "/project/models/user.py",
+#   "line": 17,
+#   "column": 4,
+#   "import_paths": ["models.user.UserModel.__init__"]
+# }]
+
+# Find a class method (compound symbol)
+result = find_symbol("Calculator.add")
+# Returns only the add method of Calculator class, not other add methods
+
+# Find a module function (compound symbol)
+result = find_symbol("utils.helpers.format_date")
+# Returns the specific format_date function in utils.helpers module
+
+# Find with fuzzy matching (simple symbols only)
 result = find_symbol("UsrMdl", fuzzy=True)
 # May return matches like "UserModel", "UserModule", etc.
 
 # Search in specific project
 result = find_symbol("Config", project_path="/path/to/project")
 ```
+
+### Compound Symbol Support
+
+**New in v0.3.0**: The `find_symbol` tool now supports compound symbols, allowing you to search for specific methods, attributes, or nested symbols:
+
+- **Class methods**: `ClassName.method_name` - finds only that specific method
+- **Magic methods**: `Model.__init__`, `Model.__str__` - finds special methods
+- **Module functions**: `module.function` or `package.module.function`
+- **Nested classes**: `OuterClass.InnerClass.method`
+- **Properties**: `User.email` - finds property definitions
+
+This provides more precise results compared to searching for the method name alone, which would return all methods with that name across all classes.
 
 ### Error Conditions
 
@@ -746,7 +777,7 @@ structure = list_project_structure(max_depth=1)
 
 - Returns empty structure for non-existent path
 - Skips inaccessible directories
-- Ignores common non-source directories (.git, __pycache__, etc.)
+- Ignores common non-source directories (.git, **pycache**, etc.)
 
 ### Performance Notes
 
@@ -758,8 +789,8 @@ structure = list_project_structure(max_depth=1)
 
 ## Related Tools
 
-- __Module Analysis__: For detailed module information, see [Module Analysis Tools](./module-analysis.md)
-- __Framework Tools__: For framework-specific navigation, see:
+- **Module Analysis**: For detailed module information, see [Module Analysis Tools](./module-analysis.md)
+- **Framework Tools**: For framework-specific navigation, see:
   - [Pydantic Tools](./pydantic-tools.md)
   - [Flask Tools](./flask-tools.md)
   - [Django Tools](./django-tools.md)

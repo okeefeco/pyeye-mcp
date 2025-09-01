@@ -304,6 +304,9 @@ def validate_mcp_inputs(func: Any) -> Any:
         bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
 
+        # Get function name to apply specific validation rules
+        func_name = func.__name__
+
         # Validate based on parameter names
         for param_name, value in bound.arguments.items():
             if value is None:
@@ -341,9 +344,17 @@ def validate_mcp_inputs(func: Any) -> Any:
             # Module/identifier name validation
             elif param_name in ["name", "module_name", "function_name", "import_path"]:
                 try:
-                    bound.arguments[param_name] = InputValidator.validate_identifier(
-                        value, allow_dots=param_name in ["module_name", "import_path"]
-                    )
+                    # Special handling for find_symbol: allow compound symbols (dots)
+                    if param_name == "name" and func_name == "find_symbol":
+                        # For find_symbol, allow dots in the name parameter for compound symbols
+                        bound.arguments[param_name] = InputValidator.validate_identifier(
+                            value, allow_dots=True
+                        )
+                    else:
+                        # Standard validation for other cases
+                        bound.arguments[param_name] = InputValidator.validate_identifier(
+                            value, allow_dots=param_name in ["module_name", "import_path"]
+                        )
                 except ValidationError as e:
                     raise ValidationError(
                         f"Invalid {param_name}: {e}", parameter=param_name, value=str(value)

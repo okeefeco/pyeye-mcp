@@ -22,6 +22,7 @@ from ..scope_utils import (
     SmartScopeResolver,
     parallel_search,
 )
+from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -348,13 +349,18 @@ class JediAnalyzer:
         """Find symbol definitions in the project.
 
         Args:
-            name: Symbol name to search for
+            name: Symbol name to search for (supports compound symbols like "Model.__init__")
             fuzzy: Enable fuzzy matching
             include_import_paths: Include alternative import paths for re-exported symbols
 
         Returns:
             List of symbol matches with location and optional import path information
         """
+        # Check if this is a compound symbol (e.g., "Model.__init__")
+        if is_compound_symbol(name):
+            return await self._find_compound_symbol(name, include_import_paths)
+
+        # Original implementation for simple symbols
         results = []
 
         try:
@@ -398,6 +404,76 @@ class JediAnalyzer:
                     symbol=name,
                     error=error_str,
                 ) from e
+
+        return results
+
+    async def _find_compound_symbol(
+        self, name: str, include_import_paths: bool = True
+    ) -> list[dict[str, Any]]:
+        """Find compound symbol definitions (e.g., "Model.__init__").
+
+        Args:
+            name: Compound symbol name (e.g., "Model.__init__", "module.Class.method")
+            include_import_paths: Include alternative import paths
+
+        Returns:
+            List of symbol matches with location information
+        """
+        results = []
+
+        # Parse the compound symbol
+        components, valid = parse_compound_symbol(name)
+        if not valid:
+            logger.warning(f"Invalid compound symbol: {name}")
+            return []
+
+        if len(components) < 2:
+            # Not actually a compound symbol
+            return await self.find_symbol(name, include_import_paths=include_import_paths)
+
+        try:
+            # Get parent and member names
+            parent_path, member_name = get_parent_and_member(components)
+
+            # First, find the parent symbol (class or module)
+            parent_results = self.project.search(components[-2], all_scopes=True)
+
+            for parent_result in parent_results:
+                # Check if this parent matches our full parent path
+                parent_full_name = parent_result.full_name
+                if parent_full_name and not parent_full_name.endswith(components[-2]):
+                    continue
+
+                # Get the parent's defined names (methods, attributes, etc.)
+                try:
+                    parent_names = parent_result.defined_names()
+
+                    # Search for the member within the parent's scope
+                    for defined_name in parent_names:
+                        if defined_name.name == member_name:
+                            # Found the member in this parent
+                            try:
+                                serialized = await self._serialize_name(
+                                    defined_name, include_import_paths=include_import_paths
+                                )
+                                # Ensure the full name reflects the compound nature
+                                if "full_name" in serialized:
+                                    # Verify this is the right match
+                                    full_name = serialized["full_name"]
+                                    # Check if it matches our expected pattern
+                                    if components[-2] in full_name and member_name in full_name:
+                                        results.append(serialized)
+                            except Exception as e:
+                                logger.warning(f"Could not serialize {defined_name.name}: {e}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"Could not get defined names for {parent_result.name}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error in _find_compound_symbol: {e}")
+            # Return empty list rather than raising
+            return []
 
         return results
 
