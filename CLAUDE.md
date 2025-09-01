@@ -16,6 +16,7 @@ This file loads modular Claude behavior instructions. The actual instructions ar
 @.claude/instructions/05-workflow-issues.md
 @.claude/instructions/06-workflow-commits.md
 @.claude/instructions/07-validation.md
+@.claude/instructions/11-pr-requirements.md
 
 ## Required Development Practices
 
@@ -31,14 +32,19 @@ This file loads modular Claude behavior instructions. The actual instructions ar
 
 @.claude/instructions/08-project-specific.md
 
-## Required Context Files
+## GitHub Labels Reference
 
-These files provide essential project context and are automatically loaded:
+@docs/LABELS.md
 
-@CONTRIBUTING.md - GitHub issue workflow, merge strategy, validation rules, development setup
-@docs/LABELS.md - GitHub issue labeling system and priorities
+This file defines the GitHub label system you MUST use when creating issues, PRs, or suggesting labels.
 
-**CRITICAL**: The workflows in CONTRIBUTING.md are MANDATORY. Always follow the GitHub issue-based workflow and NEVER use squash merges.
+## Optional Human Documentation References
+
+These files contain detailed human documentation that you can reference if needed:
+
+- `CONTRIBUTING.md` - Detailed setup guides, explanations, and human-oriented documentation
+
+Note: The mandatory Claude-specific rules from CONTRIBUTING.md have been extracted to appropriate instruction files
 
 ## Detailed Worktree-Aware Workflow
 
