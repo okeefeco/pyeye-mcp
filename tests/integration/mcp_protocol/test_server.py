@@ -238,7 +238,7 @@ class TestFindSymbol:
     async def test_find_symbol_with_reexports(self):
         """Test find_symbol includes import_paths for re-exported symbols."""
         # Use the test fixture
-        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+        fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the User symbol in the test fixture
         results = await find_symbol("User", project_path=fixture_path, use_config=False)
@@ -264,7 +264,7 @@ class TestFindSymbol:
     @pytest.mark.asyncio
     async def test_find_symbol_multi_level_reexports(self):
         """Test find_symbol with multi-level re-exports."""
-        fixture_path = str(Path(__file__).parent / "fixtures" / "reexport_test")
+        fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the Authenticator symbol
         results = await find_symbol("Authenticator", project_path=fixture_path, use_config=False)
