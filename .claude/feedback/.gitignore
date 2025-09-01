@@ -1,0 +1,9 @@
+# Ignore actual execution logs (these are session-specific)
+logs/*.json
+
+# Ignore performance metrics (these are environment-specific)
+metrics/*.json
+
+# Keep the directory structure
+!logs/.gitkeep
+!metrics/.gitkeep
