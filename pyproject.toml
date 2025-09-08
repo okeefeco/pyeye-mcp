@@ -40,7 +40,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "black==25.1.0",  # Pinned to match .pre-commit-config.yaml
-    "ruff==0.12.11",  # Pinned to avoid unexpected linting rule changes
+    "ruff==0.12.12",  # Pinned to avoid unexpected linting rule changes
     "mypy==1.17.1",  # Pinned to avoid type checking behavior changes
     "detect-secrets==1.5.0",  # Pinned to match current version
     "bandit[toml]==1.8.6",  # Pinned for consistent security checks
