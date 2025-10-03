@@ -79,8 +79,8 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
             "/repos/mycompany-utils",
         ]
 
-    def test_load_json_config(self, temp_project_dir):
-        """Test loading configuration from JSON file."""
+    def test_load_legacy_json_config(self, temp_project_dir):
+        """Test loading configuration from legacy .pycodemcp.json file (backward compatibility)."""
         config_data = {
             "packages": ["../lib1", "../lib2"],
             "namespaces": {"company": ["/repos/company-auth", "/repos/company-api"]},
@@ -96,8 +96,8 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
         assert config.config["namespaces"] == config_data["namespaces"]
         assert config.config["cache_ttl"] == 600
 
-    def test_load_yaml_config(self, temp_project_dir):
-        """Test loading configuration from YAML file."""
+    def test_load_legacy_yaml_config(self, temp_project_dir):
+        """Test loading configuration from legacy .pycodemcp.yaml file (backward compatibility)."""
         pytest.importorskip("yaml")  # Skip if PyYAML not installed
 
         yaml_content = """pycodemcp:
@@ -114,8 +114,8 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
         assert config.config["packages"] == ["../lib1"]
         assert config.config["cache_ttl"] == 300
 
-    def test_load_pyproject_toml(self, temp_project_dir):
-        """Test loading configuration from pyproject.toml."""
+    def test_load_legacy_pyproject_toml(self, temp_project_dir):
+        """Test loading configuration from legacy [tool.pycodemcp] in pyproject.toml (backward compatibility)."""
         toml_content = """
 [tool.pycodemcp]
 packages = ["../shared", "../common"]
@@ -140,13 +140,13 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
         json_config = {"packages": ["json_package"]}
         toml_config = {"packages": ["toml_package"]}
 
-        json_file = temp_project_dir / ".pycodemcp.json"
+        json_file = temp_project_dir / ".pyeye.json"
         json_file.write_text(json.dumps(json_config))
 
         toml_file = temp_project_dir / "pyproject.toml"
         toml_file.write_text(
             f"""
-[tool.pycodemcp]
+[tool.pyeye]
 packages = {json.dumps(toml_config["packages"])}
 """
         )
@@ -160,7 +160,7 @@ packages = {json.dumps(toml_config["packages"])}
         """Test loading configuration from override file."""
         # Create base config
         base_config = {"packages": ["base_package"], "namespaces": {"base.ns": ["/base/path"]}}
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(base_config))
 
         # Create override config
@@ -181,7 +181,7 @@ packages = {json.dumps(toml_config["packages"])}
         """Test that override file has highest precedence."""
         # Create base config with a value
         base_config = {"cache_ttl": 100, "packages": ["base"]}
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(base_config))
 
         # Create override config with different value
@@ -237,7 +237,7 @@ packages = {json.dumps(toml_config["packages"])}
         """Test that configs from different sources are merged."""
         # Base config
         base_config = {"packages": ["base_pkg"], "cache_ttl": 300}
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(base_config))
 
         # Override config
@@ -255,7 +255,7 @@ packages = {json.dumps(toml_config["packages"])}
 
     def test_invalid_json_config(self, temp_project_dir, caplog):
         """Test handling of invalid JSON config files."""
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text("{ invalid json }")
 
         _ = ProjectConfig(str(temp_project_dir))
@@ -264,7 +264,7 @@ packages = {json.dumps(toml_config["packages"])}
         assert "Error loading config" in caplog.text
 
     def test_missing_config_section_in_toml(self, temp_project_dir):
-        """Test handling pyproject.toml without pycodemcp section."""
+        """Test handling pyproject.toml without pyeye/pycodemcp section."""
         toml_content = """
 [tool.other]
 setting = "value"
@@ -284,7 +284,7 @@ setting = "value"
         claude_dir.mkdir()
 
         config_data = {"packages": ["claude_package"]}
-        config_file = claude_dir / "pycodemcp.json"
+        config_file = claude_dir / "pyeye.json"
         config_file.write_text(json.dumps(config_data))
 
         config = ProjectConfig(str(temp_project_dir))
@@ -299,7 +299,7 @@ setting = "value"
         (temp_project_dir / "pkg3").mkdir()
 
         config_data = {"packages": ["./pkg1", "./pkg2", "./pkg3"]}
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(config_data))
 
         config = ProjectConfig(str(temp_project_dir))
@@ -317,7 +317,7 @@ setting = "value"
         config_data = {
             "namespaces": {"company.auth": ["/repos/auth"], "company.api": ["/repos/api"]}
         }
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(config_data))
 
         config = ProjectConfig(str(temp_project_dir))
@@ -355,7 +355,7 @@ setting = "value"
             ]
         }
 
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps(config_data))
 
         with patch("pyeye.config.PathValidator"):
