@@ -15,12 +15,17 @@ class ProjectConfig:
     """Manages project-specific configuration for code intelligence."""
 
     # Config file names to check (in order of precedence)
+    # Supports both new (.pyeye) and legacy (.pycodemcp) names for backward compatibility
     CONFIG_FILES = [
-        ".pycodemcp.json",
-        ".pycodemcp.yaml",
-        ".pycodemcp.yml",
-        "pyproject.toml",  # Can read from [tool.pycodemcp] section
-        ".claude/pycodemcp.json",
+        ".pyeye.json",
+        ".pyeye.yaml",
+        ".pyeye.yml",
+        ".pycodemcp.json",  # Legacy support
+        ".pycodemcp.yaml",  # Legacy support
+        ".pycodemcp.yml",  # Legacy support
+        "pyproject.toml",  # Can read from [tool.pyeye] or [tool.pycodemcp] section
+        ".claude/pyeye.json",
+        ".claude/pycodemcp.json",  # Legacy support
     ]
 
     def __init__(self, project_path: str = ".") -> None:
@@ -38,7 +43,7 @@ class ProjectConfig:
 
         Loading order (later sources override earlier ones):
         1. Global config (~/.config/pyeye/config.json)
-        2. Project config files (.pycodemcp.json, pyproject.toml, etc.)
+        2. Project config files (.pyeye.json, pyproject.toml, etc.)
         3. Override file (.pyeye.override.json) - for local development
         4. Auto-discovery (if no packages configured)
         """
@@ -86,8 +91,13 @@ class ProjectConfig:
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
-                    if "tool" in data and "pycodemcp" in data["tool"]:
-                        self.config.update(data["tool"]["pycodemcp"])
+                    # Support both new [tool.pyeye] and legacy [tool.pycodemcp] sections
+                    # New name takes precedence
+                    if "tool" in data:
+                        if "pyeye" in data["tool"]:
+                            self.config.update(data["tool"]["pyeye"])
+                        elif "pycodemcp" in data["tool"]:
+                            self.config.update(data["tool"]["pycodemcp"])
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -96,10 +106,13 @@ class ProjectConfig:
         """Load global configuration from user home.
 
         Global config provides defaults that can be overridden by project config.
+        Supports both new (.pyeye) and legacy (.pycodemcp) paths for backward compatibility.
         """
         global_configs = [
-            Path.home() / ".config" / "pycodemcp" / "config.json",
-            Path.home() / ".pycodemcp.json",
+            Path.home() / ".config" / "pyeye" / "config.json",  # New location
+            Path.home() / ".pyeye.json",  # New location
+            Path.home() / ".config" / "pycodemcp" / "config.json",  # Legacy support
+            Path.home() / ".pycodemcp.json",  # Legacy support
         ]
 
         for config_path in global_configs:
