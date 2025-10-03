@@ -21,6 +21,64 @@ class TestProjectConfig:
             assert_path_equal(config.project_path, temp_project_dir)
             assert isinstance(config.config, dict)
 
+    def test_load_pyeye_json_config(self, temp_project_dir):
+        """Test loading configuration from .pyeye.json file (new primary format)."""
+        config_data = {
+            "packages": ["../lib1", "../lib2"],
+            "namespaces": {"company": ["/repos/company-auth", "/repos/company-api"]},
+            "cache_ttl": 600,
+        }
+
+        config_file = temp_project_dir / ".pyeye.json"
+        config_file.write_text(json.dumps(config_data))
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        assert config.config["packages"] == config_data["packages"]
+        assert config.config["namespaces"] == config_data["namespaces"]
+        assert config.config["cache_ttl"] == 600
+
+    def test_load_pyeye_yaml_config(self, temp_project_dir):
+        """Test loading configuration from .pyeye.yaml file (new primary format)."""
+        pytest.importorskip("yaml")  # Skip if PyYAML not installed
+
+        yaml_content = """pyeye:
+  packages:
+    - ../lib1
+  cache_ttl: 300
+"""
+
+        config_file = temp_project_dir / ".pyeye.yaml"
+        config_file.write_text(yaml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        assert config.config["packages"] == ["../lib1"]
+        assert config.config["cache_ttl"] == 300
+
+    def test_load_pyeye_pyproject_toml(self, temp_project_dir):
+        """Test loading configuration from [tool.pyeye] in pyproject.toml (new primary format)."""
+        toml_content = """
+[tool.pyeye]
+packages = ["../shared", "../common"]
+cache_ttl = 300
+
+[tool.pyeye.namespaces]
+mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
+"""
+
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        assert config.config["packages"] == ["../shared", "../common"]
+        assert config.config["cache_ttl"] == 300
+        assert config.config["namespaces"]["mycompany"] == [
+            "/repos/mycompany-core",
+            "/repos/mycompany-utils",
+        ]
+
     def test_load_json_config(self, temp_project_dir):
         """Test loading configuration from JSON file."""
         config_data = {

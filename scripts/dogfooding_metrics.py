@@ -7,11 +7,20 @@ measuring adoption, performance, and identifying patterns.
 
 import json
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import click
+# Add src to path to import constants (must be before other local imports)
+project_root = Path(__file__).parent.parent
+src_path = project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+import click  # noqa: E402
+
+from pyeye.constants import METRICS_DIR  # noqa: E402
 
 
 class DogfoodingMetrics:
@@ -19,7 +28,7 @@ class DogfoodingMetrics:
 
     def __init__(self, data_dir: Path | None = None):
         """Initialize metrics tracker."""
-        self.data_dir = data_dir or Path.home() / ".pycodemcp" / "metrics"
+        self.data_dir = data_dir or Path.home() / METRICS_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.session_file = self.data_dir / "current_session.json"
         self.history_file = self.data_dir / "history.jsonl"
@@ -197,7 +206,8 @@ class DogfoodingMetrics:
             from pyeye.dogfooding_integration import get_integration
 
             integration = get_integration()
-            return integration.export_mcp_metrics_for_session()
+            metrics: dict[str, Any] = integration.export_mcp_metrics_for_session()
+            return metrics
 
         except ImportError:
             # Fallback: try subprocess call if integration not available

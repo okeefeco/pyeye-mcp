@@ -188,7 +188,24 @@ def mock_watchdog_observer() -> Mock:
 
 @pytest.fixture
 def sample_config_json(temp_project_dir: Path) -> Path:
-    """Create a sample .pycodemcp.json config file."""
+    """Create a sample .pyeye.json config file (new primary format)."""
+    config_file = temp_project_dir / ".pyeye.json"
+    config_file.write_text(
+        """{
+    "packages": ["../lib1", "../lib2"],
+    "namespaces": {
+        "company": ["~/repos/company-auth", "~/repos/company-api"]
+    },
+    "cache_ttl": 600,
+    "max_projects": 5
+}"""
+    )
+    return config_file
+
+
+@pytest.fixture
+def sample_legacy_config_json(temp_project_dir: Path) -> Path:
+    """Create a sample .pycodemcp.json config file (legacy backward compatibility)."""
     config_file = temp_project_dir / ".pycodemcp.json"
     config_file.write_text(
         """{
@@ -205,7 +222,24 @@ def sample_config_json(temp_project_dir: Path) -> Path:
 
 @pytest.fixture
 def sample_pyproject_toml(temp_project_dir: Path) -> Path:
-    """Create a sample pyproject.toml with pycodemcp config."""
+    """Create a sample pyproject.toml with pyeye config (new primary format)."""
+    config_file = temp_project_dir / "pyproject.toml"
+    config_file.write_text(
+        """
+[tool.pyeye]
+packages = ["../shared", "../common"]
+cache_ttl = 300
+
+[tool.pyeye.namespaces]
+mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
+"""
+    )
+    return config_file
+
+
+@pytest.fixture
+def sample_legacy_pyproject_toml(temp_project_dir: Path) -> Path:
+    """Create a sample pyproject.toml with pycodemcp config (legacy backward compatibility)."""
     config_file = temp_project_dir / "pyproject.toml"
     config_file.write_text(
         """

@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import unified_metrics module directly
-unified_metrics_path = Path(__file__).parent.parent / "src" / "pycodemcp" / "unified_metrics.py"
+unified_metrics_path = Path(__file__).parent.parent / "src" / "pyeye" / "unified_metrics.py"
 spec = importlib.util.spec_from_file_location("unified_metrics", unified_metrics_path)
 unified_metrics_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(unified_metrics_module)
