@@ -6,14 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .constants import (
-    CONFIG_DIR,
-    CONFIG_FILES,
-    LEGACY_CONFIG_DIR,
-    LEGACY_PROJECT_NAME,
-    OVERRIDE_FILE,
-    PROJECT_NAME,
-)
+from .constants import CONFIG_DIR, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -23,7 +16,6 @@ class ProjectConfig:
     """Manages project-specific configuration for code intelligence."""
 
     # Config file names to check (in order of precedence)
-    # Supports both new (.pyeye) and legacy (.pycodemcp) names for backward compatibility
     CONFIG_FILES = CONFIG_FILES
 
     def __init__(self, project_path: str = ".") -> None:
@@ -72,11 +64,8 @@ class ProjectConfig:
             if config_path.suffix == ".json":
                 with open(config_path) as f:
                     data = json.load(f)
-                    # Support both new and legacy top-level keys
                     if PROJECT_NAME in data:
                         self.config.update(data[PROJECT_NAME])
-                    elif LEGACY_PROJECT_NAME in data:
-                        self.config.update(data[LEGACY_PROJECT_NAME])
                     else:
                         self.config.update(data)
 
@@ -85,11 +74,8 @@ class ProjectConfig:
                     import yaml  # type: ignore[import-untyped]
 
                     data = yaml.safe_load(f)
-                    # Support both new and legacy top-level keys
                     if PROJECT_NAME in data:
                         self.config.update(data[PROJECT_NAME])
-                    elif LEGACY_PROJECT_NAME in data:
-                        self.config.update(data[LEGACY_PROJECT_NAME])
                     else:
                         self.config.update(data)
 
@@ -101,13 +87,8 @@ class ProjectConfig:
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
-                    # Support both new [tool.pyeye] and legacy [tool.pycodemcp] sections
-                    # New name takes precedence
-                    if "tool" in data:
-                        if PROJECT_NAME in data["tool"]:
-                            self.config.update(data["tool"][PROJECT_NAME])
-                        elif LEGACY_PROJECT_NAME in data["tool"]:
-                            self.config.update(data["tool"][LEGACY_PROJECT_NAME])
+                    if "tool" in data and PROJECT_NAME in data["tool"]:
+                        self.config.update(data["tool"][PROJECT_NAME])
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -116,13 +97,10 @@ class ProjectConfig:
         """Load global configuration from user home.
 
         Global config provides defaults that can be overridden by project config.
-        Supports both new (.pyeye) and legacy (.pycodemcp) paths for backward compatibility.
         """
         global_configs = [
-            Path.home() / CONFIG_DIR / "config.json",  # New location
-            Path.home() / f".{PROJECT_NAME}.json",  # New location
-            Path.home() / LEGACY_CONFIG_DIR / "config.json",  # Legacy support
-            Path.home() / f".{LEGACY_PROJECT_NAME}.json",  # Legacy support
+            Path.home() / CONFIG_DIR / "config.json",
+            Path.home() / f".{PROJECT_NAME}.json",
         ]
 
         for config_path in global_configs:

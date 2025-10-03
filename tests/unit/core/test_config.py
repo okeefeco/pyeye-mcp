@@ -22,7 +22,7 @@ class TestProjectConfig:
             assert isinstance(config.config, dict)
 
     def test_load_pyeye_json_config(self, temp_project_dir):
-        """Test loading configuration from .pyeye.json file (new primary format)."""
+        """Test loading configuration from .pyeye.json file."""
         config_data = {
             "packages": ["../lib1", "../lib2"],
             "namespaces": {"company": ["/repos/company-auth", "/repos/company-api"]},
@@ -39,7 +39,7 @@ class TestProjectConfig:
         assert config.config["cache_ttl"] == 600
 
     def test_load_pyeye_yaml_config(self, temp_project_dir):
-        """Test loading configuration from .pyeye.yaml file (new primary format)."""
+        """Test loading configuration from .pyeye.yaml file."""
         pytest.importorskip("yaml")  # Skip if PyYAML not installed
 
         yaml_content = """pyeye:
@@ -57,7 +57,7 @@ class TestProjectConfig:
         assert config.config["cache_ttl"] == 300
 
     def test_load_pyeye_pyproject_toml(self, temp_project_dir):
-        """Test loading configuration from [tool.pyeye] in pyproject.toml (new primary format)."""
+        """Test loading configuration from [tool.pyeye] in pyproject.toml."""
         toml_content = """
 [tool.pyeye]
 packages = ["../shared", "../common"]
@@ -78,61 +78,6 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
             "/repos/mycompany-core",
             "/repos/mycompany-utils",
         ]
-
-    def test_load_legacy_json_config(self, temp_project_dir):
-        """Test loading configuration from legacy .pycodemcp.json file (backward compatibility)."""
-        config_data = {
-            "packages": ["../lib1", "../lib2"],
-            "namespaces": {"company": ["/repos/company-auth", "/repos/company-api"]},
-            "cache_ttl": 600,
-        }
-
-        config_file = temp_project_dir / ".pycodemcp.json"
-        config_file.write_text(json.dumps(config_data))
-
-        config = ProjectConfig(str(temp_project_dir))
-
-        assert config.config["packages"] == config_data["packages"]
-        assert config.config["namespaces"] == config_data["namespaces"]
-        assert config.config["cache_ttl"] == 600
-
-    def test_load_legacy_yaml_config(self, temp_project_dir):
-        """Test loading configuration from legacy .pycodemcp.yaml file (backward compatibility)."""
-        pytest.importorskip("yaml")  # Skip if PyYAML not installed
-
-        yaml_content = """pycodemcp:
-  packages:
-    - ../lib1
-  cache_ttl: 300
-"""
-
-        config_file = temp_project_dir / ".pycodemcp.yaml"
-        config_file.write_text(yaml_content)
-
-        config = ProjectConfig(str(temp_project_dir))
-
-        assert config.config["packages"] == ["../lib1"]
-        assert config.config["cache_ttl"] == 300
-
-    def test_load_legacy_pyproject_toml(self, temp_project_dir):
-        """Test loading configuration from legacy [tool.pycodemcp] in pyproject.toml (backward compatibility)."""
-        toml_content = """
-[tool.pycodemcp]
-packages = ["../shared", "../common"]
-cache_ttl = 300
-
-[tool.pycodemcp.namespaces]
-mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
-"""
-
-        config_file = temp_project_dir / "pyproject.toml"
-        config_file.write_text(toml_content)
-
-        config = ProjectConfig(str(temp_project_dir))
-
-        assert config.config["packages"] == ["../shared", "../common"]
-        assert config.config["cache_ttl"] == 300
-        assert "mycompany" in config.config["namespaces"]
 
     def test_config_file_precedence(self, temp_project_dir):
         """Test that config files are checked in order of precedence."""
