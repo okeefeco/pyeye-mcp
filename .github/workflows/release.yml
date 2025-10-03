@@ -185,8 +185,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: dist/python_code_intelligence_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
-          asset_name: python_code_intelligence_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
+          asset_path: dist/pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
+          asset_name: pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
           asset_content_type: application/octet-stream
 
       - name: Upload source distribution to release
@@ -195,8 +195,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: dist/python_code_intelligence_mcp-${{ steps.version.outputs.version }}.tar.gz
-          asset_name: python_code_intelligence_mcp-${{ steps.version.outputs.version }}.tar.gz
+          asset_path: dist/pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz
+          asset_name: pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz
           asset_content_type: application/gzip
 
   # Notify about the release
