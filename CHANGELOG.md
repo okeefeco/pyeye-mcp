@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### BREAKING CHANGES
+
+#### Complete rebrand from "python-code-intelligence-mcp" to "PyEye"
+
+This is a breaking change that requires migration steps:
+
+#### Required Actions
+
+1. Rename configuration files:
+   - `.pycodemcp.json` → `.pyeye.json`
+   - `.pycodemcp.yaml` → `.pyeye.yaml`
+   - `.pycodemcp.override.json` → `.pyeye.override.json`
+
+2. Rename configuration directories:
+   - `~/.pycodemcp/` → `~/.pyeye/`
+   - `~/.config/pycodemcp/` → `~/.config/pyeye/`
+
+3. Update environment variables:
+   - `PYCODEMCP_*` → `PYEYE_*`
+   - Example: `PYCODEMCP_CACHE_TTL` → `PYEYE_CACHE_TTL`
+
+4. Update pyproject.toml sections:
+   - `[tool.pycodemcp]` → `[tool.pyeye]`
+
+5. Update MCP configuration:
+   - Module import: `from pyeye.mcp.server import mcp`
+   - Package name: `pyeye-mcp`
+
+#### What Changed
+
+- Package renamed: `python-code-intelligence-mcp` → `pyeye-mcp`
+- Module renamed: `pycodemcp` → `pyeye`
+- Server moved: `pyeye.server` → `pyeye.mcp.server`
+- All documentation updated to reflect new branding
+- All configuration file formats updated
+
+### Fixed
+
+- Renamed `.pycodemcp.json.example` to `.pyeye.json.example` (missed in initial rebrand)
+- Fixed Sphinx documentation paths for `pyeye.mcp.server` module structure
+- Fixed test mocking conflicts with new module structure
+- Restored `_version.pyi` type stub file for proper type checking
+
 ## [0.3.0] - 2025-08-27
 
 ### Added
