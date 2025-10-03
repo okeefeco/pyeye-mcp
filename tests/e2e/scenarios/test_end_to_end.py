@@ -236,7 +236,7 @@ class User(BaseModel):
         override_config.write_text(json.dumps({"packages": ["override_package"], "debug": True}))
 
         # 3. Create global config
-        global_dir = temp_project_dir / ".config" / "pycodemcp"
+        global_dir = temp_project_dir / ".config" / "pyeye"
         global_dir.mkdir(parents=True)
         global_config = global_dir / "config.json"
         global_config.write_text(json.dumps({"packages": ["global_package"], "cache_ttl": 300}))

@@ -171,8 +171,8 @@ class TestEnhancedTestCoverageAgent:
         agent = EnhancedTestCoverageAgent(tmp_path)
 
         # Test with module name
-        parsed = agent._parse_request("Improve coverage for pycodemcp.cache module")
-        assert parsed["module"] == "pycodemcp.cache"
+        parsed = agent._parse_request("Improve coverage for pyeye.cache module")
+        assert parsed["module"] == "pyeye.cache"
         assert parsed["target_coverage"] == 90
         assert parsed["focus"] == "comprehensive"
 

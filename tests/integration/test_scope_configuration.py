@@ -109,7 +109,7 @@ development = ["main", "namespace:company"]
     def test_global_config_override(self, tmp_path, monkeypatch):
         """Test that project config overrides global config."""
         # Create global config
-        global_config_dir = tmp_path / ".config" / "pycodemcp"
+        global_config_dir = tmp_path / ".config" / "pyeye"
         global_config_dir.mkdir(parents=True)
         global_config = global_config_dir / "config.json"
         global_config.write_text(

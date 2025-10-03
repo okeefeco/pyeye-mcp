@@ -14,7 +14,7 @@ The original dogfooding metrics system was reporting 0% MCP adoption despite hea
 
 ### Components
 
-1. **`pycodemcp/dogfooding_integration.py`** - Bridge between MCP metrics and dogfooding tracker
+1. **`pyeye/dogfooding_integration.py`** - Bridge between MCP metrics and dogfooding tracker
 2. **Enhanced `scripts/dogfooding_metrics.py`** - Updated to use MCP metrics integration
 3. **`scripts/grep_tracker.sh`** - Shell wrapper for detecting grep usage
 4. **`scripts/setup_grep_tracking.sh`** - Automated setup for grep detection

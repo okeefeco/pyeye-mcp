@@ -209,7 +209,7 @@ packages = {json.dumps(toml_config["packages"])}
         assert "Error loading config" in caplog.text
 
     def test_missing_config_section_in_toml(self, temp_project_dir):
-        """Test handling pyproject.toml without pyeye/pycodemcp section."""
+        """Test handling pyproject.toml without pyeye section."""
         toml_content = """
 [tool.other]
 setting = "value"

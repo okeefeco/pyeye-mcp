@@ -55,7 +55,7 @@ jobs:
       - name: Verify tag matches package version
         run: |
           # With setuptools_scm, version is derived from git tag
-          PACKAGE_VERSION=$(python -c "from pycodemcp import __version__; print(__version__)")
+          PACKAGE_VERSION=$(python -c "from pyeye import __version__; print(__version__)")
           TAG_VERSION="${{ steps.version.outputs.version }}"
 
           echo "Package version: $PACKAGE_VERSION"

@@ -290,7 +290,7 @@ sudo dnf install python3-devel
 3. Monitor memory usage:
 
    ```bash
-   ps aux | grep pycodemcp
+   ps aux | grep pyeye
    ```
 
 ### Cache Optimization
@@ -452,7 +452,7 @@ uv run mcp dev src/pyeye/server.py
 Log locations:
 
 - Console output (when run in dev mode)
-- `~/.local/share/pycodemcp/logs/` (if configured)
+- `~/.local/share/pyeye/logs/` (if configured)
 - Claude Code logs: Check Claude's debug output
 
 Important log patterns to look for:
@@ -749,7 +749,7 @@ for pkg in packages:
 # Check configuration
 config_locations = [
     Path.cwd() / ".pyeye.json",
-    Path.home() / ".config/pycodemcp/config.json",
+    Path.home() / ".config/pyeye/config.json",
 ]
 
 print("\nConfiguration files:")
