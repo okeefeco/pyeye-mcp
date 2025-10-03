@@ -222,7 +222,7 @@ class TestReadFileSafe:
         """Test handling of OSError in read_file_safe."""
         test_file = tmp_path / "test.txt"
 
-        with patch("pycodemcp.async_utils.read_file_async") as mock_read:
+        with patch("pyeye.async_utils.read_file_async") as mock_read:
             mock_read.side_effect = OSError("Disk error")
 
             content = await read_file_safe(test_file, default="error_fallback")

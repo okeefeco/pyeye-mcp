@@ -17,7 +17,7 @@ class TestProjectManagerPooling:
         monkeypatch.setenv("PYEYE_POOL_TTL", "300")
 
         # Re-initialize settings with new environment variables
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         settings_module.settings = settings_module.PerformanceSettings()
 
@@ -33,7 +33,7 @@ class TestProjectManagerPooling:
         monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "false")
 
         # Re-initialize settings with new environment variables
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         settings_module.settings = settings_module.PerformanceSettings()
 
@@ -122,7 +122,7 @@ class TestProjectManagerPooling:
     def test_pool_eviction_in_manager(self, tmp_path, monkeypatch):
         """Test that pool eviction works through ProjectManager."""
         # Configure small pool size for testing
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         original_settings = settings_module.settings
 

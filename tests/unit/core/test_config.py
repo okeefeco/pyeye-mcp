@@ -300,7 +300,7 @@ setting = "value"
         config_file = temp_project_dir / ".pycodemcp.json"
         config_file.write_text(json.dumps(config_data))
 
-        with patch("pycodemcp.config.PathValidator"):
+        with patch("pyeye.config.PathValidator"):
             config = ProjectConfig(str(temp_project_dir))
 
             # Validator should be used for paths

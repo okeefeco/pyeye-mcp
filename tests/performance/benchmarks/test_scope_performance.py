@@ -108,7 +108,7 @@ class TestParallelSearchPerformance:
             await asyncio.sleep(0.1)  # Simulate I/O delay
             return list(path.glob(pattern))
 
-        with patch("pycodemcp.scope_utils.rglob_async", mock_rglob):
+        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
             # Measure parallel search
             start = time.time()
             parallel_results = await parallel_search("*.py", paths, max_concurrent=5)
@@ -145,7 +145,7 @@ class TestParallelSearchPerformance:
             concurrent_count -= 1
             return []
 
-        with patch("pycodemcp.scope_utils.rglob_async", mock_rglob):
+        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
             await parallel_search("*.py", paths, max_concurrent=5)
 
             # Should never exceed the limit
@@ -176,7 +176,7 @@ class TestLazyNamespaceLoader:
             await asyncio.sleep(0.01)
             return [path / f"file_{i}.py" for i in range(10)]
 
-        with patch("pycodemcp.scope_utils.rglob_async", mock_rglob):
+        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
             # First access should load
             files1 = await loader.get_namespace_files("namespace1", namespace_paths)
             assert load_count == 1
@@ -208,7 +208,7 @@ class TestLazyNamespaceLoader:
             await asyncio.sleep(0.1)  # Simulate slow load
             return [path / f"file_{i}.py" for i in range(10)]
 
-        with patch("pycodemcp.scope_utils.rglob_async", mock_rglob):
+        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
             # Launch multiple concurrent requests
             tasks = [loader.get_namespace_files("namespace1", namespace_paths) for _ in range(10)]
             results = await asyncio.gather(*tasks)

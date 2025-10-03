@@ -24,7 +24,7 @@ class TestProjectManager:
         monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "false")
 
         # Re-initialize settings with pooling disabled
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         settings_module.settings = settings_module.PerformanceSettings()
 
@@ -44,7 +44,7 @@ class TestProjectManager:
         assert len(manager.access_order) == 0
         assert len(manager.dependencies) == 0
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_get_project_creates_new(self, mock_jedi_project, temp_project_dir):
         """Test creating a new project."""
         manager = ProjectManager()
@@ -58,7 +58,7 @@ class TestProjectManager:
         assert Path(temp_project_dir).resolve() in manager.access_order
         mock_jedi_project.assert_called_once()
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_get_project_with_dependencies(self, mock_jedi_project, temp_project_dir):
         """Test creating project with additional dependencies."""
         manager = ProjectManager()
@@ -77,7 +77,7 @@ class TestProjectManager:
         assert main_path in manager.dependencies
         assert len(manager.dependencies[main_path]) == 2
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_lru_cache_eviction(self, mock_jedi_project, temp_project_dir):
         """Test that old projects are evicted when max_projects is reached."""
         manager = ProjectManager(max_projects=3)
@@ -105,7 +105,7 @@ class TestProjectManager:
         assert Path(projects[0]).resolve() not in manager.projects
         assert Path(projects[3]).resolve() in manager.projects
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_lru_access_order_update(self, mock_jedi_project, temp_project_dir):
         """Test that accessing a project updates its position in LRU."""
         manager = ProjectManager(max_projects=3)
@@ -129,7 +129,7 @@ class TestProjectManager:
         assert manager.access_order[-1] == Path(projects[0]).resolve()
         assert manager.access_order[0] == Path(projects[1]).resolve()
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_needs_update_detects_changes(self, mock_jedi_project, temp_project_dir):
         """Test that dependency changes are detected."""
         manager = ProjectManager()
@@ -149,9 +149,9 @@ class TestProjectManager:
         dep2.mkdir()
         assert manager._needs_update(main_path, [str(dep1), str(dep2)])
 
-    @patch("pycodemcp.project_manager.CodebaseWatcher")
-    @patch("pycodemcp.project_manager.GranularCache")
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.CodebaseWatcher")
+    @patch("pyeye.project_manager.GranularCache")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_watcher_and_cache_creation(
         self, mock_jedi_project, mock_cache_class, mock_watcher_class, temp_project_dir
     ):
@@ -170,7 +170,7 @@ class TestProjectManager:
         assert main_path in manager.caches
         mock_watcher.start.assert_called_once()
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_cleanup_old_project(self, mock_jedi_project, temp_project_dir):
         """Test that old projects are properly cleaned up."""
         manager = ProjectManager()
@@ -192,7 +192,7 @@ class TestProjectManager:
         # Watcher should be stopped
         mock_watcher.stop.assert_called_once()
 
-    @patch("pycodemcp.project_manager.jedi.Project")
+    @patch("pyeye.project_manager.jedi.Project")
     def test_nonexistent_dependency_ignored(self, mock_jedi_project, temp_project_dir):
         """Test that non-existent dependencies are ignored."""
         manager = ProjectManager()
@@ -211,7 +211,7 @@ class TestProjectManager:
         """Test retrieving cache for a project."""
         manager = ProjectManager()
 
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with patch("pyeye.project_manager.jedi.Project"):
             manager.get_project(str(temp_project_dir))
 
             main_path = Path(temp_project_dir).resolve()
@@ -225,7 +225,7 @@ class TestProjectManager:
         """Test cache invalidation."""
         manager = ProjectManager()
 
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with patch("pyeye.project_manager.jedi.Project"):
             manager.get_project(str(temp_project_dir))
 
             main_path = Path(temp_project_dir).resolve()

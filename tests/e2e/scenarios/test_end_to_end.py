@@ -50,7 +50,7 @@ if __name__ == "__main__":
         manager = ProjectManager(max_projects=config.config.get("max_projects", 10))
 
         # Step 4: Get project and analyzer
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with patch("pyeye.project_manager.jedi.Project"):
             project = manager.get_project(str(temp_project_dir))
             assert project is not None
 
@@ -79,12 +79,12 @@ if __name__ == "__main__":
             projects.append(proj_dir)
 
         # Load all projects
-        with patch("pycodemcp.project_manager.jedi.Project") as mock_project:
+        with patch("pyeye.project_manager.jedi.Project") as mock_project:
             # Return unique mock for each call to avoid issues with object identity
             mock_project.side_effect = lambda *_, **__: Mock()
 
             # Mock the watcher to prevent file system events during test
-            with patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher:
+            with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
                 mock_watcher_instance = Mock()
                 mock_watcher.return_value = mock_watcher_instance
 
@@ -260,7 +260,7 @@ class User(BaseModel):
         # Test handling non-existent project
         nonexistent = temp_project_dir / "nonexistent"
 
-        with patch("pycodemcp.project_manager.jedi.Project") as mock_project:
+        with patch("pyeye.project_manager.jedi.Project") as mock_project:
             mock_project.side_effect = Exception("Project creation failed")
 
             # Should handle error gracefully
@@ -291,8 +291,8 @@ class User(BaseModel):
             projects.append(proj_dir.resolve())
 
         with (
-            patch("pycodemcp.project_manager.jedi.Project"),
-            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+            patch("pyeye.project_manager.jedi.Project"),
+            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
         ):
             # Mock the watcher to prevent file system issues on macOS
             mock_watcher_instance = Mock()
@@ -382,8 +382,8 @@ class User:
         manager = ProjectManager()
 
         with (
-            patch("pycodemcp.project_manager.jedi.Project"),
-            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+            patch("pyeye.project_manager.jedi.Project"),
+            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
         ):
             # Mock the watcher to prevent file system interference
             mock_watcher_instance = Mock()

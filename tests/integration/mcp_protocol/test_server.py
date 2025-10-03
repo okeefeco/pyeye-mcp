@@ -31,7 +31,7 @@ class TestMCPServer:
         """Test that MCP server is properly initialized."""
         assert mcp is not None
         assert isinstance(mcp, FastMCP)
-        assert mcp.name == "Python Code Intelligence"
+        assert mcp.name == "PyEye"
 
     def test_server_has_tools(self):
         """Test that server has registered tools."""
@@ -43,9 +43,9 @@ class TestMCPServer:
 class TestConfigurePackages:
     """Test the configure_packages tool."""
 
-    @patch("pyeye.mcp.get_project_manager")
-    @patch("pyeye.mcp.ProjectConfig")
-    @patch("pycodemcp.validation.PathValidator.validate_path")
+    @patch("pyeye.mcp.server.get_project_manager")
+    @patch("pyeye.mcp.server.ProjectConfig")
+    @patch("pyeye.validation.PathValidator.validate_path")
     def test_configure_packages_basic(
         self, mock_validate_path, mock_config_class, mock_get_manager
     ):
@@ -77,9 +77,9 @@ class TestConfigurePackages:
         assert "packages" in result
         assert len(result["packages"]) == 2
 
-    @patch("pyeye.mcp.get_project_manager")
-    @patch("pyeye.mcp.ProjectConfig")
-    @patch("pycodemcp.validation.PathValidator.validate_path")
+    @patch("pyeye.mcp.server.get_project_manager")
+    @patch("pyeye.mcp.server.ProjectConfig")
+    @patch("pyeye.validation.PathValidator.validate_path")
     def test_configure_namespaces(self, mock_validate_path, mock_config_class, mock_get_manager):
         """Test namespace configuration."""
         config_dict = {}
@@ -102,9 +102,9 @@ class TestConfigurePackages:
         assert "namespaces" in config_dict
         assert "company" in config_dict["namespaces"]
 
-    @patch("pyeye.mcp.get_project_manager")
-    @patch("pyeye.mcp.ProjectConfig")
-    @patch("pycodemcp.validation.PathValidator.validate_path")
+    @patch("pyeye.mcp.server.get_project_manager")
+    @patch("pyeye.mcp.server.ProjectConfig")
+    @patch("pyeye.validation.PathValidator.validate_path")
     def test_configure_save(self, mock_validate_path, mock_config_class, mock_get_manager):
         """Test saving configuration."""
         config_dict = {}
@@ -127,9 +127,9 @@ class TestConfigurePackages:
 
         mock_config.save_config.assert_called_once()
 
-    @patch("pyeye.mcp.get_project_manager")
-    @patch("pycodemcp.validation.PathValidator")
-    @patch("pyeye.mcp.ProjectConfig")
+    @patch("pyeye.mcp.server.get_project_manager")
+    @patch("pyeye.validation.PathValidator")
+    @patch("pyeye.mcp.server.ProjectConfig")
     def test_configure_validates_paths(self, mock_config_class, mock_validator, mock_get_manager):
         """Test that paths are validated before configuration."""
         config_dict = {}
@@ -156,7 +156,7 @@ class TestConfigurePackages:
 class TestFindSymbol:
     """Test the find_symbol tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_symbol_basic(self, mock_get_analyzer):
         """Test basic symbol finding."""
@@ -186,7 +186,7 @@ class TestFindSymbol:
             "TestClass", fuzzy=False, include_import_paths=True
         )
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_symbol_fuzzy(self, mock_get_analyzer):
         """Test fuzzy symbol search."""
@@ -212,8 +212,8 @@ class TestFindSymbol:
         assert len(result) == 1
         mock_analyzer.find_symbol.assert_called_with("test", fuzzy=True, include_import_paths=True)
 
-    @patch("pyeye.mcp.ProjectConfig")
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.ProjectConfig")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_symbol_with_config(self, mock_get_analyzer, mock_config_class):
         """Test symbol finding with configuration."""
@@ -295,7 +295,7 @@ class TestFindSymbol:
 class TestGotoDefinition:
     """Test the goto_definition tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_goto_definition(self, mock_get_analyzer):
         """Test going to symbol definition."""
@@ -321,7 +321,7 @@ class TestGotoDefinition:
         assert result["line"] == 42
         mock_analyzer.goto_definition.assert_called_with("test.py", 10, 5)
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_goto_definition_not_found(self, mock_get_analyzer):
         """Test goto definition when symbol not found."""
@@ -341,7 +341,7 @@ class TestGotoDefinition:
 class TestFindReferences:
     """Test the find_references tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_references(self, mock_get_analyzer):
         """Test finding symbol references."""
@@ -375,7 +375,7 @@ class TestFindReferences:
         assert result[1]["line"] == 20
         mock_analyzer.find_references.assert_called_with("test.py", 5, 0, True)
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_references_exclude_definitions(self, mock_get_analyzer):
         """Test finding references excluding definitions."""
@@ -406,7 +406,7 @@ class TestFindReferences:
 class TestGetTypeInfo:
     """Test the get_type_info tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_get_type_info(self, mock_get_analyzer):
         """Test getting type information."""
@@ -441,7 +441,7 @@ class TestGetTypeInfo:
 class TestFindImports:
     """Test the find_imports tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_imports(self, mock_get_analyzer):
         """Test finding module imports."""
@@ -480,7 +480,7 @@ class TestFindImports:
 class TestGetCallHierarchy:
     """Test the get_call_hierarchy tool."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_get_call_hierarchy(self, mock_get_analyzer):
         """Test getting call hierarchy."""
@@ -507,7 +507,7 @@ class TestGetCallHierarchy:
         assert "callees" in result
         mock_analyzer.get_call_hierarchy.assert_called_with("test_func", None)
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_get_call_hierarchy_with_file(self, mock_get_analyzer):
         """Test call hierarchy with specific file."""
@@ -536,7 +536,7 @@ class TestGetCallHierarchy:
 class TestNamespaceTools:
     """Test namespace-related tools."""
 
-    @patch("pyeye.mcp.get_project_manager")
+    @patch("pyeye.mcp.server.get_project_manager")
     def test_configure_namespace_package(self, mock_get_manager):
         """Test configuring namespace packages."""
         mock_manager = Mock()
@@ -556,7 +556,7 @@ class TestNamespaceTools:
         assert result["status"] == "configured"
         mock_resolver.register_namespace.assert_called()
 
-    @patch("pyeye.mcp.get_project_manager")
+    @patch("pyeye.mcp.server.get_project_manager")
     def test_find_in_namespace(self, mock_get_manager):
         """Test finding imports in namespace."""
         mock_manager = Mock()
@@ -591,7 +591,7 @@ class TestNamespaceTools:
 class TestFindSymbolMulti:
     """Test the find_symbol_multi tool."""
 
-    @patch("pyeye.mcp.get_project_manager")
+    @patch("pyeye.mcp.server.get_project_manager")
     def test_find_symbol_multi(self, mock_get_manager):
         """Test finding symbols across multiple projects."""
         mock_manager = Mock()
@@ -742,7 +742,7 @@ class Leaf(Middle):
         result = await find_subclasses("NonExistentClass", str(temp_project_dir))
         assert result == []
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_subclasses_error_handling(self, mock_get_analyzer):
         """Test error handling in find_subclasses."""
@@ -759,7 +759,7 @@ class Leaf(Middle):
 class TestPluginActivation:
     """Test plugin activation based on project type."""
 
-    @patch("pyeye.mcp._plugins")
+    @patch("pyeye.mcp.server._plugins")
     def test_plugin_detection(self, mock_plugins):
         """Test that plugins are detected and activated."""
         # Create mock plugins
@@ -781,7 +781,7 @@ class TestPluginActivation:
 class TestErrorHandling:
     """Test error handling in MCP tools."""
 
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
     async def test_find_symbol_error(self, mock_get_analyzer):
         """Test error handling in find_symbol."""
@@ -795,7 +795,7 @@ class TestErrorHandling:
             await find_symbol("test")
         assert "Failed to search for symbol" in str(exc_info.value)
 
-    @patch("pyeye.mcp.Path")
+    @patch("pyeye.mcp.server.Path")
     @pytest.mark.asyncio
     async def test_file_not_found_error(self, mock_path_class):
         """Test handling of file not found errors."""
@@ -812,7 +812,7 @@ class TestErrorHandling:
 class TestInputValidation:
     """Test input validation decorators."""
 
-    @patch("pyeye.mcp.Path")
+    @patch("pyeye.mcp.server.Path")
     @pytest.mark.asyncio
     async def test_validate_negative_line_number(self, mock_path_class):
         """Test that negative line numbers are rejected."""
@@ -829,7 +829,7 @@ class TestInputValidation:
 
         assert "line number" in str(exc_info.value).lower()
 
-    @patch("pyeye.mcp.Path")
+    @patch("pyeye.mcp.server.Path")
     @pytest.mark.asyncio
     async def test_validate_negative_column_number(self, mock_path_class):
         """Test that negative column numbers are rejected."""

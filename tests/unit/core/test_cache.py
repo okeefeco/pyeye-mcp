@@ -21,7 +21,7 @@ class TestCodebaseWatcher:
         assert watcher.last_change > 0
         assert watcher._observer is None
 
-    @patch("pycodemcp.cache.Observer")
+    @patch("pyeye.cache.Observer")
     def test_start_watching(self, mock_observer_class, temp_project_dir):
         """Test starting the file watcher."""
         mock_observer = Mock()
@@ -36,7 +36,7 @@ class TestCodebaseWatcher:
         )
         mock_observer.start.assert_called_once()
 
-    @patch("pycodemcp.cache.Observer")
+    @patch("pyeye.cache.Observer")
     def test_stop_watching(self, mock_observer_class, temp_project_dir):
         """Test stopping the file watcher."""
         mock_observer = Mock()
@@ -116,7 +116,7 @@ class TestCodebaseWatcher:
         new_cache_time = watcher.last_change + 1
         assert watcher.is_stale(new_cache_time) is False
 
-    @patch("pycodemcp.cache.Observer")
+    @patch("pyeye.cache.Observer")
     def test_start_idempotent(self, mock_observer_class, temp_project_dir):
         """Test that starting multiple times doesn't create multiple observers."""
         mock_observer = Mock()

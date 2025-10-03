@@ -318,7 +318,7 @@ class TestCLIScript:
         assert "Test Coverage Enhancement Agent" in result.stdout
         assert "Natural language test coverage command" in result.stdout
 
-    @patch("pycodemcp.agents.test_coverage.TestCoverageAgent.handle_request")
+    @patch("pyeye.agents.test_coverage.TestCoverageAgent.handle_request")
     def test_cli_execution(self, mock_handle, tmp_path):
         """Test CLI execution with mock agent."""
         # Setup mock response

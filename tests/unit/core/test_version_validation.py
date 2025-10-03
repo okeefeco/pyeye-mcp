@@ -10,7 +10,7 @@ class TestVersionManagement:
 
     def test_version_available(self):
         """Test that version is available from the package."""
-        from pycodemcp import __version__
+        from pyeye import __version__
 
         assert __version__ is not None
         assert isinstance(__version__, str)

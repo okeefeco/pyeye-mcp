@@ -276,7 +276,7 @@ class Migration(migrations.Migration):
         assert await django_plugin.find_models() == []
         assert await django_plugin.find_views() == []
 
-    @patch("pycodemcp.plugins.django.logger")
+    @patch("pyeye.plugins.django.logger")
     def test_logging_on_detection(self, mock_logger, temp_project):
         """Test that detection logs appropriately."""
         manage_py = temp_project / "manage.py"

@@ -16,7 +16,7 @@ class TestDogfoodingWorkflow:
 
     def test_server_module_exists(self):
         """Verify the server module exists and contains MCP tools."""
-        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         assert server_file.exists(), "Server module should exist"
 
         content = server_file.read_text(encoding="utf-8")

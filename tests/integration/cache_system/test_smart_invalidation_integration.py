@@ -198,7 +198,7 @@ def main():
         assert cache.get("utils:process_model") is None  # Depends on core
         assert cache.get("app:main") is None  # Depends on core
 
-    @patch("pycodemcp.project_manager.CodebaseWatcher")
+    @patch("pyeye.project_manager.CodebaseWatcher")
     def test_project_manager_smart_invalidation(self, mock_watcher_class, temp_project):
         """Test ProjectManager with smart invalidation."""
         manager = ProjectManager()

@@ -87,7 +87,7 @@ class TestMCPToolIntegration:
     """Test that MCP tools return actual results, not coroutines."""
 
     @pytest.mark.asyncio
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     async def test_find_symbol_returns_result_not_coroutine(self, mock_get_analyzer):
         """Test that find_symbol returns the actual result, not a coroutine."""
         # Setup mock analyzer
@@ -109,7 +109,7 @@ class TestMCPToolIntegration:
         assert result[0]["name"] == "TestClass"
 
     @pytest.mark.asyncio
-    @patch("pyeye.mcp.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     async def test_goto_definition_returns_result_not_coroutine(self, mock_get_analyzer):
         """Test that goto_definition returns the actual result, not a coroutine."""
         # Setup mock analyzer

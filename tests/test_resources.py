@@ -114,7 +114,7 @@ class TestWorkflowResourceHandlers:
 
     def test_load_workflow_function_exists(self):
         """Verify load_workflow helper function exists."""
-        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         assert "def load_workflow" in content, "load_workflow function should exist"
@@ -122,7 +122,7 @@ class TestWorkflowResourceHandlers:
 
     def test_resource_decorators_exist(self):
         """Verify all workflow resource decorators are defined."""
-        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         expected_resources = [
@@ -139,7 +139,7 @@ class TestWorkflowResourceHandlers:
 
     def test_resource_handler_functions_exist(self):
         """Verify resource handler functions are defined."""
-        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         expected_functions = [
@@ -192,7 +192,7 @@ class TestWorkflowIntegration:
 
     def test_workflows_reference_correct_tools(self):
         """Verify workflows reference tools that actually exist in server.py."""
-        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         server_content = server_file.read_text(encoding="utf-8")
 
         workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
