@@ -312,6 +312,115 @@ export PYCODEMCP_MAX_WORKERS=2          # Fewer workers
 
 This file is automatically ignored by git and takes precedence over all other configuration sources.
 
+## Workflow Resources
+
+python-intelligence provides workflow guidance as MCP Resources to help AI agents and users discover how to use tools effectively for common multi-step tasks.
+
+### Discovering Workflows
+
+List available workflows:
+
+```text
+"List python-intelligence workflow resources"
+```
+
+Or with Claude Code's MCP tools:
+
+```python
+ListMcpResourcesTool(server="python-intelligence")
+```
+
+### Using Workflows
+
+**On-demand (trial):**
+
+```text
+"Use python-intelligence find-references workflow"
+"Use python-intelligence refactoring workflow"
+"Use python-intelligence code-understanding workflow"
+"Use python-intelligence dependency-analysis workflow"
+```
+
+**Permanent (adoption):**
+
+```text
+"Add python-intelligence find-references workflow to my CLAUDE.md"
+```
+
+The AI will fetch the workflow, add it to your context file, and automatically follow it in future sessions.
+
+### Available Workflows
+
+1. **find-references** - Find ALL class/function references including packages AND notebooks/scripts
+   - Addresses limitation that `find_references` only works with packages (issue #236)
+   - Combines `get_type_info`, `find_references`, and `Grep` for complete coverage
+
+2. **refactoring** - Safe refactoring with impact analysis
+   - Analyze subclasses, references, and dependencies before changing code
+   - Includes change planning and validation steps
+   - Prevents breaking changes through comprehensive analysis
+
+3. **code-understanding** - Understand unfamiliar code structure
+   - Systematic exploration from "What is this?" to "How does it work?"
+   - Covers symbol location, inspection, hierarchy, execution flow, and usage patterns
+   - Progressive understanding from basic to deep integration knowledge
+
+4. **dependency-analysis** - Analyze module dependencies and architecture
+   - Map import relationships and identify circular dependencies
+   - Calculate coupling metrics and assess change impact
+   - Understand architectural patterns and module relationships
+
+### Example Usage Flow
+
+**Discovery (README):** User learns workflows exist
+
+```text
+User: "How do I find all references to a class?"
+AI: "There's a find-references workflow for that. Let me show you..."
+```
+
+**Trial (On-Demand):** User tries workflow
+
+```text
+User: "Use python-intelligence find-references workflow for this class"
+AI: [fetches workflow from MCP Resources]
+AI: [executes: get_type_info → find_references → Grep]
+AI: "Found 15 references: 12 in packages, 3 in notebooks"
+```
+
+**Adoption (Self-Service):** User adds to context
+
+```text
+User: "That's useful - add it to my CLAUDE.md"
+AI: [reads workflow resource, appends to CLAUDE.md]
+AI: "✅ Workflow added to your context"
+```
+
+**Automatic Usage:** Future sessions use workflow automatically
+
+```text
+User: "Find all uses of this class"
+AI: [sees workflow in context, follows steps automatically]
+AI: [returns complete results without prompting]
+```
+
+### Benefits
+
+- **Discover best practices** - Learn optimal tool combinations
+- **Avoid trial and error** - Workflows encode discovered patterns
+- **Handle tool limitations** - Includes workarounds (e.g., issue #236)
+- **Self-service adoption** - Add workflows to your context as needed
+- **Always up-to-date** - Workflows maintained with MCP server
+
+### Technical Details
+
+Workflows are exposed via MCP Resources protocol:
+
+- **URI scheme**: `workflows://[workflow-name]`
+- **Format**: Markdown (human and AI readable)
+- **Access**: Via `ListMcpResourcesTool` and `ReadMcpResourceTool`
+- **Integration**: Can be programmatically added to user context files
+
 ## Core Tools
 
 ### Basic Navigation

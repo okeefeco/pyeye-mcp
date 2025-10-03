@@ -811,6 +811,79 @@ async def get_performance_metrics(
     return metrics.get_performance_report()
 
 
+# Workflow Resources
+
+
+def load_workflow(workflow_name: str) -> str:
+    """Load workflow content from workflows directory.
+
+    Args:
+        workflow_name: Name of the workflow file (without .md extension)
+
+    Returns:
+        Workflow content as markdown string
+
+    Raises:
+        FileNotFoundError: If workflow file doesn't exist
+    """
+    workflow_file = Path(__file__).parent / "workflows" / f"{workflow_name}.md"
+    if not workflow_file.exists():
+        raise FileNotFoundError(f"Workflow not found: {workflow_name}")
+    return workflow_file.read_text()
+
+
+@mcp.resource("workflows://find-references")
+def get_find_references_workflow() -> str:
+    """Get the Find All References workflow.
+
+    This workflow shows how to find ALL usages of a class/function,
+    including both package code and standalone scripts/notebooks.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("find_references")
+
+
+@mcp.resource("workflows://refactoring")
+def get_refactoring_workflow() -> str:
+    """Get the Safe Refactoring workflow.
+
+    This workflow guides through safe refactoring by analyzing
+    subclasses, references, and dependencies before making changes.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("refactoring")
+
+
+@mcp.resource("workflows://code-understanding")
+def get_code_understanding_workflow() -> str:
+    """Get the Code Understanding workflow.
+
+    This workflow helps understand unfamiliar code by systematically
+    exploring structure, relationships, and usage patterns.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("code_understanding")
+
+
+@mcp.resource("workflows://dependency-analysis")
+def get_dependency_analysis_workflow() -> str:
+    """Get the Dependency Analysis workflow.
+
+    This workflow helps analyze module dependencies, import relationships,
+    and architectural patterns in Python projects.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("dependency_analysis")
+
+
 # Main entry point
 if __name__ == "__main__":
     import atexit
