@@ -1952,23 +1952,51 @@ class JediAnalyzer:
         Returns:
             Tuple of (base_classes, mro) where both are lists of fully qualified names
         """
-        base_classes = []
-        mro = []
+        base_classes: list[str] = []
+        mro: list[str] = []
 
         try:
             # Try to get base classes from the class definition
-            if hasattr(class_def, "_name") and hasattr(class_def._name, "tree_name"):
-                tree_node = class_def._name.tree_name
-                classdef = tree_node.parent
+            # Only process real Jedi objects, not mocks
+            if (
+                hasattr(class_def, "_name")
+                and hasattr(class_def._name, "tree_name")
+                and not isinstance(class_def._name, type(None))
+            ):
+                try:
+                    tree_node = class_def._name.tree_name
+                    classdef = tree_node.parent if hasattr(tree_node, "parent") else None
+                except (AttributeError, TypeError):
+                    # If we can't get tree_node or parent, bail out
+                    return base_classes, mro
 
-                # Navigate to find the classdef node
-                while classdef and classdef.type != "classdef":
-                    classdef = classdef.parent
+                # Navigate to find the classdef node with a max depth to prevent infinite loops
+                max_depth = 10
+                depth = 0
+                while (
+                    classdef
+                    and hasattr(classdef, "type")
+                    and classdef.type != "classdef"
+                    and depth < max_depth
+                ):
+                    if hasattr(classdef, "parent"):
+                        classdef = classdef.parent
+                        depth += 1
+                    else:
+                        classdef = None
+                        break
 
-                if classdef:
+                if classdef and hasattr(classdef, "type") and hasattr(classdef, "children"):
                     # Find base classes - they can be directly as name nodes or in arglist
                     in_bases = False
-                    for _, child in enumerate(classdef.children):
+                    try:
+                        children = list(
+                            classdef.children
+                        )  # Convert to list to prevent iterator issues
+                    except (TypeError, AttributeError):
+                        return base_classes, mro
+
+                    for _, child in enumerate(children):
                         # Start collecting after opening parenthesis
                         if (
                             hasattr(child, "type")
