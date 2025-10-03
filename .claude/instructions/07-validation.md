@@ -31,6 +31,44 @@ This applies to ALL Python tools:
 4. **Fix any failing tests or coverage issues**
 5. **NEVER commit code without tests**
 
+## ⚠️ CRITICAL: Run FULL Test Suite During Development
+
+**Common Pitfall That Will Break CI:**
+
+When developing new features or changing existing code, you MUST regularly run the FULL test suite during development, not just test your new code in isolation.
+
+**WRONG Workflow (learned from PR #238):**
+
+```bash
+# Developed entire feature for get_type_info
+# Wrote comprehensive new tests
+# ONLY tested the new feature tests during development
+uv run pytest tests/test_get_type_info_inheritance.py  # ❌ WRONG!
+# Never ran existing tests to see if we broke them
+# Pushed to CI, which then revealed we broke integration tests
+```
+
+**CORRECT Development Workflow:**
+
+```bash
+# After making significant changes to existing functions
+uv run pytest  # Run FULL suite to catch breakages early
+
+# After writing new tests
+uv run pytest tests/test_get_type_info_inheritance.py  # Test new feature
+uv run pytest  # ALSO run full suite to ensure nothing broke
+
+# Before pushing (final check)
+uv run pytest --cov=src/pycodemcp --cov-fail-under=85  # Full suite with coverage
+```
+
+**Why This Matters:**
+
+- Existing tests (especially integration tests) may depend on the code you changed
+- Mock expectations break when function signatures change
+- Finding breaks early during development is much faster than waiting for CI
+- You can fix issues as you go rather than in separate "fix CI" commits
+
 ## Coverage Goals
 
 - **Current threshold**: 85% (enforced by CI)
