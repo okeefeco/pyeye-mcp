@@ -1,7 +1,7 @@
 Examples
 ========
 
-This section provides practical examples of using the Python Code Intelligence MCP Server.
+This section provides practical examples of using the PyEye Server.
 
 .. toctree::
    :maxdepth: 2
@@ -281,7 +281,7 @@ Robust Error Handling
 
 .. code-block:: python
 
-   from pycodemcp.exceptions import (
+   from pyeye.exceptions import (
        AnalysisError,
        FileAccessError,
        ValidationError

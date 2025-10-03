@@ -1,7 +1,7 @@
 API Reference
 =============
 
-This section provides detailed API documentation for the Python Code Intelligence MCP Server.
+This section provides detailed API documentation for the PyEye Server.
 
 .. toctree::
    :maxdepth: 2
@@ -24,13 +24,13 @@ Navigation Tools
 .. autosummary::
    :toctree: generated
 
-   pycodemcp.server.find_symbol
-   pycodemcp.server.goto_definition
-   pycodemcp.server.find_references
-   pycodemcp.server.get_type_info
-   pycodemcp.server.find_imports
-   pycodemcp.server.get_call_hierarchy
-   pycodemcp.server.find_subclasses
+   pyeye.mcp.server.find_symbol
+   pyeye.mcp.server.goto_definition
+   pyeye.mcp.server.find_references
+   pyeye.mcp.server.get_type_info
+   pyeye.mcp.server.find_imports
+   pyeye.mcp.server.get_call_hierarchy
+   pyeye.mcp.server.find_subclasses
 
 Project Management Tools
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -38,10 +38,10 @@ Project Management Tools
 .. autosummary::
    :toctree: generated
 
-   pycodemcp.server.configure_packages
-   pycodemcp.server.configure_namespace_package
-   pycodemcp.server.find_symbol_multi
-   pycodemcp.server.list_project_structure
+   pyeye.mcp.server.configure_packages
+   pyeye.mcp.server.configure_namespace_package
+   pyeye.mcp.server.find_symbol_multi
+   pyeye.mcp.server.list_project_structure
 
 Analysis Tools
 ~~~~~~~~~~~~~
@@ -49,10 +49,10 @@ Analysis Tools
 .. autosummary::
    :toctree: generated
 
-   pycodemcp.server.list_packages
-   pycodemcp.server.list_modules
-   pycodemcp.server.get_module_info
-   pycodemcp.server.analyze_dependencies
+   pyeye.mcp.server.list_packages
+   pyeye.mcp.server.list_modules
+   pyeye.mcp.server.get_module_info
+   pyeye.mcp.server.analyze_dependencies
 
 Framework-Specific Tools
 ~~~~~~~~~~~~~~~~~~~~~~~

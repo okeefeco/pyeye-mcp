@@ -1,7 +1,7 @@
 Contributing
 ============
 
-Thank you for your interest in contributing to the Python Code Intelligence MCP Server! This guide will help you get started.
+Thank you for your interest in contributing to the PyEye Server! This guide will help you get started.
 
 .. note::
    This is a condensed version of the contributing guide. For complete details including mandatory workflows, validation requirements, and development setup, see the main `CONTRIBUTING.md <https://github.com/okeefeco/python-code-intelligence-mcp/blob/main/CONTRIBUTING.md>`_ file.
@@ -28,7 +28,7 @@ Quick Start for Contributors
 
    .. code-block:: bash
 
-      pytest --cov=src/pycodemcp --cov-fail-under=85
+      pytest --cov=src/pyeye --cov-fail-under=85
 
 Development Workflow
 --------------------
@@ -130,7 +130,7 @@ Always use the performance framework:
 MCP-First Development
 --------------------
 
-**CRITICAL**: We build Python Code Intelligence MCP - we **must** dogfood our own tools!
+**CRITICAL**: We build PyEye - we **must** dogfood our own tools!
 
 Required Workflow
 ~~~~~~~~~~~~~~~~
@@ -183,7 +183,7 @@ Creating Custom Plugins
 
    .. code-block:: python
 
-      from pycodemcp.plugins.base import AnalyzerPlugin
+      from pyeye.plugins.base import AnalyzerPlugin
 
       class MyFrameworkPlugin(AnalyzerPlugin):
           def name(self) -> str:
@@ -215,7 +215,7 @@ Pull Request Process
 
    .. code-block:: bash
 
-      pytest --cov=src/pycodemcp --cov-fail-under=85
+      pytest --cov=src/pyeye --cov-fail-under=85
 
 2. **Run pre-commit checks**:
 

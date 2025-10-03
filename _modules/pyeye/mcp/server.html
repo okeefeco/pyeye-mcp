@@ -1,0 +1,1355 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pyeye.mcp.server &mdash; PyEye Server v0.3</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=026bf00d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            PyEye Server
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#mcp-server-setup">MCP Server Setup</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../quickstart.html#for-claude-code">For Claude Code</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../quickstart.html#for-other-mcp-clients">For Other MCP Clients</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#basic-configuration">Basic Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#first-steps">First Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#framework-detection">Framework Detection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#performance-features">Performance Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../quickstart.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../quickstart.html#debug-mode">Debug Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../quickstart.html#configuration-validation">Configuration Validation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../quickstart.html#support">Support</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture/index.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../architecture/overview.html">Architecture Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#system-components">System Components</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#core-server-layer">Core Server Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#analysis-layer">Analysis Layer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#caching-layer">Caching Layer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#data-flow">Data Flow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#request-processing">Request Processing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#cross-project-analysis">Cross-Project Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#configuration-system">Configuration System</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#namespace-resolution">Namespace Resolution</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#performance-characteristics">Performance Characteristics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#scalability">Scalability</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#response-times">Response Times</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#memory-usage">Memory Usage</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#graceful-degradation">Graceful Degradation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#error-categories">Error Categories</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#security-considerations">Security Considerations</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#input-validation">Input Validation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#access-control">Access Control</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/overview.html#future-architecture">Future Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#planned-enhancements">Planned Enhancements</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/overview.html#extension-points">Extension Points</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../architecture/plugin-system.html">Plugin System</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-architecture">Plugin Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#base-plugin-interface">Base Plugin Interface</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-lifecycle">Plugin Lifecycle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#auto-detection-logic">Auto-Detection Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#built-in-plugins">Built-in Plugins</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#pydantic-plugin">Pydantic Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#django-plugin">Django Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#flask-plugin">Flask Plugin</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#custom-plugin-development">Custom Plugin Development</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#creating-a-custom-plugin">Creating a Custom Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-best-practices">Plugin Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-configuration">Plugin Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#namespace-support">Namespace Support</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#scope-resolution">Scope Resolution</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#framework-integration">Framework Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-registry">Plugin Registry</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#registration-process">Registration Process</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#dynamic-loading">Dynamic Loading</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/plugin-system.html#plugin-testing">Plugin Testing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#test-structure">Test Structure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/plugin-system.html#mock-strategies">Mock Strategies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../architecture/caching-strategy.html">Caching Strategy</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-architecture">Cache Architecture</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#multi-level-caching">Multi-Level Caching</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-keys-and-scoping">Cache Keys and Scoping</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-entry-format">Cache Entry Format</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#invalidation-strategies">Invalidation Strategies</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#file-based-invalidation">File-Based Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#smart-invalidation">Smart Invalidation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#time-based-invalidation">Time-Based Invalidation</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#file-system-watching">File System Watching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#watchdog-integration">Watchdog Integration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#event-filtering">Event Filtering</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-performance">Cache Performance</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#hit-rate-optimization">Hit Rate Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#memory-management">Memory Management</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#persistence-options">Persistence Options</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#in-memory-default">In-Memory (Default)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#file-based-persistence">File-Based Persistence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#redis-backend-future">Redis Backend (Future)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-configuration">Cache Configuration</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#per-operation-settings">Per-Operation Settings</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#environment-overrides">Environment Overrides</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#cache-monitoring">Cache Monitoring</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#metrics-collection">Metrics Collection</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#performance-dashboard">Performance Dashboard</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#debugging-tools">Debugging Tools</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#development-guidelines">Development Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#operational-guidelines">Operational Guidelines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#common-pitfalls">Common Pitfalls</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../architecture/caching-strategy.html#future-enhancements">Future Enhancements</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../architecture/caching-strategy.html#planned-improvements">Planned Improvements</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/index.html#core-mcp-tools">Core MCP Tools</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#navigation-tools">Navigation Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_symbol.html">pyeye.mcp.server.find_symbol</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.goto_definition.html">pyeye.mcp.server.goto_definition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_references.html">pyeye.mcp.server.find_references</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.get_type_info.html">pyeye.mcp.server.get_type_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_imports.html">pyeye.mcp.server.find_imports</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.get_call_hierarchy.html">pyeye.mcp.server.get_call_hierarchy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_subclasses.html">pyeye.mcp.server.find_subclasses</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#project-management-tools">Project Management Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.configure_packages.html">pyeye.mcp.server.configure_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.configure_namespace_package.html">pyeye.mcp.server.configure_namespace_package</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_symbol_multi.html">pyeye.mcp.server.find_symbol_multi</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.list_project_structure.html">pyeye.mcp.server.list_project_structure</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#analysis-tools">Analysis Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.list_packages.html">pyeye.mcp.server.list_packages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.list_modules.html">pyeye.mcp.server.list_modules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.get_module_info.html">pyeye.mcp.server.get_module_info</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html">pyeye.mcp.server.analyze_dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#framework-specific-tools">Framework-Specific Tools</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../examples/index.html">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#quick-start-examples">Quick Start Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#basic-symbol-search">Basic Symbol Search</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#navigate-to-definition">Navigate to Definition</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#find-all-references">Find All References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#type-information">Type Information</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#project-structure-analysis">Project Structure Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#dependency-analysis">Dependency Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#framework-specific-examples">Framework-Specific Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#pydantic-models">Pydantic Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#django-projects">Django Projects</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#flask-applications">Flask Applications</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#multi-project-configuration">Multi-Project Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#performance-examples">Performance Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#efficient-analysis-patterns">Efficient Analysis Patterns</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#cache-aware-operations">Cache-Aware Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#error-handling">Error Handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#robust-error-handling">Robust Error Handling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#graceful-degradation">Graceful Degradation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../examples/index.html#integration-examples">Integration Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#with-ides-and-editors">With IDEs and Editors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../examples/index.html#with-ci-cd-pipelines">With CI/CD Pipelines</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../configuration.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#configuration-sources">Configuration Sources</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#project-configuration">Project Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#pyeye-json">.pyeye.json</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#pyproject-toml">pyproject.toml</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#environment-variables">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#global-configuration">Global Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#configuration-options">Configuration Options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#package-configuration">Package Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#cache-configuration">Cache Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#analysis-configuration">Analysis Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#performance-configuration">Performance Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#plugin-configuration">Plugin Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#runtime-configuration">Runtime Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#api-configuration">API Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#dynamic-updates">Dynamic Updates</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#configuration-validation">Configuration Validation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#validate-configuration">Validate Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#common-patterns">Common Patterns</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../configuration.html#troubleshooting-configuration">Troubleshooting Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#debug-configuration-loading">Debug Configuration Loading</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../configuration.html#validation-commands">Validation Commands</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributing.html">Contributing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#quick-start-for-contributors">Quick Start for Contributors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#development-workflow">Development Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#code-standards">Code Standards</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#critical-requirements">Critical Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#code-style">Code Style</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#testing-guidelines">Testing Guidelines</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#test-requirements">Test Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#performance-testing">Performance Testing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#mcp-first-development">MCP-First Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#required-workflow">Required Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#documentation">Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#documentation-requirements">Documentation Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#building-documentation">Building Documentation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#plugin-development">Plugin Development</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#creating-custom-plugins">Creating Custom Plugins</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#submitting-changes">Submitting Changes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#pull-request-process">Pull Request Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../contributing.html#pr-requirements">PR Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#important-links">Important Links</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../contributing.html#recognition">Recognition</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">PyEye Server</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">pyeye.mcp.server</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for pyeye.mcp.server</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Main MCP server implementation for PyEye.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.fastmcp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastMCP</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">..analyzers.jedi_analyzer</span><span class="w"> </span><span class="kn">import</span> <span class="n">JediAnalyzer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..config</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">PROJECT_NAME</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AnalysisError</span><span class="p">,</span>
+    <span class="n">FileAccessError</span><span class="p">,</span>
+    <span class="n">ProjectNotFoundError</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">metrics</span>
+
+<span class="c1"># Import metrics_hook only if available (for optional unified metrics support)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">..metrics_hook</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto_session_for_mcp</span><span class="p">,</span> <span class="n">track_mcp_operation</span>
+
+    <span class="n">UNIFIED_METRICS_AVAILABLE</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="c1"># Fallback if unified metrics not available</span>
+    <span class="n">UNIFIED_METRICS_AVAILABLE</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">track_mcp_operation</span><span class="p">(</span><span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>  <span class="c1"># type: ignore[misc]</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;No-op decorator when unified metrics not available.&quot;&quot;&quot;</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="n">tool_name</span>  <span class="c1"># Mark as intentionally unused</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>  <span class="c1"># type: ignore[no-untyped-def]</span>
+            <span class="c1"># Preserve the original function without modification</span>
+            <span class="c1"># This is critical for maintaining async compatibility</span>
+            <span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+
+            <span class="k">return</span> <span class="n">functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)(</span><span class="n">func</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">decorator</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">auto_session_for_mcp</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;No-op when unified metrics not available.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="s2">&quot;default_session&quot;</span>
+
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.django</span><span class="w"> </span><span class="kn">import</span> <span class="n">DjangoPlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlaskPlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">PydanticPlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..project_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_project_manager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
+
+<span class="c1"># Configure logging</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># Initialize the MCP server</span>
+<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;PyEye&quot;</span><span class="p">)</span>
+
+<span class="c1"># Initialize unified metrics session</span>
+<span class="n">_unified_session_id</span> <span class="o">=</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">ensure_unified_session</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure unified metrics session is started.&quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_unified_session_id</span>
+    <span class="k">if</span> <span class="n">_unified_session_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_unified_session_id</span> <span class="o">=</span> <span class="n">auto_session_for_mcp</span><span class="p">()</span>
+
+
+<span class="c1"># Global plugin registry</span>
+<span class="n">_plugins</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">PLUGINS</span> <span class="o">=</span> <span class="n">_plugins</span>  <span class="c1"># Expose for testing</span>
+
+<span class="c1"># Module-level exports for testing</span>
+<span class="n">project_manager</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Will be initialized lazily</span>
+<span class="n">project_config</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Will be initialized lazily</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JediAnalyzer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get or create a JediAnalyzer for the given project path.</span>
+
+<span class="sd">    This is a helper function that uses ProjectManager to create</span>
+<span class="sd">    a properly configured analyzer with namespace and package support.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Use the project manager to get a configured analyzer</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">initialize_plugins</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize and activate framework-specific plugins for the project.</span>
+
+<span class="sd">    Scans the project for framework indicators and activates appropriate plugins</span>
+<span class="sd">    that provide specialized analysis tools. Currently supports Pydantic, Django,</span>
+<span class="sd">    and Flask frameworks.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        project_path: Root directory path of the project to analyze</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        Plugin activation is automatic based on project detection. Failed plugin</span>
+<span class="sd">        initialization does not prevent server startup - plugins are optional.</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        The plugin system will automatically detect frameworks:</span>
+<span class="sd">        - Pydantic: Looks for BaseModel imports</span>
+<span class="sd">        - Django: Checks for Django imports and settings.py</span>
+<span class="sd">        - Flask: Scans for Flask app creation patterns</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_plugins</span>
+    <span class="n">_plugins</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Load configuration for namespace support</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">ProjectConfig</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+
+    <span class="c1"># Try to activate each plugin</span>
+    <span class="n">plugin_classes</span> <span class="o">=</span> <span class="p">[</span><span class="n">PydanticPlugin</span><span class="p">,</span> <span class="n">DjangoPlugin</span><span class="p">,</span> <span class="n">FlaskPlugin</span><span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">plugin_class</span> <span class="ow">in</span> <span class="n">plugin_classes</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">plugin</span> <span class="o">=</span> <span class="n">plugin_class</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>  <span class="c1"># type: ignore[abstract]</span>
+            <span class="k">if</span> <span class="n">plugin</span><span class="o">.</span><span class="n">detect</span><span class="p">():</span>
+                <span class="c1"># Pass namespace configuration to the plugin</span>
+                <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+                <span class="n">plugin</span><span class="o">.</span><span class="n">set_additional_paths</span><span class="p">([</span><span class="n">Path</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">get_package_paths</span><span class="p">()])</span>
+                <span class="n">plugin</span><span class="o">.</span><span class="n">set_namespace_paths</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">get_namespaces</span><span class="p">())</span>
+
+                <span class="n">_plugins</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">plugin</span><span class="p">)</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Activated </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">()</span><span class="si">}</span><span class="s2"> plugin with namespace support&quot;</span><span class="p">)</span>
+
+                <span class="c1"># Register plugin tools</span>
+                <span class="k">for</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_func</span> <span class="ow">in</span> <span class="n">plugin</span><span class="o">.</span><span class="n">register_tools</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="c1"># Wrap tool function to work with MCP</span>
+                    <span class="nb">globals</span><span class="p">()[</span><span class="n">tool_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()(</span><span class="n">tool_func</span><span class="p">)</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load plugin </span><span class="si">{</span><span class="n">plugin_class</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="c1"># Don&#39;t raise - plugins are optional</span>
+
+
+<div class="viewcode-block" id="configure_packages">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.configure_packages.html#pyeye.mcp.server.configure_packages">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;configure_packages&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">configure_packages</span><span class="p">(</span>
+    <span class="n">packages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">namespaces</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">save</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure additional package locations for analysis.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        packages: List of package paths to include</span>
+<span class="sd">        namespaces: Namespace packages with their repo paths</span>
+<span class="sd">        save: Whether to save configuration to .pyeye.json</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Current configuration</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        configure_packages(</span>
+<span class="sd">            packages=[&quot;../my-lib&quot;, &quot;~/repos/shared-utils&quot;],</span>
+<span class="sd">            namespaces={</span>
+<span class="sd">                &quot;company&quot;: [&quot;~/repos/company-auth&quot;, &quot;~/repos/company-api&quot;]</span>
+<span class="sd">            }</span>
+<span class="sd">        )</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Load existing config</span>
+    <span class="k">global</span> <span class="n">project_config</span>
+    <span class="n">project_config</span> <span class="o">=</span> <span class="n">ProjectConfig</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">project_config</span>
+
+    <span class="c1"># Update configuration</span>
+    <span class="k">if</span> <span class="n">packages</span><span class="p">:</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;packages&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">packages</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">namespaces</span><span class="p">:</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;namespaces&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">namespaces</span><span class="p">)</span>
+
+    <span class="c1"># Save if requested</span>
+    <span class="k">if</span> <span class="n">save</span> <span class="ow">and</span> <span class="p">(</span><span class="n">packages</span> <span class="ow">or</span> <span class="n">namespaces</span><span class="p">):</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">save_config</span><span class="p">()</span>
+
+    <span class="c1"># Apply configuration to project manager</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+    <span class="n">all_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_package_paths</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_paths</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="c1"># Configure with all paths</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="n">all_paths</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+
+    <span class="c1"># Configure namespaces</span>
+    <span class="k">for</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">ns_paths</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">get_namespaces</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">namespace_resolver</span><span class="o">.</span><span class="n">register_namespace</span><span class="p">(</span><span class="n">namespace</span><span class="p">,</span> <span class="n">ns_paths</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;packages&quot;</span><span class="p">:</span> <span class="n">config</span><span class="o">.</span><span class="n">get_package_paths</span><span class="p">(),</span>
+        <span class="s2">&quot;namespaces&quot;</span><span class="p">:</span> <span class="n">config</span><span class="o">.</span><span class="n">get_namespaces</span><span class="p">(),</span>
+        <span class="s2">&quot;config_file&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">project_path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;.</span><span class="si">{</span><span class="n">PROJECT_NAME</span><span class="si">}</span><span class="s2">.json&quot;</span><span class="p">),</span>
+    <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="find_symbol">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_symbol.html#pyeye.mcp.server.find_symbol">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_symbol</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">use_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find symbol definitions in the project using semantic analysis.</span>
+
+<span class="sd">    Searches for class, function, variable, and module definitions using Jedi&#39;s</span>
+<span class="sd">    semantic analysis engine. Supports exact and fuzzy matching across configured</span>
+<span class="sd">    projects and namespace packages.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: Symbol name to search for (e.g., &#39;MyClass&#39;, &#39;my_function&#39;)</span>
+<span class="sd">        project_path: Root directory of the project to search (defaults to current directory)</span>
+<span class="sd">        fuzzy: Enable fuzzy matching for partial names (default False)</span>
+<span class="sd">        use_config: Load additional packages from configuration file (default True)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of symbol matches with location and type information:</span>
+<span class="sd">        [</span>
+<span class="sd">            {</span>
+<span class="sd">                &#39;name&#39;: &#39;MyClass&#39;,</span>
+<span class="sd">                &#39;type&#39;: &#39;class&#39;,</span>
+<span class="sd">                &#39;file&#39;: &#39;/path/to/file.py&#39;,</span>
+<span class="sd">                &#39;line&#39;: 10,</span>
+<span class="sd">                &#39;column&#39;: 0,</span>
+<span class="sd">                &#39;import_paths&#39;: [&#39;mymodule.MyClass&#39;]</span>
+<span class="sd">            }</span>
+<span class="sd">        ]</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        FileAccessError: If project path is not found or not accessible</span>
+<span class="sd">        AnalysisError: If Jedi analysis fails or encounters errors</span>
+<span class="sd">        ValidationError: If symbol name is invalid</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; await find_symbol(&#39;User&#39;, project_path=&#39;/my/project&#39;)</span>
+<span class="sd">        [{&#39;name&#39;: &#39;User&#39;, &#39;type&#39;: &#39;class&#39;, &#39;file&#39;: &#39;/my/project/models.py&#39;, ...}]</span>
+
+<span class="sd">        &gt;&gt;&gt; await find_symbol(&#39;parse&#39;, fuzzy=True)  # Finds &#39;parse_json&#39;, &#39;html_parser&#39;, etc.</span>
+<span class="sd">        [{&#39;name&#39;: &#39;parse_json&#39;, &#39;type&#39;: &#39;function&#39;, ...}, ...]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Use JediAnalyzer which now supports re-export tracking</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+
+        <span class="c1"># Configure additional paths if requested</span>
+        <span class="k">if</span> <span class="n">use_config</span><span class="p">:</span>
+            <span class="n">config</span> <span class="o">=</span> <span class="n">ProjectConfig</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+            <span class="n">all_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_package_paths</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_paths</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="c1"># Set additional paths on the analyzer if needed</span>
+                <span class="n">analyzer</span><span class="o">.</span><span class="n">additional_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">Path</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">:]]</span>
+
+        <span class="c1"># Use the analyzer&#39;s find_symbol method which includes import_paths</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_symbol</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="n">fuzzy</span><span class="p">,</span> <span class="n">include_import_paths</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error searching for symbol </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Failed to search for symbol &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
+            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
+            <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;symbol_search&quot;</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="k">return</span> <span class="n">results</span></div>
+
+
+
+<div class="viewcode-block" id="goto_definition">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.goto_definition.html#pyeye.mcp.server.goto_definition">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;goto_definition&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;goto_definition&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">goto_definition</span><span class="p">(</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Go to symbol definition from a specific position.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        file: Path to the file</span>
+<span class="sd">        line: Line number (1-indexed)</span>
+<span class="sd">        column: Column number (0-indexed)</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Definition location or None if not found</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">goto_definition</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="find_references">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_references.html#pyeye.mcp.server.find_references">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_references</span><span class="p">(</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all references to the symbol at a specific position.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        file: Path to the file</span>
+<span class="sd">        line: Line number (1-indexed)</span>
+<span class="sd">        column: Column number (0-indexed)</span>
+<span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        include_definitions: Whether to include definitions in results</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of reference locations</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_type_info">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_type_info.html#pyeye.mcp.server.get_type_info">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_type_info</span><span class="p">(</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get type information at a specific position.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        file: Path to the file</span>
+<span class="sd">        line: Line number (1-indexed)</span>
+<span class="sd">        column: Column number (0-indexed)</span>
+<span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        detailed: Include additional information like methods and attributes (default False)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Type information including inferred type, docstring, and for classes:</span>
+<span class="sd">        base classes and MRO</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_type_info</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">detailed</span><span class="o">=</span><span class="n">detailed</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="find_imports">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_imports.html#pyeye.mcp.server.find_imports">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_imports&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_imports</span><span class="p">(</span><span class="n">module_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all imports of a specific module in the project.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        module_name: Name of the module to find imports for</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of import locations</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_imports</span><span class="p">(</span><span class="n">module_name</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_call_hierarchy">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_call_hierarchy.html#pyeye.mcp.server.get_call_hierarchy">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_call_hierarchy&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_call_hierarchy</span><span class="p">(</span>
+    <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the call hierarchy for a function.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        function_name: Name of the function</span>
+<span class="sd">        file: Optional file to search in (searches whole project if not specified)</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Call hierarchy with callers and callees</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_call_hierarchy</span><span class="p">(</span><span class="n">function_name</span><span class="p">,</span> <span class="n">file</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="configure_namespace_package">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.configure_namespace_package.html#pyeye.mcp.server.configure_namespace_package">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;configure_namespace_package&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">configure_namespace_package</span><span class="p">(</span><span class="n">namespace</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">repo_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure a namespace package spread across multiple repositories.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        namespace: Package namespace (e.g., &quot;mycompany.services&quot;)</span>
+<span class="sd">        repo_paths: List of repository paths containing parts of this namespace</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Configuration details and discovered structure</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        configure_namespace_package(</span>
+<span class="sd">            namespace=&quot;mycompany&quot;,</span>
+<span class="sd">            repo_paths=[</span>
+<span class="sd">                &quot;~/repos/mycompany-auth&quot;,</span>
+<span class="sd">                &quot;~/repos/mycompany-api&quot;,</span>
+<span class="sd">                &quot;~/repos/mycompany-utils&quot;</span>
+<span class="sd">            ]</span>
+<span class="sd">        )</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+    <span class="n">resolver</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">namespace_resolver</span>
+
+    <span class="c1"># Discover namespace packages</span>
+    <span class="n">discovered</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">discover_namespaces</span><span class="p">(</span><span class="n">repo_paths</span><span class="p">)</span>
+
+    <span class="c1"># Register the namespace</span>
+    <span class="k">if</span> <span class="n">namespace</span> <span class="ow">in</span> <span class="n">discovered</span><span class="p">:</span>
+        <span class="n">resolver</span><span class="o">.</span><span class="n">register_namespace</span><span class="p">(</span><span class="n">namespace</span><span class="p">,</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">discovered</span><span class="p">[</span><span class="n">namespace</span><span class="p">]])</span>
+
+    <span class="c1"># Build structure map</span>
+    <span class="n">structure</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">build_namespace_map</span><span class="p">(</span><span class="n">repo_paths</span><span class="p">)</span>
+
+    <span class="c1"># Configure Jedi projects for all paths</span>
+    <span class="n">all_paths</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">ns_paths</span> <span class="ow">in</span> <span class="n">discovered</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="n">all_paths</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">ns_paths</span><span class="p">])</span>
+
+    <span class="c1"># Create a unified project with all namespace paths</span>
+    <span class="k">if</span> <span class="n">all_paths</span><span class="p">:</span>
+        <span class="c1"># Use first path as main, rest as includes</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="n">all_paths</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_paths</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;namespace&quot;</span><span class="p">:</span> <span class="n">namespace</span><span class="p">,</span>
+        <span class="s2">&quot;discovered_namespaces&quot;</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">discovered</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
+        <span class="s2">&quot;structure&quot;</span><span class="p">:</span> <span class="n">structure</span><span class="p">,</span>
+        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;configured&quot;</span><span class="p">,</span>
+    <span class="p">}</span></div>
+
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_in_namespace</span><span class="p">(</span><span class="n">import_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">namespace_repos</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find a module/class within a namespace package spread across repos.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        import_path: Full import path (e.g., &quot;mycompany.auth.models.User&quot;)</span>
+<span class="sd">        namespace_repos: Repository paths to search</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Locations where the import is found</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        find_in_namespace(</span>
+<span class="sd">            &quot;mycompany.auth.models.User&quot;,</span>
+<span class="sd">            [&quot;~/repos/mycompany-auth&quot;, &quot;~/repos/mycompany-core&quot;]</span>
+<span class="sd">        )</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+    <span class="n">resolver</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">namespace_resolver</span>
+
+    <span class="c1"># Discover namespaces if not already done</span>
+    <span class="n">resolver</span><span class="o">.</span><span class="n">discover_namespaces</span><span class="p">(</span><span class="n">namespace_repos</span><span class="p">)</span>
+
+    <span class="c1"># Resolve the import</span>
+    <span class="n">resolved_paths</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_import</span><span class="p">(</span><span class="n">import_path</span><span class="p">,</span> <span class="n">namespace_repos</span><span class="p">)</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;import_path&quot;</span><span class="p">:</span> <span class="n">import_path</span><span class="p">,</span> <span class="s2">&quot;found_at&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;namespace_structure&quot;</span><span class="p">:</span> <span class="p">{}}</span>
+
+    <span class="c1"># For each resolved path, find the specific symbol</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">import_path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+    <span class="n">symbol_name</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">parts</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">resolved_paths</span><span class="p">:</span>
+        <span class="c1"># Get the project for this path</span>
+        <span class="n">project_root</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">parent</span>
+        <span class="k">while</span> <span class="n">project_root</span><span class="o">.</span><span class="n">parent</span> <span class="o">!=</span> <span class="n">project_root</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">project_root</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;*.py&quot;</span><span class="p">)):</span>
+            <span class="n">project_root</span> <span class="o">=</span> <span class="n">project_root</span><span class="o">.</span><span class="n">parent</span>
+
+        <span class="n">project</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">project_root</span><span class="p">))</span>
+
+        <span class="c1"># Search for the symbol</span>
+        <span class="k">if</span> <span class="n">symbol_name</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">search_results</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">symbol_name</span><span class="p">,</span> <span class="n">all_scopes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">search_results</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span> <span class="o">==</span> <span class="n">path</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span>
+                        <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="p">)</span>
+                    <span class="p">):</span>
+                        <span class="n">found_at_list</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;found_at&quot;</span><span class="p">,</span> <span class="p">[])</span>
+                        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">found_at_list</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                            <span class="n">found_at_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                                <span class="p">{</span>
+                                    <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="p">(</span>
+                                        <span class="n">Path</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span>
+                                        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span>
+                                        <span class="k">else</span> <span class="kc">None</span>
+                                    <span class="p">),</span>
+                                    <span class="s2">&quot;line&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">line</span><span class="p">,</span>
+                                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+                                <span class="p">}</span>
+                            <span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error searching in </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Add namespace structure</span>
+    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;namespace_structure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">build_namespace_map</span><span class="p">(</span><span class="n">namespace_repos</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">results</span>
+
+
+<div class="viewcode-block" id="find_symbol_multi">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_symbol_multi.html#pyeye.mcp.server.find_symbol_multi">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_symbol_multi</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find symbol across multiple projects.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: Symbol name to search for</span>
+<span class="sd">        project_paths: List of project paths to search</span>
+<span class="sd">        fuzzy: Whether to use fuzzy matching</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary mapping project paths to their results</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+    <span class="n">all_results</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">project_paths</span><span class="p">:</span>
+        <span class="c1"># Ensure each project is loaded</span>
+        <span class="n">project</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+
+        <span class="c1"># Search in this project</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">search_results</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">all_scopes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">search_results</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">fuzzy</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="n">name</span><span class="p">:</span>
+                    <span class="k">continue</span>
+
+                <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="p">{</span>
+                        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                        <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="n">Path</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                        <span class="s2">&quot;line&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">line</span><span class="p">,</span>
+                        <span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
+                        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+                    <span class="p">}</span>
+                <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                <span class="n">all_results</span><span class="p">[</span><span class="n">path</span><span class="p">]</span> <span class="o">=</span> <span class="n">results</span>
+
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error searching in </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">all_results</span><span class="p">[</span><span class="n">path</span><span class="p">]</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}]</span>
+
+    <span class="k">return</span> <span class="n">all_results</span></div>
+
+
+
+<div class="viewcode-block" id="list_packages">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_packages.html#pyeye.mcp.server.list_packages">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_packages</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;List all Python packages in the project.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of packages with structure information</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">list_packages</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error listing packages: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="s2">&quot;Failed to list packages&quot;</span><span class="p">,</span>
+            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
+            <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;list_packages&quot;</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
+
+
+
+<div class="viewcode-block" id="list_modules">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_modules.html#pyeye.mcp.server.list_modules">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_modules</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;List all Python modules with exports and metrics.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of modules with exports, classes, functions, and metrics</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">list_modules</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error listing modules: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="s2">&quot;Failed to list modules&quot;</span><span class="p">,</span> <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span> <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;list_modules&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
+
+
+
+<div class="viewcode-block" id="analyze_dependencies">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">analyze_dependencies</span><span class="p">(</span>
+    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze import dependencies for a module.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        module_path: Import path of the module (e.g., &quot;pyeye.mcp&quot;)</span>
+<span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        scope: Search scope (default &quot;all&quot;):</span>
+<span class="sd">            - &quot;main&quot;: Only the main project</span>
+<span class="sd">            - &quot;all&quot;: Main project + configured namespaces</span>
+<span class="sd">            - &quot;namespace:name&quot;: Specific namespace</span>
+<span class="sd">            - [&quot;main&quot;, &quot;namespace:x&quot;]: Multiple scopes</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dependencies analysis including imports, imported_by, and circular dependencies</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">analyze_dependencies</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="n">FileAccessError</span><span class="p">:</span>
+        <span class="k">raise</span>  <span class="c1"># Re-raise module not found errors</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error analyzing dependencies: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Failed to analyze dependencies for </span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
+            <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
+
+
+
+<div class="viewcode-block" id="get_module_info">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_module_info.html#pyeye.mcp.server.get_module_info">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_module_info</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get detailed information about a specific module.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        module_path: Import path of the module (e.g., &quot;pyeye.mcp&quot;)</span>
+<span class="sd">        project_path: Root path of the project</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Detailed module information including exports, classes, functions, metrics, and dependencies</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_module_info</span><span class="p">(</span><span class="n">module_path</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">except</span> <span class="n">FileAccessError</span><span class="p">:</span>
+        <span class="k">raise</span>  <span class="c1"># Re-raise module not found errors</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error getting module info: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Failed to get module info for </span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
+            <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;get_module_info&quot;</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
+
+
+
+<div class="viewcode-block" id="list_project_structure">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_project_structure.html#pyeye.mcp.server.list_project_structure">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">list_project_structure</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;List the Python project structure.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        max_depth: Maximum directory depth to traverse</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Project structure with Python files and directories</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">project_root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_tree</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">current_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">current_depth</span> <span class="o">&gt;=</span> <span class="n">max_depth</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;directory&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;truncated&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+
+        <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;file&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span><span class="p">,</span>
+            <span class="p">}</span>
+
+        <span class="n">children</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()):</span>
+                <span class="c1"># Skip hidden files and common non-Python directories</span>
+                <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">child</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;__pycache__&quot;</span><span class="p">,</span> <span class="s2">&quot;node_modules&quot;</span><span class="p">]:</span>
+                    <span class="k">continue</span>
+
+                <span class="c1"># Only include Python files and directories</span>
+                <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">is_file</span><span class="p">()</span> <span class="ow">and</span> <span class="n">child</span><span class="o">.</span><span class="n">suffix</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;.py&quot;</span><span class="p">,</span> <span class="s2">&quot;.pyx&quot;</span><span class="p">,</span> <span class="s2">&quot;.pyi&quot;</span><span class="p">]:</span>
+                    <span class="k">continue</span>
+
+                <span class="n">children</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">build_tree</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">current_depth</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+
+        <span class="k">except</span> <span class="ne">PermissionError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;directory&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+            <span class="s2">&quot;children&quot;</span><span class="p">:</span> <span class="n">children</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">return</span> <span class="n">build_tree</span><span class="p">(</span><span class="n">project_root</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="find_subclasses">
+<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_subclasses.html#pyeye.mcp.server.find_subclasses">[docs]</a>
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_subclasses&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_subclasses</span><span class="p">(</span>
+    <span class="n">base_class</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">include_indirect</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_hierarchy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all classes that inherit from a given base class.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        base_class: Name of the base class to find subclasses for</span>
+<span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        include_indirect: Include indirect inheritance (grandchildren, etc.)</span>
+<span class="sd">        show_hierarchy: Show the full inheritance chain</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of subclasses with their locations and inheritance details</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        # Find all exception classes</span>
+<span class="sd">        subclasses = await find_subclasses(&quot;BaseException&quot;)</span>
+
+<span class="sd">        # Find direct subclasses only</span>
+<span class="sd">        direct_only = await find_subclasses(&quot;Animal&quot;, include_indirect=False)</span>
+
+<span class="sd">        # Show full inheritance hierarchy</span>
+<span class="sd">        with_hierarchy = await find_subclasses(&quot;Model&quot;, show_hierarchy=True)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_subclasses</span><span class="p">(</span>
+            <span class="n">base_class</span><span class="o">=</span><span class="n">base_class</span><span class="p">,</span>
+            <span class="n">include_indirect</span><span class="o">=</span><span class="n">include_indirect</span><span class="p">,</span>
+            <span class="n">show_hierarchy</span><span class="o">=</span><span class="n">show_hierarchy</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="n">ProjectNotFoundError</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error finding subclasses: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Failed to find subclasses of </span><span class="si">{</span><span class="n">base_class</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
+            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
+
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_performance_metrics</span><span class="p">(</span>
+    <span class="n">metric_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">export_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;json&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get performance metrics for the MCP server.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        metric_name: Optional specific metric name to retrieve</span>
+<span class="sd">        export_format: Output format - &#39;json&#39; (default) or &#39;prometheus&#39;</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Performance metrics in requested format</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        # Get all metrics</span>
+<span class="sd">        metrics = await get_performance_metrics()</span>
+
+<span class="sd">        # Get specific metric</span>
+<span class="sd">        symbol_search_stats = await get_performance_metrics(&quot;find_symbol&quot;)</span>
+
+<span class="sd">        # Export in Prometheus format</span>
+<span class="sd">        prometheus_data = await get_performance_metrics(export_format=&quot;prometheus&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">export_format</span> <span class="o">==</span> <span class="s2">&quot;prometheus&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">export_prometheus</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">metric_name</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_stats</span><span class="p">(</span><span class="n">metric_name</span><span class="p">)</span>
+
+    <span class="c1"># Return comprehensive performance report</span>
+    <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_performance_report</span><span class="p">()</span>
+
+
+<span class="c1"># Workflow Resources</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_workflow</span><span class="p">(</span><span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load workflow content from workflows directory.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        workflow_name: Name of the workflow file (without .md extension)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Workflow content as markdown string</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        FileNotFoundError: If workflow file doesn&#39;t exist</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">workflow_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;workflows&quot;</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">workflow_name</span><span class="si">}</span><span class="s2">.md&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Workflow not found: </span><span class="si">{</span><span class="n">workflow_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">read_text</span><span class="p">()</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://find-references&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_find_references_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Find All References workflow.</span>
+
+<span class="sd">    This workflow shows how to find ALL usages of a class/function,</span>
+<span class="sd">    including both package code and standalone scripts/notebooks.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Markdown workflow documentation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://refactoring&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_refactoring_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Safe Refactoring workflow.</span>
+
+<span class="sd">    This workflow guides through safe refactoring by analyzing</span>
+<span class="sd">    subclasses, references, and dependencies before making changes.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Markdown workflow documentation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;refactoring&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://code-understanding&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_code_understanding_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Code Understanding workflow.</span>
+
+<span class="sd">    This workflow helps understand unfamiliar code by systematically</span>
+<span class="sd">    exploring structure, relationships, and usage patterns.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Markdown workflow documentation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;code_understanding&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://dependency-analysis&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_dependency_analysis_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Dependency Analysis workflow.</span>
+
+<span class="sd">    This workflow helps analyze module dependencies, import relationships,</span>
+<span class="sd">    and architectural patterns in Python projects.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Markdown workflow documentation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;dependency_analysis&quot;</span><span class="p">)</span>
+
+
+<span class="c1"># Main entry point</span>
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">atexit</span>
+
+    <span class="c1"># Set up logging</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span>
+        <span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%(asctime)s</span><span class="s2"> - </span><span class="si">%(name)s</span><span class="s2"> - </span><span class="si">%(levelname)s</span><span class="s2"> - </span><span class="si">%(message)s</span><span class="s2">&quot;</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Initialize unified metrics session</span>
+    <span class="n">ensure_unified_session</span><span class="p">()</span>
+
+    <span class="c1"># Cleanup on exit</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">cleanup</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Clean up all projects and watchers on exit.&quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.unified_metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_unified_collector</span>
+
+        <span class="c1"># End unified metrics session</span>
+        <span class="n">collector</span> <span class="o">=</span> <span class="n">get_unified_collector</span><span class="p">()</span>
+        <span class="n">collector</span><span class="o">.</span><span class="n">end_session</span><span class="p">()</span>
+
+        <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">cleanup_all</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Cleaned up all projects and watchers&quot;</span><span class="p">)</span>
+
+    <span class="n">atexit</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">cleanup</span><span class="p">)</span>
+
+    <span class="c1"># Initialize plugins for current directory</span>
+    <span class="n">initialize_plugins</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
+
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Starting PyEye Server with file watching&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Active plugins: </span><span class="si">{</span><span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">()</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">_plugins</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Run the server</span>
+    <span class="n">mcp</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, PyEye Contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

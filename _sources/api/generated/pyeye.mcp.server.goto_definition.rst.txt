@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.goto\_definition
+=================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: goto_definition

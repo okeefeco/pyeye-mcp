@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.configure\_packages
+====================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: configure_packages

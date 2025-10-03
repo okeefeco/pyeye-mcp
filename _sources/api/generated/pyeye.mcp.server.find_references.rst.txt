@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.find\_references
+=================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: find_references

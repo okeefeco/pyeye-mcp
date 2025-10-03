@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.list\_project\_structure
+=========================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: list_project_structure

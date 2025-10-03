@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.get\_call\_hierarchy
+=====================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: get_call_hierarchy

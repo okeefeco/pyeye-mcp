@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.get\_module\_info
+==================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: get_module_info

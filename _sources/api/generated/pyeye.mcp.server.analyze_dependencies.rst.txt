@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.analyze\_dependencies
+======================================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: analyze_dependencies

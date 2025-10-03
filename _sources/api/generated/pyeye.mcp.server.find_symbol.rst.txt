@@ -1,0 +1,6 @@
+﻿pyeye.mcp.server.find\_symbol
+=============================
+
+.. currentmodule:: pyeye.mcp.server
+
+.. autofunction:: find_symbol
