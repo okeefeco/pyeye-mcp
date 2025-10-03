@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2025-10-04
 
 ### BREAKING CHANGES
 
@@ -49,6 +49,7 @@ This is a breaking change that requires migration steps:
 - Fixed Sphinx documentation paths for `pyeye.mcp.server` module structure
 - Fixed test mocking conflicts with new module structure
 - Restored `_version.pyi` type stub file for proper type checking
+- Updated release workflow package names from `python_code_intelligence_mcp` to `pyeye_mcp`
 
 ## [0.3.0] - 2025-08-27
 
