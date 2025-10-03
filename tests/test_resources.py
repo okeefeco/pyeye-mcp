@@ -12,13 +12,13 @@ class TestWorkflowResources:
 
     def test_workflows_directory_exists(self):
         """Verify the workflows directory exists."""
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
         assert workflows_dir.exists(), "Workflows directory should exist"
         assert workflows_dir.is_dir(), "Workflows should be a directory"
 
     def test_all_workflow_files_exist(self):
         """Verify all expected workflow files exist."""
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
         expected_workflows = [
             "find_references.md",
@@ -34,14 +34,14 @@ class TestWorkflowResources:
 
     def test_workflow_files_are_markdown(self):
         """Verify all workflow files are markdown format."""
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
         for workflow_file in workflows_dir.glob("*.md"):
             assert workflow_file.suffix == ".md", f"{workflow_file} should be markdown"
 
     def test_workflow_content_not_empty(self):
         """Verify workflow files contain content."""
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
         for workflow_file in workflows_dir.glob("*.md"):
             content = workflow_file.read_text(encoding="utf-8")
@@ -51,7 +51,7 @@ class TestWorkflowResources:
     def test_find_references_workflow_structure(self):
         """Verify find_references workflow has expected structure."""
         workflow_file = (
-            Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows" / "find_references.md"
+            Path(__file__).parent.parent / "src" / "pyeye" / "workflows" / "find_references.md"
         )
         content = workflow_file.read_text(encoding="utf-8")
 
@@ -67,7 +67,7 @@ class TestWorkflowResources:
     def test_refactoring_workflow_structure(self):
         """Verify refactoring workflow has expected structure."""
         workflow_file = (
-            Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows" / "refactoring.md"
+            Path(__file__).parent.parent / "src" / "pyeye" / "workflows" / "refactoring.md"
         )
         content = workflow_file.read_text(encoding="utf-8")
 
@@ -82,11 +82,7 @@ class TestWorkflowResources:
     def test_code_understanding_workflow_structure(self):
         """Verify code_understanding workflow has expected structure."""
         workflow_file = (
-            Path(__file__).parent.parent
-            / "src"
-            / "pycodemcp"
-            / "workflows"
-            / "code_understanding.md"
+            Path(__file__).parent.parent / "src" / "pyeye" / "workflows" / "code_understanding.md"
         )
         content = workflow_file.read_text(encoding="utf-8")
 
@@ -101,11 +97,7 @@ class TestWorkflowResources:
     def test_dependency_analysis_workflow_structure(self):
         """Verify dependency_analysis workflow has expected structure."""
         workflow_file = (
-            Path(__file__).parent.parent
-            / "src"
-            / "pycodemcp"
-            / "workflows"
-            / "dependency_analysis.md"
+            Path(__file__).parent.parent / "src" / "pyeye" / "workflows" / "dependency_analysis.md"
         )
         content = workflow_file.read_text(encoding="utf-8")
 
@@ -122,7 +114,7 @@ class TestWorkflowResourceHandlers:
 
     def test_load_workflow_function_exists(self):
         """Verify load_workflow helper function exists."""
-        server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         assert "def load_workflow" in content, "load_workflow function should exist"
@@ -130,7 +122,7 @@ class TestWorkflowResourceHandlers:
 
     def test_resource_decorators_exist(self):
         """Verify all workflow resource decorators are defined."""
-        server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         expected_resources = [
@@ -147,7 +139,7 @@ class TestWorkflowResourceHandlers:
 
     def test_resource_handler_functions_exist(self):
         """Verify resource handler functions are defined."""
-        server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
         content = server_file.read_text(encoding="utf-8")
 
         expected_functions = [
@@ -200,10 +192,10 @@ class TestWorkflowIntegration:
 
     def test_workflows_reference_correct_tools(self):
         """Verify workflows reference tools that actually exist in server.py."""
-        server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "server.py"
         server_content = server_file.read_text(encoding="utf-8")
 
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
         # Tools that should exist
         expected_tools = [
@@ -229,7 +221,7 @@ class TestWorkflowIntegration:
 
     def test_workflows_have_consistent_structure(self):
         """Verify all workflows follow consistent structure."""
-        workflows_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "workflows"
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
         required_sections = [
             "# ",  # Title (H1)

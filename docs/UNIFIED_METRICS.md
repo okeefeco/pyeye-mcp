@@ -78,7 +78,7 @@ The system works automatically when MCP tools are used:
 ### Manual Session Management (Optional)
 
 ```python
-from pycodemcp.unified_metrics import get_unified_collector
+from pyeye.unified_metrics import get_unified_collector
 
 collector = get_unified_collector()
 
@@ -248,7 +248,7 @@ The system has comprehensive test coverage:
 pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py -v
 
 # With coverage
-pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py --cov=src/pycodemcp/unified_metrics --cov=src/pycodemcp/metrics_hook
+pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py --cov=src/pyeye/unified_metrics --cov=src/pyeye/metrics_hook
 ```
 
 ## Future Enhancements
@@ -312,4 +312,4 @@ The unified metrics system logs to the same location as the MCP server:
 
 - [DOGFOODING_INTEGRATION.md](DOGFOODING_INTEGRATION.md) - Integration with dogfooding metrics
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Development workflow
-- [GitHub Issue #189](https://github.com/okeefeco/python-code-intelligence-mcp/issues/189) - Original feature request
+- [GitHub Issue #189](https://github.com/okeefeco/pyeye-mcp/issues/189) - Original feature request

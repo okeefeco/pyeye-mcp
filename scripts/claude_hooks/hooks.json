@@ -4,27 +4,27 @@
       {
         "hooks": [
           {
-            "command": "python3 ~/GitHub/python-code-intelligence-mcp/scripts/claude_hooks/track_mcp_success.py",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/track_mcp_success.py",
             "type": "command"
           }
         ],
-        "matcher": "mcp__python-intelligence__.*"
+        "matcher": "mcp__pyeye__.*"
       }
     ],
     "PreToolUse": [
       {
         "hooks": [
           {
-            "command": "python3 ~/GitHub/python-code-intelligence-mcp/scripts/claude_hooks/track_mcp_call.py",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/track_mcp_call.py",
             "type": "command"
           }
         ],
-        "matcher": "mcp__python-intelligence__.*"
+        "matcher": "mcp__pyeye__.*"
       },
       {
         "hooks": [
           {
-            "command": "python3 ~/GitHub/python-code-intelligence-mcp/scripts/claude_hooks/detect_grep_usage.py",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/detect_grep_usage.py",
             "type": "command"
           }
         ],
@@ -44,7 +44,7 @@
       {
         "hooks": [
           {
-            "command": "python3 ~/GitHub/python-code-intelligence-mcp/scripts/claude_hooks/session_tracker.py end",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/session_tracker.py end",
             "type": "command"
           }
         ]
@@ -54,7 +54,7 @@
       {
         "hooks": [
           {
-            "command": "python3 ~/GitHub/python-code-intelligence-mcp/scripts/claude_hooks/session_tracker.py start",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/session_tracker.py start",
             "type": "command"
           }
         ]

@@ -6,18 +6,18 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .analyzers.jedi_analyzer import JediAnalyzer
-from .config import ProjectConfig
-from .exceptions import (
+from ..analyzers.jedi_analyzer import JediAnalyzer
+from ..config import ProjectConfig
+from ..exceptions import (
     AnalysisError,
     FileAccessError,
     ProjectNotFoundError,
 )
-from .metrics import metrics
+from ..metrics import metrics
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
-    from .metrics_hook import auto_session_for_mcp, track_mcp_operation
+    from ..metrics_hook import auto_session_for_mcp, track_mcp_operation
 
     UNIFIED_METRICS_AVAILABLE = True
 except ImportError:
@@ -42,18 +42,18 @@ except ImportError:
         return "default_session"
 
 
-from .plugins.django import DjangoPlugin
-from .plugins.flask import FlaskPlugin
-from .plugins.pydantic import PydanticPlugin
-from .project_manager import get_project_manager
-from .validation import validate_mcp_inputs
+from ..plugins.django import DjangoPlugin
+from ..plugins.flask import FlaskPlugin
+from ..plugins.pydantic import PydanticPlugin
+from ..project_manager import get_project_manager
+from ..validation import validate_mcp_inputs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
-mcp = FastMCP("Python Code Intelligence")
+mcp = FastMCP("PyEye")
 
 # Initialize unified metrics session
 _unified_session_id = None
@@ -618,7 +618,7 @@ async def analyze_dependencies(
     """Analyze import dependencies for a module.
 
     Args:
-        module_path: Import path of the module (e.g., "pycodemcp.server")
+        module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
         scope: Search scope (default "all"):
             - "main": Only the main project
@@ -654,7 +654,7 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
     """Get detailed information about a specific module.
 
     Args:
-        module_path: Import path of the module (e.g., "pycodemcp.server")
+        module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
 
     Returns:

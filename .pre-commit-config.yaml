@@ -89,7 +89,7 @@ repos:
 
   # Project-specific checks
   # Cross-platform path checker - useful for periodic audits but has false positives
-  # To run manually: python scripts/check_cross_platform_paths.py src/pycodemcp/**/*.py
+  # To run manually: python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
   # - repo: local
   #   hooks:
   #     - id: check-cross-platform-paths

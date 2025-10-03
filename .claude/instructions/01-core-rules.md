@@ -95,7 +95,7 @@ When implementing ANY feature or fix:
 
    ```bash
    # IMPORTANT: Run ALL tests, not just your new tests!
-   uv run pytest --cov=src/pycodemcp --cov-fail-under=85
+   uv run pytest --cov=src/pyeye --cov-fail-under=85
    ```
 
 4. **Fix any failing tests or coverage issues**
@@ -114,7 +114,7 @@ Always run these validation commands:
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (not just your new tests!)
-uv run pytest --cov=src/pycodemcp --cov-fail-under=85
+uv run pytest --cov=src/pyeye --cov-fail-under=85
 
 # Note: Linting/type checks are handled by pre-commit hooks automatically
 ```

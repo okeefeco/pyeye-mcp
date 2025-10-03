@@ -6,10 +6,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pycodemcp.cache import GranularCache
-from pycodemcp.dependency_tracker import DependencyTracker
-from pycodemcp.import_analyzer import ImportAnalyzer
-from pycodemcp.project_manager import ProjectManager
+from pyeye.cache import GranularCache
+from pyeye.dependency_tracker import DependencyTracker
+from pyeye.import_analyzer import ImportAnalyzer
+from pyeye.project_manager import ProjectManager
 
 
 class TestSmartInvalidationIntegration:

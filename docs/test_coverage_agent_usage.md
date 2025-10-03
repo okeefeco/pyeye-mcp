@@ -52,40 +52,40 @@ The agent understands various natural language requests:
 
 ```python
 # Agent uses these MCP tools to find untested code:
-mcp__python-intelligence__list_modules()           # Get project structure
-mcp__python-intelligence__find_symbol("def")       # Find all functions
-mcp__python-intelligence__find_symbol("class")     # Find all classes
-mcp__python-intelligence__find_references()        # Check if tested
+mcp__pyeye__list_modules()           # Get project structure
+mcp__pyeye__find_symbol("def")       # Find all functions
+mcp__pyeye__find_symbol("class")     # Find all classes
+mcp__pyeye__find_references()        # Check if tested
 ```
 
 ### Phase 2: Pattern Analysis
 
 ```python
 # Agent learns existing test patterns:
-mcp__python-intelligence__find_subclasses("TestCase")   # Test classes
-mcp__python-intelligence__find_symbol("test_", fuzzy=True)  # Test functions
-mcp__python-intelligence__find_imports("pytest")        # Framework detection
-mcp__python-intelligence__find_symbol("fixture")        # Fixture patterns
+mcp__pyeye__find_subclasses("TestCase")   # Test classes
+mcp__pyeye__find_symbol("test_", fuzzy=True)  # Test functions
+mcp__pyeye__find_imports("pytest")        # Framework detection
+mcp__pyeye__find_symbol("fixture")        # Fixture patterns
 ```
 
 ### Phase 3: Semantic Generation
 
 ```python
 # Agent generates tests using understanding:
-mcp__python-intelligence__get_type_info()          # Function signatures
-mcp__python-intelligence__find_references()        # Usage patterns
-mcp__python-intelligence__get_call_hierarchy()     # Mock requirements
-mcp__python-intelligence__analyze_dependencies()   # Import needs
+mcp__pyeye__get_type_info()          # Function signatures
+mcp__pyeye__find_references()        # Usage patterns
+mcp__pyeye__get_call_hierarchy()     # Mock requirements
+mcp__pyeye__analyze_dependencies()   # Import needs
 ```
 
 ### Phase 4: Framework-Specific
 
 ```python
 # For framework-specific code:
-mcp__python-intelligence__find_models()            # Pydantic models
-mcp__python-intelligence__get_model_schema()       # Model structure
-mcp__python-intelligence__find_routes()            # Flask endpoints
-mcp__python-intelligence__find_validators()        # Validation logic
+mcp__pyeye__find_models()            # Pydantic models
+mcp__pyeye__get_model_schema()       # Model structure
+mcp__pyeye__find_routes()            # Flask endpoints
+mcp__pyeye__find_validators()        # Validation logic
 ```
 
 ## Example Interaction

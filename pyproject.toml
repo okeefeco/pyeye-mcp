@@ -1,7 +1,7 @@
 [project]
-name = "python-code-intelligence-mcp"
+name = "pyeye-mcp"
 dynamic = ["version"]
-description = "Extensible Python code intelligence MCP server for semantic analysis and code navigation"
+description = "PyEye - Python Code Intelligence MCP server for semantic analysis and code navigation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -55,9 +55,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/okeefeco/python-code-intelligence-mcp"
-Repository = "https://github.com/okeefeco/python-code-intelligence-mcp"
-Issues = "https://github.com/okeefeco/python-code-intelligence-mcp/issues"
+Homepage = "https://github.com/okeefeco/pyeye-mcp"
+Repository = "https://github.com/okeefeco/pyeye-mcp"
+Issues = "https://github.com/okeefeco/pyeye-mcp/issues"
 
 [build-system]
 requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]
@@ -67,10 +67,10 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pycodemcp = ["workflows/*.md"]
+pyeye = ["workflows/*.md"]
 
 [tool.setuptools_scm]
-version_file = "src/pycodemcp/_version.py"
+version_file = "src/pyeye/_version.py"
 version_file_template = '''
 """Auto-generated version file."""
 __version__ = "{version}"
@@ -130,7 +130,7 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--tb=short",
-    "--cov=src/pycodemcp",
+    "--cov=src/pyeye",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-fail-under=85",
@@ -147,7 +147,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/pycodemcp"]
+source = ["src/pyeye"]
 omit = [
     "*/tests/*",
     "*/benchmarks/*",

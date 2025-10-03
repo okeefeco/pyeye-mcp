@@ -208,7 +208,7 @@ Track these metrics to measure improvement:
 1. **Always use absolute paths**
 
    ```bash
-   MAIN_REPO="/home/mark/GitHub/python-code-intelligence-mcp"
+   MAIN_REPO="/home/mark/GitHub/pyeye-mcp"
    WORK_DIR="$MAIN_REPO-work/feat-123"
    ```
 

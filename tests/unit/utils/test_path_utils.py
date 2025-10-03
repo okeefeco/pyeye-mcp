@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.path_utils import (
+from pyeye.path_utils import (
     ensure_posix_path,
     normalize_path,
     path_to_key,

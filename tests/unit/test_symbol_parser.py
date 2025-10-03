@@ -6,7 +6,7 @@ and conventions from docs/testing/CONVENTIONS.md.
 
 import pytest
 
-from pycodemcp.symbol_parser import (
+from pyeye.symbol_parser import (
     classify_symbol_type,
     get_parent_and_member,
     is_compound_symbol,

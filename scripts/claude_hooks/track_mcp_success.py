@@ -28,8 +28,8 @@ def main() -> None:
         tool_response = payload.get("tool_response", {})
 
         # Extract the specific MCP tool
-        if tool_name.startswith("mcp__python-intelligence__"):
-            mcp_tool = tool_name.replace("mcp__python-intelligence__", "")
+        if tool_name.startswith("mcp__pyeye__"):
+            mcp_tool = tool_name.replace("mcp__pyeye__", "")
         else:
             mcp_tool = tool_name
 

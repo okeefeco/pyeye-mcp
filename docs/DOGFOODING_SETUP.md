@@ -53,7 +53,7 @@ git commit -m "Add new feature"
 ### 4. Project Entry
 
 ```bash
-cd ~/repos/python-code-intelligence-mcp
+cd ~/repos/pyeye-mcp
 # 📊 Auto-starting dogfooding metrics for issue #135...
 ```
 

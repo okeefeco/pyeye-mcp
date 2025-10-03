@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.plugins.django import DjangoPlugin
+from pyeye.plugins.django import DjangoPlugin
 
 
 @pytest.fixture

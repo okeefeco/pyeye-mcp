@@ -37,9 +37,9 @@ class ProjectConfig:
         """Load configuration from various sources.
 
         Loading order (later sources override earlier ones):
-        1. Global config (~/.config/pycodemcp/config.json)
+        1. Global config (~/.config/pyeye/config.json)
         2. Project config files (.pycodemcp.json, pyproject.toml, etc.)
-        3. Override file (.pycodemcp.override.json) - for local development
+        3. Override file (.pyeye.override.json) - for local development
         4. Auto-discovery (if no packages configured)
         """
         # 1. Load global config first (lowest precedence)
@@ -53,7 +53,7 @@ class ProjectConfig:
                 break
 
         # 3. Load override file (highest precedence)
-        override_path = self.project_path / ".pycodemcp.override.json"
+        override_path = self.project_path / ".pyeye.override.json"
         if override_path.exists():
             self._load_from_file(override_path)
 

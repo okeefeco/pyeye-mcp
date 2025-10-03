@@ -194,7 +194,7 @@ class DogfoodingMetrics:
             if str(src_path) not in sys.path:
                 sys.path.insert(0, str(src_path))
 
-            from pycodemcp.dogfooding_integration import get_integration
+            from pyeye.dogfooding_integration import get_integration
 
             integration = get_integration()
             return integration.export_mcp_metrics_for_session()

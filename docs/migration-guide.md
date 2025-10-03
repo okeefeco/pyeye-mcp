@@ -29,10 +29,10 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
 
 1. **Review your current configuration**
 
-   Check your existing `.pycodemcp.json`:
+   Check your existing `.pyeye.json`:
 
    ```bash
-   cat .pycodemcp.json
+   cat .pyeye.json
    ```
 
 2. **Update configuration format** (optional)
@@ -70,7 +70,7 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
    Validate scopes work as expected:
 
    ```python
-   from pycodemcp.scope_utils import ScopeValidator
+   from pyeye.scope_utils import ScopeValidator
 
    validator = ScopeValidator(namespace_paths, additional_paths, scope_aliases)
    available = validator.list_available_scopes()
@@ -197,9 +197,9 @@ routes = await analyzer.find_routes(scope="backend")
 
 New environment variables supported:
 
-- `PYCODEMCP_DEFAULT_SCOPE`: Global default scope
-- `PYCODEMCP_CACHE_TTL`: Cache TTL in seconds (default: 300)
-- `PYCODEMCP_MAX_CONCURRENT`: Max concurrent searches (default: 10)
+- `PYEYE_DEFAULT_SCOPE`: Global default scope
+- `PYEYE_CACHE_TTL`: Cache TTL in seconds (default: 300)
+- `PYEYE_MAX_CONCURRENT`: Max concurrent searches (default: 10)
 
 ## API Changes
 
@@ -221,7 +221,7 @@ async def find_subclasses(
 ### New Utilities
 
 ```python
-from pycodemcp.scope_utils import (
+from pyeye.scope_utils import (
     SmartScopeResolver,    # Smart defaults
     ScopeValidator,        # Validate scopes
     ScopeDebugger,        # Debug scope resolution
@@ -299,7 +299,7 @@ If you need to rollback to 0.1.x:
 1. **Restore previous version**:
 
    ```bash
-   pip install python-code-intelligence-mcp==0.1.x
+   pip install pyeye-mcp==0.1.x
    ```
 
 2. **Remove new configuration keys**:
@@ -317,7 +317,7 @@ If you need to rollback to 0.1.x:
 
 - **Documentation**: See [namespace-packages.md](namespace-packages.md)
 - **Examples**: Check `examples/configurations/`
-- **Issues**: Report at [GitHub Issues](https://github.com/okeefeco/python-code-intelligence-mcp/issues)
+- **Issues**: Report at [GitHub Issues](https://github.com/okeefeco/pyeye-mcp/issues)
 
 ## Future Deprecations
 

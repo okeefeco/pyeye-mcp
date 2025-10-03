@@ -19,8 +19,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Check if running from correct location
-if [[ ! -f "$REPO_ROOT/pyproject.toml" ]] || [[ ! -d "$REPO_ROOT/src/pycodemcp" ]]; then
-    echo -e "${RED}Error: This script must be run from the python-code-intelligence-mcp repository${NC}"
+if [[ ! -f "$REPO_ROOT/pyproject.toml" ]] || [[ ! -d "$REPO_ROOT/src/pyeye" ]]; then
+    echo -e "${RED}Error: This script must be run from the pyeye-mcp repository${NC}"
     exit 1
 fi
 
@@ -55,17 +55,17 @@ if [[ -f "$CLAUDE_SETTINGS_DIR/settings.json" ]]; then
     if command -v jq &> /dev/null; then
         # If jq is available, merge properly
         EXISTING_SETTINGS=$(jq 'del(.hooks)' "$CLAUDE_SETTINGS_DIR/settings.json" 2>/dev/null || echo '{}')
-        HOOKS_CONFIG=$(sed "s|~/GitHub/python-code-intelligence-mcp|$REPO_ROOT|g" "$SCRIPT_DIR/hooks.json")
+        HOOKS_CONFIG=$(sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" "$SCRIPT_DIR/hooks.json")
         echo "$EXISTING_SETTINGS" | jq --argjson hooks "$HOOKS_CONFIG" '. + $hooks' > "$CLAUDE_SETTINGS_DIR/settings.json"
     else
         # Manual merge - just replace for now
         echo -e "${YELLOW}⚠️  jq not found - replacing settings.json (backup created)${NC}"
-        sed "s|~/GitHub/python-code-intelligence-mcp|$REPO_ROOT|g" \
+        sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" \
             "$SCRIPT_DIR/hooks.json" > "$CLAUDE_SETTINGS_DIR/settings.json"
     fi
 else
     # No existing settings, just copy our hooks
-    sed "s|~/GitHub/python-code-intelligence-mcp|$REPO_ROOT|g" \
+    sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" \
         "$SCRIPT_DIR/hooks.json" > "$CLAUDE_SETTINGS_DIR/settings.json"
 fi
 
@@ -115,7 +115,7 @@ echo "6️⃣  Testing hook configuration..."
 if command -v claude &> /dev/null; then
     echo "   Testing PreToolUse hook for MCP tools..."
     # This would test the hook but claude CLI might not have a test command
-    echo -e "${YELLOW}⚠️  Manual test required - run: claude code hook test PreToolUse mcp__python-intelligence__find_symbol${NC}"
+    echo -e "${YELLOW}⚠️  Manual test required - run: claude code hook test PreToolUse mcp__pyeye__find_symbol${NC}"
 else
     echo -e "${YELLOW}⚠️  Claude CLI not found in PATH - skipping hook test${NC}"
 fi

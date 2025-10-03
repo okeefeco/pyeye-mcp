@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
-from pycodemcp.config import ProjectConfig
-from pycodemcp.namespace_resolver import NamespaceResolver
-from pycodemcp.project_manager import ProjectManager
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.config import ProjectConfig
+from pyeye.namespace_resolver import NamespaceResolver
+from pyeye.project_manager import ProjectManager
 
 
 class TestEndToEndWorkflow:
@@ -149,8 +149,8 @@ class APIClient:
         """Test that file changes trigger cache invalidation."""
         import time
 
-        from pycodemcp.cache import CodebaseWatcher, ProjectCache
-        from pycodemcp.settings import settings
+        from pyeye.cache import CodebaseWatcher, ProjectCache
+        from pyeye.settings import settings
 
         # Create project with file
         test_file = temp_project_dir / "test.py"
@@ -180,8 +180,8 @@ class APIClient:
     @pytest.mark.asyncio
     async def test_plugin_activation_workflow(self, temp_project_dir):
         """Test that plugins are activated based on project type."""
-        from pycodemcp.plugins.flask import FlaskPlugin
-        from pycodemcp.plugins.pydantic import PydanticPlugin
+        from pyeye.plugins.flask import FlaskPlugin
+        from pyeye.plugins.pydantic import PydanticPlugin
 
         # Create Flask project
         app_py = temp_project_dir / "app.py"
@@ -232,7 +232,7 @@ class User(BaseModel):
         local_config.write_text(json.dumps({"packages": ["local_package"], "cache_ttl": 100}))
 
         # 2. Create override config (replaces ENV vars)
-        override_config = temp_project_dir / ".pycodemcp.override.json"
+        override_config = temp_project_dir / ".pyeye.override.json"
         override_config.write_text(json.dumps({"packages": ["override_package"], "debug": True}))
 
         # 3. Create global config
@@ -330,7 +330,7 @@ def function_{i}_{j}():
                 )
 
         # Test project structure listing
-        from pycodemcp.server import list_project_structure
+        from pyeye.mcp.server import list_project_structure
 
         structure = list_project_structure(str(temp_project_dir), max_depth=2)
 

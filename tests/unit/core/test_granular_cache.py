@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.cache import CacheMetrics, GranularCache
-from pycodemcp.dependency_tracker import DependencyTracker
+from pyeye.cache import CacheMetrics, GranularCache
+from pyeye.dependency_tracker import DependencyTracker
 
 
 class TestCacheMetrics:

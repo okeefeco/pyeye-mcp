@@ -26,7 +26,7 @@ Fixes #
 
 ## Coverage Requirements
 <!-- IMPORTANT: We're working towards 85% coverage. Every PR must maintain or improve coverage -->
-- [ ] Coverage maintained or improved from baseline (run `pytest --cov=src/pycodemcp --cov-report=term`)
+- [ ] Coverage maintained or improved from baseline (run `pytest --cov=src/pyeye --cov-report=term`)
 - [ ] New code has >90% coverage
 - [ ] Files with <75% coverage have been improved (if modified)
 - [ ] No significant coverage drops in modified files

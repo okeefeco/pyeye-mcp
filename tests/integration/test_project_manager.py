@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pycodemcp.project_manager import ProjectManager  # noqa: E402
+from pyeye.project_manager import ProjectManager  # noqa: E402
 
 
 class TestProjectManager:
@@ -21,7 +21,7 @@ class TestProjectManager:
         These tests verify the internal LRU behavior of ProjectManager which works
         differently when pooling is enabled (pool handles its own eviction).
         """
-        monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "false")
+        monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "false")
 
         # Re-initialize settings with pooling disabled
         from pycodemcp import settings as settings_module

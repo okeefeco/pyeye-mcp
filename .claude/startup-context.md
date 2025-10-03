@@ -26,7 +26,7 @@ CLAUDE_WORKTREE_BRANCH=$(git branch --show-current)
 ### If Started from a Worktree
 
 ```bash
-# Example: Started from /home/mark/GitHub/python-code-intelligence-mcp-work/feat-175-cross-platform-agent
+# Example: Started from /home/mark/GitHub/pyeye-mcp-work/feat-175-cross-platform-agent
 ```
 
 **Claude should understand:**
@@ -42,8 +42,8 @@ CLAUDE_WORKTREE_BRANCH=$(git branch --show-current)
 # Working on issue 180 while in feat-175 worktree
 # DON'T create nested worktree, create sibling
 cd $(git worktree list | head -1 | awk '{print $1}')  # Go to main
-git worktree add ../python-code-intelligence-mcp-work/feat-180-new-feature -b feat/180-new-feature
-cd ../python-code-intelligence-mcp-work/feat-180-new-feature
+git worktree add ../pyeye-mcp-work/feat-180-new-feature -b feat/180-new-feature
+cd ../pyeye-mcp-work/feat-180-new-feature
 
 # But Claude files stay in startup worktree!
 # Agent edits go to: $CLAUDE_STARTUP_DIR/.claude/agents/
@@ -53,7 +53,7 @@ cd ../python-code-intelligence-mcp-work/feat-180-new-feature
 ### If Started from Main Repo
 
 ```bash
-# Example: Started from /home/mark/GitHub/python-code-intelligence-mcp
+# Example: Started from /home/mark/GitHub/pyeye-mcp
 ```
 
 **Claude should understand:**
@@ -119,7 +119,7 @@ new-worktree() {
     local DESC=$3
     local MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')
     cd "$MAIN_REPO"
-    git worktree add "../python-code-intelligence-mcp-work/$TYPE-$ISSUE-$DESC" -b "$TYPE/$ISSUE-$DESC"
+    git worktree add "../pyeye-mcp-work/$TYPE-$ISSUE-$DESC" -b "$TYPE/$ISSUE-$DESC"
 }
 ```
 

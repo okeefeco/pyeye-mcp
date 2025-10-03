@@ -314,6 +314,6 @@ def mock_file_system(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def mock_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up mock environment variables."""
-    monkeypatch.setenv("PYCODEMCP_PACKAGES", "/path/to/pkg1:/path/to/pkg2")
-    monkeypatch.setenv("PYCODEMCP_NAMESPACE_company", "/repos/company-auth:/repos/company-api")
-    monkeypatch.setenv("PYCODEMCP_CACHE_TTL", "600")
+    monkeypatch.setenv("PYEYE_PACKAGES", "/path/to/pkg1:/path/to/pkg2")
+    monkeypatch.setenv("PYEYE_NAMESPACE_company", "/repos/company-auth:/repos/company-api")
+    monkeypatch.setenv("PYEYE_CACHE_TTL", "600")

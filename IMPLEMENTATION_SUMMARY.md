@@ -8,7 +8,7 @@ Implemented granular cache invalidation to dramatically improve performance for 
 
 ### Key Components Implemented
 
-#### 1. DependencyTracker (`src/pycodemcp/dependency_tracker.py`)
+#### 1. DependencyTracker (`src/pyeye/dependency_tracker.py`)
 
 - Tracks module import relationships and dependencies
 - Maps files to modules and vice versa
@@ -16,7 +16,7 @@ Implemented granular cache invalidation to dramatically improve performance for 
 - Provides efficient lookup of affected modules when files change
 - **Coverage: 100%**
 
-#### 2. GranularCache (`src/pycodemcp/cache.py`)
+#### 2. GranularCache (`src/pyeye/cache.py`)
 
 - Extends ProjectCache with file and module-level cache tracking
 - Implements smart invalidation based on dependency graph
@@ -24,7 +24,7 @@ Implemented granular cache invalidation to dramatically improve performance for 
 - Thread-safe operations with RLock
 - **Coverage: 78%**
 
-#### 3. ImportAnalyzer (`src/pycodemcp/import_analyzer.py`)
+#### 3. ImportAnalyzer (`src/pyeye/import_analyzer.py`)
 
 - Analyzes Python files to extract import relationships
 - Builds complete dependency graphs for projects

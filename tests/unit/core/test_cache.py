@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from watchdog.events import DirModifiedEvent, FileModifiedEvent
 
-from pycodemcp.cache import CodebaseWatcher, ProjectCache
+from pyeye.cache import CodebaseWatcher, ProjectCache
 
 
 class TestCodebaseWatcher:
@@ -52,7 +52,7 @@ class TestCodebaseWatcher:
 
     def test_on_modified_python_file(self, temp_project_dir):
         """Test handling Python file modifications."""
-        from pycodemcp.settings import settings
+        from pyeye.settings import settings
 
         callback = Mock()
         watcher = CodebaseWatcher(str(temp_project_dir), callback)

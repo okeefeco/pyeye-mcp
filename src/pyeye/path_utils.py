@@ -6,7 +6,7 @@ across different operating systems. The key principle is:
 - Convert to OS-native format only when interfacing with the OS
 
 Examples:
-    >>> from pycodemcp.path_utils import path_to_key, ensure_posix_path
+    >>> from pyeye.path_utils import path_to_key, ensure_posix_path
 
     # Store paths in dictionaries
     >>> cache = {}

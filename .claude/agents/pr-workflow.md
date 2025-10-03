@@ -385,7 +385,7 @@ Agent:
 test_flask.py:142 - AssertionError: 'templates/index.html' != 'templates\\index.html'
 Fix: Use .as_posix() when comparing template paths
 
-URL: https://github.com/okeefeco/python-code-intelligence-mcp/pull/198
+URL: https://github.com/okeefeco/pyeye-mcp/pull/198
 ```
 
 Instead of 50+ lines of context, user gets 5 actionable lines.

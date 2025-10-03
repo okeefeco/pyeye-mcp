@@ -24,7 +24,7 @@ if sys.platform == "win32":
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from pycodemcp.agents.test_coverage import create_test_coverage_agent  # noqa: E402
+from pyeye.agents.test_coverage import create_test_coverage_agent  # noqa: E402
 
 
 def main() -> None:

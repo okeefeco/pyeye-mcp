@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.config import ProjectConfig
+from pyeye.config import ProjectConfig
 from tests.test_helpers import assert_path_equal, assert_path_in_list
 
 
@@ -110,7 +110,7 @@ packages = {json.dumps(toml_config["packages"])}
             "packages": ["override_package"],
             "namespaces": {"override.ns": ["/override/path"]},
         }
-        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file = temp_project_dir / ".pyeye.override.json"
         override_file.write_text(json.dumps(override_config))
 
         config = ProjectConfig(str(temp_project_dir))
@@ -128,7 +128,7 @@ packages = {json.dumps(toml_config["packages"])}
 
         # Create override config with different value
         override_config = {"cache_ttl": 500, "packages": ["override"]}
-        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file = temp_project_dir / ".pyeye.override.json"
         override_file.write_text(json.dumps(override_config))
 
         config = ProjectConfig(str(temp_project_dir))
@@ -142,7 +142,7 @@ packages = {json.dumps(toml_config["packages"])}
         """Test loading global configuration from user home."""
         mock_home.return_value = temp_project_dir
 
-        global_config_dir = temp_project_dir / ".config" / "pycodemcp"
+        global_config_dir = temp_project_dir / ".config" / "pyeye"
         global_config_dir.mkdir(parents=True)
 
         global_config = {"packages": ["global_package"]}
@@ -184,7 +184,7 @@ packages = {json.dumps(toml_config["packages"])}
 
         # Override config
         override_config = {"packages": ["override_pkg"], "debug": True}
-        override_file = temp_project_dir / ".pycodemcp.override.json"
+        override_file = temp_project_dir / ".pyeye.override.json"
         override_file.write_text(json.dumps(override_config))
 
         config = ProjectConfig(str(temp_project_dir))

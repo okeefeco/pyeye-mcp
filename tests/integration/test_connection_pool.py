@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import jedi
 
-from pycodemcp.connection_pool import PooledConnection, ProjectConnectionPool
+from pyeye.connection_pool import PooledConnection, ProjectConnectionPool
 
 
 class TestPooledConnection:

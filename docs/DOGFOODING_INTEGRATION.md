@@ -52,7 +52,7 @@ Shell Commands → grep_tracker.sh → dogfooding_metrics.py → Session Storage
 ### DogfoodingIntegration Class
 
 ```python
-from pycodemcp.dogfooding_integration import get_integration
+from pyeye.dogfooding_integration import get_integration
 
 integration = get_integration()
 

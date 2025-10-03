@@ -61,7 +61,7 @@ create_worktree() {
     fi
 
     local branch_name="$type/$issue_num-$desc"
-    local worktree_dir="../python-code-intelligence-mcp-work/$type-$issue_num-$desc"
+    local worktree_dir="../pyeye-mcp-work/$type-$issue_num-$desc"
 
     # Update main first
     echo "📥 Updating main branch..."

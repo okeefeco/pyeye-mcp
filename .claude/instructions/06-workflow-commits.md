@@ -88,7 +88,7 @@ Always reference the related issue in PR body:
 
 ```bash
 # MANDATORY: Run ALL tests with coverage
-pytest --cov=src/pycodemcp --cov-fail-under=85
+pytest --cov=src/pyeye --cov-fail-under=85
 ```
 
 ## Using Smart-Commit Agent

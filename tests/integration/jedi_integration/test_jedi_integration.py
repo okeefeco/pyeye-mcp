@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
-from pycodemcp.exceptions import AnalysisError, format_error_response
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.exceptions import AnalysisError, format_error_response
 
 
 class TestJediIntegration:
@@ -194,7 +194,7 @@ obj2 = MyClass()
     async def test_mcp_server_response_serialization(self):
         """Test that MCP server responses are always JSON-serializable."""
         # Import the actual MCP server function
-        from pycodemcp.server import find_symbol
+        from pyeye.mcp.server import find_symbol
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a test file
@@ -261,7 +261,7 @@ obj = MyClass()
         """Test that Path objects in exception details are properly handled."""
         from pathlib import Path
 
-        from pycodemcp.exceptions import AnalysisError
+        from pyeye.exceptions import AnalysisError
 
         # This simulates what happens internally when Jedi fails
         path_obj = Path("/some/problematic/file.py")
@@ -321,7 +321,7 @@ def helper_function():
     @pytest.mark.asyncio
     async def test_all_mcp_tools_json_serializable(self):
         """Test that all MCP tool responses are JSON-serializable."""
-        from pycodemcp.server import (
+        from pyeye.mcp.server import (
             get_module_info,
             list_modules,
             list_packages,

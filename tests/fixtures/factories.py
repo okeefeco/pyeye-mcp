@@ -215,7 +215,7 @@ class ConfigFactory:
     """Factory for creating configuration files."""
 
     @staticmethod
-    def create_pycodemcp_config(
+    def create_pyeye_config(
         path: Path,
         packages: list[str] = None,
         namespaces: dict[str, list[str]] = None,

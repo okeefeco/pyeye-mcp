@@ -511,7 +511,7 @@ jobs:
 
 ```python
 # tests/performance/test_metrics.py
-from pycodemcp.unified_metrics import MetricsCollector
+from pyeye.unified_metrics import MetricsCollector
 
 def test_metrics_collection():
     """Test metrics are collected properly."""

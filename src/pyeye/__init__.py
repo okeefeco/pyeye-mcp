@@ -19,6 +19,6 @@ except ImportError:
     __version__ = "0.0.0+unknown"
     __version_tuple__ = (0, 0, 0)
 
-from .server import mcp
+from .mcp.server import mcp
 
 __all__ = ["mcp", "__version__"]

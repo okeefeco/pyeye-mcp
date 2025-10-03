@@ -17,12 +17,12 @@ class PerformanceSettings:
         """Initialize performance settings from environment variables."""
         # Project management settings
         self.max_projects: int = self._get_int_env(
-            "PYCODEMCP_MAX_PROJECTS", 10, min_val=1, max_val=1000
+            "PYEYE_MAX_PROJECTS", 10, min_val=1, max_val=1000
         )
 
         # Cache settings
         self.cache_ttl: int = self._get_int_env(
-            "PYCODEMCP_CACHE_TTL",
+            "PYEYE_CACHE_TTL",
             300,  # 5 minutes default
             min_val=0,
             max_val=86400,  # Max 24 hours
@@ -30,23 +30,23 @@ class PerformanceSettings:
 
         # File watcher settings
         self.watcher_debounce: float = self._get_float_env(
-            "PYCODEMCP_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
+            "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
         )
 
         # File handling settings
         self.max_file_size: int = self._get_int_env(
-            "PYCODEMCP_MAX_FILE_SIZE",
+            "PYEYE_MAX_FILE_SIZE",
             1048576,  # 1MB default
             min_val=1024,
             max_val=104857600,  # 1KB to 100MB
         )
 
         # Concurrency settings
-        self.max_workers: int = self._get_int_env("PYCODEMCP_MAX_WORKERS", 4, min_val=1, max_val=32)
+        self.max_workers: int = self._get_int_env("PYEYE_MAX_WORKERS", 4, min_val=1, max_val=32)
 
         # Analysis settings
         self.analysis_timeout: float = self._get_float_env(
-            "PYCODEMCP_ANALYSIS_TIMEOUT",
+            "PYEYE_ANALYSIS_TIMEOUT",
             30.0,  # 30 seconds default
             min_val=1.0,
             max_val=300.0,  # 1 second to 5 minutes
@@ -54,26 +54,26 @@ class PerformanceSettings:
 
         # Memory management
         self.enable_memory_profiling: bool = self._get_bool_env(
-            "PYCODEMCP_ENABLE_MEMORY_PROFILING", False
+            "PYEYE_ENABLE_MEMORY_PROFILING", False
         )
 
         # Performance monitoring
         self.enable_performance_metrics: bool = self._get_bool_env(
-            "PYCODEMCP_ENABLE_PERFORMANCE_METRICS", False
+            "PYEYE_ENABLE_PERFORMANCE_METRICS", False
         )
 
         # Connection pooling settings
         self.pool_max_connections: int = self._get_int_env(
-            "PYCODEMCP_POOL_MAX_CONNECTIONS", 10, min_val=1, max_val=100
+            "PYEYE_POOL_MAX_CONNECTIONS", 10, min_val=1, max_val=100
         )
         self.pool_ttl: int = self._get_int_env(
-            "PYCODEMCP_POOL_TTL",
+            "PYEYE_POOL_TTL",
             3600,  # 1 hour default
             min_val=60,
             max_val=86400,  # Max 24 hours
         )
         self.enable_connection_pooling: bool = self._get_bool_env(
-            "PYCODEMCP_ENABLE_CONNECTION_POOLING", True  # Enabled by default for better performance
+            "PYEYE_ENABLE_CONNECTION_POOLING", True  # Enabled by default for better performance
         )
 
     def _get_int_env(

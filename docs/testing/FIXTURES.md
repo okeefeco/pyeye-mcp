@@ -109,7 +109,7 @@ def mock_config():
 def config_file(tmp_path, mock_config):
     """Create configuration file."""
     import json
-    config_path = tmp_path / ".pycodemcp.json"
+    config_path = tmp_path / ".pyeye.json"
     config_path.write_text(json.dumps(mock_config))
     return config_path
 ```
@@ -150,7 +150,7 @@ def mock_project_manager():
 # tests/fixtures/factories.py
 import factory
 from factory import Faker, SubFactory, LazyAttribute
-from pycodemcp.models import Project, Symbol, Module
+from pyeye.models import Project, Symbol, Module
 
 class ProjectFactory(factory.Factory):
     """Factory for creating test projects."""

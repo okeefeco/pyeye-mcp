@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.async_utils import (
+from pyeye.async_utils import (
     file_exists_async,
     glob_async,
     process_files_concurrent,

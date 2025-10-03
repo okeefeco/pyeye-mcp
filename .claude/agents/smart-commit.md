@@ -292,7 +292,7 @@ if [ "$RETRY_COUNT" -gt 2 ]; then
         "outcome": "success",
         "retry_count": '$RETRY_COUNT',
         "issues_fixed": ["formatting", "types", "imports"]
-    }' >> "${CLAUDE_FEEDBACK_DIR:-/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development/.claude/feedback}/logs/$(date +%Y-%m-%d)-smart-commit.json"
+    }' >> "${CLAUDE_FEEDBACK_DIR:-/home/mark/GitHub/pyeye-mcp-work/claude-development/.claude/feedback}/logs/$(date +%Y-%m-%d)-smart-commit.json"
 fi
 
 # On failure requiring user intervention

@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.config import ProjectConfig
-from pycodemcp.metrics import metrics
-from pycodemcp.scope_utils import (
+from pyeye.config import ProjectConfig
+from pyeye.metrics import metrics
+from pyeye.scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
     SmartScopeResolver,

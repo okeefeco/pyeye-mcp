@@ -54,7 +54,7 @@ Scopes control which code the analyzer searches through:
 
 ## Configuration
 
-### Basic Configuration (.pycodemcp.json)
+### Basic Configuration (.pyeye.json)
 
 ```json
 {
@@ -102,10 +102,10 @@ Scopes control which code the analyzer searches through:
 ### Configuration in pyproject.toml
 
 ```toml
-[tool.pycodemcp]
+[tool.pyeye]
 packages = ["../shared-lib"]
 
-[tool.pycodemcp.namespaces]
+[tool.pyeye.namespaces]
 company = ["~/repos/company-*"]
 
 [tool.pycodemcp.scope_defaults]
@@ -342,7 +342,7 @@ results = await analyzer.find_symbol("User", scope="all")
 Use the debug tools to understand scope resolution:
 
 ```python
-from pycodemcp.scope_utils import ScopeDebugger
+from pyeye.scope_utils import ScopeDebugger
 
 debugger = ScopeDebugger(analyzer._resolve_scope_to_paths)
 
@@ -362,7 +362,7 @@ debug_info = await debugger.debug_file_search(
 ### Validating Scopes
 
 ```python
-from pycodemcp.scope_utils import ScopeValidator
+from pyeye.scope_utils import ScopeValidator
 
 validator = ScopeValidator(namespace_paths, additional_paths, scope_aliases)
 
@@ -387,7 +387,7 @@ suggestions = validator.suggest_scope("name")  # Returns ["namespace:..."]
 **Solution**: Check namespace configuration:
 
 ```bash
-cat .pycodemcp.json | jq '.namespaces'
+cat .pyeye.json | jq '.namespaces'
 ```
 
 Ensure paths exist and contain Python files.

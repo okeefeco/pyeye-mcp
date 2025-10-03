@@ -7,7 +7,7 @@ feedback about test quality and CI compatibility.
 import tempfile
 from pathlib import Path
 
-from pycodemcp.unified_metrics import UnifiedMetricsCollector
+from pyeye.unified_metrics import UnifiedMetricsCollector
 
 
 def test_session_workflow_basic():

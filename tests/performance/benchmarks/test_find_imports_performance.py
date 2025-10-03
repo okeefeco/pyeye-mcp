@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from tests.utils.performance import (
     PerformanceThresholds,
     assert_performance_threshold,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.plugins.pydantic import PydanticPlugin
+from pyeye.plugins.pydantic import PydanticPlugin
 
 
 @pytest.fixture

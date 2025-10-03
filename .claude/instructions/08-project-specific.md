@@ -12,7 +12,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 
 ## Development Environment
 
-- **Working Directory**: /home/mark/GitHub/python-code-intelligence-mcp-work
+- **Working Directory**: /home/mark/GitHub/pyeye-mcp-work
 - **Python Environment**: uv managed
 - **Package Manager**: `uv` (ALWAYS use `uv run` prefix)
 
@@ -36,7 +36,7 @@ This is the Python Code Intelligence MCP Server - an extensible MCP (Model Conte
 ## File Structure
 
 ```text
-src/pycodemcp/
+src/pyeye/
 ├── server.py              # Main MCP server with 17+ core tools
 ├── project_manager.py     # Multi-project management with LRU
 ├── namespace_resolver.py  # Distributed package handling
@@ -56,13 +56,13 @@ src/pycodemcp/
 
 The server supports configuration via:
 
-- `.pycodemcp.json` in project root
-- `pyproject.toml` [tool.pycodemcp] section
-- Environment variables (PYCODEMCP_PACKAGES, etc.)
-- Global config `~/.config/pycodemcp/config.json`
+- `.pyeye.json` in project root
+- `pyproject.toml` [tool.pyeye] section
+- Environment variables (PYEYE_PACKAGES, etc.)
+- Global config `~/.config/pyeye/config.json`
 - Auto-discovery of sibling packages
 
-Example `.pycodemcp.json`:
+Example `.pyeye.json`:
 
 ```json
 {
@@ -77,17 +77,17 @@ Example `.pycodemcp.json`:
 
 ```bash
 # Run server in dev mode
-uv run mcp dev src/pycodemcp/server.py
+uv run mcp dev src/pyeye/server.py
 
 # Run tests with coverage
-uv run pytest --cov=src/pycodemcp --cov-fail-under=85
+uv run pytest --cov=src/pyeye --cov-fail-under=85
 
 # Format code
 uv run black src/
 uv run ruff check src/
 
 # Type checking
-uv run mypy src/pycodemcp
+uv run mypy src/pyeye
 
 # Security checks
 uv run pip-audit
@@ -132,7 +132,7 @@ The TodoWrite tool is your primary progress tracker - it persists across context
 
 Always use these for cross-platform compatibility:
 
-- `src/pycodemcp/path_utils.py` has helpers:
+- `src/pyeye/path_utils.py` has helpers:
   - `path_to_key()` - For dictionary keys/comparison
   - `ensure_posix_path()` - Convert any path to forward slashes
   - `paths_equal()` - Platform-safe path comparison

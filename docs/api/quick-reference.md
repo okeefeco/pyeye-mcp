@@ -248,8 +248,8 @@ symbols = find_symbol("SharedClass")  # Uses configured packages
 1. **Auto-activation**: Framework tools activate automatically when framework is detected
 2. **File watching**: Changes are detected automatically - no need to restart
 3. **Cross-project**: Configure multiple projects once, search across all
-4. **Caching**: Results cached for 5 minutes (configurable via `PYCODEMCP_CACHE_TTL`)
-5. **Performance**: Use `PYCODEMCP_MAX_WORKERS` for parallel processing
+4. **Caching**: Results cached for 5 minutes (configurable via `PYEYE_CACHE_TTL`)
+5. **Performance**: Use `PYEYE_MAX_WORKERS` for parallel processing
 
 ## 🚨 Common Issues
 
@@ -265,9 +265,9 @@ print(config["packages"])  # Should list your packages
 
 ```bash
 # Adjust performance settings
-export PYCODEMCP_MAX_PROJECTS=5      # Fewer cached projects
-export PYCODEMCP_MAX_WORKERS=8       # More parallel workers
-export PYCODEMCP_CACHE_TTL=600       # Longer cache (10 min)
+export PYEYE_MAX_PROJECTS=5      # Fewer cached projects
+export PYEYE_MAX_WORKERS=8       # More parallel workers
+export PYEYE_CACHE_TTL=600       # Longer cache (10 min)
 ```
 
 ### Framework tools not appearing
