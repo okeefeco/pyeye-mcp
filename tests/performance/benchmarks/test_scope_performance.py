@@ -244,7 +244,7 @@ class TestSmartScopeResolver:
 
     def test_user_configured_defaults(self, tmp_path):
         """Test user-configured scope defaults."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             """{
             "scope_defaults": {
@@ -272,7 +272,7 @@ class TestSmartScopeResolver:
 
     def test_scope_alias_resolution(self, tmp_path):
         """Test scope alias resolution."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             """{
             "scope_aliases": {

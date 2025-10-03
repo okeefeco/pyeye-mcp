@@ -18,7 +18,7 @@ class TestScopeConfiguration:
 
     def test_load_scope_defaults_from_json(self, tmp_path):
         """Test loading scope defaults from JSON config."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             json.dumps(
                 {
@@ -47,7 +47,7 @@ class TestScopeConfiguration:
 
     def test_load_scope_aliases_from_json(self, tmp_path):
         """Test loading scope aliases from JSON config."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             json.dumps(
                 {
@@ -73,20 +73,20 @@ class TestScopeConfiguration:
         config_file = tmp_path / "pyproject.toml"
         config_file.write_text(
             """
-[tool.pycodemcp]
+[tool.pyeye]
 packages = ["../shared"]
 
-[tool.pycodemcp.namespaces]
+[tool.pyeye.namespaces]
 company = ["../company-core", "../company-utils"]
 
-[tool.pycodemcp.scope_defaults]
+[tool.pyeye.scope_defaults]
 global = "namespace:company"
 
-[tool.pycodemcp.scope_defaults.methods]
+[tool.pyeye.scope_defaults.methods]
 list_modules = "main"
 find_subclasses = "all"
 
-[tool.pycodemcp.scope_aliases]
+[tool.pyeye.scope_aliases]
 production = ["namespace:company.core", "namespace:company.api"]
 development = ["main", "namespace:company"]
 """
@@ -117,7 +117,7 @@ development = ["main", "namespace:company"]
         )
 
         # Create project config
-        project_config = tmp_path / "project" / ".pycodemcp.json"
+        project_config = tmp_path / "project" / ".pyeye.json"
         project_config.parent.mkdir()
         project_config.write_text(
             json.dumps({"scope_defaults": {"methods": {"list_modules": "main"}}})  # Override global
@@ -151,7 +151,7 @@ class TestSmartScopeResolverIntegration:
 
     def test_resolver_with_config_overrides(self, tmp_path):
         """Test resolver uses configuration overrides."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             json.dumps(
                 {
@@ -185,7 +185,7 @@ class TestSmartScopeResolverIntegration:
 
     def test_nested_alias_resolution(self, tmp_path):
         """Test that nested aliases don't cause infinite recursion."""
-        config_file = tmp_path / ".pycodemcp.json"
+        config_file = tmp_path / ".pyeye.json"
         config_file.write_text(
             json.dumps(
                 {

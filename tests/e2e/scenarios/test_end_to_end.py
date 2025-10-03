@@ -40,7 +40,7 @@ if __name__ == "__main__":
         )
 
         # Step 2: Create configuration
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps({"cache_ttl": 300, "max_projects": 5}))
 
         # Step 3: Initialize components
@@ -228,7 +228,7 @@ class User(BaseModel):
         """Test configuration loading from multiple sources."""
 
         # 1. Create local config
-        local_config = temp_project_dir / ".pycodemcp.json"
+        local_config = temp_project_dir / ".pyeye.json"
         local_config.write_text(json.dumps({"packages": ["local_package"], "cache_ttl": 100}))
 
         # 2. Create override config (replaces ENV vars)
@@ -270,7 +270,7 @@ class User(BaseModel):
                 assert "Project creation failed" in str(e)
 
         # Test handling invalid configuration
-        bad_config = temp_project_dir / ".pycodemcp.json"
+        bad_config = temp_project_dir / ".pyeye.json"
         bad_config.write_text("{ invalid json }")
 
         # Should not crash on bad config
