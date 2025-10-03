@@ -1,6 +1,6 @@
 # GitHub Labels Guide
 
-This document describes the label system used for issues and pull requests in the Python Code Intelligence MCP project.
+This document describes the label system used for issues and pull requests in the PyEye project.
 
 ## Label Categories
 

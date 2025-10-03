@@ -1,4 +1,4 @@
-"""Performance settings for Python Code Intelligence MCP Server."""
+"""Performance settings for PyEye Server."""
 
 import logging
 import os

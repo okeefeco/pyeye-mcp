@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Python Code Intelligence MCP project follows a comprehensive testing strategy designed to ensure reliability, maintainability, and performance across multiple platforms.
+The PyEye project follows a comprehensive testing strategy designed to ensure reliability, maintainability, and performance across multiple platforms.
 
 ## Testing Philosophy
 

@@ -1,6 +1,6 @@
-﻿pycodemcp.server.get\_type\_info
+﻿pyeye.server.get\_type\_info
 ================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: get_type_info

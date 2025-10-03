@@ -1,6 +1,6 @@
 # Namespace Packages and Scope Control
 
-This guide explains how to configure and use namespace packages and scope control in the Python Code Intelligence MCP Server.
+This guide explains how to configure and use namespace packages and scope control in the PyEye Server.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This guide explains how to configure and use namespace packages and scope contro
 
 ## Overview
 
-The Python Code Intelligence MCP Server supports analyzing code spread across multiple repositories and namespace packages. This is particularly useful for:
+The PyEye Server supports analyzing code spread across multiple repositories and namespace packages. This is particularly useful for:
 
 - **Monorepos**: Large codebases with multiple packages
 - **Microservices**: Services distributed across multiple repositories

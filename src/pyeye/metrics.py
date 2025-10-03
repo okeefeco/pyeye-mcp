@@ -1,4 +1,4 @@
-"""Performance monitoring and metrics collection for Python Code Intelligence MCP."""
+"""Performance monitoring and metrics collection for PyEye."""
 
 import functools
 import time

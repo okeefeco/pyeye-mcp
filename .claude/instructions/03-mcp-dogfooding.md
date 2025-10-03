@@ -6,7 +6,7 @@ When to update: When new MCP tools are added or patterns discovered
 
 # MCP-First Development Workflow (Dogfooding Our Own Tools)
 
-**CRITICAL**: We build Python Code Intelligence MCP - we MUST use it for our own development!
+**CRITICAL**: We build PyEye - we MUST use it for our own development!
 
 ## Why MCP-First?
 

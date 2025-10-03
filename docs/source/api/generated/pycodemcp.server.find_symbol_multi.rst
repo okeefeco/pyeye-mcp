@@ -1,6 +1,6 @@
-﻿pycodemcp.server.find\_symbol\_multi
+﻿pyeye.server.find\_symbol\_multi
 ====================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: find_symbol_multi

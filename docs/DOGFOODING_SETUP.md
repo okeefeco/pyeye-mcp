@@ -1,6 +1,6 @@
 # Dogfooding Metrics Setup Guide
 
-This guide helps you set up automatic metrics tracking for the Python Code Intelligence MCP dogfooding initiative.
+This guide helps you set up automatic metrics tracking for the PyEye dogfooding initiative.
 
 ## 🚀 Quick Setup (Recommended)
 

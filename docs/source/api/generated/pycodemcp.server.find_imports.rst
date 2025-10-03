@@ -1,6 +1,6 @@
-﻿pycodemcp.server.find\_imports
+﻿pyeye.server.find\_imports
 ==============================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: find_imports

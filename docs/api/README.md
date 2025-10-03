@@ -1,6 +1,6 @@
-# Python Code Intelligence MCP - API Reference
+# PyEye - API Reference
 
-This directory contains comprehensive API documentation for all 30+ MCP tools provided by the Python Code Intelligence MCP Server.
+This directory contains comprehensive API documentation for all 30+ MCP tools provided by the PyEye Server.
 
 ## 📚 Documentation Structure
 

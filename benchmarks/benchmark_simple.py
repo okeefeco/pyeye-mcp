@@ -1,4 +1,4 @@
-"""Simplified performance benchmark for Python Code Intelligence MCP Server."""
+"""Simplified performance benchmark for PyEye Server."""
 
 import asyncio
 import shutil

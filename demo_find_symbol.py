@@ -82,7 +82,7 @@ def pretty_print_results(results: list[dict[str, Any]]) -> None:
 
 def demonstrate_additional_capabilities() -> None:
     """Demonstrate other capabilities of the pyeye MCP server."""
-    print("🚀 Additional Python Code Intelligence MCP Server Capabilities:")
+    print("🚀 Additional PyEye Server Capabilities:")
     print()
     print("1. 📍 goto_definition(file, line, column, project_path)")
     print("   - Navigate to symbol definitions from any position")
@@ -107,7 +107,7 @@ def demonstrate_additional_capabilities() -> None:
 if __name__ == "__main__":
     # Demonstrate finding the Calculator symbol
     print("=" * 60)
-    print("🧮 Python Code Intelligence MCP Server Demo")
+    print("🧮 PyEye Server Demo")
     print("=" * 60)
     print()
 

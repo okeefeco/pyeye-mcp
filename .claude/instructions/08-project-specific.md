@@ -1,14 +1,14 @@
 <!--
 Audience: Claude Code
-Purpose: Define project-specific configuration and context for Python Code Intelligence MCP
+Purpose: Define project-specific configuration and context for PyEye
 When to update: When project structure, tools, or architecture changes
 -->
 
-# Python Code Intelligence MCP Server - Project Specific Configuration
+# PyEye Server - Project Specific Configuration
 
 ## Project Overview
 
-This is the Python Code Intelligence MCP Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
+This is the PyEye Server - an extensible MCP (Model Context Protocol) server that provides intelligent Python code analysis for AI assistants like Claude.
 
 ## Development Environment
 

@@ -1,4 +1,4 @@
-"""Main MCP server implementation for Python code intelligence."""
+"""Main MCP server implementation for PyEye."""
 
 import logging
 from pathlib import Path
@@ -915,7 +915,7 @@ if __name__ == "__main__":
     # Initialize plugins for current directory
     initialize_plugins(".")
 
-    logger.info("Starting Python Code Intelligence MCP Server with file watching")
+    logger.info("Starting PyEye Server with file watching")
     logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
 
     # Run the server

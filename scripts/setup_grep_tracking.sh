@@ -20,7 +20,7 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     if [[ -f "$HOME/.bashrc" ]]; then
         if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.bashrc"; then
             echo "" >> "$HOME/.bashrc"
-            echo "# Added by Python Code Intelligence MCP dogfooding setup" >> "$HOME/.bashrc"
+            echo "# Added by PyEye dogfooding setup" >> "$HOME/.bashrc"
             echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
         fi
     fi
@@ -29,7 +29,7 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     if [[ -f "$HOME/.zshrc" ]]; then
         if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.zshrc"; then
             echo "" >> "$HOME/.zshrc"
-            echo "# Added by Python Code Intelligence MCP dogfooding setup" >> "$HOME/.zshrc"
+            echo "# Added by PyEye dogfooding setup" >> "$HOME/.zshrc"
             echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.zshrc"
         fi
     fi

@@ -1,8 +1,8 @@
-# Python Code Intelligence MCP Server Demo
+# PyEye Server Demo
 
 ## What This Server Does
 
-The Python Code Intelligence MCP server provides semantic analysis of Python code, allowing Claude Code to understand your codebase deeply without reading every file.
+The PyEye server provides semantic analysis of Python code, allowing Claude Code to understand your codebase deeply without reading every file.
 
 ## Demo: Analyzing examples/test_project/example.py
 

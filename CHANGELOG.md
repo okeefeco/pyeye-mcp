@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release of Python Code Intelligence MCP Server
+- Initial release of PyEye Server
 - Core navigation tools (find_symbol, goto_definition, find_references)
 - Multi-project support with LRU caching
 - Namespace package resolution across repositories

@@ -1,4 +1,4 @@
-# Python Code Intelligence MCP - Quick Reference
+# PyEye - Quick Reference
 
 A concise cheatsheet for all 35 MCP tools organized by common use cases.
 

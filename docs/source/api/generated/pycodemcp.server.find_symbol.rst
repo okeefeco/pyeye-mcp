@@ -1,6 +1,6 @@
-﻿pycodemcp.server.find\_symbol
+﻿pyeye.server.find\_symbol
 =============================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: find_symbol

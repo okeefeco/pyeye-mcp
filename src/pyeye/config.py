@@ -1,4 +1,4 @@
-"""Configuration management for Python Code Intelligence MCP."""
+"""Configuration management for PyEye."""
 
 import json
 import logging

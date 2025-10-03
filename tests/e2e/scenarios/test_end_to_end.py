@@ -1,4 +1,4 @@
-"""End-to-end integration tests for Python Code Intelligence MCP."""
+"""End-to-end integration tests for PyEye."""
 
 import json
 from pathlib import Path

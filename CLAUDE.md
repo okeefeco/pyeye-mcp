@@ -1,4 +1,4 @@
-# Python Code Intelligence MCP Server - Claude Instructions
+# PyEye Server - Claude Instructions
 
 This file loads modular Claude behavior instructions. The actual instructions are in `.claude/instructions/`.
 

@@ -1,7 +1,7 @@
-Python Code Intelligence MCP Server Documentation
+PyEye Server Documentation
 ==================================================
 
-Welcome to the Python Code Intelligence MCP Server documentation. This project provides
+Welcome to the PyEye Server documentation. This project provides
 intelligent Python code analysis capabilities for AI assistants like Claude through the
 Model Context Protocol (MCP).
 
@@ -19,7 +19,7 @@ Model Context Protocol (MCP).
 Quick Start
 -----------
 
-The Python Code Intelligence MCP Server provides semantic code analysis for Python projects.
+The PyEye Server provides semantic code analysis for Python projects.
 It supports multi-project analysis, namespace packages, and framework-specific intelligence
 for Django, Flask, and Pydantic.
 
@@ -43,7 +43,7 @@ Installation
 Configuration
 ~~~~~~~~~~~~~
 
-Create a `.pycodemcp.json` configuration file in your project root:
+Create a `.pyeye.json` configuration file in your project root:
 
 .. code-block:: json
 

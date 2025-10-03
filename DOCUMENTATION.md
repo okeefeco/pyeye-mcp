@@ -1,4 +1,4 @@
-# Python Code Intelligence MCP Server - Full Documentation
+# PyEye Server - Full Documentation
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@
 
 ## Overview
 
-The Python Code Intelligence MCP Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
+The PyEye Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
 
 ### Key Capabilities
 

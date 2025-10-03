@@ -1,6 +1,6 @@
-﻿pycodemcp.server.goto\_definition
+﻿pyeye.server.goto\_definition
 =================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: goto_definition

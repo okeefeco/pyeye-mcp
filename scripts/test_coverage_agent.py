@@ -34,7 +34,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 This agent is designed to be invoked by Claude Code's Task tool for running
-in a separate context. It uses Python Code Intelligence MCP tools exclusively
+in a separate context. It uses PyEye tools exclusively
 for ALL code analysis - no AST parsing or grep.
 
 Examples for Claude Task tool:

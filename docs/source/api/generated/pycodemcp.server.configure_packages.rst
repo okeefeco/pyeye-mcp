@@ -1,6 +1,6 @@
-﻿pycodemcp.server.configure\_packages
+﻿pyeye.server.configure\_packages
 ====================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: configure_packages

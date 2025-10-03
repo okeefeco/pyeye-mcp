@@ -1,6 +1,6 @@
 # Core Navigation Tools
 
-The core navigation tools provide essential functionality for navigating and understanding Python code. These 11 tools form the foundation of the Python Code Intelligence MCP Server.
+The core navigation tools provide essential functionality for navigating and understanding Python code. These 11 tools form the foundation of the PyEye Server.
 
 ## Table of Contents
 

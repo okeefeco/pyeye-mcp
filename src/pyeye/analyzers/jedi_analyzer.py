@@ -1,4 +1,4 @@
-"""Jedi-based analyzer for Python code intelligence."""
+"""Jedi-based analyzer for PyEye."""
 
 import ast
 import logging

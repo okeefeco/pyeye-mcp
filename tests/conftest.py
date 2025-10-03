@@ -1,4 +1,4 @@
-"""Shared fixtures and test utilities for Python Code Intelligence MCP tests."""
+"""Shared fixtures and test utilities for PyEye tests."""
 
 import tempfile
 from collections.abc import Generator

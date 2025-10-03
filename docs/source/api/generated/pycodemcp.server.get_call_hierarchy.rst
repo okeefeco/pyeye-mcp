@@ -1,6 +1,6 @@
-﻿pycodemcp.server.get\_call\_hierarchy
+﻿pyeye.server.get\_call\_hierarchy
 =====================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: get_call_hierarchy

@@ -1,4 +1,4 @@
-"""Python Code Intelligence MCP Server.
+"""PyEye Server.
 
 An extensible MCP server for Python code analysis and navigation.
 """

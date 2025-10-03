@@ -1,6 +1,6 @@
 # PyEye 👁️
 
-## Python Code Intelligence MCP Server
+## PyEye Server
 
 [![CI](https://github.com/okeefeco/pyeye-mcp/workflows/CI/badge.svg)](https://github.com/okeefeco/pyeye-mcp/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/okeefeco/pyeye-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/pyeye-mcp)
@@ -28,7 +28,7 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Installation
 
-The Python Code Intelligence MCP can be installed in two ways:
+The PyEye can be installed in two ways:
 
 ### Option 1: Project-Specific Installation (Recommended)
 
@@ -110,7 +110,7 @@ Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `
 
 ### Configure with GitHub Copilot (VS Code)
 
-As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this Python Code Intelligence server with GitHub Copilot:
+As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this PyEye server with GitHub Copilot:
 
 #### Prerequisites
 
@@ -129,7 +129,7 @@ Your GitHub Copilot administrator needs to enable the MCP servers policy:
 
 #### Step 2: Install the MCP Server
 
-Install the Python Code Intelligence MCP server in your project or globally:
+Install the PyEye server in your project or globally:
 
 ```bash
 # Option A: Install in your project's virtual environment (recommended)
@@ -533,7 +533,7 @@ The server uses file watching to automatically update when code changes:
 ## Architecture
 
 ```text
-Python Code Intelligence MCP
+PyEye
 ├── Core Server (FastMCP)
 │   └── 17 MCP tools registered
 ├── Project Manager

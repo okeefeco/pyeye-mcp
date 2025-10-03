@@ -3,9 +3,9 @@
     "python-intelligence": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "pycodemcp.server"],
+      "args": ["-m", "pyeye.server"],
       "env": {},
-      "_comment": "This assumes pycodemcp is installed in your active Python environment"
+      "_comment": "This assumes pyeye is installed in your active Python environment"
     }
   },
   "_instructions": [

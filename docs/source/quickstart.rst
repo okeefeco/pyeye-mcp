@@ -1,7 +1,7 @@
 Quick Start Guide
 =================
 
-Get up and running with the Python Code Intelligence MCP Server in minutes.
+Get up and running with the PyEye Server in minutes.
 
 Installation
 ------------
@@ -34,7 +34,7 @@ Add the server to Claude Code:
 .. code-block:: bash
 
    claude mcp add python-code-intelligence-mcp \
-     --command "uv run mcp dev src/pycodemcp/server.py" \
+     --command "uv run mcp dev src/pyeye/server.py" \
      --directory "/path/to/your/project"
 
 For Other MCP Clients
@@ -45,12 +45,12 @@ The server can be used with any MCP-compatible client:
 .. code-block:: bash
 
    # Run the server directly
-   uv run mcp dev src/pycodemcp/server.py
+   uv run mcp dev src/pyeye/server.py
 
 Basic Configuration
 ------------------
 
-Create a `.pycodemcp.json` file in your project root:
+Create a `.pyeye.json` file in your project root:
 
 .. code-block:: json
 
@@ -68,10 +68,10 @@ Alternative: Use pyproject.toml:
 
 .. code-block:: toml
 
-   [tool.pycodemcp]
+   [tool.pyeye]
    packages = ["../shared-lib", "~/utils"]
 
-   [tool.pycodemcp.namespaces]
+   [tool.pyeye.namespaces]
    mycompany = ["~/repos/mycompany-auth", "~/repos/mycompany-api"]
 
 First Steps
@@ -177,8 +177,8 @@ Enable debug logging for troubleshooting:
 
 .. code-block:: bash
 
-   export PYCODEMCP_LOG_LEVEL=DEBUG
-   uv run mcp dev src/pycodemcp/server.py
+   export PYEYE_LOG_LEVEL=DEBUG
+   uv run mcp dev src/pyeye/server.py
 
 Configuration Validation
 ~~~~~~~~~~~~~~~~~~~~~~~~

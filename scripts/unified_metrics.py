@@ -231,7 +231,7 @@ def command_cleanup(args: argparse.Namespace) -> None:
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Unified metrics reporting for Python Code Intelligence MCP",
+        description="Unified metrics reporting for PyEye",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 

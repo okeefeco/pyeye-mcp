@@ -1,6 +1,6 @@
-# Python Code Intelligence MCP - Troubleshooting Guide
+# PyEye - Troubleshooting Guide
 
-This guide helps resolve common issues and optimize performance for the Python Code Intelligence MCP Server.
+This guide helps resolve common issues and optimize performance for the PyEye Server.
 
 ## Table of Contents
 
@@ -198,7 +198,7 @@ sudo dnf install python3-devel
 2. Verify they're set:
 
    ```bash
-   env | grep PYCODEMCP
+   env | grep PYEYE
    ```
 
 ### Multi-Project Setup Problems
@@ -722,7 +722,7 @@ Save and run this script to collect diagnostic information:
 
 ```python
 #!/usr/bin/env python3
-"""Diagnostic script for Python Code Intelligence MCP"""
+"""Diagnostic script for PyEye"""
 
 import sys
 import os
@@ -730,7 +730,7 @@ import json
 import subprocess
 from pathlib import Path
 
-print("Python Code Intelligence MCP - Diagnostics")
+print("PyEye - Diagnostics")
 print("=" * 50)
 
 # Python version
@@ -768,7 +768,7 @@ for config_path in config_locations:
 # Environment variables
 print("\nEnvironment variables:")
 for key, value in os.environ.items():
-    if key.startswith("PYCODEMCP"):
+    if key.startswith("PYEYE"):
         print(f"  {key}={value}")
 
 # MCP server status

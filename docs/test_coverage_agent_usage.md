@@ -6,7 +6,7 @@ The Test Coverage Enhancement Agent is a Claude Code sub-agent that systematical
 
 ## Key Features
 
-- **100% MCP-Powered**: Uses Python Code Intelligence MCP tools exclusively - no AST parsing or grep
+- **100% MCP-Powered**: Uses PyEye tools exclusively - no AST parsing or grep
 - **Semantic Understanding**: Understands code meaning, not just text patterns
 - **Pattern Learning**: Discovers and follows existing test conventions
 - **Framework-Aware**: Special handling for Pydantic, Flask, Django
@@ -251,4 +251,4 @@ The agent generates tests that:
 
 ## Conclusion
 
-The Test Coverage Enhancement Agent demonstrates the power of semantic code understanding through MCP tools. By dogfooding our own Python Code Intelligence MCP, we show that AI can understand code well enough to test it properly - not through pattern matching, but through true semantic comprehension.
+The Test Coverage Enhancement Agent demonstrates the power of semantic code understanding through MCP tools. By dogfooding our own PyEye, we show that AI can understand code well enough to test it properly - not through pattern matching, but through true semantic comprehension.

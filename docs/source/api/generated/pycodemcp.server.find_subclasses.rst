@@ -1,6 +1,6 @@
-﻿pycodemcp.server.find\_subclasses
+﻿pyeye.server.find\_subclasses
 =================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: find_subclasses

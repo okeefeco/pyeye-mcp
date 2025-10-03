@@ -1,6 +1,6 @@
-# Contributing to Python Code Intelligence MCP Server
+# Contributing to PyEye Server
 
-First off, thank you for considering contributing to Python Code Intelligence MCP Server! It's people like you that make this tool better for everyone.
+First off, thank you for considering contributing to PyEye Server! It's people like you that make this tool better for everyone.
 
 This document provides guidelines for contributing to the project. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request.
 
@@ -235,4 +235,4 @@ Feel free to open an issue with your question or reach out to the maintainers. W
 
 ---
 
-Thank you again for your interest in contributing to Python Code Intelligence MCP Server! 🎉
+Thank you again for your interest in contributing to PyEye Server! 🎉

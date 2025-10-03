@@ -1,1 +1,1 @@
-"""Tests for Python Code Intelligence MCP Server."""
+"""Tests for PyEye Server."""

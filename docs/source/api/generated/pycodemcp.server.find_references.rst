@@ -1,6 +1,6 @@
-﻿pycodemcp.server.find\_references
+﻿pyeye.server.find\_references
 =================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: find_references

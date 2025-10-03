@@ -1,7 +1,7 @@
 Architecture Overview
 ====================
 
-The Python Code Intelligence MCP Server is built with a modular architecture that emphasizes
+The PyEye Server is built with a modular architecture that emphasizes
 performance, extensibility, and reliability. This document provides a high-level overview
 of the system components and their interactions.
 
@@ -75,10 +75,10 @@ Configuration System
 The server supports multiple configuration sources with clear precedence:
 
 1. **Runtime Configuration**: Direct API calls to configure_packages
-2. **Project Configuration**: .pycodemcp.json in project root
-3. **pyproject.toml**: [tool.pycodemcp] section
-4. **Environment Variables**: PYCODEMCP_* environment variables
-5. **Global Configuration**: ~/.config/pycodemcp/config.json
+2. **Project Configuration**: .pyeye.json in project root
+3. **pyproject.toml**: [tool.pyeye] section
+4. **Environment Variables**: PYEYE_* environment variables
+5. **Global Configuration**: ~/.config/pyeye/config.json
 6. **Auto-Discovery**: Automatic detection of sibling packages
 
 Namespace Resolution

@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps you upgrade to the latest version of Python Code Intelligence MCP Server with enhanced namespace and scope support.
+This guide helps you upgrade to the latest version of PyEye Server with enhanced namespace and scope support.
 
 ## Table of Contents
 

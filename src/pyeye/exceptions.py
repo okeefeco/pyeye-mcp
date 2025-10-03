@@ -1,4 +1,4 @@
-"""Custom exceptions for Python Code Intelligence MCP Server.
+"""Custom exceptions for PyEye Server.
 
 This module defines a hierarchy of exceptions for better error handling
 and debugging throughout the application.

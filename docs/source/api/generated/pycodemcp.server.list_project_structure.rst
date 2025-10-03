@@ -1,6 +1,6 @@
-﻿pycodemcp.server.list\_project\_structure
+﻿pyeye.server.list\_project\_structure
 =========================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: list_project_structure

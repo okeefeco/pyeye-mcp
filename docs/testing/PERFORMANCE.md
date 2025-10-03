@@ -2,7 +2,7 @@
 
 ## Overview
 
-Performance testing ensures the Python Code Intelligence MCP Server maintains acceptable response times and resource usage across different environments and load conditions.
+Performance testing ensures the PyEye Server maintains acceptable response times and resource usage across different environments and load conditions.
 
 ## Performance Requirements
 

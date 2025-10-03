@@ -1,6 +1,6 @@
-﻿pycodemcp.server.list\_packages
+﻿pyeye.server.list\_packages
 ===============================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: list_packages

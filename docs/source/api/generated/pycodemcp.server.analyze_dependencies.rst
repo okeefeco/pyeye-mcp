@@ -1,6 +1,6 @@
-﻿pycodemcp.server.analyze\_dependencies
+﻿pyeye.server.analyze\_dependencies
 ======================================
 
-.. currentmodule:: pycodemcp.server
+.. currentmodule:: pyeye.server
 
 .. autofunction:: analyze_dependencies

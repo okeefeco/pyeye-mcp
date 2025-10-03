@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dogfooding metrics tracking for Python Code Intelligence MCP.
+"""Dogfooding metrics tracking for PyEye.
 
 This script helps track how we use our own MCP tools during development,
 measuring adoption, performance, and identifying patterns.
@@ -278,7 +278,7 @@ class DogfoodingMetrics:
 
 @click.group()
 def cli() -> None:
-    """Dogfooding metrics for Python Code Intelligence MCP."""
+    """Dogfooding metrics for PyEye."""
     pass
 
 
