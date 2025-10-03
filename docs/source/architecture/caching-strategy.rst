@@ -174,7 +174,7 @@ File-Based Persistence
 
 Cache entries persisted to disk for durability across restarts.
 
-**Location**: ``~/.cache/pycodemcp/`` or configurable directory
+**Location**: ``~/.cache/pyeye/`` or configurable directory
 **Format**: JSON or pickle serialization with compression
 **Cleanup**: Automatic cleanup of expired entries on startup
 
@@ -233,9 +233,9 @@ Environment variables can override configuration:
 
 .. code-block:: bash
 
-   export PYCODEMCP_CACHE_TTL=600
-   export PYCODEMCP_CACHE_MAX_ENTRIES=20000
-   export PYCODEMCP_CACHE_MEMORY_MB=1000
+   export PYEYE_CACHE_TTL=600
+   export PYEYE_CACHE_MAX_ENTRIES=20000
+   export PYEYE_CACHE_MEMORY_MB=1000
 
 Cache Monitoring
 ---------------

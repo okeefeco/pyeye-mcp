@@ -1,4 +1,4 @@
-"""Multi-project management for Python Code Intelligence."""
+"""Multi-project management for PyEye."""
 
 import logging
 from pathlib import Path

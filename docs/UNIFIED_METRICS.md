@@ -38,7 +38,7 @@ The Unified Metrics System provides:
                     ┌────────────▼───────────┐
                     │  Unified Metrics       │
                     │  Persistent Storage    │
-                    │  (~/.pycodemcp/       │
+                    │  (~/.pyeye/       │
                     │   unified_metrics/)    │
                     └────────────┬───────────┘
                                  │
@@ -52,7 +52,7 @@ The Unified Metrics System provides:
 ### Storage Structure
 
 ```text
-~/.pycodemcp/unified_metrics/
+~/.pyeye/unified_metrics/
 ├── active_sessions.json      # Currently running sessions
 ├── completed_sessions.jsonl  # Historical session data
 └── aggregated_stats.json     # Pre-computed statistics
@@ -78,7 +78,7 @@ The system works automatically when MCP tools are used:
 ### Manual Session Management (Optional)
 
 ```python
-from pycodemcp.unified_metrics import get_unified_collector
+from pyeye.unified_metrics import get_unified_collector
 
 collector = get_unified_collector()
 
@@ -248,7 +248,7 @@ The system has comprehensive test coverage:
 pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py -v
 
 # With coverage
-pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py --cov=src/pycodemcp/unified_metrics --cov=src/pycodemcp/metrics_hook
+pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py --cov=src/pyeye/unified_metrics --cov=src/pyeye/metrics_hook
 ```
 
 ## Future Enhancements
@@ -275,7 +275,7 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 #### No sessions showing up
 
 - Verify MCP server is using the enhanced version with unified metrics
-- Check file permissions on `~/.pycodemcp/unified_metrics/`
+- Check file permissions on `~/.pyeye/unified_metrics/`
 
 #### Concurrent access errors
 
@@ -291,13 +291,13 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 
 ```bash
 # Check storage directory
-ls -la ~/.pycodemcp/unified_metrics/
+ls -la ~/.pyeye/unified_metrics/
 
 # Validate JSON files
-python -m json.tool ~/.pycodemcp/unified_metrics/active_sessions.json
+python -m json.tool ~/.pyeye/unified_metrics/active_sessions.json
 
 # Check recent activity
-tail ~/.pycodemcp/unified_metrics/completed_sessions.jsonl
+tail ~/.pyeye/unified_metrics/completed_sessions.jsonl
 ```
 
 ### Log Analysis
@@ -312,4 +312,4 @@ The unified metrics system logs to the same location as the MCP server:
 
 - [DOGFOODING_INTEGRATION.md](DOGFOODING_INTEGRATION.md) - Integration with dogfooding metrics
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Development workflow
-- [GitHub Issue #189](https://github.com/okeefeco/python-code-intelligence-mcp/issues/189) - Original feature request
+- [GitHub Issue #189](https://github.com/okeefeco/pyeye-mcp/issues/189) - Original feature request

@@ -106,19 +106,19 @@ These allow the agent to perform safety checks without interruption
 
    ```bash
    # ✅ CORRECT - Using recognized variables with proper sequencing
-   MAIN_REPO="/home/mark/GitHub/python-code-intelligence-mcp" && \
+   MAIN_REPO="/home/mark/GitHub/pyeye-mcp" && \
    cd "$MAIN_REPO" && \
    git status && \
    git branch --show-current
 
    # Then create the worktree
-   MAIN_REPO="/home/mark/GitHub/python-code-intelligence-mcp" && \
+   MAIN_REPO="/home/mark/GitHub/pyeye-mcp" && \
    WORK_DIR="${MAIN_REPO}-work/test-115-jedi-analyzer-coverage" && \
    git worktree add "$WORK_DIR" -b test/115-jedi-analyzer-coverage main
 
    # Alternative: Use git -C to avoid cd
-   git -C "/home/mark/GitHub/python-code-intelligence-mcp" status
-   git -C "/home/mark/GitHub/python-code-intelligence-mcp" branch --show-current
+   git -C "/home/mark/GitHub/pyeye-mcp" status
+   git -C "/home/mark/GitHub/pyeye-mcp" branch --show-current
 
    # ❌ WRONG - Never use relative paths after context changes
    git worktree add ../work/test-115 -b test/115
@@ -168,7 +168,7 @@ These allow the agent to perform safety checks without interruption
 
    ```bash
    # Always use absolute paths when switching
-   WORKTREE_PATH="/home/mark/GitHub/python-code-intelligence-mcp-work/test-115-coverage"
+   WORKTREE_PATH="/home/mark/GitHub/pyeye-mcp-work/test-115-coverage"
    if [ -d "$WORKTREE_PATH" ]; then
        cd "$WORKTREE_PATH" && export CLAUDE_WORKING_DIR=$(pwd)
        echo "Switched to worktree: $CLAUDE_WORKING_DIR"

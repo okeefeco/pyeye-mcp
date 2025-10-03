@@ -17,10 +17,10 @@ This document describes how to develop Claude-specific features (agents, instruc
 
 ```bash
 # 1. Create worktree for agent feature
-git worktree add ../python-code-intelligence-mcp-work/feat-175-agent -b feat/175-agent main
+git worktree add ../pyeye-mcp-work/feat-175-agent -b feat/175-agent main
 
 # 2. Navigate to worktree
-cd ../python-code-intelligence-mcp-work/feat-175-agent
+cd ../pyeye-mcp-work/feat-175-agent
 
 # 3. Start Claude FROM the worktree
 claude
@@ -35,11 +35,11 @@ claude
 
 ```bash
 # Can start from main repo
-cd /home/mark/GitHub/python-code-intelligence-mcp
+cd /home/mark/GitHub/pyeye-mcp
 claude
 
 # Or from a feature worktree
-cd ../python-code-intelligence-mcp-work/feat-180-feature
+cd ../pyeye-mcp-work/feat-180-feature
 claude
 ```
 
@@ -108,7 +108,7 @@ Claude: "/agents"  # Shows agents from THIS directory
 
 User: "Run it on the main codebase"
 Claude: "I'll run the agent on the main repo code..."
-[Can analyze ../python-code-intelligence-mcp/ from here]
+[Can analyze ../pyeye-mcp/ from here]
 ```
 
 ## Rules for Claude
@@ -173,7 +173,7 @@ sibling_worktree() {
     local desc=$3
     local main=$(git worktree list | head -1 | awk '{print $1}')
     cd "$main"
-    git worktree add "../python-code-intelligence-mcp-work/${type}-${issue}-${desc}" \
+    git worktree add "../pyeye-mcp-work/${type}-${issue}-${desc}" \
                      -b "${type}/${issue}-${desc}"
 }
 

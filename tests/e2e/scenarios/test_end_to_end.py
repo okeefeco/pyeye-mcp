@@ -1,4 +1,4 @@
-"""End-to-end integration tests for Python Code Intelligence MCP."""
+"""End-to-end integration tests for PyEye."""
 
 import json
 from pathlib import Path
@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
-from pycodemcp.config import ProjectConfig
-from pycodemcp.namespace_resolver import NamespaceResolver
-from pycodemcp.project_manager import ProjectManager
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.config import ProjectConfig
+from pyeye.namespace_resolver import NamespaceResolver
+from pyeye.project_manager import ProjectManager
 
 
 class TestEndToEndWorkflow:
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         )
 
         # Step 2: Create configuration
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         config_file.write_text(json.dumps({"cache_ttl": 300, "max_projects": 5}))
 
         # Step 3: Initialize components
@@ -50,7 +50,7 @@ if __name__ == "__main__":
         manager = ProjectManager(max_projects=config.config.get("max_projects", 10))
 
         # Step 4: Get project and analyzer
-        with patch("pycodemcp.project_manager.jedi.Project"):
+        with patch("pyeye.project_manager.jedi.Project"):
             project = manager.get_project(str(temp_project_dir))
             assert project is not None
 
@@ -79,12 +79,12 @@ if __name__ == "__main__":
             projects.append(proj_dir)
 
         # Load all projects
-        with patch("pycodemcp.project_manager.jedi.Project") as mock_project:
+        with patch("pyeye.project_manager.jedi.Project") as mock_project:
             # Return unique mock for each call to avoid issues with object identity
             mock_project.side_effect = lambda *_, **__: Mock()
 
             # Mock the watcher to prevent file system events during test
-            with patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher:
+            with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
                 mock_watcher_instance = Mock()
                 mock_watcher.return_value = mock_watcher_instance
 
@@ -149,8 +149,8 @@ class APIClient:
         """Test that file changes trigger cache invalidation."""
         import time
 
-        from pycodemcp.cache import CodebaseWatcher, ProjectCache
-        from pycodemcp.settings import settings
+        from pyeye.cache import CodebaseWatcher, ProjectCache
+        from pyeye.settings import settings
 
         # Create project with file
         test_file = temp_project_dir / "test.py"
@@ -180,8 +180,8 @@ class APIClient:
     @pytest.mark.asyncio
     async def test_plugin_activation_workflow(self, temp_project_dir):
         """Test that plugins are activated based on project type."""
-        from pycodemcp.plugins.flask import FlaskPlugin
-        from pycodemcp.plugins.pydantic import PydanticPlugin
+        from pyeye.plugins.flask import FlaskPlugin
+        from pyeye.plugins.pydantic import PydanticPlugin
 
         # Create Flask project
         app_py = temp_project_dir / "app.py"
@@ -228,15 +228,15 @@ class User(BaseModel):
         """Test configuration loading from multiple sources."""
 
         # 1. Create local config
-        local_config = temp_project_dir / ".pycodemcp.json"
+        local_config = temp_project_dir / ".pyeye.json"
         local_config.write_text(json.dumps({"packages": ["local_package"], "cache_ttl": 100}))
 
         # 2. Create override config (replaces ENV vars)
-        override_config = temp_project_dir / ".pycodemcp.override.json"
+        override_config = temp_project_dir / ".pyeye.override.json"
         override_config.write_text(json.dumps({"packages": ["override_package"], "debug": True}))
 
         # 3. Create global config
-        global_dir = temp_project_dir / ".config" / "pycodemcp"
+        global_dir = temp_project_dir / ".config" / "pyeye"
         global_dir.mkdir(parents=True)
         global_config = global_dir / "config.json"
         global_config.write_text(json.dumps({"packages": ["global_package"], "cache_ttl": 300}))
@@ -260,7 +260,7 @@ class User(BaseModel):
         # Test handling non-existent project
         nonexistent = temp_project_dir / "nonexistent"
 
-        with patch("pycodemcp.project_manager.jedi.Project") as mock_project:
+        with patch("pyeye.project_manager.jedi.Project") as mock_project:
             mock_project.side_effect = Exception("Project creation failed")
 
             # Should handle error gracefully
@@ -270,7 +270,7 @@ class User(BaseModel):
                 assert "Project creation failed" in str(e)
 
         # Test handling invalid configuration
-        bad_config = temp_project_dir / ".pycodemcp.json"
+        bad_config = temp_project_dir / ".pyeye.json"
         bad_config.write_text("{ invalid json }")
 
         # Should not crash on bad config
@@ -291,8 +291,8 @@ class User(BaseModel):
             projects.append(proj_dir.resolve())
 
         with (
-            patch("pycodemcp.project_manager.jedi.Project"),
-            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+            patch("pyeye.project_manager.jedi.Project"),
+            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
         ):
             # Mock the watcher to prevent file system issues on macOS
             mock_watcher_instance = Mock()
@@ -330,7 +330,7 @@ def function_{i}_{j}():
                 )
 
         # Test project structure listing
-        from pycodemcp.server import list_project_structure
+        from pyeye.mcp.server import list_project_structure
 
         structure = list_project_structure(str(temp_project_dir), max_depth=2)
 
@@ -382,8 +382,8 @@ class User:
         manager = ProjectManager()
 
         with (
-            patch("pycodemcp.project_manager.jedi.Project"),
-            patch("pycodemcp.project_manager.CodebaseWatcher") as mock_watcher,
+            patch("pyeye.project_manager.jedi.Project"),
+            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
         ):
             # Mock the watcher to prevent file system interference
             mock_watcher_instance = Mock()

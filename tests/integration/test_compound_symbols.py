@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.exceptions import ValidationError
-from pycodemcp.server import find_symbol
+from pyeye.exceptions import ValidationError
+from pyeye.mcp.server import find_symbol
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,7 @@ mcp-report
 
 The monitoring system automatically tracks:
 
-- **MCP Tool Calls**: Every `mcp__python-intelligence__*` tool invocation
+- **MCP Tool Calls**: Every `mcp__pyeye__*` tool invocation
 - **Grep Usage**: Detection of grep/rg/find in Bash commands
 - **Direct Grep Tool**: Usage of Claude's Grep tool
 - **Sessions**: Start/end of Claude Code sessions
@@ -126,7 +126,7 @@ If you prefer manual setup:
    ```
 
 2. **Update paths in settings.json**:
-   - Replace `~/GitHub/python-code-intelligence-mcp` with your repo path
+   - Replace `~/GitHub/pyeye-mcp` with your repo path
    - Ensure hooks are at the top level of the JSON alongside other settings
 
 3. **Make scripts executable**:

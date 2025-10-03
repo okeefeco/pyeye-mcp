@@ -1,4 +1,4 @@
-"""Configuration management for Python Code Intelligence MCP."""
+"""Configuration management for PyEye."""
 
 import json
 import logging
@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .constants import CONFIG_DIR, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -15,13 +16,7 @@ class ProjectConfig:
     """Manages project-specific configuration for code intelligence."""
 
     # Config file names to check (in order of precedence)
-    CONFIG_FILES = [
-        ".pycodemcp.json",
-        ".pycodemcp.yaml",
-        ".pycodemcp.yml",
-        "pyproject.toml",  # Can read from [tool.pycodemcp] section
-        ".claude/pycodemcp.json",
-    ]
+    CONFIG_FILES = CONFIG_FILES
 
     def __init__(self, project_path: str = ".") -> None:
         """Initialize configuration for a project.
@@ -37,9 +32,9 @@ class ProjectConfig:
         """Load configuration from various sources.
 
         Loading order (later sources override earlier ones):
-        1. Global config (~/.config/pycodemcp/config.json)
-        2. Project config files (.pycodemcp.json, pyproject.toml, etc.)
-        3. Override file (.pycodemcp.override.json) - for local development
+        1. Global config (~/.config/pyeye/config.json)
+        2. Project config files (.pyeye.json, pyproject.toml, etc.)
+        3. Override file (.pyeye.override.json) - for local development
         4. Auto-discovery (if no packages configured)
         """
         # 1. Load global config first (lowest precedence)
@@ -53,7 +48,7 @@ class ProjectConfig:
                 break
 
         # 3. Load override file (highest precedence)
-        override_path = self.project_path / ".pycodemcp.override.json"
+        override_path = self.project_path / OVERRIDE_FILE
         if override_path.exists():
             self._load_from_file(override_path)
 
@@ -69,14 +64,20 @@ class ProjectConfig:
             if config_path.suffix == ".json":
                 with open(config_path) as f:
                     data = json.load(f)
-                    self.config.update(data.get("pycodemcp", data))
+                    if PROJECT_NAME in data:
+                        self.config.update(data[PROJECT_NAME])
+                    else:
+                        self.config.update(data)
 
             elif config_path.suffix in [".yaml", ".yml"]:
                 with open(config_path) as f:
                     import yaml  # type: ignore[import-untyped]
 
                     data = yaml.safe_load(f)
-                    self.config.update(data.get("pycodemcp", data))
+                    if PROJECT_NAME in data:
+                        self.config.update(data[PROJECT_NAME])
+                    else:
+                        self.config.update(data)
 
             elif config_path.name == "pyproject.toml":
                 try:
@@ -86,8 +87,8 @@ class ProjectConfig:
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
-                    if "tool" in data and "pycodemcp" in data["tool"]:
-                        self.config.update(data["tool"]["pycodemcp"])
+                    if "tool" in data and PROJECT_NAME in data["tool"]:
+                        self.config.update(data["tool"][PROJECT_NAME])
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -98,8 +99,8 @@ class ProjectConfig:
         Global config provides defaults that can be overridden by project config.
         """
         global_configs = [
-            Path.home() / ".config" / "pycodemcp" / "config.json",
-            Path.home() / ".pycodemcp.json",
+            Path.home() / CONFIG_DIR / "config.json",
+            Path.home() / f".{PROJECT_NAME}.json",
         ]
 
         for config_path in global_configs:
@@ -256,10 +257,10 @@ class ProjectConfig:
         """Save current configuration to a file.
 
         Args:
-            config_path: Path to save to (defaults to .pycodemcp.json)
+            config_path: Path to save to (defaults to .pyeye.json)
         """
         if config_path is None:
-            config_path = self.project_path / ".pycodemcp.json"
+            config_path = self.project_path / f".{PROJECT_NAME}.json"
 
         try:
             with open(config_path, "w") as f:
@@ -294,7 +295,7 @@ def create_example_config(project_path: str = ".") -> None:
         "cache": {"ttl_seconds": 300, "max_size_mb": 100},
     }
 
-    config_path = Path(project_path) / ".pycodemcp.json.example"
+    config_path = Path(project_path) / f".{PROJECT_NAME}.json.example"
     with open(config_path, "w") as f:
         json.dump(example, f, indent=2)
 

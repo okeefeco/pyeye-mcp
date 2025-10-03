@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
 class TestGetTypeInfoInheritance:

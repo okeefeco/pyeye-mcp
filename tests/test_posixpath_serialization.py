@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pycodemcp.exceptions import (
+from pyeye.exceptions import (
     AnalysisError,
     MCPError,
     format_error_response,
@@ -120,7 +120,7 @@ class TestPathSerialization:
     @pytest.mark.asyncio
     async def test_jedi_analyzer_error_handling(self):
         """Test that JediAnalyzer properly handles Path serialization errors."""
-        from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
         # Mock Jedi to raise an exception with a Path object
         with patch("jedi.Project") as mock_project:

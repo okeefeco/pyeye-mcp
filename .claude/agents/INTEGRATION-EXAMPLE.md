@@ -13,7 +13,7 @@ This example shows how agents can integrate with the event-driven learning syste
 
 ```bash
 # At agent startup, source the learning functions
-source "${CLAUDE_FEEDBACK_DIR:-/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development/.claude/feedback}/event_driven_learning.sh"
+source "${CLAUDE_FEEDBACK_DIR:-/home/mark/GitHub/pyeye-mcp-work/claude-development/.claude/feedback}/event_driven_learning.sh"
 
 AGENT_NAME="example-with-event-learning"
 

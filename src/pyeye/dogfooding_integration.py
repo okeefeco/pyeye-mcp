@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .constants import METRICS_DIR
 from .metrics import metrics as mcp_metrics
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class DogfoodingIntegration:
         Args:
             metrics_dir: Optional directory for metrics storage
         """
-        self.metrics_dir = metrics_dir or Path.home() / ".pycodemcp" / "metrics"
+        self.metrics_dir = metrics_dir or Path.home() / METRICS_DIR
         self.session_file = self.metrics_dir / "current_session.json"
         self.mcp_log_file = self.metrics_dir / "mcp_calls.jsonl"
         self._ensure_dirs()

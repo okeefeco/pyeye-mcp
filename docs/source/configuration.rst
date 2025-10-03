@@ -1,7 +1,7 @@
 Configuration
 =============
 
-The Python Code Intelligence MCP Server supports flexible configuration through multiple sources with clear precedence rules.
+The PyEye Server supports flexible configuration through multiple sources with clear precedence rules.
 
 Configuration Sources
 ---------------------
@@ -9,19 +9,19 @@ Configuration Sources
 The server loads configuration from multiple sources in this order of precedence:
 
 1. **Runtime Configuration** - Direct API calls (highest priority)
-2. **Project Configuration** - `.pycodemcp.json` in project root
-3. **pyproject.toml** - `[tool.pycodemcp]` section
-4. **Environment Variables** - `PYCODEMCP_*` variables
-5. **Global Configuration** - `~/.config/pycodemcp/config.json`
+2. **Project Configuration** - `.pyeye.json` in project root
+3. **pyproject.toml** - `[tool.pyeye]` section
+4. **Environment Variables** - `PYEYE_*` variables
+5. **Global Configuration** - `~/.config/pyeye/config.json`
 6. **Auto-Discovery** - Automatic detection of sibling packages (lowest priority)
 
 Project Configuration
 --------------------
 
-.pycodemcp.json
+.pyeye.json
 ~~~~~~~~~~~~~~~
 
-Create a `.pycodemcp.json` file in your project root:
+Create a `.pyeye.json` file in your project root:
 
 .. code-block:: json
 
@@ -61,24 +61,24 @@ Add configuration to your `pyproject.toml`:
 
 .. code-block:: toml
 
-   [tool.pycodemcp]
+   [tool.pyeye]
    packages = [
      "../shared-library",
      "~/repos/common-utils"
    ]
 
-   [tool.pycodemcp.namespaces]
+   [tool.pyeye.namespaces]
    company = [
      "~/repos/company-auth",
      "~/repos/company-api"
    ]
 
-   [tool.pycodemcp.cache]
+   [tool.pyeye.cache]
    enabled = true
    ttl_seconds = 300
    max_entries = 10000
 
-   [tool.pycodemcp.analysis]
+   [tool.pyeye.analysis]
    max_workers = 4
    timeout_seconds = 30
    include_tests = false
@@ -91,29 +91,29 @@ Override configuration using environment variables:
 .. code-block:: bash
 
    # Package paths (colon-separated)
-   export PYCODEMCP_PACKAGES="../lib1:../lib2:~/utils"
+   export PYEYE_PACKAGES="../lib1:../lib2:~/utils"
 
    # Namespace configuration (JSON format)
-   export PYCODEMCP_NAMESPACES='{"company": ["~/auth", "~/api"]}'
+   export PYEYE_NAMESPACES='{"company": ["~/auth", "~/api"]}'
 
    # Cache settings
-   export PYCODEMCP_CACHE_TTL=600
-   export PYCODEMCP_CACHE_MAX_ENTRIES=20000
-   export PYCODEMCP_CACHE_ENABLED=true
+   export PYEYE_CACHE_TTL=600
+   export PYEYE_CACHE_MAX_ENTRIES=20000
+   export PYEYE_CACHE_ENABLED=true
 
    # Analysis settings
-   export PYCODEMCP_MAX_WORKERS=8
-   export PYCODEMCP_TIMEOUT=60
-   export PYCODEMCP_INCLUDE_TESTS=true
+   export PYEYE_MAX_WORKERS=8
+   export PYEYE_TIMEOUT=60
+   export PYEYE_INCLUDE_TESTS=true
 
    # Logging
-   export PYCODEMCP_LOG_LEVEL=DEBUG
-   export PYCODEMCP_LOG_FILE=/tmp/pycodemcp.log
+   export PYEYE_LOG_LEVEL=DEBUG
+   export PYEYE_LOG_FILE=/tmp/pyeye.log
 
 Global Configuration
 -------------------
 
-Create a global configuration file at `~/.config/pycodemcp/config.json`:
+Create a global configuration file at `~/.config/pyeye/config.json`:
 
 .. code-block:: json
 
@@ -135,7 +135,7 @@ Create a global configuration file at `~/.config/pycodemcp/config.json`:
      },
      "logging": {
        "level": "INFO",
-       "file": "~/.cache/pycodemcp/server.log",
+       "file": "~/.cache/pyeye/server.log",
        "max_size_mb": 10,
        "backup_count": 5
      }
@@ -253,7 +253,7 @@ Configure packages and namespaces at runtime:
    # Configure additional packages
    config = await configure_packages(
        packages=["../shared-lib", "~/utils"],
-       save=True  # Save to .pycodemcp.json
+       save=True  # Save to .pyeye.json
    )
 
    # Configure namespace packages
@@ -297,7 +297,7 @@ The server validates configuration on startup:
    print(f"Active namespaces: {config['namespaces']}")
 
    # Validate paths exist and are readable
-   from pycodemcp.config import validate_config
+   from pyeye.config import validate_config
 
    validation_result = validate_config("/path/to/project")
    if not validation_result.valid:
@@ -376,7 +376,7 @@ Enable debug logging to see configuration loading:
 
 .. code-block:: bash
 
-   export PYCODEMCP_LOG_LEVEL=DEBUG
+   export PYEYE_LOG_LEVEL=DEBUG
    # Logs will show which configuration sources are loaded
 
 Common Issues
@@ -408,17 +408,17 @@ Validation Commands
 .. code-block:: bash
 
    # Test configuration loading
-   python -c "from pycodemcp.config import load_config; print(load_config('.'))"
+   python -c "from pyeye.config import load_config; print(load_config('.'))"
 
    # Validate all configured paths exist
    python -c "
-   from pycodemcp.config import ProjectConfig
+   from pyeye.config import ProjectConfig
    config = ProjectConfig('.')
    for path in config.get_package_paths():
        print(f'{path}: exists={Path(path).exists()}')"
 
    # Test namespace resolution
    python -c "
-   from pycodemcp.namespace_resolver import NamespaceResolver
+   from pyeye.namespace_resolver import NamespaceResolver
    resolver = NamespaceResolver('.')
    print(resolver.resolve_import('company.auth.models'))"

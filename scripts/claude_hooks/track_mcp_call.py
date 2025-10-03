@@ -27,8 +27,8 @@ def main() -> None:
         session_id = payload.get("session_id", "unknown")
 
         # Extract the specific MCP tool being called
-        if tool_name.startswith("mcp__python-intelligence__"):
-            mcp_tool = tool_name.replace("mcp__python-intelligence__", "")
+        if tool_name.startswith("mcp__pyeye__"):
+            mcp_tool = tool_name.replace("mcp__pyeye__", "")
         else:
             mcp_tool = tool_name
 

@@ -1,6 +1,0 @@
-﻿pycodemcp.server.find\_references
-=================================
-
-.. currentmodule:: pycodemcp.server
-
-.. autofunction:: find_references

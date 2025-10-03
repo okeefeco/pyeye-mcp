@@ -1,6 +1,6 @@
-# Python Code Intelligence MCP - Troubleshooting Guide
+# PyEye - Troubleshooting Guide
 
-This guide helps resolve common issues and optimize performance for the Python Code Intelligence MCP Server.
+This guide helps resolve common issues and optimize performance for the PyEye Server.
 
 ## Table of Contents
 
@@ -53,7 +53,7 @@ This guide helps resolve common issues and optimize performance for the Python C
 3. Verify installation:
 
    ```bash
-   python -c "import pycodemcp; print(pycodemcp.__version__)"
+   python -c "import pyeye; print(pyeye.__version__)"
    ```
 
 ### Dependency Conflicts
@@ -129,15 +129,15 @@ sudo dnf install python3-devel
 
    ```bash
    # Enable debug logging
-   export PYCODEMCP_DEBUG=true
-   uv run mcp dev src/pycodemcp/server.py
+   export PYEYE_DEBUG=true
+   uv run mcp dev src/pyeye/server.py
    ```
 
 3. Reinstall MCP configuration:
 
    ```bash
-   claude mcp remove python-intelligence
-   claude mcp add /path/to/python-code-intelligence-mcp
+   claude mcp remove pyeye
+   claude mcp add /path/to/pyeye-mcp
    ```
 
 ---
@@ -151,15 +151,15 @@ sudo dnf install python3-devel
 **Solution**:
 
 1. Check configuration locations (in order of precedence):
-   - `.pycodemcp.json` in project root
-   - `pyproject.toml` with `[tool.pycodemcp]` section
-   - Environment variables (`PYCODEMCP_*`)
-   - `~/.config/pycodemcp/config.json` (global)
+   - `.pyeye.json` in project root
+   - `pyproject.toml` with `[tool.pyeye]` section
+   - Environment variables (`PYEYE_*`)
+   - `~/.config/pyeye/config.json` (global)
 
 2. Validate JSON syntax:
 
    ```bash
-   python -m json.tool .pycodemcp.json
+   python -m json.tool .pyeye.json
    ```
 
 ### Invalid Configuration
@@ -191,14 +191,14 @@ sudo dnf install python3-devel
 1. Set variables correctly:
 
    ```bash
-   export PYCODEMCP_PACKAGES="../lib1,../lib2"
-   export PYCODEMCP_NAMESPACE_company="~/repos/auth,~/repos/api"
+   export PYEYE_PACKAGES="../lib1,../lib2"
+   export PYEYE_NAMESPACE_company="~/repos/auth,~/repos/api"
    ```
 
 2. Verify they're set:
 
    ```bash
-   env | grep PYCODEMCP
+   env | grep PYEYE
    ```
 
 ### Multi-Project Setup Problems
@@ -263,7 +263,7 @@ sudo dnf install python3-devel
 2. Increase timeout (default: 30s):
 
    ```bash
-   export PYCODEMCP_TIMEOUT=60
+   export PYEYE_TIMEOUT=60
    ```
 
 3. Limit project scope to relevant code
@@ -277,7 +277,7 @@ sudo dnf install python3-devel
 1. Reduce cached projects (default: 10):
 
    ```bash
-   export PYCODEMCP_MAX_PROJECTS=5
+   export PYEYE_MAX_PROJECTS=5
    ```
 
 2. Clear cache periodically:
@@ -290,7 +290,7 @@ sudo dnf install python3-devel
 3. Monitor memory usage:
 
    ```bash
-   ps aux | grep pycodemcp
+   ps aux | grep pyeye
    ```
 
 ### Cache Optimization
@@ -304,7 +304,7 @@ sudo dnf install python3-devel
 3. Disable caching for debugging:
 
    ```bash
-   export PYCODEMCP_CACHE_ENABLED=false
+   export PYEYE_CACHE_ENABLED=false
    ```
 
 ### File Watcher Performance
@@ -324,7 +324,7 @@ sudo dnf install python3-devel
 2. Increase debounce time (default: 1s):
 
    ```bash
-   export PYCODEMCP_DEBOUNCE=2
+   export PYEYE_DEBOUNCE=2
    ```
 
 ### Timeout Configurations
@@ -336,7 +336,7 @@ sudo dnf install python3-devel
 1. Increase analysis timeout:
 
    ```bash
-   export PYCODEMCP_ANALYSIS_TIMEOUT=60
+   export PYEYE_ANALYSIS_TIMEOUT=60
    ```
 
 2. For specific operations, use tool-specific timeouts
@@ -429,14 +429,14 @@ sudo dnf install python3-devel
 **Step 1**: Set debug environment variable:
 
 ```bash
-export PYCODEMCP_DEBUG=true
-export PYCODEMCP_LOG_LEVEL=DEBUG
+export PYEYE_DEBUG=true
+export PYEYE_LOG_LEVEL=DEBUG
 ```
 
 **Step 2**: Run server in dev mode:
 
 ```bash
-uv run mcp dev src/pycodemcp/server.py
+uv run mcp dev src/pyeye/server.py
 ```
 
 **Step 3**: Check logs for detailed information about:
@@ -452,7 +452,7 @@ uv run mcp dev src/pycodemcp/server.py
 Log locations:
 
 - Console output (when run in dev mode)
-- `~/.local/share/pycodemcp/logs/` (if configured)
+- `~/.local/share/pyeye/logs/` (if configured)
 - Claude Code logs: Check Claude's debug output
 
 Important log patterns to look for:
@@ -624,16 +624,16 @@ DEBOUNCE_DELAY = 1.0  # 1 second
 **For large codebases**:
 
 ```bash
-export PYCODEMCP_CACHE_TTL=600  # 10 minutes
-export PYCODEMCP_MAX_PROJECTS=5  # Fewer but larger projects
-export PYCODEMCP_DEBOUNCE=2.0   # Reduce file watch overhead
+export PYEYE_CACHE_TTL=600  # 10 minutes
+export PYEYE_MAX_PROJECTS=5  # Fewer but larger projects
+export PYEYE_DEBOUNCE=2.0   # Reduce file watch overhead
 ```
 
 **For rapid development**:
 
 ```bash
-export PYCODEMCP_CACHE_TTL=60   # 1 minute
-export PYCODEMCP_DEBOUNCE=0.5   # Faster updates
+export PYEYE_CACHE_TTL=60   # 1 minute
+export PYEYE_DEBOUNCE=0.5   # Faster updates
 ```
 
 ### Worker Configuration
@@ -642,10 +642,10 @@ The server uses asynchronous processing. Tune based on CPU cores:
 
 ```bash
 # For 4-core system (default)
-export PYCODEMCP_WORKERS=4
+export PYEYE_WORKERS=4
 
 # For intensive analysis on 8-core system
-export PYCODEMCP_WORKERS=6  # Leave some for system
+export PYEYE_WORKERS=6  # Leave some for system
 ```
 
 ### File Size Limits
@@ -665,13 +665,13 @@ Control how quickly the server responds to file changes:
 
 ```bash
 # Default: 1 second
-export PYCODEMCP_DEBOUNCE=1.0
+export PYEYE_DEBOUNCE=1.0
 
 # For slower systems or network drives
-export PYCODEMCP_DEBOUNCE=3.0
+export PYEYE_DEBOUNCE=3.0
 
 # For local SSDs with small projects
-export PYCODEMCP_DEBOUNCE=0.2
+export PYEYE_DEBOUNCE=0.2
 ```
 
 ### Project Limit Tuning
@@ -706,7 +706,7 @@ MAX_CACHED_PROJECTS = 20
 
 If you're still experiencing issues:
 
-1. **Check existing issues**: [GitHub Issues](https://github.com/okeefeco/python-code-intelligence-mcp/issues)
+1. **Check existing issues**: [GitHub Issues](https://github.com/okeefeco/pyeye-mcp/issues)
 2. **Enable debug mode** and collect logs
 3. **Create a minimal reproduction** of the problem
 4. **Open a new issue** with:
@@ -722,7 +722,7 @@ Save and run this script to collect diagnostic information:
 
 ```python
 #!/usr/bin/env python3
-"""Diagnostic script for Python Code Intelligence MCP"""
+"""Diagnostic script for PyEye"""
 
 import sys
 import os
@@ -730,7 +730,7 @@ import json
 import subprocess
 from pathlib import Path
 
-print("Python Code Intelligence MCP - Diagnostics")
+print("PyEye - Diagnostics")
 print("=" * 50)
 
 # Python version
@@ -748,8 +748,8 @@ for pkg in packages:
 
 # Check configuration
 config_locations = [
-    Path.cwd() / ".pycodemcp.json",
-    Path.home() / ".config/pycodemcp/config.json",
+    Path.cwd() / ".pyeye.json",
+    Path.home() / ".config/pyeye/config.json",
 ]
 
 print("\nConfiguration files:")
@@ -768,7 +768,7 @@ for config_path in config_locations:
 # Environment variables
 print("\nEnvironment variables:")
 for key, value in os.environ.items():
-    if key.startswith("PYCODEMCP"):
+    if key.startswith("PYEYE"):
         print(f"  {key}={value}")
 
 # MCP server status
@@ -780,7 +780,7 @@ try:
         text=True,
         timeout=5
     )
-    if "python-intelligence" in result.stdout:
+    if "pyeye" in result.stdout:
         print("✅ Server configured in Claude Code")
     else:
         print("❌ Server not found in Claude Code")

@@ -54,7 +54,7 @@ Task(
 ### Architecture
 
 1. **Separate Context**: Agents run in isolated Claude contexts, preserving your main session
-2. **MCP Integration**: All agents use `mcp__python-intelligence__*` tools exclusively
+2. **MCP Integration**: All agents use `mcp__pyeye__*` tools exclusively
 3. **Semantic Analysis**: No regex or AST parsing - pure semantic understanding
 4. **Tool Restrictions**: Each agent only has access to specified tools
 
@@ -90,13 +90,13 @@ When developing agents in a worktree, the `/agents` command won't see them (it l
 
 ```bash
 # Link worktree agent to main repo
-ln -s ../python-code-intelligence-mcp-work/feat-X/.claude/agents/my-agent.md .claude/agents/
+ln -s ../pyeye-mcp-work/feat-X/.claude/agents/my-agent.md .claude/agents/
 ```
 
 1. **Work in Worktree**:
 
 ```bash
-cd ../python-code-intelligence-mcp-work/feat-X
+cd ../pyeye-mcp-work/feat-X
 # Now /agents will show your agent
 ```
 
@@ -117,7 +117,7 @@ Create a file in `.claude/agents/` with YAML frontmatter:
 ---
 name: my-custom-agent
 description: "What this agent does"
-tools: mcp__python-intelligence__find_symbol, Read, Edit
+tools: mcp__pyeye__find_symbol, Read, Edit
 ---
 
 You are a specialized agent for [specific task]...
@@ -129,9 +129,9 @@ Ensure your agent uses semantic analysis:
 
 ```python
 # ✅ GOOD: Semantic understanding
-mcp__python-intelligence__find_symbol("ClassName")
-mcp__python-intelligence__get_type_info(file, line, col)
-mcp__python-intelligence__find_references(file, line, col)
+mcp__pyeye__find_symbol("ClassName")
+mcp__pyeye__get_type_info(file, line, col)
+mcp__pyeye__find_references(file, line, col)
 
 # ❌ BAD: Text pattern matching
 grep("class ClassName")
@@ -217,7 +217,7 @@ Track agent effectiveness:
 
 ```python
 # Check MCP usage
-mcp__python-intelligence__get_performance_metrics()
+mcp__pyeye__get_performance_metrics()
 
 # Verify semantic operations
 # Should see find_symbol, get_type_info, etc.

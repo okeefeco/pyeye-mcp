@@ -2,9 +2,9 @@
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
-from pycodemcp.exceptions import FileAccessError
-from pycodemcp.server import (
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.exceptions import FileAccessError
+from pyeye.mcp.server import (
     analyze_dependencies,
     get_module_info,
     list_modules,
@@ -421,7 +421,7 @@ class TestJediAnalyzerMethods:
 
     def test_analyzer_project_not_found(self):
         """Test analyzer with non-existent project."""
-        from pycodemcp.exceptions import ProjectNotFoundError
+        from pyeye.exceptions import ProjectNotFoundError
 
         with pytest.raises(ProjectNotFoundError):
             JediAnalyzer("/non/existent/path")

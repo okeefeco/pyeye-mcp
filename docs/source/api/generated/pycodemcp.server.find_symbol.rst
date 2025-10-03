@@ -1,6 +1,0 @@
-﻿pycodemcp.server.find\_symbol
-=============================
-
-.. currentmodule:: pycodemcp.server
-
-.. autofunction:: find_symbol

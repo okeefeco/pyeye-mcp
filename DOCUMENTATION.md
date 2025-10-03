@@ -1,4 +1,4 @@
-# Python Code Intelligence MCP Server - Full Documentation
+# PyEye Server - Full Documentation
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@
 
 ## Overview
 
-The Python Code Intelligence MCP Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
+The PyEye Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
 
 ### Key Capabilities
 
@@ -36,8 +36,8 @@ The Python Code Intelligence MCP Server provides semantic code analysis for Pyth
 
 ```bash
 # Clone repository
-git clone https://github.com/hangie/python-code-intelligence-mcp.git
-cd python-code-intelligence-mcp
+git clone https://github.com/hangie/pyeye-mcp.git
+cd pyeye-mcp
 
 # Install dependencies with uv
 uv sync
@@ -50,13 +50,13 @@ pip install -e .
 
 ```bash
 # Add globally (available in all projects)
-claude mcp add python-intelligence -s user -- \
-  uv run python ~/GitHub/python-code-intelligence-mcp/src/pycodemcp/server.py
+claude mcp add pyeye -s user -- \
+  uv run python ~/GitHub/pyeye-mcp/src/pyeye/server.py
 
 # Or add to specific project
 cd your-project
-claude mcp add python-intelligence -- \
-  uv run python ~/GitHub/python-code-intelligence-mcp/src/pycodemcp/server.py
+claude mcp add pyeye -- \
+  uv run python ~/GitHub/pyeye-mcp/src/pyeye/server.py
 
 # Verify connection
 claude mcp list
@@ -69,12 +69,12 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "python-intelligence": {
+    "pyeye": {
       "command": "uv",
       "args": [
         "run",
         "python",
-        "/path/to/python-code-intelligence-mcp/src/pycodemcp/server.py"
+        "/path/to/pyeye-mcp/src/pyeye/server.py"
       ]
     }
   }
@@ -83,7 +83,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Configuration
 
-### Configuration File (.pycodemcp.json)
+### Configuration File (.pyeye.json)
 
 Create in your project root:
 
@@ -122,13 +122,13 @@ Create in your project root:
 ### Configuration in pyproject.toml
 
 ```toml
-[tool.pycodemcp]
+[tool.pyeye]
 packages = [
     "../shared-lib",
     "~/repos/utils"
 ]
 
-[tool.pycodemcp.namespaces]
+[tool.pyeye.namespaces]
 company = [
     "~/repos/company-auth",
     "~/repos/company-api"
@@ -139,11 +139,11 @@ company = [
 
 ```bash
 # Configure packages
-export PYCODEMCP_PACKAGES=/path/to/pkg1:/path/to/pkg2
+export PYEYE_PACKAGES=/path/to/pkg1:/path/to/pkg2
 
 # Configure namespace packages
-export PYCODEMCP_NAMESPACE_company=~/repos/company-auth:~/repos/company-api
-export PYCODEMCP_NAMESPACE_plugins=~/repos/plugin-*
+export PYEYE_NAMESPACE_company=~/repos/company-auth:~/repos/company-api
+export PYEYE_NAMESPACE_plugins=~/repos/plugin-*
 
 # Start Claude with configuration
 claude
@@ -151,7 +151,7 @@ claude
 
 ### Global Configuration
 
-Create `~/.config/pycodemcp/config.json`:
+Create `~/.config/pyeye/config.json`:
 
 ```json
 {
@@ -167,10 +167,10 @@ Create `~/.config/pycodemcp/config.json`:
 
 ### Configuration Precedence
 
-1. Project `.pycodemcp.json` (highest)
+1. Project `.pyeye.json` (highest)
 2. Project `pyproject.toml`
 3. Environment variables
-4. Global config `~/.config/pycodemcp/config.json`
+4. Global config `~/.config/pyeye/config.json`
 5. Auto-discovery (lowest)
 
 ## Tools Reference
@@ -355,8 +355,8 @@ list_modules()
 # [
 #   {
 #     "name": "server",
-#     "import_path": "pycodemcp.server",
-#     "file": "src/pycodemcp/server.py",
+#     "import_path": "pyeye.mcp",
+#     "file": "src/pyeye/server.py",
 #     "exports": ["mcp", "configure_packages"],
 #     "classes": ["MCPServer"],
 #     "functions": ["find_symbol", "goto_definition"],
@@ -373,7 +373,7 @@ Analyze import dependencies for a module.
 
 **Parameters:**
 
-- `module_path` (str): Import path of the module (e.g., "pycodemcp.server")
+- `module_path` (str): Import path of the module (e.g., "pyeye.mcp")
 - `project_path` (str): Root path of the project (default: ".")
 
 **Returns:** Dependencies analysis including imports, imported_by, and circular dependencies
@@ -381,16 +381,16 @@ Analyze import dependencies for a module.
 **Example:**
 
 ```python
-analyze_dependencies("pycodemcp.server")
+analyze_dependencies("pyeye.mcp")
 # Returns:
 # {
-#   "module": "pycodemcp.server",
+#   "module": "pyeye.mcp",
 #   "imports": {
-#     "internal": ["pycodemcp.config", "pycodemcp.project_manager"],
+#     "internal": ["pyeye.config", "pyeye.project_manager"],
 #     "external": ["fastmcp", "jedi"],
 #     "stdlib": ["pathlib", "logging"]
 #   },
-#   "imported_by": ["pycodemcp.__init__"],
+#   "imported_by": ["pyeye.__init__"],
 #   "circular_dependencies": []
 # }
 ```
@@ -401,7 +401,7 @@ Get detailed information about a specific module.
 
 **Parameters:**
 
-- `module_path` (str): Import path of the module (e.g., "pycodemcp.server")
+- `module_path` (str): Import path of the module (e.g., "pyeye.mcp")
 - `project_path` (str): Root path of the project (default: ".")
 
 **Returns:** Detailed module information including exports, classes, functions, metrics, and dependencies
@@ -409,7 +409,7 @@ Get detailed information about a specific module.
 **Example:**
 
 ```python
-get_module_info("pycodemcp.analyzer")
+get_module_info("pyeye.analyzer")
 # Returns comprehensive module information including:
 # - Module docstring
 # - All exports (public API)
@@ -697,7 +697,7 @@ Tests cover:
 ### Creating a Plugin
 
 ```python
-# src/pycodemcp/plugins/myframework.py
+# src/pyeye/plugins/myframework.py
 from pathlib import Path
 from typing import List, Dict, Any
 from .base import AnalyzerPlugin
@@ -743,7 +743,7 @@ class MyFrameworkPlugin(AnalyzerPlugin):
 
 ```python
 # In server.py or plugin loader
-from pycodemcp.plugins.myframework import MyFrameworkPlugin
+from pyeye.plugins.myframework import MyFrameworkPlugin
 
 # Auto-registration on project load
 def load_plugins(project_path: str):
@@ -774,14 +774,14 @@ def load_plugins(project_path: str):
 
 ### Packages Not Found
 
-1. Verify paths in `.pycodemcp.json`
+1. Verify paths in `.pyeye.json`
 2. Check path resolution: Use absolute paths for testing
 3. Verify packages exist and contain Python files
 4. Check environment variables if using them
 
 ### Cache Issues
 
-1. Clear cache: `rm -rf .pycodemcp_cache/`
+1. Clear cache: `rm -rf .pyeye_cache/`
 2. Reduce cache TTL in config
 3. Check disk space for cache storage
 
@@ -803,15 +803,15 @@ def load_plugins(project_path: str):
 1. Verify server is in allowed tools: `/permissions` in Claude
 2. Check MCP server health: `claude mcp list`
 3. Review Claude logs for connection errors
-4. Try reconnecting: `claude mcp remove python-intelligence && claude mcp add ...`
+4. Try reconnecting: `claude mcp remove pyeye && claude mcp add ...`
 
 ## Environment Configuration
 
-- `PYCODEMCP_PACKAGES`: Colon-separated list of package paths
-- `PYCODEMCP_NAMESPACE_<name>`: Namespace package paths
-- `PYCODEMCP_CACHE_TTL`: Cache TTL in seconds
-- `PYCODEMCP_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
-- `PYCODEMCP_MAX_PROJECTS`: Maximum cached projects (default: 10)
+- `PYEYE_PACKAGES`: Colon-separated list of package paths
+- `PYEYE_NAMESPACE_<name>`: Namespace package paths
+- `PYEYE_CACHE_TTL`: Cache TTL in seconds
+- `PYEYE_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
+- `PYEYE_MAX_PROJECTS`: Maximum cached projects (default: 10)
 
 ## Performance Considerations
 

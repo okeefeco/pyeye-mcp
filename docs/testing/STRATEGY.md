@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Python Code Intelligence MCP project follows a comprehensive testing strategy designed to ensure reliability, maintainability, and performance across multiple platforms.
+The PyEye project follows a comprehensive testing strategy designed to ensure reliability, maintainability, and performance across multiple platforms.
 
 ## Testing Philosophy
 
@@ -125,10 +125,10 @@ async def test_complete_refactoring_workflow():
 
 ```bash
 # Run with coverage check
-pytest --cov=src/pycodemcp --cov-fail-under=85
+pytest --cov=src/pyeye --cov-fail-under=85
 
 # Generate detailed report
-pytest --cov=src/pycodemcp --cov-report=html
+pytest --cov=src/pyeye --cov-report=html
 ```
 
 ## Performance Testing

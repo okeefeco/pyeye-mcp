@@ -129,10 +129,7 @@ def check_file_for_violations(filepath: Path) -> list[tuple[int, str]]:
         lines = content.splitlines()
 
         # Skip files that import path_utils (they're probably doing it right)
-        if (
-            "from pycodemcp.path_utils import" in content
-            or "import pycodemcp.path_utils" in content
-        ):
+        if "from pyeye.path_utils import" in content or "import pyeye.path_utils" in content:
             return []
 
         # Parse the AST
@@ -177,8 +174,8 @@ def main() -> int:
         print()
         print("💡 Fix suggestions:")
         print("  - For display/storage: use path.as_posix() instead of str(path)")
-        print("  - For dictionary keys: use path_to_key(path) from pycodemcp.path_utils")
-        print("  - For comparisons: use paths_equal(p1, p2) from pycodemcp.path_utils")
+        print("  - For dictionary keys: use path_to_key(path) from pyeye.path_utils")
+        print("  - For comparisons: use paths_equal(p1, p2) from pyeye.path_utils")
         print("  - See CONTRIBUTING.md 'Cross-Platform Development' section for details")
 
         return 1

@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pycodemcp.metrics import metrics
-from pycodemcp.server import find_symbol, goto_definition
-from pycodemcp.validation import validate_mcp_inputs
+from pyeye.mcp.server import find_symbol, goto_definition
+from pyeye.metrics import metrics
+from pyeye.validation import validate_mcp_inputs
 
 
 class TestAsyncDecorators:
@@ -87,7 +87,7 @@ class TestMCPToolIntegration:
     """Test that MCP tools return actual results, not coroutines."""
 
     @pytest.mark.asyncio
-    @patch("pycodemcp.server.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     async def test_find_symbol_returns_result_not_coroutine(self, mock_get_analyzer):
         """Test that find_symbol returns the actual result, not a coroutine."""
         # Setup mock analyzer
@@ -109,7 +109,7 @@ class TestMCPToolIntegration:
         assert result[0]["name"] == "TestClass"
 
     @pytest.mark.asyncio
-    @patch("pycodemcp.server.get_analyzer")
+    @patch("pyeye.mcp.server.get_analyzer")
     async def test_goto_definition_returns_result_not_coroutine(self, mock_get_analyzer):
         """Test that goto_definition returns the actual result, not a coroutine."""
         # Setup mock analyzer

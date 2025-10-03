@@ -1,6 +1,6 @@
 """Tests for namespace package resolution."""
 
-from pycodemcp.namespace_resolver import NamespaceResolver
+from pyeye.namespace_resolver import NamespaceResolver
 from tests.test_helpers import assert_path_in_list
 
 

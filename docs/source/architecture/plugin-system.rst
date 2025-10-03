@@ -128,7 +128,7 @@ Creating a Custom Plugin
 
 .. code-block:: python
 
-   from pycodemcp.plugins.base import AnalyzerPlugin
+   from pyeye.plugins.base import AnalyzerPlugin
 
    class FastAPIPlugin(AnalyzerPlugin):
        def name(self) -> str:
@@ -255,7 +255,7 @@ Future enhancement will support dynamic plugin loading:
 .. code-block:: python
 
    # Planned enhancement
-   from pycodemcp.plugins import load_plugin
+   from pyeye.plugins import load_plugin
 
    custom_plugin = load_plugin("my_custom_plugin.FastAPIPlugin")
 

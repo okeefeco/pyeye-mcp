@@ -1,4 +1,4 @@
-"""Simplified performance benchmark for Python Code Intelligence MCP Server."""
+"""Simplified performance benchmark for PyEye Server."""
 
 import asyncio
 import shutil
@@ -6,7 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
 def create_test_project(size: str = "small") -> str:

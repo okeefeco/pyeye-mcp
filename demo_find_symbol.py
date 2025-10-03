@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demonstration of the python-intelligence MCP server's find_symbol capability.
+"""Demonstration of the pyeye MCP server's find_symbol capability.
 
 This script shows what the find_symbol tool would return when searching for "Calculator"
 in the project. Since we can't directly call the MCP server tools in this environment,
@@ -15,7 +15,7 @@ import jedi
 def find_symbol_demo(
     name: str, project_path: str = ".", fuzzy: bool = False
 ) -> list[dict[str, Any]]:
-    """Demonstration of the find_symbol tool from the python-intelligence MCP server.
+    """Demonstration of the find_symbol tool from the pyeye MCP server.
 
     This replicates the functionality that would be available via the MCP server's
     find_symbol tool.
@@ -81,8 +81,8 @@ def pretty_print_results(results: list[dict[str, Any]]) -> None:
 
 
 def demonstrate_additional_capabilities() -> None:
-    """Demonstrate other capabilities of the python-intelligence MCP server."""
-    print("🚀 Additional Python Code Intelligence MCP Server Capabilities:")
+    """Demonstrate other capabilities of the pyeye MCP server."""
+    print("🚀 Additional PyEye Server Capabilities:")
     print()
     print("1. 📍 goto_definition(file, line, column, project_path)")
     print("   - Navigate to symbol definitions from any position")
@@ -107,7 +107,7 @@ def demonstrate_additional_capabilities() -> None:
 if __name__ == "__main__":
     # Demonstrate finding the Calculator symbol
     print("=" * 60)
-    print("🧮 Python Code Intelligence MCP Server Demo")
+    print("🧮 PyEye Server Demo")
     print("=" * 60)
     print()
 

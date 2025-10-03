@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pycodemcp.metrics import CacheMetrics, MetricsCollector, MetricStats
+from pyeye.metrics import CacheMetrics, MetricsCollector, MetricStats
 
 
 class TestMetricStats:
@@ -252,9 +252,9 @@ class TestMetricsCollector:
         # Check format
         assert "# HELP" in prometheus_output
         assert "# TYPE" in prometheus_output
-        assert "pycodemcp_operation_count" in prometheus_output
-        assert "pycodemcp_operation_duration_ms" in prometheus_output
-        assert "pycodemcp_cache_hits" in prometheus_output
+        assert "pyeye_operation_count" in prometheus_output
+        assert "pyeye_operation_duration_ms" in prometheus_output
+        assert "pyeye_cache_hits" in prometheus_output
         assert 'quantile="0.5"' in prometheus_output
         assert 'quantile="0.95"' in prometheus_output
 

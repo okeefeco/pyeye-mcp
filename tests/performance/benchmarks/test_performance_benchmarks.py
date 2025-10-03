@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from pycodemcp.cache import GranularCache, ProjectCache
-from pycodemcp.import_analyzer import ImportAnalyzer
+from pyeye.cache import GranularCache, ProjectCache
+from pyeye.import_analyzer import ImportAnalyzer
 from tests.utils.performance import (
     get_ci_tolerance_factor,
     get_platform_name,

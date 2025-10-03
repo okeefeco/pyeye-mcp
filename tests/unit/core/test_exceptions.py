@@ -2,7 +2,7 @@
 
 import pytest
 
-from pycodemcp.exceptions import (
+from pyeye.exceptions import (
     AnalysisError,
     CacheError,
     ConfigurationError,

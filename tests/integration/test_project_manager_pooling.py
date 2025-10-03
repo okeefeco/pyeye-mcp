@@ -12,12 +12,12 @@ class TestProjectManagerPooling:
     def enable_pooling(self, monkeypatch):
         """Enable connection pooling for tests."""
         # Set environment variables to enable pooling
-        monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "true")
-        monkeypatch.setenv("PYCODEMCP_POOL_MAX_CONNECTIONS", "5")
-        monkeypatch.setenv("PYCODEMCP_POOL_TTL", "300")
+        monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "true")
+        monkeypatch.setenv("PYEYE_POOL_MAX_CONNECTIONS", "5")
+        monkeypatch.setenv("PYEYE_POOL_TTL", "300")
 
         # Re-initialize settings with new environment variables
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         settings_module.settings = settings_module.PerformanceSettings()
 
@@ -30,10 +30,10 @@ class TestProjectManagerPooling:
     def disable_pooling(self, monkeypatch):
         """Disable connection pooling for tests."""
         # Set environment variable to disable pooling
-        monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "false")
+        monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "false")
 
         # Re-initialize settings with new environment variables
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         settings_module.settings = settings_module.PerformanceSettings()
 
@@ -45,8 +45,8 @@ class TestProjectManagerPooling:
     def test_manager_with_pooling_enabled(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that ProjectManager uses connection pool when enabled."""
         # Import settings after fixture has set env vars
-        from pycodemcp.project_manager import ProjectManager
-        from pycodemcp.settings import settings
+        from pyeye.project_manager import ProjectManager
+        from pyeye.settings import settings
 
         manager = ProjectManager()
 
@@ -56,7 +56,7 @@ class TestProjectManagerPooling:
 
     def test_manager_with_pooling_disabled(self, disable_pooling, tmp_path):  # noqa: ARG002
         """Test that ProjectManager doesn't use pool when disabled."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         manager = ProjectManager()
 
@@ -64,7 +64,7 @@ class TestProjectManagerPooling:
 
     def test_get_project_uses_pool(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that get_project uses the connection pool."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         project_path = tmp_path / "test_project"
         project_path.mkdir()
@@ -90,7 +90,7 @@ class TestProjectManagerPooling:
         self, enable_pooling, tmp_path  # noqa: ARG002
     ):
         """Test that projects with dependencies use the pool correctly."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         main_path = tmp_path / "main_project"
         dep1_path = tmp_path / "dependency1"
@@ -122,17 +122,17 @@ class TestProjectManagerPooling:
     def test_pool_eviction_in_manager(self, tmp_path, monkeypatch):
         """Test that pool eviction works through ProjectManager."""
         # Configure small pool size for testing
-        from pycodemcp import settings as settings_module
+        from pyeye import settings as settings_module
 
         original_settings = settings_module.settings
 
-        monkeypatch.setenv("PYCODEMCP_ENABLE_CONNECTION_POOLING", "true")
-        monkeypatch.setenv("PYCODEMCP_POOL_MAX_CONNECTIONS", "2")
+        monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "true")
+        monkeypatch.setenv("PYEYE_POOL_MAX_CONNECTIONS", "2")
         settings_module.settings = settings_module.PerformanceSettings()
 
         try:
             # Create manager AFTER settings are updated
-            from pycodemcp.project_manager import ProjectManager
+            from pyeye.project_manager import ProjectManager
 
             manager = ProjectManager()
 
@@ -157,7 +157,7 @@ class TestProjectManagerPooling:
 
     def test_watchers_setup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that file watchers are set up correctly with pooling."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         project_path = tmp_path / "test_project"
         dep_path = tmp_path / "dependency"
@@ -183,7 +183,7 @@ class TestProjectManagerPooling:
 
     def test_cache_setup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that caches are set up correctly with pooling."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         project_path = tmp_path / "test_project"
         project_path.mkdir()
@@ -203,7 +203,7 @@ class TestProjectManagerPooling:
 
     def test_cleanup_with_pooling(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test cleanup works correctly with pooling."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         project_path = tmp_path / "test_project"
         project_path.mkdir()
@@ -232,7 +232,7 @@ class TestProjectManagerPooling:
 
     def test_fallback_without_pooling(self, disable_pooling, tmp_path):  # noqa: ARG002
         """Test that manager falls back to original behavior without pooling."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         project_path = tmp_path / "test_project"
         project_path.mkdir()
@@ -255,7 +255,7 @@ class TestProjectManagerPooling:
 
     def test_pool_stats_tracking(self, enable_pooling, tmp_path):  # noqa: ARG002
         """Test that pool statistics are tracked correctly."""
-        from pycodemcp.project_manager import ProjectManager
+        from pyeye.project_manager import ProjectManager
 
         paths = []
         for i in range(3):

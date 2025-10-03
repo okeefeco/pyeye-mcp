@@ -6,7 +6,7 @@
 **CI Threshold**: 75%
 **Target**: 85% (Phase 2)
 
-[![codecov](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp)
+[![codecov](https://codecov.io/gh/okeefeco/pyeye-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/pyeye-mcp)
 
 ## 🎯 Progressive Coverage Milestones
 
@@ -35,11 +35,11 @@
 
 | File | Current Coverage | Lines to Cover | Impact on Total |
 |------|-----------------|----------------|-----------------|
-| `src/pycodemcp/plugins/flask.py` | 56% | ~119 lines | +3-4% |
-| `src/pycodemcp/path_utils.py` | 0% | ~11 lines | +1% |
-| `src/pycodemcp/async_utils.py` | 50% | ~17 lines | +1% |
-| `src/pycodemcp/config.py` | 75% | ~35 lines | +1% |
-| `src/pycodemcp/server.py` | 77% | ~76 lines | +2% |
+| `src/pyeye/plugins/flask.py` | 56% | ~119 lines | +3-4% |
+| `src/pyeye/path_utils.py` | 0% | ~11 lines | +1% |
+| `src/pyeye/async_utils.py` | 50% | ~17 lines | +1% |
+| `src/pyeye/config.py` | 75% | ~35 lines | +1% |
+| `src/pyeye/server.py` | 77% | ~76 lines | +2% |
 
 ### Quick Wins
 
@@ -55,20 +55,20 @@ Files with low coverage but easy to test:
 
 ```bash
 # Basic coverage report
-uv run pytest --cov=src/pycodemcp --cov-report=term
+uv run pytest --cov=src/pyeye --cov-report=term
 
 # Detailed with missing lines
-uv run pytest --cov=src/pycodemcp --cov-report=term-missing
+uv run pytest --cov=src/pyeye --cov-report=term-missing
 
 # HTML report for exploration
-uv run pytest --cov=src/pycodemcp --cov-report=html
+uv run pytest --cov=src/pyeye --cov-report=html
 # Open htmlcov/index.html
 
 # Check specific module
-uv run pytest --cov=src/pycodemcp/plugins/flask tests/plugins/test_flask.py
+uv run pytest --cov=src/pyeye/plugins/flask tests/plugins/test_flask.py
 
 # Ensure minimum threshold
-uv run pytest --cov=src/pycodemcp --cov-fail-under=75
+uv run pytest --cov=src/pyeye --cov-fail-under=75
 ```
 
 ### Writing Effective Tests
@@ -149,7 +149,7 @@ async def test_async_operation():
 
 Before submitting a PR:
 
-- [ ] Run `pytest --cov=src/pycodemcp --cov-report=term`
+- [ ] Run `pytest --cov=src/pyeye --cov-report=term`
 - [ ] Coverage is ≥ baseline (currently 79%)
 - [ ] New code has >90% coverage
 - [ ] Modified files with <75% coverage have been improved
@@ -198,4 +198,4 @@ Track files that have been significantly improved:
 
 - [pytest-cov documentation](https://pytest-cov.readthedocs.io/)
 - [Python testing best practices](https://docs.python-guide.org/writing/tests/)
-- [Codecov dashboard](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp)
+- [Codecov dashboard](https://codecov.io/gh/okeefeco/pyeye-mcp)

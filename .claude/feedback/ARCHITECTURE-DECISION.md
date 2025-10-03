@@ -7,11 +7,11 @@ The `claude/development` worktree serves as the **persistent learning and develo
 ## 🏗️ Architecture
 
 ```text
-python-code-intelligence-mcp/              # Main repo (stable, on main branch)
+pyeye-mcp/              # Main repo (stable, on main branch)
 ├── .claude/                               # Base agents (reference versions)
 │   └── agents/
 
-python-code-intelligence-mcp-work/
+pyeye-mcp-work/
 ├── claude-development/                    # PERSISTENT LEARNING HUB
 │   ├── .claude/
 │   │   ├── agents/                       # Evolving agent definitions
@@ -35,7 +35,7 @@ python-code-intelligence-mcp-work/
 
 ```bash
 # Claude ALWAYS starts in claude-development worktree
-cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+cd /home/mark/GitHub/pyeye-mcp-work/claude-development
 export CLAUDE_STARTUP_DIR=$(pwd)
 export CLAUDE_IS_LEARNING_HUB=true
 ```
@@ -115,7 +115,7 @@ Eventually merge to main (periodic)
 
    ```bash
    # In user's shell config or Claude startup
-   alias claude-start='cd ~/GitHub/python-code-intelligence-mcp-work/claude-development'
+   alias claude-start='cd ~/GitHub/pyeye-mcp-work/claude-development'
    ```
 
 2. **Export learning context**

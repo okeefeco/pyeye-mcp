@@ -1,7 +1,7 @@
 Architecture
 ============
 
-This section provides detailed information about the Python Code Intelligence MCP Server architecture.
+This section provides detailed information about the PyEye Server architecture.
 
 .. toctree::
    :maxdepth: 2

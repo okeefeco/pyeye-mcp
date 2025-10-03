@@ -1,6 +1,6 @@
-# Python Code Intelligence MCP - API Reference
+# PyEye - API Reference
 
-This directory contains comprehensive API documentation for all 30+ MCP tools provided by the Python Code Intelligence MCP Server.
+This directory contains comprehensive API documentation for all 30+ MCP tools provided by the PyEye Server.
 
 ## 📚 Documentation Structure
 
@@ -64,10 +64,10 @@ The server automatically detects and activates framework-specific tools:
 
 Tools respect configuration from multiple sources:
 
-1. `.pycodemcp.json` in project root
-2. `pyproject.toml` `[tool.pycodemcp]` section
+1. `.pyeye.json` in project root
+2. `pyproject.toml` `[tool.pyeye]` section
 3. Environment variables
-4. Global config `~/.config/pycodemcp/config.json`
+4. Global config `~/.config/pyeye/config.json`
 
 Example configuration:
 
@@ -152,7 +152,7 @@ Tools handle errors consistently:
 
 - **Invalid parameters**: Raise `ValidationError`
 - **File not found**: Return empty results or specific error
-- **Timeout**: Configurable via `PYCODEMCP_ANALYSIS_TIMEOUT`
+- **Timeout**: Configurable via `PYEYE_ANALYSIS_TIMEOUT`
 - **Memory limits**: Configurable via environment variables
 
 ## 📝 Notes

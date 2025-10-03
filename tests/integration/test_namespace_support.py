@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
-from pycodemcp.project_manager import ProjectManager
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.project_manager import ProjectManager
 
 
 @pytest.fixture
@@ -380,7 +380,7 @@ class TestScopeEdgeCases:
         """Test handling of unknown scope specification."""
         analyzer = JediAnalyzer(str(temp_project["main_project"]))
 
-        with patch("pycodemcp.analyzers.jedi_analyzer.logger") as mock_logger:
+        with patch("pyeye.analyzers.jedi_analyzer.logger") as mock_logger:
             files = await analyzer.get_project_files(scope="unknown:something")
 
             # Should log warning about unknown scope

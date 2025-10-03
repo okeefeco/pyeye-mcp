@@ -29,7 +29,7 @@ template_name = template_file.relative_to(template_dir).as_posix()
 
 ## Path Utilities Available
 
-- `src/pycodemcp/path_utils.py` has helpers:
+- `src/pyeye/path_utils.py` has helpers:
   - `path_to_key()` - For dictionary keys/comparison
   - `ensure_posix_path()` - Convert any path to forward slashes
   - `paths_equal()` - Platform-safe path comparison
@@ -55,7 +55,7 @@ if str(path1) == str(path2):
     ...
 
 # ✅ CORRECT - Use path utilities
-from pycodemcp.path_utils import paths_equal
+from pyeye.path_utils import paths_equal
 if paths_equal(path1, path2):
     ...
 
@@ -63,7 +63,7 @@ if paths_equal(path1, path2):
 cache[str(file_path)] = data
 
 # ✅ CORRECT - Use path_to_key
-from pycodemcp.path_utils import path_to_key
+from pyeye.path_utils import path_to_key
 cache[path_to_key(file_path)] = data
 ```
 
@@ -86,7 +86,7 @@ test_file = Path("tests/fixtures/sample.py")
 assert result["file"] == test_file.as_posix()
 
 # Use path utilities for comparisons
-from pycodemcp.path_utils import paths_equal
+from pyeye.path_utils import paths_equal
 assert paths_equal(result_path, expected_path)
 ```
 
@@ -112,4 +112,4 @@ The agent will:
 
 - PR #121 - Flask plugin cross-platform fixes (reference implementation)
 - Issue #110 - Original issue that discovered these problems
-- `src/pycodemcp/path_utils.py` - Path utility functions
+- `src/pyeye/path_utils.py` - Path utility functions

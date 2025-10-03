@@ -159,10 +159,10 @@ class TestCoverageAgent:
         # For now, returning mock structure to demonstrate architecture
 
         # Would use:
-        # - mcp__python-intelligence__list_modules() to discover structure
-        # - mcp__python-intelligence__find_symbol() to find functions/classes
-        # - mcp__python-intelligence__find_references() to check if tested
-        # - mcp__python-intelligence__get_type_info() for signatures
+        # - mcp__pyeye__list_modules() to discover structure
+        # - mcp__pyeye__find_symbol() to find functions/classes
+        # - mcp__pyeye__find_references() to check if tested
+        # - mcp__pyeye__get_type_info() for signatures
 
         self.mcp_tools_used.extend(
             ["list_modules", "find_symbol", "find_references", "get_type_info"]
@@ -185,10 +185,10 @@ class TestCoverageAgent:
         }
 
         # Would use:
-        # - mcp__python-intelligence__find_subclasses("TestCase") for test classes
-        # - mcp__python-intelligence__find_symbol("test_", fuzzy=True) for test functions
-        # - mcp__python-intelligence__find_imports("pytest") for framework detection
-        # - mcp__python-intelligence__find_symbol("fixture") for fixtures
+        # - mcp__pyeye__find_subclasses("TestCase") for test classes
+        # - mcp__pyeye__find_symbol("test_", fuzzy=True) for test functions
+        # - mcp__pyeye__find_imports("pytest") for framework detection
+        # - mcp__pyeye__find_symbol("fixture") for fixtures
 
         self.mcp_tools_used.extend(["find_subclasses", "find_symbol", "find_imports"])
 
@@ -204,15 +204,15 @@ class TestCoverageAgent:
         generated_tests = []
 
         # Would use:
-        # - mcp__python-intelligence__get_type_info() for understanding function signatures
-        # - mcp__python-intelligence__find_references() for usage patterns
-        # - mcp__python-intelligence__get_call_hierarchy() for mock requirements
-        # - mcp__python-intelligence__analyze_dependencies() for import needs
+        # - mcp__pyeye__get_type_info() for understanding function signatures
+        # - mcp__pyeye__find_references() for usage patterns
+        # - mcp__pyeye__get_call_hierarchy() for mock requirements
+        # - mcp__pyeye__analyze_dependencies() for import needs
 
         # For framework-specific:
-        # - mcp__python-intelligence__find_models() for Pydantic
-        # - mcp__python-intelligence__find_routes() for Flask
-        # - mcp__python-intelligence__find_validators() for validation logic
+        # - mcp__pyeye__find_models() for Pydantic
+        # - mcp__pyeye__find_routes() for Flask
+        # - mcp__pyeye__find_validators() for validation logic
 
         self.mcp_tools_used.extend(
             ["get_type_info", "find_references", "get_call_hierarchy", "analyze_dependencies"]

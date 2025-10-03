@@ -16,7 +16,7 @@ class TestDogfoodingWorkflow:
 
     def test_server_module_exists(self):
         """Verify the server module exists and contains MCP tools."""
-        server_file = Path(__file__).parent.parent / "src" / "pycodemcp" / "server.py"
+        server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
         assert server_file.exists(), "Server module should exist"
 
         content = server_file.read_text(encoding="utf-8")
@@ -27,11 +27,11 @@ class TestDogfoodingWorkflow:
 
     def test_plugin_architecture_exists(self):
         """Verify the plugin architecture exists."""
-        base_plugin = Path(__file__).parent.parent / "src" / "pycodemcp" / "plugins" / "base.py"
+        base_plugin = Path(__file__).parent.parent / "src" / "pyeye" / "plugins" / "base.py"
         assert base_plugin.exists(), "Base plugin should exist"
 
         # Check for concrete plugin implementations
-        plugins_dir = Path(__file__).parent.parent / "src" / "pycodemcp" / "plugins"
+        plugins_dir = Path(__file__).parent.parent / "src" / "pyeye" / "plugins"
         plugin_files = list(plugins_dir.glob("*.py"))
         plugin_names = [f.stem for f in plugin_files]
 
@@ -45,9 +45,9 @@ class TestDogfoodingWorkflow:
 
         # Check key directories exist
         assert (root / "src").exists()
-        assert (root / "src" / "pycodemcp").exists()
-        assert (root / "src" / "pycodemcp" / "analyzers").exists()
-        assert (root / "src" / "pycodemcp" / "plugins").exists()
+        assert (root / "src" / "pyeye").exists()
+        assert (root / "src" / "pyeye" / "analyzers").exists()
+        assert (root / "src" / "pyeye" / "plugins").exists()
         assert (root / "tests").exists()
 
 

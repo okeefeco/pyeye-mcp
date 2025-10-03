@@ -4,8 +4,9 @@ import json
 
 import pytest
 
-from pycodemcp.dogfooding_integration import DogfoodingIntegration
-from pycodemcp.metrics import MetricsCollector
+import pyeye.dogfooding_integration
+from pyeye.dogfooding_integration import DogfoodingIntegration
+from pyeye.metrics import MetricsCollector
 
 
 @pytest.fixture
@@ -43,9 +44,8 @@ def mock_metrics():
 def test_export_mcp_metrics_for_session(integration, mock_metrics, monkeypatch):
     """Test exporting MCP metrics for dogfooding session."""
     # Mock the global metrics instance
-    import pycodemcp.dogfooding_integration
 
-    monkeypatch.setattr(pycodemcp.dogfooding_integration, "mcp_metrics", mock_metrics)
+    monkeypatch.setattr(pyeye.dogfooding_integration, "mcp_metrics", mock_metrics)
 
     # Override the get_performance_report method to return test data
     def mock_get_performance_report():
@@ -165,7 +165,7 @@ def test_get_mcp_adoption_rate_with_session(integration):
 
 def test_sync_mcp_metrics_function(monkeypatch):
     """Test the sync_mcp_metrics convenience function."""
-    from pycodemcp.dogfooding_integration import sync_mcp_metrics
+    from pyeye.dogfooding_integration import sync_mcp_metrics
 
     # Mock the integration methods
     def mock_update(self):  # noqa: ARG001
@@ -183,7 +183,7 @@ class TestIntegrationWithRealMetrics:
     def test_real_metrics_integration(self, integration):
         """Test integration with real MetricsCollector."""
         # Create real metrics collector
-        from pycodemcp.metrics import MetricsCollector
+        from pyeye.metrics import MetricsCollector
 
         real_metrics = MetricsCollector()
 

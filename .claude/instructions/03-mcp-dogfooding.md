@@ -6,7 +6,7 @@ When to update: When new MCP tools are added or patterns discovered
 
 # MCP-First Development Workflow (Dogfooding Our Own Tools)
 
-**CRITICAL**: We build Python Code Intelligence MCP - we MUST use it for our own development!
+**CRITICAL**: We build PyEye - we MUST use it for our own development!
 
 ## Why MCP-First?
 
@@ -28,43 +28,43 @@ Before working on ANY Python code:
 ### 1. Discovery Phase - Understanding the codebase
 
 ```bash
-mcp__python-intelligence__list_packages        # See package structure
-mcp__python-intelligence__list_modules         # Understand module organization
-mcp__python-intelligence__list_project_structure  # Get project layout
+mcp__pyeye__list_packages        # See package structure
+mcp__pyeye__list_modules         # Understand module organization
+mcp__pyeye__list_project_structure  # Get project layout
 ```
 
 ### 2. Navigation Phase - Finding code
 
 ```bash
-mcp__python-intelligence__find_symbol         # Find definitions (not grep!)
-mcp__python-intelligence__goto_definition     # Jump to definitions
-mcp__python-intelligence__find_references     # Find all usages
-mcp__python-intelligence__get_type_info       # Understand types
+mcp__pyeye__find_symbol         # Find definitions (not grep!)
+mcp__pyeye__goto_definition     # Jump to definitions
+mcp__pyeye__find_references     # Find all usages
+mcp__pyeye__get_type_info       # Understand types
 ```
 
 ### 3. Analysis Phase - Understanding relationships
 
 ```bash
-mcp__python-intelligence__analyze_dependencies  # Module dependencies
-mcp__python-intelligence__get_call_hierarchy   # Function call chains
-mcp__python-intelligence__find_subclasses      # Inheritance trees
-mcp__python-intelligence__find_imports         # Import tracking
+mcp__pyeye__analyze_dependencies  # Module dependencies
+mcp__pyeye__get_call_hierarchy   # Function call chains
+mcp__pyeye__find_subclasses      # Inheritance trees
+mcp__pyeye__find_imports         # Import tracking
 ```
 
 ### 4. Framework-Specific Intelligence (when applicable)
 
 ```bash
 # Pydantic projects:
-mcp__python-intelligence__find_models
-mcp__python-intelligence__get_model_schema
+mcp__pyeye__find_models
+mcp__pyeye__get_model_schema
 
 # Flask projects:
-mcp__python-intelligence__find_routes
-mcp__python-intelligence__find_blueprints
+mcp__pyeye__find_routes
+mcp__pyeye__find_blueprints
 
 # Django projects:
-mcp__python-intelligence__find_django_models
-mcp__python-intelligence__find_django_views
+mcp__pyeye__find_django_models
+mcp__pyeye__find_django_views
 ```
 
 ## Pattern Replacements (MANDATORY)
@@ -74,35 +74,35 @@ These replacements are REQUIRED - using the old patterns is considered a workflo
 ### Finding Code
 
 - ❌ **WRONG**: `grep -r "class MyClass"` or `Grep("class MyClass")`
-- ✅ **RIGHT**: `mcp__python-intelligence__find_symbol("MyClass")`
+- ✅ **RIGHT**: `mcp__pyeye__find_symbol("MyClass")`
 
 - ❌ **WRONG**: `grep -r "def function_name"`
-- ✅ **RIGHT**: `mcp__python-intelligence__find_symbol("function_name")`
+- ✅ **RIGHT**: `mcp__pyeye__find_symbol("function_name")`
 
 - ❌ **WRONG**: `find . -name "*.py" | xargs grep "import module"`
-- ✅ **RIGHT**: `mcp__python-intelligence__find_imports("module")`
+- ✅ **RIGHT**: `mcp__pyeye__find_imports("module")`
 
 ### Understanding Code Structure
 
 - ❌ **WRONG**: `ls -la src/` or `tree src/`
-- ✅ **RIGHT**: `mcp__python-intelligence__list_project_structure()`
+- ✅ **RIGHT**: `mcp__pyeye__list_project_structure()`
 
 - ❌ **WRONG**: Reading entire file to understand exports
-- ✅ **RIGHT**: `mcp__python-intelligence__get_module_info("module.path")`
+- ✅ **RIGHT**: `mcp__pyeye__get_module_info("module.path")`
 
 - ❌ **WRONG**: Manually tracing function calls
-- ✅ **RIGHT**: `mcp__python-intelligence__get_call_hierarchy("function_name")`
+- ✅ **RIGHT**: `mcp__pyeye__get_call_hierarchy("function_name")`
 
 ### Refactoring Preparation
 
 - ❌ **WRONG**: Grep for symbol before renaming
-- ✅ **RIGHT**: `mcp__python-intelligence__find_references()` at position
+- ✅ **RIGHT**: `mcp__pyeye__find_references()` at position
 
 - ❌ **WRONG**: Manually checking inheritance
-- ✅ **RIGHT**: `mcp__python-intelligence__find_subclasses("BaseClass")`
+- ✅ **RIGHT**: `mcp__pyeye__find_subclasses("BaseClass")`
 
 - ❌ **WRONG**: Reading files to understand dependencies
-- ✅ **RIGHT**: `mcp__python-intelligence__analyze_dependencies("module")`
+- ✅ **RIGHT**: `mcp__pyeye__analyze_dependencies("module")`
 
 ## Real-World Usage Examples
 
@@ -110,37 +110,37 @@ These replacements are REQUIRED - using the old patterns is considered a workflo
 
 ```python
 # 1. Find the class definition
-result = mcp__python-intelligence__find_symbol("ProjectManager")
+result = mcp__pyeye__find_symbol("ProjectManager")
 
 # 2. Get type info to understand the class
-info = mcp__python-intelligence__get_type_info(
+info = mcp__pyeye__get_type_info(
     file=result[0]["file"],
     line=result[0]["line"],
     column=result[0]["column"]
 )
 
 # 3. Find all references to ensure compatibility
-refs = mcp__python-intelligence__find_references(
+refs = mcp__pyeye__find_references(
     file=result[0]["file"],
     line=result[0]["line"],
     column=result[0]["column"]
 )
 
 # 4. Check subclasses that might be affected
-subclasses = mcp__python-intelligence__find_subclasses("ProjectManager")
+subclasses = mcp__pyeye__find_subclasses("ProjectManager")
 ```
 
 ### Example 2: Refactoring a Module
 
 ```python
 # 1. Understand module structure
-module_info = mcp__python-intelligence__get_module_info("pycodemcp.cache")
+module_info = mcp__pyeye__get_module_info("pyeye.cache")
 
 # 2. Analyze dependencies
-deps = mcp__python-intelligence__analyze_dependencies("pycodemcp.cache")
+deps = mcp__pyeye__analyze_dependencies("pyeye.cache")
 
 # 3. Find all imports of this module
-imports = mcp__python-intelligence__find_imports("pycodemcp.cache")
+imports = mcp__pyeye__find_imports("pyeye.cache")
 
 # 4. Check for circular dependencies
 # deps["circular_dependencies"] will list any found
@@ -150,14 +150,14 @@ imports = mcp__python-intelligence__find_imports("pycodemcp.cache")
 
 ```python
 # 1. Find base plugin class
-base = mcp__python-intelligence__find_symbol("BasePlugin")
+base = mcp__pyeye__find_symbol("BasePlugin")
 
 # 2. Find all plugin implementations
-plugins = mcp__python-intelligence__find_subclasses("BasePlugin", show_hierarchy=True)
+plugins = mcp__pyeye__find_subclasses("BasePlugin", show_hierarchy=True)
 
 # 3. Understand each plugin's structure
 for plugin in plugins:
-    info = mcp__python-intelligence__get_module_info(plugin["module"])
+    info = mcp__pyeye__get_module_info(plugin["module"])
 ```
 
 ## Measuring Success

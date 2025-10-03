@@ -42,7 +42,7 @@ When to update: When PR requirements or quality standards change
 ```bash
 # MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
 # This would have caught the ProjectCache/GranularCache issue in PR #77
-pytest --cov=src/pycodemcp --cov-fail-under=85
+pytest --cov=src/pyeye --cov-fail-under=85
 
 # Note: Pre-commit does NOT run tests - you MUST run them manually!
 ```
@@ -55,7 +55,7 @@ pytest --cov=src/pycodemcp --cov-fail-under=85
 
 ```bash
 # After creating worktree
-cd ../python-code-intelligence-mcp-work/feat-42-new-feature
+cd ../pyeye-mcp-work/feat-42-new-feature
 uv venv
 uv pip install -e ".[dev]"
 # Pre-commit hooks work automatically - no installation needed!

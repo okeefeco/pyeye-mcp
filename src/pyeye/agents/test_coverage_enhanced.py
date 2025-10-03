@@ -179,7 +179,7 @@ class EnhancedTestCoverageAgent:
         # 1. Get module structure
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__list_modules",
+                tool="mcp__pyeye__list_modules",
                 params={"project_path": str(self.project_root)},
                 purpose="Discover all modules and their structure",
                 expected_output="List of modules with exports, classes, functions, and metrics",
@@ -190,7 +190,7 @@ class EnhancedTestCoverageAgent:
         if parsed["module"]:
             instructions.append(
                 MCPInstruction(
-                    tool="mcp__python-intelligence__get_module_info",
+                    tool="mcp__pyeye__get_module_info",
                     params={"module_path": parsed["module"]},
                     purpose=f"Get detailed info about {parsed['module']}",
                     expected_output="Module exports, classes, functions, and dependencies",
@@ -200,7 +200,7 @@ class EnhancedTestCoverageAgent:
         # 3. Find existing tests
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_symbol",
+                tool="mcp__pyeye__find_symbol",
                 params={"name": "test_", "fuzzy": True},
                 purpose="Find all existing test functions",
                 expected_output="List of test functions with locations",
@@ -210,7 +210,7 @@ class EnhancedTestCoverageAgent:
         # 4. Check test coverage for specific symbols
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_subclasses",
+                tool="mcp__pyeye__find_subclasses",
                 params={"base_class": "TestCase"},
                 purpose="Find all test classes following unittest pattern",
                 expected_output="Test class hierarchy",
@@ -227,7 +227,7 @@ class EnhancedTestCoverageAgent:
         # 1. Detect test framework
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_imports",
+                tool="mcp__pyeye__find_imports",
                 params={"module_name": "pytest"},
                 purpose="Check if project uses pytest",
                 expected_output="Import locations for pytest",
@@ -236,7 +236,7 @@ class EnhancedTestCoverageAgent:
 
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_imports",
+                tool="mcp__pyeye__find_imports",
                 params={"module_name": "unittest"},
                 purpose="Check if project uses unittest",
                 expected_output="Import locations for unittest",
@@ -246,7 +246,7 @@ class EnhancedTestCoverageAgent:
         # 2. Find fixture patterns
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_symbol",
+                tool="mcp__pyeye__find_symbol",
                 params={"name": "fixture"},
                 purpose="Find pytest fixtures",
                 expected_output="Fixture definitions and usage",
@@ -256,7 +256,7 @@ class EnhancedTestCoverageAgent:
         # 3. Find mock patterns
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_imports",
+                tool="mcp__pyeye__find_imports",
                 params={"module_name": "mock"},
                 purpose="Find mock usage patterns",
                 expected_output="Mock import and usage locations",
@@ -266,7 +266,7 @@ class EnhancedTestCoverageAgent:
         # 4. Find performance test patterns
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_symbol",
+                tool="mcp__pyeye__find_symbol",
                 params={"name": "PerformanceThresholds"},
                 purpose="Find performance testing patterns",
                 expected_output="Performance test framework usage",
@@ -285,7 +285,7 @@ class EnhancedTestCoverageAgent:
         # 1. Get type information
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__get_type_info",
+                tool="mcp__pyeye__get_type_info",
                 params={"file": "<target_file>", "line": "<function_line>", "column": 0},
                 purpose="Get function signature and docstring",
                 expected_output="Parameter types, return type, and documentation",
@@ -295,7 +295,7 @@ class EnhancedTestCoverageAgent:
         # 2. Find usage patterns
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_references",
+                tool="mcp__pyeye__find_references",
                 params={"file": "<target_file>", "line": "<function_line>", "column": 0},
                 purpose="Find how function is used in codebase",
                 expected_output="All usage locations to understand patterns",
@@ -305,7 +305,7 @@ class EnhancedTestCoverageAgent:
         # 3. Understand dependencies for mocking
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__get_call_hierarchy",
+                tool="mcp__pyeye__get_call_hierarchy",
                 params={"function_name": "<function_name>"},
                 purpose="Understand what function calls and what calls it",
                 expected_output="Call hierarchy for mock requirements",
@@ -316,7 +316,7 @@ class EnhancedTestCoverageAgent:
         if parsed["focus"] == "async":
             instructions.append(
                 MCPInstruction(
-                    tool="mcp__python-intelligence__find_symbol",
+                    tool="mcp__pyeye__find_symbol",
                     params={"name": "async def", "fuzzy": True},
                     purpose="Find async functions needing special test handling",
                     expected_output="Async function locations",
@@ -326,7 +326,7 @@ class EnhancedTestCoverageAgent:
         # 5. For Pydantic models
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_models",
+                tool="mcp__pyeye__find_models",
                 params={},
                 purpose="Find Pydantic models needing validation tests",
                 expected_output="All Pydantic model definitions",
@@ -336,7 +336,7 @@ class EnhancedTestCoverageAgent:
         # 6. For Flask routes
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__find_routes",
+                tool="mcp__pyeye__find_routes",
                 params={},
                 purpose="Find Flask routes needing endpoint tests",
                 expected_output="All Flask route definitions",
@@ -353,7 +353,7 @@ class EnhancedTestCoverageAgent:
         # 1. Verify imports exist
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__analyze_dependencies",
+                tool="mcp__pyeye__analyze_dependencies",
                 params={"module_path": "<test_module>"},
                 purpose="Verify all imports in generated tests are valid",
                 expected_output="Import validation results",
@@ -363,7 +363,7 @@ class EnhancedTestCoverageAgent:
         # 2. Check for circular dependencies
         instructions.append(
             MCPInstruction(
-                tool="mcp__python-intelligence__analyze_dependencies",
+                tool="mcp__pyeye__analyze_dependencies",
                 params={"module_path": "<module>"},
                 purpose="Ensure no circular dependencies introduced",
                 expected_output="Dependency analysis with circular check",
@@ -385,8 +385,8 @@ class EnhancedTestCoverageAgent:
                     "rule": "Import Order",
                     "description": "ALL imports must be at the top of the file",
                     "violations": ["E402"],
-                    "example_wrong": "cli_module = import_module('cli')\\nfrom pycodemcp.module import Class",
-                    "example_right": "from pycodemcp.module import Class\\nimport importlib\\n\\ncli_module = importlib.import_module('cli')",
+                    "example_wrong": "cli_module = import_module('cli')\\nfrom pyeye.module import Class",
+                    "example_right": "from pyeye.module import Class\\nimport importlib\\n\\ncli_module = importlib.import_module('cli')",
                 },
                 {
                     "rule": "Unused Fixtures",

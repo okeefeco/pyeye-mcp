@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
 @pytest.fixture

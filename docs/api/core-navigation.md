@@ -1,6 +1,6 @@
 # Core Navigation Tools
 
-The core navigation tools provide essential functionality for navigating and understanding Python code. These 11 tools form the foundation of the Python Code Intelligence MCP Server.
+The core navigation tools provide essential functionality for navigating and understanding Python code. These 11 tools form the foundation of the PyEye Server.
 
 ## Table of Contents
 
@@ -101,11 +101,11 @@ This provides more precise results compared to searching for the method name alo
 
 - Raises `ValidationError` if `name` is empty
 - Returns empty array if no symbols found
-- Respects `PYCODEMCP_MAX_FILE_SIZE` for file analysis
+- Respects `PYEYE_MAX_FILE_SIZE` for file analysis
 
 ### Performance Notes
 
-- Results are cached for 5 minutes (configurable via `PYCODEMCP_CACHE_TTL`)
+- Results are cached for 5 minutes (configurable via `PYEYE_CACHE_TTL`)
 - Fuzzy matching is slower than exact matching
 - Large projects may take longer on first search
 
@@ -452,7 +452,7 @@ Configure additional package locations for analysis.
 |-----------|------|----------|---------|-------------|
 | `packages` | array[string] | ❌ | null | List of package paths to include |
 | `namespaces` | object | ❌ | null | Namespace packages with their repo paths |
-| `save` | boolean | ❌ | true | Whether to save configuration to .pycodemcp.json |
+| `save` | boolean | ❌ | true | Whether to save configuration to .pyeye.json |
 
 ### Returns
 
@@ -478,7 +478,7 @@ config = configure_packages(
 # Returns: {
 #   "packages": ["../my-lib", "~/repos/shared-utils"],
 #   "namespaces": {"company": ["~/repos/company-auth", "~/repos/company-api"]},
-#   "config_file": ".pycodemcp.json",
+#   "config_file": ".pyeye.json",
 #   "auto_discovered": []
 # }
 
@@ -492,7 +492,7 @@ config = configure_packages(
 ### Error Conditions
 
 - Invalid paths are skipped with warning
-- Creates .pycodemcp.json if it doesn't exist
+- Creates .pyeye.json if it doesn't exist
 - Validates package paths exist
 
 ### Performance Notes

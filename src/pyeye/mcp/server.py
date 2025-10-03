@@ -1,4 +1,4 @@
-"""Main MCP server implementation for Python code intelligence."""
+"""Main MCP server implementation for PyEye."""
 
 import logging
 from pathlib import Path
@@ -6,18 +6,19 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .analyzers.jedi_analyzer import JediAnalyzer
-from .config import ProjectConfig
-from .exceptions import (
+from ..analyzers.jedi_analyzer import JediAnalyzer
+from ..config import ProjectConfig
+from ..constants import PROJECT_NAME
+from ..exceptions import (
     AnalysisError,
     FileAccessError,
     ProjectNotFoundError,
 )
-from .metrics import metrics
+from ..metrics import metrics
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
-    from .metrics_hook import auto_session_for_mcp, track_mcp_operation
+    from ..metrics_hook import auto_session_for_mcp, track_mcp_operation
 
     UNIFIED_METRICS_AVAILABLE = True
 except ImportError:
@@ -42,18 +43,18 @@ except ImportError:
         return "default_session"
 
 
-from .plugins.django import DjangoPlugin
-from .plugins.flask import FlaskPlugin
-from .plugins.pydantic import PydanticPlugin
-from .project_manager import get_project_manager
-from .validation import validate_mcp_inputs
+from ..plugins.django import DjangoPlugin
+from ..plugins.flask import FlaskPlugin
+from ..plugins.pydantic import PydanticPlugin
+from ..project_manager import get_project_manager
+from ..validation import validate_mcp_inputs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
-mcp = FastMCP("Python Code Intelligence")
+mcp = FastMCP("PyEye")
 
 # Initialize unified metrics session
 _unified_session_id = None
@@ -151,7 +152,7 @@ def configure_packages(
     Args:
         packages: List of package paths to include
         namespaces: Namespace packages with their repo paths
-        save: Whether to save configuration to .pycodemcp.json
+        save: Whether to save configuration to .pyeye.json
 
     Returns:
         Current configuration
@@ -195,7 +196,7 @@ def configure_packages(
     return {
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
-        "config_file": str(config.project_path / ".pycodemcp.json"),
+        "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
     }
 
 
@@ -618,7 +619,7 @@ async def analyze_dependencies(
     """Analyze import dependencies for a module.
 
     Args:
-        module_path: Import path of the module (e.g., "pycodemcp.server")
+        module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
         scope: Search scope (default "all"):
             - "main": Only the main project
@@ -654,7 +655,7 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
     """Get detailed information about a specific module.
 
     Args:
-        module_path: Import path of the module (e.g., "pycodemcp.server")
+        module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
 
     Returns:
@@ -914,7 +915,7 @@ if __name__ == "__main__":
     # Initialize plugins for current directory
     initialize_plugins(".")
 
-    logger.info("Starting Python Code Intelligence MCP Server with file watching")
+    logger.info("Starting PyEye Server with file watching")
     logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
 
     # Run the server

@@ -1,6 +1,6 @@
 # Namespace Packages and Scope Control
 
-This guide explains how to configure and use namespace packages and scope control in the Python Code Intelligence MCP Server.
+This guide explains how to configure and use namespace packages and scope control in the PyEye Server.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This guide explains how to configure and use namespace packages and scope contro
 
 ## Overview
 
-The Python Code Intelligence MCP Server supports analyzing code spread across multiple repositories and namespace packages. This is particularly useful for:
+The PyEye Server supports analyzing code spread across multiple repositories and namespace packages. This is particularly useful for:
 
 - **Monorepos**: Large codebases with multiple packages
 - **Microservices**: Services distributed across multiple repositories
@@ -54,7 +54,7 @@ Scopes control which code the analyzer searches through:
 
 ## Configuration
 
-### Basic Configuration (.pycodemcp.json)
+### Basic Configuration (.pyeye.json)
 
 ```json
 {
@@ -102,20 +102,20 @@ Scopes control which code the analyzer searches through:
 ### Configuration in pyproject.toml
 
 ```toml
-[tool.pycodemcp]
+[tool.pyeye]
 packages = ["../shared-lib"]
 
-[tool.pycodemcp.namespaces]
+[tool.pyeye.namespaces]
 company = ["~/repos/company-*"]
 
-[tool.pycodemcp.scope_defaults]
+[tool.pyeye.scope_defaults]
 global = "all"
 
-[tool.pycodemcp.scope_defaults.methods]
+[tool.pyeye.scope_defaults.methods]
 list_modules = "main"
 find_routes = "my-services"
 
-[tool.pycodemcp.scope_aliases]
+[tool.pyeye.scope_aliases]
 my-services = ["main", "namespace:company"]
 ```
 
@@ -342,7 +342,7 @@ results = await analyzer.find_symbol("User", scope="all")
 Use the debug tools to understand scope resolution:
 
 ```python
-from pycodemcp.scope_utils import ScopeDebugger
+from pyeye.scope_utils import ScopeDebugger
 
 debugger = ScopeDebugger(analyzer._resolve_scope_to_paths)
 
@@ -362,7 +362,7 @@ debug_info = await debugger.debug_file_search(
 ### Validating Scopes
 
 ```python
-from pycodemcp.scope_utils import ScopeValidator
+from pyeye.scope_utils import ScopeValidator
 
 validator = ScopeValidator(namespace_paths, additional_paths, scope_aliases)
 
@@ -387,7 +387,7 @@ suggestions = validator.suggest_scope("name")  # Returns ["namespace:..."]
 **Solution**: Check namespace configuration:
 
 ```bash
-cat .pycodemcp.json | jq '.namespaces'
+cat .pyeye.json | jq '.namespaces'
 ```
 
 Ensure paths exist and contain Python files.

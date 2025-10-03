@@ -17,11 +17,11 @@ Each Bash tool invocation runs in an isolated shell session. The working directo
 
 ```bash
 # ❌ OLD (Problematic)
-git worktree add ../python-code-intelligence-mcp-work/test-115-jedi-analyzer-coverage -b test/115  # pragma: allowlist secret
-cd ../python-code-intelligence-mcp-work/test-115-jedi-analyzer-coverage  # FAILS!
+git worktree add ../pyeye-mcp-work/test-115-jedi-analyzer-coverage -b test/115  # pragma: allowlist secret
+cd ../pyeye-mcp-work/test-115-jedi-analyzer-coverage  # FAILS!
 
 # ✅ NEW (Reliable)
-WORK_DIR="/home/mark/GitHub/python-code-intelligence-mcp-work/test-115-jedi-analyzer-coverage"  # pragma: allowlist secret
+WORK_DIR="/home/mark/GitHub/pyeye-mcp-work/test-115-jedi-analyzer-coverage"  # pragma: allowlist secret
 git worktree add "$WORK_DIR" -b test/115-jedi-analyzer-coverage main
 cd "$WORK_DIR" && export CLAUDE_WORKING_DIR=$(pwd) && echo "Switched to: $CLAUDE_WORKING_DIR"
 ```
@@ -90,7 +90,7 @@ Either the issue information is outdated or the coverage check was run incorrect
 
 ```bash
 # Always validate claims with actual measurement
-uv run pytest tests/test_jedi_analyzer.py --cov=src/pycodemcp/analyzers/jedi_analyzer --cov-report=term
+uv run pytest tests/test_jedi_analyzer.py --cov=src/pyeye/analyzers/jedi_analyzer --cov-report=term
 echo "Note: Actual coverage may differ from issue description"
 ```
 

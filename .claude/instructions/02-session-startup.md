@@ -13,7 +13,7 @@ When to update: When startup workflow or worktree management changes
 ```bash
 # Claude should ALWAYS start in the claude-development worktree (learning hub)
 # This is where agent improvements and feedback are collected
-cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+cd /home/mark/GitHub/pyeye-mcp-work/claude-development
 
 # Store learning hub location
 export CLAUDE_STARTUP_DIR=$(pwd)
@@ -59,7 +59,7 @@ echo "Ready for continuous learning and improvement!"
 
 ```bash
 # After creating/switching to issue worktree
-cd ../python-code-intelligence-mcp-work/fix-123-issue-name
+cd ../pyeye-mcp-work/fix-123-issue-name
 export CLAUDE_WORKING_DIR=$(pwd)
 
 # Now prefix subsequent commands with cd to stay in context
@@ -79,7 +79,7 @@ switch_worktree() {
 }
 
 # Usage when switching to issue worktree
-switch_worktree "../python-code-intelligence-mcp-work/fix-123-issue-name"
+switch_worktree "../pyeye-mcp-work/fix-123-issue-name"
 ```
 
 ### Best Practices
@@ -112,7 +112,7 @@ The `claude-development` worktree is the **persistent learning hub** with specia
 3. DO NOT delete remote branch
 4. DO NOT remove worktree
 5. Update local branch:
-   cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+   cd /home/mark/GitHub/pyeye-mcp-work/claude-development
    git checkout main
    git pull origin main
    git checkout claude/development
@@ -124,7 +124,7 @@ The `claude-development` worktree is the **persistent learning hub** with specia
 
 - When using `pr-workflow` agent with claude/development, specify `--no-delete-branch`
 - When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
-- The worktree at `/home/mark/GitHub/python-code-intelligence-mcp-work/claude-development` is **persistent**
+- The worktree at `/home/mark/GitHub/pyeye-mcp-work/claude-development` is **persistent**
 - **NEVER switch this worktree to other branches** - always create new worktrees for releases, features, etc.
 
 **As Learning Hub**:

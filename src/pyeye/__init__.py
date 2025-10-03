@@ -1,4 +1,4 @@
-"""Python Code Intelligence MCP Server.
+"""PyEye Server.
 
 An extensible MCP server for Python code analysis and navigation.
 """
@@ -19,6 +19,4 @@ except ImportError:
     __version__ = "0.0.0+unknown"
     __version_tuple__ = (0, 0, 0)
 
-from .server import mcp
-
-__all__ = ["mcp", "__version__"]
+__all__ = ["__version__"]

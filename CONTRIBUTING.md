@@ -1,6 +1,6 @@
-# Contributing to Python Code Intelligence MCP Server
+# Contributing to PyEye Server
 
-First off, thank you for considering contributing to Python Code Intelligence MCP Server! It's people like you that make this tool better for everyone.
+First off, thank you for considering contributing to PyEye Server! It's people like you that make this tool better for everyone.
 
 This document provides guidelines for contributing to the project. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request.
 
@@ -29,7 +29,7 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 ### Reporting Bugs
 
-Before creating bug reports, please check [existing issues](https://github.com/okeefeco/python-code-intelligence-mcp/issues) as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible using the issue template.
+Before creating bug reports, please check [existing issues](https://github.com/okeefeco/pyeye-mcp/issues) as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible using the issue template.
 
 **Great Bug Reports** tend to have:
 
@@ -54,8 +54,8 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 Unsure where to begin contributing? You can start by looking through these issues:
 
-- [Issues labeled "good first issue"](https://github.com/okeefeco/python-code-intelligence-mcp/labels/good%20first%20issue) - issues which should only require a few lines of code
-- [Issues labeled "help wanted"](https://github.com/okeefeco/python-code-intelligence-mcp/labels/help%20wanted) - issues which need extra attention
+- [Issues labeled "good first issue"](https://github.com/okeefeco/pyeye-mcp/labels/good%20first%20issue) - issues which should only require a few lines of code
+- [Issues labeled "help wanted"](https://github.com/okeefeco/pyeye-mcp/labels/help%20wanted) - issues which need extra attention
 
 ### Pull Requests
 
@@ -92,8 +92,8 @@ Please follow these steps for your contribution:
 1. Fork and clone the repository:
 
    ```bash
-   git clone git@github.com:your-username/python-code-intelligence-mcp.git
-   cd python-code-intelligence-mcp
+   git clone git@github.com:your-username/pyeye-mcp.git
+   cd pyeye-mcp
    ```
 
 2. Create a virtual environment and install dependencies:
@@ -149,7 +149,7 @@ Run the test suite before submitting:
 
 ```bash
 # Run all tests with coverage
-uv run pytest --cov=src/pycodemcp --cov-report=term-missing
+uv run pytest --cov=src/pyeye --cov-report=term-missing
 
 # Run specific test file
 uv run pytest tests/test_specific.py
@@ -186,7 +186,7 @@ pre-commit run --all-files
 ## Project Structure
 
 ```text
-src/pycodemcp/
+src/pyeye/
 ├── server.py              # Main MCP server implementation
 ├── project_manager.py     # Multi-project management
 ├── namespace_resolver.py  # Distributed package handling
@@ -235,4 +235,4 @@ Feel free to open an issue with your question or reach out to the maintainers. W
 
 ---
 
-Thank you again for your interest in contributing to Python Code Intelligence MCP Server! 🎉
+Thank you again for your interest in contributing to PyEye Server! 🎉

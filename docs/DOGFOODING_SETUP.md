@@ -1,6 +1,6 @@
 # Dogfooding Metrics Setup Guide
 
-This guide helps you set up automatic metrics tracking for the Python Code Intelligence MCP dogfooding initiative.
+This guide helps you set up automatic metrics tracking for the PyEye dogfooding initiative.
 
 ## 🚀 Quick Setup (Recommended)
 
@@ -53,7 +53,7 @@ git commit -m "Add new feature"
 ### 4. Project Entry
 
 ```bash
-cd ~/repos/python-code-intelligence-mcp
+cd ~/repos/pyeye-mcp
 # 📊 Auto-starting dogfooding metrics for issue #135...
 ```
 
@@ -92,7 +92,7 @@ The setup creates these files:
 
 ### Metrics Data
 
-- `~/.pycodemcp/metrics/` - Directory for all metrics data
+- `~/.pyeye/metrics/` - Directory for all metrics data
 - `current_session.json` - Active session data
 - `history.jsonl` - All completed sessions
 - `last_session_stats.json` - Stats for commit message hook
@@ -123,7 +123,7 @@ chmod +x .git/hooks/post-checkout
 
 ```bash
 # Check if metrics directory exists
-ls -la ~/.pycodemcp/metrics/
+ls -la ~/.pyeye/metrics/
 
 # Test the metrics script directly
 python scripts/dogfooding_metrics.py --help
@@ -185,7 +185,7 @@ mcp-report --days 1
 mcp-report --days 7
 
 # See specific session details
-cat ~/.pycodemcp/metrics/history.jsonl | tail -1 | python -m json.tool
+cat ~/.pyeye/metrics/history.jsonl | tail -1 | python -m json.tool
 ```
 
 ## 🚨 Important Notes

@@ -15,13 +15,13 @@ sys.path.insert(0, str(project_root / "src"))
 
 # -- Project information -----------------------------------------------------
 
-project = "Python Code Intelligence MCP Server"
-copyright = "2024, Python Code Intelligence MCP Contributors"
-author = "Python Code Intelligence MCP Contributors"
+project = "PyEye Server"
+copyright = "2024, PyEye Contributors"
+author = "PyEye Contributors"
 
 # The full version, including alpha/beta/rc tags
 try:
-    from pycodemcp import __version__
+    from pyeye import __version__
 
     release = __version__
 except ImportError:
@@ -112,4 +112,4 @@ html_theme_options = {
 }
 
 html_title = f"{project} v{version}"
-html_short_title = "Python Code Intelligence MCP"
+html_short_title = "PyEye"

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import jedi
 
-from pycodemcp.connection_pool import PooledConnection, ProjectConnectionPool
+from pyeye.connection_pool import PooledConnection, ProjectConnectionPool
 
 
 class TestPooledConnection:
@@ -54,7 +54,7 @@ class TestProjectConnectionPool:
         assert pool._stats["hits"] == 0
         assert pool._stats["misses"] == 0
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_get_connection_cache_miss(self, mock_project_class, tmp_path):
         """Test getting a connection when not in cache."""
         mock_project = MagicMock()
@@ -76,7 +76,7 @@ class TestProjectConnectionPool:
             path=tmp_path.as_posix(), added_sys_path=[tmp_path.as_posix()]
         )
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_get_connection_cache_hit(self, mock_project_class, tmp_path):
         """Test getting a connection when it exists in cache."""
         mock_project = MagicMock()
@@ -100,7 +100,7 @@ class TestProjectConnectionPool:
         # Jedi project should only be created once
         assert mock_project_class.call_count == 1
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_get_connection_with_additional_paths(self, mock_project_class, tmp_path):
         """Test connections with different additional paths are cached separately."""
         mock_project1 = MagicMock()
@@ -135,7 +135,7 @@ class TestProjectConnectionPool:
             path2.as_posix(),
         }
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_lru_eviction(self, mock_project_class, tmp_path):
         """Test LRU eviction when pool is full."""
         mock_projects = [MagicMock() for _ in range(3)]
@@ -170,7 +170,7 @@ class TestProjectConnectionPool:
         assert path2 in cache_keys
         assert path3 in cache_keys
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_lru_ordering(self, mock_project_class, tmp_path):
         """Test that accessing a connection moves it to MRU position."""
         mock_projects = [MagicMock() for _ in range(3)]
@@ -200,7 +200,7 @@ class TestProjectConnectionPool:
         assert path2 not in cache_keys  # Evicted (was LRU)
         assert path3 in cache_keys  # Just added
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_clear_stale(self, mock_project_class, tmp_path):
         """Test removing stale connections."""
         mock_project = MagicMock()
@@ -235,7 +235,7 @@ class TestProjectConnectionPool:
         assert path1 not in cache_keys
         assert path2 in cache_keys
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_get_stats(self, mock_project_class, tmp_path):
         """Test getting pool statistics."""
         mock_project = MagicMock()
@@ -270,7 +270,7 @@ class TestProjectConnectionPool:
         conn_paths = {conn["project_path"] for conn in stats["connections"]}
         assert conn_paths == {path1.as_posix(), path2.as_posix()}
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_clear(self, mock_project_class, tmp_path):
         """Test clearing all connections from pool."""
         mock_project = MagicMock()
@@ -289,7 +289,7 @@ class TestProjectConnectionPool:
 
         assert len(pool._pool) == 0
 
-    @patch("pycodemcp.connection_pool.jedi.Project")
+    @patch("pyeye.connection_pool.jedi.Project")
     def test_thread_safety(self, mock_project_class, tmp_path):
         """Test thread-safe access to pool."""
         import threading

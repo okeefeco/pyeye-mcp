@@ -127,15 +127,15 @@ name = "{name}"
 version = "0.1.0"
 description = "Test project for testing"
 
-[tool.pycodemcp]
+[tool.pyeye]
 packages = []
 cache_ttl = 300
 """
             (project_dir / "pyproject.toml").write_text(pyproject_content)
 
-            # .pycodemcp.json
+            # .pyeye.json
             config_content = {"project_name": name, "packages": [], "namespaces": {}}
-            (project_dir / ".pycodemcp.json").write_text(json.dumps(config_content, indent=2))
+            (project_dir / ".pyeye.json").write_text(json.dumps(config_content, indent=2))
 
         return project_dir
 
@@ -215,14 +215,14 @@ class ConfigFactory:
     """Factory for creating configuration files."""
 
     @staticmethod
-    def create_pycodemcp_config(
+    def create_pyeye_config(
         path: Path,
         packages: list[str] = None,
         namespaces: dict[str, list[str]] = None,
         cache_ttl: int = 300,
         max_projects: int = 10,
     ) -> Path:
-        """Create .pycodemcp.json configuration file.
+        """Create .pyeye.json configuration file.
 
         Args:
             path: Path to config file
@@ -278,7 +278,7 @@ requires-python = ">=3.10"
             content += "]\n"
 
         content += """
-[tool.pycodemcp]
+[tool.pyeye]
 cache_ttl = 300
 max_projects = 10
 """

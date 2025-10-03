@@ -10,7 +10,7 @@ All Claude sessions should start here to enable continuous learning and improvem
 
 ```bash
 # Always start Claude in the learning hub
-cd /home/mark/GitHub/python-code-intelligence-mcp-work/claude-development
+cd /home/mark/GitHub/pyeye-mcp-work/claude-development
 
 # Export learning context
 export CLAUDE_LEARNING_HUB=$(pwd)

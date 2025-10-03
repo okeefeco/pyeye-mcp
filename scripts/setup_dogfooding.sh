@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "🐕 Setting up Python Code Intelligence MCP Dogfooding Metrics"
+echo "🐕 Setting up PyEye Dogfooding Metrics"
 echo "======================================================================"
 echo ""
 
@@ -49,8 +49,8 @@ echo ""
 
 # Create metrics directory
 echo "📁 Creating metrics directory..."
-mkdir -p "$HOME/.pycodemcp/metrics"
-echo "✅ Metrics directory created: $HOME/.pycodemcp/metrics"
+mkdir -p "$HOME/.pyeye/metrics"
+echo "✅ Metrics directory created: $HOME/.pyeye/metrics"
 echo ""
 
 # Test the setup

@@ -47,7 +47,7 @@ cat > "$GIT_HOOKS_DIR/pre-commit" << 'EOF'
 # Only end session if we have dogfooding metrics
 if [[ -f "scripts/dogfooding_metrics.py" ]]; then
     # Check if there's an active session
-    if [[ -f "$HOME/.pycodemcp/metrics/current_session.json" ]]; then
+    if [[ -f "$HOME/.pyeye/metrics/current_session.json" ]]; then
         echo "📊 Ending dogfooding metrics session..."
         python scripts/dogfooding_metrics.py end 2>/dev/null || true
     fi
@@ -68,11 +68,11 @@ COMMIT_MSG_FILE=$1
 COMMIT_SOURCE=$2
 
 # Only add metrics for non-merge commits
-if [[ -z "$COMMIT_SOURCE" ]] && [[ -f "$HOME/.pycodemcp/metrics/last_session_stats.json" ]]; then
+if [[ -z "$COMMIT_SOURCE" ]] && [[ -f "$HOME/.pyeye/metrics/last_session_stats.json" ]]; then
     # Read the last session stats
     if command -v jq &> /dev/null; then
-        MCP_RATIO=$(jq -r '.mcp_ratio' "$HOME/.pycodemcp/metrics/last_session_stats.json" 2>/dev/null || echo "0")
-        TIME_SAVED=$(jq -r '.time_saved_minutes' "$HOME/.pycodemcp/metrics/last_session_stats.json" 2>/dev/null || echo "0")
+        MCP_RATIO=$(jq -r '.mcp_ratio' "$HOME/.pyeye/metrics/last_session_stats.json" 2>/dev/null || echo "0")
+        TIME_SAVED=$(jq -r '.time_saved_minutes' "$HOME/.pyeye/metrics/last_session_stats.json" 2>/dev/null || echo "0")
 
         # Add metrics comment to commit message (comments are stripped before commit)
         echo "" >> "$COMMIT_MSG_FILE"

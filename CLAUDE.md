@@ -1,4 +1,4 @@
-# Python Code Intelligence MCP Server - Claude Instructions
+# PyEye Server - Claude Instructions
 
 This file loads modular Claude behavior instructions. The actual instructions are in `.claude/instructions/`.
 
@@ -54,7 +54,7 @@ Note: The mandatory Claude-specific rules from CONTRIBUTING.md have been extract
 
 For personal development settings (worktrees, local paths, etc.):
 
-@~/.claude/projects/okeefeco/python-code-intelligence-mcp.md
+@~/.claude/projects/okeefeco/pyeye-mcp.md
 
 This file is optional and ignored if it doesn't exist. It won't be committed to the repository.
 

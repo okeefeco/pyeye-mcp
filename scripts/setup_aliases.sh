@@ -29,7 +29,7 @@ fi
 cat >> "$SHELL_RC" << EOF
 
 # Dogfooding Metrics Aliases - Added by $(date)
-# Auto-track grep usage for Python Code Intelligence MCP dogfooding
+# Auto-track grep usage for PyEye dogfooding
 
 # Track grep usage automatically
 function tracked_grep() {
@@ -52,7 +52,7 @@ alias mcp-bug='python scripts/dogfooding_metrics.py bug'
 function mcp_cd() {
     builtin cd "\$@"
     # Auto-start session if we enter a project with dogfooding metrics
-    if [[ -f "scripts/dogfooding_metrics.py" ]] && [[ ! -f "\$HOME/.pycodemcp/metrics/current_session.json" ]]; then
+    if [[ -f "scripts/dogfooding_metrics.py" ]] && [[ ! -f "\$HOME/.pyeye/metrics/current_session.json" ]]; then
         # Extract issue number from current branch
         local branch=\$(git branch --show-current 2>/dev/null || echo "")
         local issue=\$(echo "\$branch" | grep -oE '[0-9]+' | head -1)

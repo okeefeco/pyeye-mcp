@@ -205,14 +205,14 @@ mock_analyzer.find_symbol.return_value = [{"name": "TestClass"}]
 
 ```python
 # Good - mock external dependency
-@patch('pycodemcp.external_api.fetch')
+@patch('pyeye.external_api.fetch')
 def test_data_processing(mock_fetch):
     mock_fetch.return_value = test_data
     result = process_data()  # Real processing logic
     assert result.valid
 
 # Bad - mocking the system under test
-@patch('pycodemcp.processor.process')  # Don't mock what you're testing!
+@patch('pyeye.processor.process')  # Don't mock what you're testing!
 def test_processor(mock_process):
     mock_process.return_value = "expected"
     result = process_data()

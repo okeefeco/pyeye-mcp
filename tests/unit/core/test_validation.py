@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pycodemcp.validation import InputValidator, PathValidator, ValidationError, validate_mcp_inputs
+from pyeye.validation import InputValidator, PathValidator, ValidationError, validate_mcp_inputs
 
 
 class TestPathValidator:
@@ -228,7 +228,7 @@ class TestValidateMCPInputsDecorator:
         """Test that decorator validates path parameters."""
         import os
 
-        from pycodemcp.exceptions import ValidationError
+        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(file: str, project_path: str = "."):
@@ -254,7 +254,7 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_line_column(self):
         """Test that decorator validates line and column parameters."""
-        from pycodemcp.exceptions import ValidationError
+        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(line: int, column: int):
@@ -276,7 +276,7 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_identifiers(self):
         """Test that decorator validates identifier parameters."""
-        from pycodemcp.exceptions import ValidationError
+        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(name: str, module_name: str):
@@ -293,7 +293,7 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_path_lists(self):
         """Test that decorator validates lists of paths."""
-        from pycodemcp.exceptions import ValidationError
+        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(paths: list, packages: list):

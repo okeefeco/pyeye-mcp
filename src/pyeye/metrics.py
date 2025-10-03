@@ -1,4 +1,4 @@
-"""Performance monitoring and metrics collection for Python Code Intelligence MCP."""
+"""Performance monitoring and metrics collection for PyEye."""
 
 import functools
 import time
@@ -309,37 +309,37 @@ class MetricsCollector:
             Prometheus-formatted metrics string
         """
         lines = []
-        lines.append("# HELP pycodemcp_operation_duration_ms Operation duration in milliseconds")
-        lines.append("# TYPE pycodemcp_operation_duration_ms histogram")
+        lines.append("# HELP pyeye_operation_duration_ms Operation duration in milliseconds")
+        lines.append("# TYPE pyeye_operation_duration_ms histogram")
 
         for name, metric in self.metrics.items():
             stats = metric.get_stats()
             safe_name = name.replace(".", "_").replace("-", "_")
-            lines.append(f'pycodemcp_operation_count{{operation="{safe_name}"}} {stats["count"]}')
+            lines.append(f'pyeye_operation_count{{operation="{safe_name}"}} {stats["count"]}')
             lines.append(
-                f'pycodemcp_operation_duration_ms{{operation="{safe_name}",quantile="0.5"}} {stats["p50_ms"]}'
+                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.5"}} {stats["p50_ms"]}'
             )
             lines.append(
-                f'pycodemcp_operation_duration_ms{{operation="{safe_name}",quantile="0.95"}} {stats["p95_ms"]}'
+                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.95"}} {stats["p95_ms"]}'
             )
             lines.append(
-                f'pycodemcp_operation_duration_ms{{operation="{safe_name}",quantile="0.99"}} {stats["p99_ms"]}'
+                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.99"}} {stats["p99_ms"]}'
             )
 
         # Cache metrics
-        lines.append("# HELP pycodemcp_cache_hits Cache hits")
-        lines.append("# TYPE pycodemcp_cache_hits counter")
-        lines.append(f"pycodemcp_cache_hits {self.cache_metrics.hits}")
+        lines.append("# HELP pyeye_cache_hits Cache hits")
+        lines.append("# TYPE pyeye_cache_hits counter")
+        lines.append(f"pyeye_cache_hits {self.cache_metrics.hits}")
 
-        lines.append("# HELP pycodemcp_cache_misses Cache misses")
-        lines.append("# TYPE pycodemcp_cache_misses counter")
-        lines.append(f"pycodemcp_cache_misses {self.cache_metrics.misses}")
+        lines.append("# HELP pyeye_cache_misses Cache misses")
+        lines.append("# TYPE pyeye_cache_misses counter")
+        lines.append(f"pyeye_cache_misses {self.cache_metrics.misses}")
 
         # Memory metrics
         memory = self.get_memory_stats()
-        lines.append("# HELP pycodemcp_memory_mb Memory usage in MB")
-        lines.append("# TYPE pycodemcp_memory_mb gauge")
-        lines.append(f"pycodemcp_memory_mb {{type=\"rss\"}} {memory['rss_mb']}")
+        lines.append("# HELP pyeye_memory_mb Memory usage in MB")
+        lines.append("# TYPE pyeye_memory_mb gauge")
+        lines.append(f"pyeye_memory_mb {{type=\"rss\"}} {memory['rss_mb']}")
 
         return "\n".join(lines)
 

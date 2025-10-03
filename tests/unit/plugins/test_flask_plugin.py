@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.pycodemcp.plugins.flask import FlaskPlugin
+from pyeye.plugins.flask import FlaskPlugin
 
 
 def test_flask_detection():

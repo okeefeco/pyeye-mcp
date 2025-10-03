@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup script for Python Code Intelligence MCP Server development
+# Setup script for PyEye Server development
 
 echo "🚀 Setting up development environment..."
 

@@ -30,14 +30,14 @@ def test_something(self, capsys):
 ```python
 # ❌ WRONG
 cli_module = import_module('cli')
-from pycodemcp.module import Class  # E402 error
+from pyeye.module import Class  # E402 error
 ```
 
 **Solution**: All imports at top
 
 ```python
 # ✅ CORRECT
-from pycodemcp.module import Class
+from pyeye.module import Class
 import importlib
 
 cli_module = importlib.import_module('cli')

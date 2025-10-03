@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.agents.test_coverage import TestCoverageAgent, create_test_coverage_agent
-from pycodemcp.agents.test_coverage_enhanced import (
+from pyeye.agents.test_coverage import TestCoverageAgent, create_test_coverage_agent
+from pyeye.agents.test_coverage_enhanced import (
     EnhancedTestCoverageAgent,
     GeneratedTest,
     MCPInstruction,
@@ -16,7 +16,7 @@ from pycodemcp.agents.test_coverage_enhanced import (
     TestPattern,
     create_enhanced_test_coverage_agent,
 )
-from pycodemcp.exceptions import ValidationError
+from pyeye.exceptions import ValidationError
 
 
 class TestBasicTestCoverageAgent:
@@ -171,8 +171,8 @@ class TestEnhancedTestCoverageAgent:
         agent = EnhancedTestCoverageAgent(tmp_path)
 
         # Test with module name
-        parsed = agent._parse_request("Improve coverage for pycodemcp.cache module")
-        assert parsed["module"] == "pycodemcp.cache"
+        parsed = agent._parse_request("Improve coverage for pyeye.cache module")
+        assert parsed["module"] == "pyeye.cache"
         assert parsed["target_coverage"] == 90
         assert parsed["focus"] == "comprehensive"
 
@@ -201,7 +201,7 @@ class TestEnhancedTestCoverageAgent:
 
         # Check instruction details
         first_inst = instructions[0]
-        assert first_inst.tool == "mcp__python-intelligence__list_modules"
+        assert first_inst.tool == "mcp__pyeye__list_modules"
         assert first_inst.purpose is not None
         assert len(first_inst.purpose) > 0
 
@@ -318,7 +318,7 @@ class TestCLIScript:
         assert "Test Coverage Enhancement Agent" in result.stdout
         assert "Natural language test coverage command" in result.stdout
 
-    @patch("pycodemcp.agents.test_coverage.TestCoverageAgent.handle_request")
+    @patch("pyeye.agents.test_coverage.TestCoverageAgent.handle_request")
     def test_cli_execution(self, mock_handle, tmp_path):
         """Test CLI execution with mock agent."""
         # Setup mock response
@@ -364,13 +364,13 @@ class TestDataClasses:
     def test_mcp_instruction(self):
         """Test MCPInstruction dataclass."""
         inst = MCPInstruction(
-            tool="mcp__python-intelligence__find_symbol",
+            tool="mcp__pyeye__find_symbol",
             params={"name": "test"},
             purpose="Find test functions",
             expected_output="List of test functions",
         )
 
-        assert inst.tool == "mcp__python-intelligence__find_symbol"
+        assert inst.tool == "mcp__pyeye__find_symbol"
         assert inst.params["name"] == "test"
         assert "Find" in inst.purpose
 

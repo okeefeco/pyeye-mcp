@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pycodemcp.plugins.pydantic import PydanticPlugin
+from pyeye.plugins.pydantic import PydanticPlugin
 
 
 @pytest.fixture
@@ -608,7 +608,7 @@ class User(BaseModel):
         assert len(configs) >= 1
 
     @pytest.mark.asyncio
-    @patch("pycodemcp.plugins.pydantic.logger")
+    @patch("pyeye.plugins.pydantic.logger")
     async def test_logging_on_errors(self, mock_logger, temp_project):
         """Test that errors are logged appropriately."""
         # Create a file with invalid Python syntax

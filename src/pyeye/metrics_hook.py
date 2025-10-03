@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 try:
-    from pycodemcp.unified_metrics import get_unified_collector
+    from pyeye.unified_metrics import get_unified_collector
 
     METRICS_AVAILABLE = True
 except ImportError:
@@ -113,12 +113,12 @@ def auto_session_for_mcp() -> str:
     session_id = f"mcp_server_{pid}_{datetime.now().isoformat()}"
 
     # Check if we're in a subagent context
-    parent_session = os.environ.get("PYCODEMCP_PARENT_SESSION")
+    parent_session = os.environ.get("PYEYE_PARENT_SESSION")
     session_type = "subagent" if parent_session else "main"
 
     # Get issue number from environment or git branch
     metadata = {}
-    if issue_num := os.environ.get("PYCODEMCP_ISSUE"):
+    if issue_num := os.environ.get("PYEYE_ISSUE"):
         metadata["issue"] = issue_num
 
     return collector.start_session(

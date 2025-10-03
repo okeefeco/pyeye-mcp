@@ -122,7 +122,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=85
+          pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
@@ -163,7 +163,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=src/pycodemcp --cov-report=xml --cov-report=term --cov-fail-under=85
+          pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
@@ -233,7 +233,7 @@ jobs:
               version_tuple = (0, 0, 0)
 
           # Generate the _version.py file
-          version_file = pathlib.Path('src/pycodemcp/_version.py')
+          version_file = pathlib.Path('src/pyeye/_version.py')
           version_file.write_text(f'''"""Auto-generated version file."""
           __version__ = "{version}"
           __version_tuple__ = {version_tuple}
@@ -244,7 +244,7 @@ jobs:
 
       - name: Run mypy
         run: |
-          mypy src/pycodemcp --ignore-missing-imports
+          mypy src/pyeye --ignore-missing-imports
 
   changelog-validation:
     # Validate changelog format

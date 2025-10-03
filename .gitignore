@@ -147,15 +147,15 @@ cython_debug/
 .DS_Store
 
 # Cache directory for our MCP server
-.pycodemcp_cache/
+.pyeye_cache/
 
 # Local override configuration files
-.pycodemcp.override.json
-.pycodemcp.local.json
+.pyeye.override.json
+.pyeye.local.json
 *.override.json
 
 # uv
 uv.lock
 .venv/
 # Auto-generated version file
-src/pycodemcp/_version.py
+src/pyeye/_version.py

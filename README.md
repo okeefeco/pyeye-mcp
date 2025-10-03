@@ -1,7 +1,9 @@
-# Python Code Intelligence MCP Server
+# PyEye 👁️
 
-[![CI](https://github.com/okeefeco/python-code-intelligence-mcp/workflows/CI/badge.svg)](https://github.com/okeefeco/python-code-intelligence-mcp/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/python-code-intelligence-mcp)
+## PyEye Server
+
+[![CI](https://github.com/okeefeco/pyeye-mcp/workflows/CI/badge.svg)](https://github.com/okeefeco/pyeye-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/okeefeco/pyeye-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/pyeye-mcp)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -26,7 +28,7 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Installation
 
-The Python Code Intelligence MCP can be installed in two ways:
+The PyEye can be installed in two ways:
 
 ### Option 1: Project-Specific Installation (Recommended)
 
@@ -37,11 +39,11 @@ Install directly into your Python project's virtual environment:
 source /path/to/your/project/venv/bin/activate
 
 # Install from PyPI (when available)
-pip install python-code-intelligence-mcp
+pip install pyeye-mcp
 
 # Or install from source
-git clone https://github.com/hangie/python-code-intelligence-mcp.git
-pip install -e ./python-code-intelligence-mcp
+git clone https://github.com/hangie/pyeye-mcp.git
+pip install -e ./pyeye-mcp
 ```
 
 Then create a `.mcp.json` file in your project root:
@@ -49,10 +51,10 @@ Then create a `.mcp.json` file in your project root:
 ```json
 {
   "mcpServers": {
-    "python-intelligence": {
+    "pyeye": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "pycodemcp.server"],
+      "args": ["-m", "pyeye.mcp"],
       "env": {}
     }
   }
@@ -67,14 +69,14 @@ For analyzing multiple projects or using with global Python:
 
 ```bash
 # Install globally with pipx (recommended for isolation)
-pipx install python-code-intelligence-mcp
+pipx install pyeye-mcp
 
 # Or with pip
-pip install --user python-code-intelligence-mcp
+pip install --user pyeye-mcp
 
 # Or from source
-git clone https://github.com/hangie/python-code-intelligence-mcp.git
-cd python-code-intelligence-mcp
+git clone https://github.com/hangie/pyeye-mcp.git
+cd pyeye-mcp
 pip install --user .
 ```
 
@@ -82,7 +84,7 @@ pip install --user .
 
 ```bash
 # Add the MCP server globally (available in all projects)
-claude mcp add python-intelligence -s user -- python -m pycodemcp.server
+claude mcp add pyeye -s user -- python -m pyeye.mcp
 
 # Verify it's connected
 claude mcp list
@@ -95,9 +97,9 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 ```json
 {
   "mcpServers": {
-    "python-intelligence": {
+    "pyeye": {
       "command": "python",
-      "args": ["-m", "pycodemcp.server"],
+      "args": ["-m", "pyeye.mcp"],
       "env": {}
     }
   }
@@ -108,7 +110,7 @@ Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `
 
 ### Configure with GitHub Copilot (VS Code)
 
-As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this Python Code Intelligence server with GitHub Copilot:
+As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this PyEye server with GitHub Copilot:
 
 #### Prerequisites
 
@@ -127,18 +129,18 @@ Your GitHub Copilot administrator needs to enable the MCP servers policy:
 
 #### Step 2: Install the MCP Server
 
-Install the Python Code Intelligence MCP server in your project or globally:
+Install the PyEye server in your project or globally:
 
 ```bash
 # Option A: Install in your project's virtual environment (recommended)
-pip install python-code-intelligence-mcp
+pip install pyeye-mcp
 
 # Option B: Install globally with pipx
-pipx install python-code-intelligence-mcp
+pipx install pyeye-mcp
 
 # Option C: Install from source
-git clone https://github.com/hangie/python-code-intelligence-mcp.git
-pip install -e ./python-code-intelligence-mcp
+git clone https://github.com/hangie/pyeye-mcp.git
+pip install -e ./pyeye-mcp
 ```
 
 #### Step 3: Configure VS Code
@@ -152,9 +154,9 @@ Add the MCP server configuration to your VS Code settings:
 // or %APPDATA%\Code\User\settings.json (Windows)
 {
   "github.copilot.chat.mcpServers": {
-    "python-intelligence": {
+    "pyeye": {
       "command": "python",
-      "args": ["-m", "pycodemcp.server"],
+      "args": ["-m", "pyeye.mcp"],
       "env": {}
     }
   }
@@ -167,9 +169,9 @@ Add the MCP server configuration to your VS Code settings:
 // File: .vscode/settings.json in your project root
 {
   "github.copilot.chat.mcpServers": {
-    "python-intelligence": {
+    "pyeye": {
       "command": "${workspaceFolder}/.venv/bin/python",
-      "args": ["-m", "pycodemcp.server"],
+      "args": ["-m", "pyeye.mcp"],
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -183,8 +185,8 @@ Add the MCP server configuration to your VS Code settings:
 1. Open VS Code in your Python project
 2. Open the GitHub Copilot Chat panel
 3. Type: `@mcp list` to see available MCP servers
-4. You should see `python-intelligence` in the list
-5. Test with: `@mcp python-intelligence find_symbol MyClass`
+4. You should see `pyeye` in the list
+5. Test with: `@mcp pyeye find_symbol MyClass`
 
 #### Troubleshooting
 
@@ -197,7 +199,7 @@ Add the MCP server configuration to your VS Code settings:
 **Server not connecting:**
 
 - Verify Python path in the configuration
-- Check that `pycodemcp` is installed: `python -m pycodemcp.server --help`
+- Check that `pyeye` is installed: `python -m pyeye.mcp --help`
 - Look for errors in VS Code Output panel → GitHub Copilot Logs
 
 **Import errors:**
@@ -221,7 +223,7 @@ Add the MCP server configuration to your VS Code settings:
 
 ## Configuration
 
-The server can be configured to analyze packages in other locations. Create a `.pycodemcp.json` file in your project:
+The server can be configured to analyze packages in other locations. Create a `.pyeye.json` file in your project:
 
 ```json
 {
@@ -243,9 +245,9 @@ The server can be configured to analyze packages in other locations. Create a `.
 
 Configuration is loaded in the following order (later sources override earlier ones):
 
-1. **Global Config**: `~/.config/pycodemcp/config.json` or `~/.pycodemcp.json` - User defaults
-2. **Project Config**: `.pycodemcp.json` in project root or `[tool.pycodemcp]` in `pyproject.toml`
-3. **Override File**: `.pycodemcp.override.json` - Local development overrides (git-ignored)
+1. **Global Config**: `~/.config/pyeye/config.json` or `~/.pyeye.json` - User defaults
+2. **Project Config**: `.pyeye.json` in project root or `[tool.pyeye]` in `pyproject.toml`
+3. **Override File**: `.pyeye.override.json` - Local development overrides (git-ignored)
 4. **Auto-Discovery**: Automatically finds sibling packages if no packages configured
 
 ### Using Override Files
@@ -253,7 +255,7 @@ Configuration is loaded in the following order (later sources override earlier o
 Override files are perfect for local development configurations that shouldn't be committed:
 
 ```json
-// .pycodemcp.override.json (git-ignored)
+// .pyeye.override.json (git-ignored)
 {
   "packages": [
     "../my-local-dev-package",
@@ -271,63 +273,63 @@ All performance-critical settings can be configured via environment variables to
 
 | Environment Variable | Default | Description | Valid Range |
 |---------------------|---------|-------------|-------------|
-| `PYCODEMCP_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
-| `PYCODEMCP_CACHE_TTL` | 300 | Cache time-to-live in seconds | 0-86400 (24h) |
-| `PYCODEMCP_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
-| `PYCODEMCP_MAX_FILE_SIZE` | 1048576 | Maximum file size to analyze (bytes) | 1KB-100MB |
-| `PYCODEMCP_MAX_WORKERS` | 4 | Maximum concurrent analysis workers | 1-32 |
-| `PYCODEMCP_ANALYSIS_TIMEOUT` | 30.0 | Analysis timeout in seconds | 1.0-300.0 |
-| `PYCODEMCP_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
-| `PYCODEMCP_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
+| `PYEYE_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
+| `PYEYE_CACHE_TTL` | 300 | Cache time-to-live in seconds | 0-86400 (24h) |
+| `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
+| `PYEYE_MAX_FILE_SIZE` | 1048576 | Maximum file size to analyze (bytes) | 1KB-100MB |
+| `PYEYE_MAX_WORKERS` | 4 | Maximum concurrent analysis workers | 1-32 |
+| `PYEYE_ANALYSIS_TIMEOUT` | 30.0 | Analysis timeout in seconds | 1.0-300.0 |
+| `PYEYE_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
+| `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
 | **Connection Pooling** | | **Optimize multi-project workflows** | |
-| `PYCODEMCP_ENABLE_CONNECTION_POOLING` | true | Enable connection pooling for multiple projects | true/false |
-| `PYCODEMCP_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
-| `PYCODEMCP_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
+| `PYEYE_ENABLE_CONNECTION_POOLING` | true | Enable connection pooling for multiple projects | true/false |
+| `PYEYE_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
+| `PYEYE_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
 
 #### Performance Tuning Examples
 
 **Large codebase with stable files:**
 
 ```bash
-export PYCODEMCP_MAX_PROJECTS=50        # Handle more projects
-export PYCODEMCP_CACHE_TTL=1800         # 30 minute cache
-export PYCODEMCP_WATCHER_DEBOUNCE=2.0   # Less frequent updates
+export PYEYE_MAX_PROJECTS=50        # Handle more projects
+export PYEYE_CACHE_TTL=1800         # 30 minute cache
+export PYEYE_WATCHER_DEBOUNCE=2.0   # Less frequent updates
 ```
 
 **Active development with frequent changes:**
 
 ```bash
-export PYCODEMCP_MAX_PROJECTS=5         # Fewer projects, faster switching
-export PYCODEMCP_CACHE_TTL=60           # 1 minute cache
-export PYCODEMCP_WATCHER_DEBOUNCE=0.1   # Near real-time updates
+export PYEYE_MAX_PROJECTS=5         # Fewer projects, faster switching
+export PYEYE_CACHE_TTL=60           # 1 minute cache
+export PYEYE_WATCHER_DEBOUNCE=0.1   # Near real-time updates
 ```
 
 **Memory-constrained environment:**
 
 ```bash
-export PYCODEMCP_MAX_PROJECTS=3         # Minimal project cache
-export PYCODEMCP_MAX_FILE_SIZE=524288   # 512KB file limit
-export PYCODEMCP_MAX_WORKERS=2          # Fewer workers
+export PYEYE_MAX_PROJECTS=3         # Minimal project cache
+export PYEYE_MAX_FILE_SIZE=524288   # 512KB file limit
+export PYEYE_MAX_WORKERS=2          # Fewer workers
 ```
 
 This file is automatically ignored by git and takes precedence over all other configuration sources.
 
 ## Workflow Resources
 
-python-intelligence provides workflow guidance as MCP Resources to help AI agents and users discover how to use tools effectively for common multi-step tasks.
+pyeye provides workflow guidance as MCP Resources to help AI agents and users discover how to use tools effectively for common multi-step tasks.
 
 ### Discovering Workflows
 
 List available workflows:
 
 ```text
-"List python-intelligence workflow resources"
+"List pyeye workflow resources"
 ```
 
 Or with Claude Code's MCP tools:
 
 ```python
-ListMcpResourcesTool(server="python-intelligence")
+ListMcpResourcesTool(server="pyeye")
 ```
 
 ### Using Workflows
@@ -335,16 +337,16 @@ ListMcpResourcesTool(server="python-intelligence")
 **On-demand (trial):**
 
 ```text
-"Use python-intelligence find-references workflow"
-"Use python-intelligence refactoring workflow"
-"Use python-intelligence code-understanding workflow"
-"Use python-intelligence dependency-analysis workflow"
+"Use pyeye find-references workflow"
+"Use pyeye refactoring workflow"
+"Use pyeye code-understanding workflow"
+"Use pyeye dependency-analysis workflow"
 ```
 
 **Permanent (adoption):**
 
 ```text
-"Add python-intelligence find-references workflow to my CLAUDE.md"
+"Add pyeye find-references workflow to my CLAUDE.md"
 ```
 
 The AI will fetch the workflow, add it to your context file, and automatically follow it in future sessions.
@@ -382,7 +384,7 @@ AI: "There's a find-references workflow for that. Let me show you..."
 **Trial (On-Demand):** User tries workflow
 
 ```text
-User: "Use python-intelligence find-references workflow for this class"
+User: "Use pyeye find-references workflow for this class"
 AI: [fetches workflow from MCP Resources]
 AI: [executes: get_type_info → find_references → Grep]
 AI: "Found 15 references: 12 in packages, 3 in notebooks"
@@ -531,7 +533,7 @@ The server uses file watching to automatically update when code changes:
 ## Architecture
 
 ```text
-Python Code Intelligence MCP
+PyEye
 ├── Core Server (FastMCP)
 │   └── 17 MCP tools registered
 ├── Project Manager
@@ -572,7 +574,7 @@ Python Code Intelligence MCP
 Create custom plugins for your project patterns:
 
 ```python
-from pycodemcp.plugins.base import AnalyzerPlugin
+from pyeye.plugins.base import AnalyzerPlugin
 
 class MyProjectPlugin(AnalyzerPlugin):
     def name(self) -> str:
@@ -610,14 +612,14 @@ Connection pooling is enabled by default to optimize performance when working wi
 
 ```bash
 # Customize connection pooling (already enabled by default)
-export PYCODEMCP_POOL_MAX_CONNECTIONS=20  # Increase pool size for many projects
-export PYCODEMCP_POOL_TTL=7200            # Increase TTL to 2 hours
+export PYEYE_POOL_MAX_CONNECTIONS=20  # Increase pool size for many projects
+export PYEYE_POOL_TTL=7200            # Increase TTL to 2 hours
 
 # Or disable pooling if needed
-export PYCODEMCP_ENABLE_CONNECTION_POOLING=false
+export PYEYE_ENABLE_CONNECTION_POOLING=false
 
 # Start the server
-uv run mcp dev src/pycodemcp/server.py
+uv run mcp dev src/pyeye/server.py
 ```
 
 Connection pooling provides significant performance improvements:
@@ -675,7 +677,7 @@ uv run black src/
 uv run ruff check src/
 
 # Test the server
-uv run mcp dev src/pycodemcp/server.py
+uv run mcp dev src/pyeye/server.py
 ```
 
 ## Documentation

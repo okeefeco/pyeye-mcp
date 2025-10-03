@@ -1,4 +1,4 @@
-"""Shared fixtures and test utilities for Python Code Intelligence MCP tests."""
+"""Shared fixtures and test utilities for PyEye tests."""
 
 import tempfile
 from collections.abc import Generator
@@ -188,8 +188,8 @@ def mock_watchdog_observer() -> Mock:
 
 @pytest.fixture
 def sample_config_json(temp_project_dir: Path) -> Path:
-    """Create a sample .pycodemcp.json config file."""
-    config_file = temp_project_dir / ".pycodemcp.json"
+    """Create a sample .pyeye.json config file."""
+    config_file = temp_project_dir / ".pyeye.json"
     config_file.write_text(
         """{
     "packages": ["../lib1", "../lib2"],
@@ -205,15 +205,15 @@ def sample_config_json(temp_project_dir: Path) -> Path:
 
 @pytest.fixture
 def sample_pyproject_toml(temp_project_dir: Path) -> Path:
-    """Create a sample pyproject.toml with pycodemcp config."""
+    """Create a sample pyproject.toml with pyeye config."""
     config_file = temp_project_dir / "pyproject.toml"
     config_file.write_text(
         """
-[tool.pycodemcp]
+[tool.pyeye]
 packages = ["../shared", "../common"]
 cache_ttl = 300
 
-[tool.pycodemcp.namespaces]
+[tool.pyeye.namespaces]
 mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
 """
     )
@@ -314,6 +314,6 @@ def mock_file_system(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def mock_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up mock environment variables."""
-    monkeypatch.setenv("PYCODEMCP_PACKAGES", "/path/to/pkg1:/path/to/pkg2")
-    monkeypatch.setenv("PYCODEMCP_NAMESPACE_company", "/repos/company-auth:/repos/company-api")
-    monkeypatch.setenv("PYCODEMCP_CACHE_TTL", "600")
+    monkeypatch.setenv("PYEYE_PACKAGES", "/path/to/pkg1:/path/to/pkg2")
+    monkeypatch.setenv("PYEYE_NAMESPACE_company", "/repos/company-auth:/repos/company-api")
+    monkeypatch.setenv("PYEYE_CACHE_TTL", "600")
