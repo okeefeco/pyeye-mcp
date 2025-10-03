@@ -24,7 +24,8 @@ repos:
     hooks:
       - id: pip-audit
         name: Check dependencies with pip-audit
-        entry: uv run pip-audit
+        # Temporarily ignore GHSA-4xh5-x5gv-qwph until pip 25.3 is released
+        entry: uv run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
