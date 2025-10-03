@@ -428,7 +428,7 @@ class PydanticPlugin(AnalyzerPlugin):
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     fields.append(arg.value)
                 elif isinstance(arg, ast.Str):  # Python < 3.8
-                    fields.append(arg.s)
+                    fields.append(arg.s)  # type: ignore[arg-type,unused-ignore]
 
         return fields
 
