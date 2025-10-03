@@ -323,7 +323,7 @@ async def find_references(
 @validate_mcp_inputs
 @metrics.measure("get_type_info")
 async def get_type_info(
-    file: str, line: int, column: int, project_path: str = "."
+    file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
 ) -> dict[str, Any]:
     """Get type information at a specific position.
 
@@ -332,12 +332,14 @@ async def get_type_info(
         line: Line number (1-indexed)
         column: Column number (0-indexed)
         project_path: Root path of the project
+        detailed: Include additional information like methods and attributes (default False)
 
     Returns:
-        Type information including inferred type and docstring
+        Type information including inferred type, docstring, and for classes:
+        base classes and MRO
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.get_type_info(file, line, column)
+    return await analyzer.get_type_info(file, line, column, detailed=detailed)
 
 
 @mcp.tool()

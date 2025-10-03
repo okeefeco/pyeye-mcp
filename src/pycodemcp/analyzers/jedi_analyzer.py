@@ -530,16 +530,20 @@ class JediAnalyzer:
 
         return results
 
-    async def get_type_info(self, file: str, line: int, column: int) -> dict[str, Any]:
+    async def get_type_info(
+        self, file: str, line: int, column: int, detailed: bool = False
+    ) -> dict[str, Any]:
         """Get type information at a specific position.
 
         Args:
             file: Path to the file
             line: Line number (1-indexed)
             column: Column number (0-indexed)
+            detailed: Include additional information like methods and attributes
 
         Returns:
-            Type information including inferred type and docstring
+            Type information including inferred type, docstring, and for classes:
+            base classes and MRO
         """
         try:
             file_path = Path(file)
@@ -562,15 +566,47 @@ class JediAnalyzer:
             }
 
             for inf in inferred:
-                result["inferred_types"].append(
-                    {
-                        "name": inf.name,
-                        "type": inf.type,
-                        "description": inf.description,
-                        "full_name": inf.full_name,
-                        "module_name": inf.module_name,
-                    }
-                )
+                type_info: dict[str, Any] = {
+                    "name": inf.name,
+                    "type": inf.type,
+                    "description": inf.description,
+                    "full_name": inf.full_name,
+                    "module_name": inf.module_name,
+                }
+
+                # Add base classes and MRO for classes
+                if inf.type == "class":
+                    base_classes, mro = await self._get_class_inheritance_info(script, inf)
+                    type_info["base_classes"] = base_classes
+                    type_info["mro"] = mro
+
+                    # Add detailed info if requested
+                    if detailed:
+                        type_info["methods"] = []
+                        type_info["attributes"] = []
+
+                        # Get defined names (methods and attributes)
+                        try:
+                            for defined in inf.defined_names():
+                                if defined.type == "function":
+                                    type_info["methods"].append(
+                                        {
+                                            "name": defined.name,
+                                            "description": defined.description,
+                                        }
+                                    )
+                                elif defined.type in ["statement", "instance"]:
+                                    type_info["attributes"].append(
+                                        {
+                                            "name": defined.name,
+                                            "type": defined.type,
+                                        }
+                                    )
+                        except Exception:
+                            # Some definitions might not support defined_names
+                            pass
+
+                result["inferred_types"].append(type_info)
 
             return result
 
@@ -1903,3 +1939,105 @@ class JediAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to populate dependencies: {e}")
+
+    async def _get_class_inheritance_info(
+        self, script: jedi.Script, class_def: Any
+    ) -> tuple[list[str], list[str]]:
+        """Extract base classes and MRO for a class definition.
+
+        Args:
+            script: The Jedi script instance
+            class_def: The Jedi class definition
+
+        Returns:
+            Tuple of (base_classes, mro) where both are lists of fully qualified names
+        """
+        base_classes = []
+        mro = []
+
+        try:
+            # Try to get base classes from the class definition
+            if hasattr(class_def, "_name") and hasattr(class_def._name, "tree_name"):
+                tree_node = class_def._name.tree_name
+                classdef = tree_node.parent
+
+                # Navigate to find the classdef node
+                while classdef and classdef.type != "classdef":
+                    classdef = classdef.parent
+
+                if classdef:
+                    # Find base classes - they can be directly as name nodes or in arglist
+                    in_bases = False
+                    for _, child in enumerate(classdef.children):
+                        # Start collecting after opening parenthesis
+                        if (
+                            hasattr(child, "type")
+                            and child.type == "operator"
+                            and child.value == "("
+                        ):
+                            in_bases = True
+                            continue
+                        # Stop at closing parenthesis
+                        elif (
+                            hasattr(child, "type")
+                            and child.type == "operator"
+                            and child.value == ")"
+                        ):
+                            in_bases = False
+                            continue
+
+                        # Collect base class names
+                        if in_bases:
+                            if hasattr(child, "type"):
+                                if child.type == "name":
+                                    # Single base class
+                                    try:
+                                        base_line = child.start_pos[0]
+                                        base_column = child.start_pos[1]
+                                        base_inferred = script.infer(base_line, base_column)
+                                        for base_inf in base_inferred:
+                                            if base_inf.full_name:
+                                                base_classes.append(base_inf.full_name)
+                                                break
+                                    except Exception:
+                                        # Fallback to simple name if inference fails
+                                        base_classes.append(child.value)
+
+                                elif child.type == "arglist":
+                                    # Multiple base classes in arglist
+                                    for arg in child.children:
+                                        if hasattr(arg, "type") and arg.type == "name":
+                                            try:
+                                                base_line = arg.start_pos[0]
+                                                base_column = arg.start_pos[1]
+                                                base_inferred = script.infer(base_line, base_column)
+                                                for base_inf in base_inferred:
+                                                    if base_inf.full_name:
+                                                        base_classes.append(base_inf.full_name)
+                                                        break
+                                            except Exception:
+                                                base_classes.append(arg.value)
+
+            # Build MRO
+            if base_classes:
+                # Start with the class itself
+                if class_def.full_name:
+                    mro.append(class_def.full_name)
+
+                # Add base classes (simplified MRO - in practice Python's MRO is more complex)
+                mro.extend(base_classes)
+
+                # Add object if not already present
+                if "builtins.object" not in mro and "object" not in mro:
+                    mro.append("builtins.object")
+            else:
+                # Class with no explicit bases inherits from object
+                if class_def.full_name:
+                    mro = [class_def.full_name, "builtins.object"]
+
+        except Exception as e:
+            logger.debug(f"Could not extract inheritance info: {e}")
+            # Return empty lists on error
+            pass
+
+        return base_classes, mro
