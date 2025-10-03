@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
+from ..constants import PROJECT_NAME
 from ..exceptions import (
     AnalysisError,
     FileAccessError,
@@ -151,7 +152,7 @@ def configure_packages(
     Args:
         packages: List of package paths to include
         namespaces: Namespace packages with their repo paths
-        save: Whether to save configuration to .pycodemcp.json
+        save: Whether to save configuration to .pyeye.json
 
     Returns:
         Current configuration
@@ -195,7 +196,7 @@ def configure_packages(
     return {
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
-        "config_file": str(config.project_path / ".pycodemcp.json"),
+        "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
     }
 
 

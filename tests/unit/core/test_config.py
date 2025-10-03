@@ -280,7 +280,7 @@ setting = "value"
         config.save_config()
 
         # Reload and verify
-        config_file = temp_project_dir / ".pycodemcp.json"
+        config_file = temp_project_dir / ".pyeye.json"
         assert config_file.exists()
 
         saved_data = json.loads(config_file.read_text())

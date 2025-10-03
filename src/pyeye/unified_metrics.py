@@ -14,6 +14,8 @@ from typing import Any
 
 from filelock import FileLock, Timeout
 
+from .constants import METRICS_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,10 +45,10 @@ class UnifiedMetricsCollector:
         """Initialize collector with storage directory.
 
         Args:
-            storage_dir: Directory for metrics storage (defaults to ~/.pycodemcp/metrics)
+            storage_dir: Directory for metrics storage (defaults to ~/.pyeye/metrics)
         """
         if storage_dir is None:
-            storage_dir = Path.home() / ".pycodemcp" / "metrics"
+            storage_dir = Path.home() / METRICS_DIR
 
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)

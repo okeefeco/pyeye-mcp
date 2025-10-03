@@ -6,6 +6,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .constants import (
+    CONFIG_DIR,
+    CONFIG_FILES,
+    LEGACY_CONFIG_DIR,
+    LEGACY_PROJECT_NAME,
+    OVERRIDE_FILE,
+    PROJECT_NAME,
+)
 from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -16,17 +24,7 @@ class ProjectConfig:
 
     # Config file names to check (in order of precedence)
     # Supports both new (.pyeye) and legacy (.pycodemcp) names for backward compatibility
-    CONFIG_FILES = [
-        ".pyeye.json",
-        ".pyeye.yaml",
-        ".pyeye.yml",
-        ".pycodemcp.json",  # Legacy support
-        ".pycodemcp.yaml",  # Legacy support
-        ".pycodemcp.yml",  # Legacy support
-        "pyproject.toml",  # Can read from [tool.pyeye] or [tool.pycodemcp] section
-        ".claude/pyeye.json",
-        ".claude/pycodemcp.json",  # Legacy support
-    ]
+    CONFIG_FILES = CONFIG_FILES
 
     def __init__(self, project_path: str = ".") -> None:
         """Initialize configuration for a project.
@@ -58,7 +56,7 @@ class ProjectConfig:
                 break
 
         # 3. Load override file (highest precedence)
-        override_path = self.project_path / ".pyeye.override.json"
+        override_path = self.project_path / OVERRIDE_FILE
         if override_path.exists():
             self._load_from_file(override_path)
 
@@ -74,14 +72,26 @@ class ProjectConfig:
             if config_path.suffix == ".json":
                 with open(config_path) as f:
                     data = json.load(f)
-                    self.config.update(data.get("pycodemcp", data))
+                    # Support both new and legacy top-level keys
+                    if PROJECT_NAME in data:
+                        self.config.update(data[PROJECT_NAME])
+                    elif LEGACY_PROJECT_NAME in data:
+                        self.config.update(data[LEGACY_PROJECT_NAME])
+                    else:
+                        self.config.update(data)
 
             elif config_path.suffix in [".yaml", ".yml"]:
                 with open(config_path) as f:
                     import yaml  # type: ignore[import-untyped]
 
                     data = yaml.safe_load(f)
-                    self.config.update(data.get("pycodemcp", data))
+                    # Support both new and legacy top-level keys
+                    if PROJECT_NAME in data:
+                        self.config.update(data[PROJECT_NAME])
+                    elif LEGACY_PROJECT_NAME in data:
+                        self.config.update(data[LEGACY_PROJECT_NAME])
+                    else:
+                        self.config.update(data)
 
             elif config_path.name == "pyproject.toml":
                 try:
@@ -94,10 +104,10 @@ class ProjectConfig:
                     # Support both new [tool.pyeye] and legacy [tool.pycodemcp] sections
                     # New name takes precedence
                     if "tool" in data:
-                        if "pyeye" in data["tool"]:
-                            self.config.update(data["tool"]["pyeye"])
-                        elif "pycodemcp" in data["tool"]:
-                            self.config.update(data["tool"]["pycodemcp"])
+                        if PROJECT_NAME in data["tool"]:
+                            self.config.update(data["tool"][PROJECT_NAME])
+                        elif LEGACY_PROJECT_NAME in data["tool"]:
+                            self.config.update(data["tool"][LEGACY_PROJECT_NAME])
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -109,10 +119,10 @@ class ProjectConfig:
         Supports both new (.pyeye) and legacy (.pycodemcp) paths for backward compatibility.
         """
         global_configs = [
-            Path.home() / ".config" / "pyeye" / "config.json",  # New location
-            Path.home() / ".pyeye.json",  # New location
-            Path.home() / ".config" / "pycodemcp" / "config.json",  # Legacy support
-            Path.home() / ".pycodemcp.json",  # Legacy support
+            Path.home() / CONFIG_DIR / "config.json",  # New location
+            Path.home() / f".{PROJECT_NAME}.json",  # New location
+            Path.home() / LEGACY_CONFIG_DIR / "config.json",  # Legacy support
+            Path.home() / f".{LEGACY_PROJECT_NAME}.json",  # Legacy support
         ]
 
         for config_path in global_configs:
@@ -269,10 +279,10 @@ class ProjectConfig:
         """Save current configuration to a file.
 
         Args:
-            config_path: Path to save to (defaults to .pycodemcp.json)
+            config_path: Path to save to (defaults to .pyeye.json)
         """
         if config_path is None:
-            config_path = self.project_path / ".pycodemcp.json"
+            config_path = self.project_path / f".{PROJECT_NAME}.json"
 
         try:
             with open(config_path, "w") as f:
@@ -307,7 +317,7 @@ def create_example_config(project_path: str = ".") -> None:
         "cache": {"ttl_seconds": 300, "max_size_mb": 100},
     }
 
-    config_path = Path(project_path) / ".pycodemcp.json.example"
+    config_path = Path(project_path) / f".{PROJECT_NAME}.json.example"
     with open(config_path, "w") as f:
         json.dump(example, f, indent=2)
 
