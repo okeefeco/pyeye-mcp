@@ -12,7 +12,7 @@
   
       <script src="../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../_static/documentation_options.js?v=f5924a8d"></script>
+      <script src="../../_static/documentation_options.js?v=b61e14bc"></script>
       <script src="../../_static/doctools.js?v=9bcbadda"></script>
       <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../../_static/js/theme.js"></script>
@@ -695,7 +695,7 @@
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_type_info</span><span class="p">(</span>
-    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get type information at a specific position.</span>
 
@@ -704,12 +704,14 @@
 <span class="sd">        line: Line number (1-indexed)</span>
 <span class="sd">        column: Column number (0-indexed)</span>
 <span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        detailed: Include additional information like methods and attributes (default False)</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        Type information including inferred type and docstring</span>
+<span class="sd">        Type information including inferred type, docstring, and for classes:</span>
+<span class="sd">        base classes and MRO</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_type_info</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_type_info</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">detailed</span><span class="o">=</span><span class="n">detailed</span><span class="p">)</span></div>
 
 
 
