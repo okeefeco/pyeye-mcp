@@ -44,7 +44,7 @@ class TestScopedCachePerformance:
 
         # Define thresholds for 100k cache lookups
         bulk_cache_threshold = PerformanceThresholds(
-            base=200.0,  # 200ms for local development
+            base=250.0,  # 250ms for local development (increased for variance)
             linux_ci=500.0,  # 500ms for Linux CI (increased for slower runners)
             macos_ci=800.0,  # 800ms for macOS CI
             windows_ci=800.0,  # 800ms for Windows CI

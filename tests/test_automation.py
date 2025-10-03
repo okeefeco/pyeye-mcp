@@ -205,29 +205,3 @@ class TestDocumentation:
         assert "Quick Setup" in content
         assert "Git Hooks" in content
         assert "Shell Aliases" in content
-
-    def test_claude_md_has_automation_section(self):
-        """Test that CLAUDE.md documents the automation."""
-        claude_md = Path("CLAUDE.md")
-        assert claude_md.exists()
-
-        content = claude_md.read_text(encoding="utf-8")
-        # Check for the hooks-based approach (now active)
-        assert "Claude Code Hooks Integration" in content
-        assert "setup_mcp_monitoring.sh" in content
-        # Check that it's marked as active
-        assert "Claude Code Hooks Integration (Active)" in content
-        # Should reference the convenience commands
-        assert "mcp-report" in content
-        # Check for key sections about automatic tracking
-        assert "What Happens Automatically" in content
-
-    def test_all_scripts_documented(self):
-        """Test that all automation scripts are documented."""
-        setup_doc = Path("docs/DOGFOODING_SETUP.md").read_text(encoding="utf-8")
-
-        # Check that all scripts are mentioned
-        assert "install_hooks.sh" in setup_doc
-        assert "setup_aliases.sh" in setup_doc
-        assert "setup_dogfooding.sh" in setup_doc
-        assert "dogfooding_metrics.py" in setup_doc

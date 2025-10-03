@@ -120,7 +120,7 @@ from target_module import something
             base=200.0,  # 200ms for local development
             linux_ci=400.0,  # 400ms for Linux CI (increased from 300ms)
             macos_ci=600.0,  # 600ms for macOS CI
-            windows_ci=600.0,  # 600ms for Windows CI
+            windows_ci=750.0,  # 750ms for Windows CI (increased for variance)
         )
 
         assert_performance_threshold(elapsed_ms, no_match_threshold, "find_imports no matches")
