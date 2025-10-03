@@ -108,14 +108,14 @@ packages = ["../shared-lib"]
 [tool.pyeye.namespaces]
 company = ["~/repos/company-*"]
 
-[tool.pycodemcp.scope_defaults]
+[tool.pyeye.scope_defaults]
 global = "all"
 
-[tool.pycodemcp.scope_defaults.methods]
+[tool.pyeye.scope_defaults.methods]
 list_modules = "main"
 find_routes = "my-services"
 
-[tool.pycodemcp.scope_aliases]
+[tool.pyeye.scope_aliases]
 my-services = ["main", "namespace:company"]
 ```
 

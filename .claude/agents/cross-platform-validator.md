@@ -92,7 +92,7 @@ To extend the agent with new issue types:
    pathlib_imports = mcp__pyeye__find_imports("pathlib")
 
    # Find path utility usage
-   path_utils = mcp__pyeye__find_imports("pycodemcp.path_utils")
+   path_utils = mcp__pyeye__find_imports("pyeye.path_utils")
    ```
 
 2. **Identify Problems**:

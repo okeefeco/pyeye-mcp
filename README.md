@@ -199,7 +199,7 @@ Add the MCP server configuration to your VS Code settings:
 **Server not connecting:**
 
 - Verify Python path in the configuration
-- Check that `pycodemcp` is installed: `python -m pyeye.mcp --help`
+- Check that `pyeye` is installed: `python -m pyeye.mcp --help`
 - Look for errors in VS Code Output panel → GitHub Copilot Logs
 
 **Import errors:**

@@ -386,11 +386,11 @@ analyze_dependencies("pyeye.mcp")
 # {
 #   "module": "pyeye.mcp",
 #   "imports": {
-#     "internal": ["pycodemcp.config", "pycodemcp.project_manager"],
+#     "internal": ["pyeye.config", "pyeye.project_manager"],
 #     "external": ["fastmcp", "jedi"],
 #     "stdlib": ["pathlib", "logging"]
 #   },
-#   "imported_by": ["pycodemcp.__init__"],
+#   "imported_by": ["pyeye.__init__"],
 #   "circular_dependencies": []
 # }
 ```
@@ -409,7 +409,7 @@ Get detailed information about a specific module.
 **Example:**
 
 ```python
-get_module_info("pycodemcp.analyzer")
+get_module_info("pyeye.analyzer")
 # Returns comprehensive module information including:
 # - Module docstring
 # - All exports (public API)

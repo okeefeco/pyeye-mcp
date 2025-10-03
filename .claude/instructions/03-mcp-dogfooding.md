@@ -134,13 +134,13 @@ subclasses = mcp__pyeye__find_subclasses("ProjectManager")
 
 ```python
 # 1. Understand module structure
-module_info = mcp__pyeye__get_module_info("pycodemcp.cache")
+module_info = mcp__pyeye__get_module_info("pyeye.cache")
 
 # 2. Analyze dependencies
-deps = mcp__pyeye__analyze_dependencies("pycodemcp.cache")
+deps = mcp__pyeye__analyze_dependencies("pyeye.cache")
 
 # 3. Find all imports of this module
-imports = mcp__pyeye__find_imports("pycodemcp.cache")
+imports = mcp__pyeye__find_imports("pyeye.cache")
 
 # 4. Check for circular dependencies
 # deps["circular_dependencies"] will list any found

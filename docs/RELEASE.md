@@ -69,7 +69,7 @@ uv run python -m setuptools_scm
 # Output: 0.2.1.dev0+g1234abc.d20250826
 
 # Version is available in code
-python -c "from pycodemcp import __version__; print(__version__)"
+python -c "from pyeye import __version__; print(__version__)"
 ```
 
 ### In Tagged Releases

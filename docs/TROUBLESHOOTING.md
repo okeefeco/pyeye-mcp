@@ -53,7 +53,7 @@ This guide helps resolve common issues and optimize performance for the Python C
 3. Verify installation:
 
    ```bash
-   python -c "import pyeye; print(pycodemcp.__version__)"
+   python -c "import pyeye; print(pyeye.__version__)"
    ```
 
 ### Dependency Conflicts

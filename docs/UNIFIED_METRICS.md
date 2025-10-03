@@ -38,7 +38,7 @@ The Unified Metrics System provides:
                     ┌────────────▼───────────┐
                     │  Unified Metrics       │
                     │  Persistent Storage    │
-                    │  (~/.pycodemcp/       │
+                    │  (~/.pyeye/       │
                     │   unified_metrics/)    │
                     └────────────┬───────────┘
                                  │
@@ -52,7 +52,7 @@ The Unified Metrics System provides:
 ### Storage Structure
 
 ```text
-~/.pycodemcp/unified_metrics/
+~/.pyeye/unified_metrics/
 ├── active_sessions.json      # Currently running sessions
 ├── completed_sessions.jsonl  # Historical session data
 └── aggregated_stats.json     # Pre-computed statistics
@@ -275,7 +275,7 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 #### No sessions showing up
 
 - Verify MCP server is using the enhanced version with unified metrics
-- Check file permissions on `~/.pycodemcp/unified_metrics/`
+- Check file permissions on `~/.pyeye/unified_metrics/`
 
 #### Concurrent access errors
 
@@ -291,13 +291,13 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 
 ```bash
 # Check storage directory
-ls -la ~/.pycodemcp/unified_metrics/
+ls -la ~/.pyeye/unified_metrics/
 
 # Validate JSON files
-python -m json.tool ~/.pycodemcp/unified_metrics/active_sessions.json
+python -m json.tool ~/.pyeye/unified_metrics/active_sessions.json
 
 # Check recent activity
-tail ~/.pycodemcp/unified_metrics/completed_sessions.jsonl
+tail ~/.pyeye/unified_metrics/completed_sessions.jsonl
 ```
 
 ### Log Analysis
