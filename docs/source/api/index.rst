@@ -24,13 +24,13 @@ Navigation Tools
 .. autosummary::
    :toctree: generated
 
-   pyeye.server.find_symbol
-   pyeye.server.goto_definition
-   pyeye.server.find_references
-   pyeye.server.get_type_info
-   pyeye.server.find_imports
-   pyeye.server.get_call_hierarchy
-   pyeye.server.find_subclasses
+   pyeye.mcp.server.find_symbol
+   pyeye.mcp.server.goto_definition
+   pyeye.mcp.server.find_references
+   pyeye.mcp.server.get_type_info
+   pyeye.mcp.server.find_imports
+   pyeye.mcp.server.get_call_hierarchy
+   pyeye.mcp.server.find_subclasses
 
 Project Management Tools
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -38,10 +38,10 @@ Project Management Tools
 .. autosummary::
    :toctree: generated
 
-   pyeye.server.configure_packages
-   pyeye.server.configure_namespace_package
-   pyeye.server.find_symbol_multi
-   pyeye.server.list_project_structure
+   pyeye.mcp.server.configure_packages
+   pyeye.mcp.server.configure_namespace_package
+   pyeye.mcp.server.find_symbol_multi
+   pyeye.mcp.server.list_project_structure
 
 Analysis Tools
 ~~~~~~~~~~~~~
@@ -49,10 +49,10 @@ Analysis Tools
 .. autosummary::
    :toctree: generated
 
-   pyeye.server.list_packages
-   pyeye.server.list_modules
-   pyeye.server.get_module_info
-   pyeye.server.analyze_dependencies
+   pyeye.mcp.server.list_packages
+   pyeye.mcp.server.list_modules
+   pyeye.mcp.server.get_module_info
+   pyeye.mcp.server.analyze_dependencies
 
 Framework-Specific Tools
 ~~~~~~~~~~~~~~~~~~~~~~~
