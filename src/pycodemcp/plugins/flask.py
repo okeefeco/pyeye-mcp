@@ -122,7 +122,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                             for elt in keyword.value.elts:
                                                 if isinstance(elt, (ast.Str, ast.Constant)):
                                                     if isinstance(elt, ast.Str):
-                                                        methods.append(elt.s)
+                                                        methods.append(elt.s)  # type: ignore[arg-type,unused-ignore]
                                                     elif isinstance(
                                                         elt, ast.Constant
                                                     ) and isinstance(elt.value, str):
@@ -527,7 +527,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                                         decorator.args[0], (ast.Str, ast.Constant)
                                                     ):
                                                         if isinstance(decorator.args[0], ast.Str):
-                                                            command_name = decorator.args[0].s
+                                                            command_name = decorator.args[0].s  # type: ignore[assignment,unused-ignore]
                                                         elif isinstance(
                                                             decorator.args[0], ast.Constant
                                                         ) and isinstance(
