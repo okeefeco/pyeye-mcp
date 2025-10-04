@@ -35,6 +35,9 @@ class ProjectManager:
         # Project dependencies - maps project to its dependencies
         self.dependencies: dict[Path, set[Path]] = {}
 
+        # Standalone script directories - maps project to its standalone dirs
+        self.standalone_dirs: dict[Path, set[Path]] = {}
+
         # Namespace resolver for distributed packages
         self.namespace_resolver = NamespaceResolver()
 
@@ -175,6 +178,13 @@ class ProjectManager:
                     self.watchers[dep_path].stop()
                     del self.watchers[dep_path]
 
+        # Stop standalone directory watchers
+        if project_path in self.standalone_dirs:
+            for standalone_path in self.standalone_dirs[project_path]:
+                if standalone_path in self.watchers:
+                    self.watchers[standalone_path].stop()
+                    del self.watchers[standalone_path]
+
         # Clear cache
         if project_path in self.caches:
             del self.caches[project_path]
@@ -186,6 +196,10 @@ class ProjectManager:
         # Clear dependencies
         if project_path in self.dependencies:
             del self.dependencies[project_path]
+
+        # Clear standalone directories
+        if project_path in self.standalone_dirs:
+            del self.standalone_dirs[project_path]
 
     def _evict_if_needed(self) -> None:
         """Evict least recently used projects if over limit."""
@@ -237,6 +251,7 @@ class ProjectManager:
         This method creates a JediAnalyzer and configures it with:
         - Additional package paths from dependencies
         - Namespace package mappings
+        - Standalone script directories
 
         Args:
             project_path: Path to the project to analyze
@@ -244,8 +259,12 @@ class ProjectManager:
         Returns:
             Configured JediAnalyzer instance
         """
-        # Create the analyzer
-        analyzer = JediAnalyzer(project_path)
+        # Import here to avoid circular imports
+        from .config import ProjectConfig
+
+        # Create the analyzer with project config
+        config = ProjectConfig(project_path)
+        analyzer = JediAnalyzer(project_path, config=config)
 
         # Convert project_path to Path for lookup
         path_key = Path(project_path).resolve()
@@ -265,6 +284,34 @@ class ProjectManager:
                 namespace_strings[ns] = [str(p) for p in paths]
             analyzer.set_namespace_paths(namespace_strings)
             logger.info(f"Configured analyzer with {len(namespace_strings)} namespace mappings")
+
+        # Configure standalone directories from project config
+        standalone_config = config.get_standalone_config()
+        standalone_dirs = standalone_config.get("dirs", [])
+        if standalone_dirs:
+            # Resolve standalone directory paths
+            standalone_paths = []
+            for dir_path in standalone_dirs:
+                resolved_path = Path(dir_path)
+                if not resolved_path.is_absolute():
+                    resolved_path = path_key / resolved_path
+                if resolved_path.exists():
+                    standalone_paths.append(resolved_path)
+                else:
+                    logger.warning(
+                        f"Standalone directory does not exist: {resolved_path.as_posix()}"
+                    )
+
+            if standalone_paths:
+                analyzer.set_standalone_paths(standalone_paths)
+                self.standalone_dirs[path_key] = set(standalone_paths)
+                logger.info(
+                    f"Configured analyzer with {len(standalone_paths)} standalone directories"
+                )
+
+                # Set up watchers for standalone directories
+                for standalone_path in standalone_paths:
+                    self._setup_watcher(standalone_path)
 
         return analyzer
 

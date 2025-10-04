@@ -17,6 +17,7 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 - 📊 **Module & Package Analysis**: List packages/modules, analyze dependencies, detect circular imports
 - 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
+- 📝 **Standalone Scripts**: Analyze notebooks, scripts, and examples alongside formal packages
 - 🔄 **Auto-Update**: Automatically detects and reflects file changes with smart cache invalidation
 - ⚙️ **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
 - 🔌 **Extensible Plugin System**: Framework-specific analyzers (Pydantic, Django, Flask)
