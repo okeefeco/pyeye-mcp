@@ -851,7 +851,7 @@ def load_workflow(workflow_name: str) -> str:
     workflow_file = Path(__file__).parent.parent / "workflows" / f"{workflow_name}.md"
     if not workflow_file.exists():
         raise FileNotFoundError(f"Workflow not found: {workflow_name}")
-    return workflow_file.read_text()
+    return workflow_file.read_text(encoding="utf-8")
 
 
 @mcp.resource("workflows://find-references")

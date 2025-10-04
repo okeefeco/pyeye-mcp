@@ -84,6 +84,7 @@ jobs:
       github.event_name == 'pull_request' &&
       needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15  # Prevent runaway tests
     strategy:
       fail-fast: false
       matrix:
@@ -137,6 +138,7 @@ jobs:
     # Runs on main branch - full matrix for comprehensive testing
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15  # Prevent runaway tests
     strategy:
       fail-fast: false
       matrix:
