@@ -46,6 +46,7 @@ class JediAnalyzer:
         self.project_path = Path(project_path)
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
+        self.standalone_paths: list[Path] = []  # For standalone script directories
         self.config = config
 
         # Initialize scope utilities
@@ -96,6 +97,17 @@ class JediAnalyzer:
         # Invalidate lazy loader cache when namespaces change
         self.lazy_loader.invalidate()
 
+    def set_standalone_paths(self, paths: list[Path]) -> None:
+        """Set standalone script directories.
+
+        Args:
+            paths: List of directories containing standalone Python scripts
+        """
+        self.standalone_paths = paths
+        logger.info(f"Set {len(paths)} standalone script directories for {self.project_path}")
+        # Invalidate cache when standalone paths change
+        self.scoped_cache.invalidate_all()
+
     def _update_validator(self) -> None:
         """Update the scope validator with current configuration."""
         scope_aliases = self.config.get_scope_aliases() if self.config else {}
@@ -115,8 +127,9 @@ class JediAnalyzer:
             pattern: File pattern to search for (e.g., "*.py", "test_*.py")
             scope: Search scope specification - can be:
                 - "main": Just the main project
-                - "all": Everything configured (default)
+                - "all": Everything configured (default) - includes standalone scripts
                 - "packages": All configured packages excluding main
+                - "standalone": Only standalone script directories
                 - "namespace:name": Specific namespace (e.g., "namespace:aac")
                 - "namespace:name.sub": Sub-namespace (e.g., "namespace:aac.tools")
                 - "package:path": Specific package path
@@ -185,7 +198,7 @@ class JediAnalyzer:
                 paths.add(self.project_path)
 
             elif s == "all":
-                # Everything: main + packages + namespaces
+                # Everything: main + packages + namespaces + standalone
                 paths.add(self.project_path)
                 paths.update(self.additional_paths)
                 # Add all namespace paths
@@ -193,10 +206,16 @@ class JediAnalyzer:
                     for ns_path in ns_paths:
                         # For namespace packages, add the proper subdirectory
                         paths.update(self._get_namespace_directory_structure(ns_path))
+                # Add standalone directories
+                paths.update(self.standalone_paths)
 
             elif s == "packages":
                 # All configured packages excluding main
                 paths.update(self.additional_paths)
+
+            elif s == "standalone":
+                # Only standalone script directories
+                paths.update(self.standalone_paths)
 
             elif s.startswith("namespace:"):
                 # Specific namespace or sub-namespace
@@ -342,6 +361,70 @@ class JediAnalyzer:
 
         # Otherwise, assume the repository root is the namespace
         return ns_path
+
+    async def _discover_standalone_files(
+        self,
+        file_pattern: str = "*.py",
+        exclude_patterns: list[str] | None = None,
+    ) -> list[Path]:
+        """Discover standalone Python files in configured directories.
+
+        Args:
+            file_pattern: Glob pattern for files to include (default "*.py")
+            exclude_patterns: List of patterns to exclude
+
+        Returns:
+            List of discovered standalone Python file paths
+        """
+        if not self.standalone_paths:
+            return []
+
+        if exclude_patterns is None:
+            exclude_patterns = []
+
+        # Default excludes for common non-code directories
+        default_excludes = {"__pycache__", ".git", ".venv", "venv", "env", ".tox", "dist", "build"}
+
+        discovered_files = []
+
+        for standalone_dir in self.standalone_paths:
+            if not standalone_dir.exists():
+                logger.warning(f"Standalone directory does not exist: {standalone_dir.as_posix()}")
+                continue
+
+            # Get standalone config from project config
+            standalone_config = self.config.get_standalone_config() if self.config else {}
+            recursive = standalone_config.get("recursive", True)
+
+            # Discover files
+            pattern_to_use = standalone_config.get("file_pattern", file_pattern)
+
+            if recursive:
+                files = standalone_dir.rglob(pattern_to_use)
+            else:
+                files = standalone_dir.glob(pattern_to_use)
+
+            for file_path in files:
+                # Skip if it's in a package (has __init__.py in same directory)
+                if (file_path.parent / "__init__.py").exists():
+                    continue
+
+                # Skip default excludes
+                if any(exclude_dir in file_path.parts for exclude_dir in default_excludes):
+                    continue
+
+                # Skip user-defined excludes
+                should_exclude = False
+                for exclude_pattern in exclude_patterns:
+                    if file_path.match(exclude_pattern):
+                        should_exclude = True
+                        break
+
+                if not should_exclude:
+                    discovered_files.append(file_path)
+
+        logger.info(f"Discovered {len(discovered_files)} standalone files")
+        return discovered_files
 
     async def find_symbol(
         self, name: str, fuzzy: bool = False, include_import_paths: bool = True

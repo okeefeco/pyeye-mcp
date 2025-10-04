@@ -145,13 +145,21 @@ def initialize_plugins(project_path: str = ".") -> None:
 def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
+    standalone_dirs: list[str] | None = None,
+    recursive: bool = True,
+    file_pattern: str = "*.py",
+    exclude_patterns: list[str] | None = None,
     save: bool = True,
 ) -> dict[str, Any]:
-    """Configure additional package locations for analysis.
+    """Configure additional package locations and standalone script directories for analysis.
 
     Args:
         packages: List of package paths to include
         namespaces: Namespace packages with their repo paths
+        standalone_dirs: Directories containing standalone Python scripts (non-packages)
+        recursive: Whether to scan standalone directories recursively (default True)
+        file_pattern: Glob pattern for standalone files (default "*.py")
+        exclude_patterns: Patterns to exclude from standalone scanning (default [])
         save: Whether to save configuration to .pyeye.json
 
     Returns:
@@ -162,7 +170,9 @@ def configure_packages(
             packages=["../my-lib", "~/repos/shared-utils"],
             namespaces={
                 "company": ["~/repos/company-auth", "~/repos/company-api"]
-            }
+            },
+            standalone_dirs=["notebooks", "scripts", "examples"],
+            exclude_patterns=["**/test_*", "**/__pycache__/**"]
         )
     """
     # Load existing config
@@ -177,8 +187,18 @@ def configure_packages(
     if namespaces:
         config.config.setdefault("namespaces", {}).update(namespaces)
 
+    if standalone_dirs:
+        # Update standalone configuration
+        standalone_config = config.config.setdefault("standalone", {})
+        standalone_config.setdefault("dirs", []).extend(standalone_dirs)
+        standalone_config["recursive"] = recursive
+        standalone_config["file_pattern"] = file_pattern
+        if exclude_patterns is None:
+            exclude_patterns = []
+        standalone_config["exclude_patterns"] = exclude_patterns
+
     # Save if requested
-    if save and (packages or namespaces):
+    if save and (packages or namespaces or standalone_dirs):
         config.save_config()
 
     # Apply configuration to project manager
@@ -196,6 +216,7 @@ def configure_packages(
     return {
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
+        "standalone": config.get_standalone_config(),
         "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
     }
 

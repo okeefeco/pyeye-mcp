@@ -253,6 +253,32 @@ class ProjectConfig:
         aliases = self.config.get("scope_aliases", {})
         return dict(aliases) if aliases else {}
 
+    def get_standalone_config(self) -> dict[str, Any]:
+        """Get standalone scripts configuration.
+
+        Returns:
+            Dictionary with standalone directory configuration including:
+            - dirs: List of directories containing standalone scripts
+            - recursive: Whether to scan subdirectories (default True)
+            - file_pattern: Pattern to match files (default "*.py")
+            - exclude_patterns: Patterns to exclude (default [])
+        """
+        standalone = self.config.get("standalone", {})
+        if not standalone:
+            return {
+                "dirs": [],
+                "recursive": True,
+                "file_pattern": "*.py",
+                "exclude_patterns": [],
+            }
+
+        return {
+            "dirs": standalone.get("dirs", []),
+            "recursive": standalone.get("recursive", True),
+            "file_pattern": standalone.get("file_pattern", "*.py"),
+            "exclude_patterns": standalone.get("exclude_patterns", []),
+        }
+
     def save_config(self, config_path: Path | None = None) -> None:
         """Save current configuration to a file.
 
@@ -290,6 +316,12 @@ def create_example_config(project_path: str = ".") -> None:
                 "~/repos/mycompany-core",
             ],
             "plugins": ["./plugins/*", "~/repos/community-plugins/*"],
+        },
+        "standalone": {
+            "dirs": ["notebooks", "scripts", "examples"],
+            "recursive": True,
+            "file_pattern": "*.py",
+            "exclude_patterns": ["**/test_*", "**/__pycache__/**"],
         },
         "exclude": ["**/tests/**", "**/migrations/**", "**/__pycache__/**"],
         "cache": {"ttl_seconds": 300, "max_size_mb": 100},

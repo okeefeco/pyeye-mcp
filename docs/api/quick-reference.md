@@ -65,6 +65,23 @@ configure_namespace_package(
 find_in_namespace("company.auth.User", namespace_repos=[...])
 ```
 
+### Standalone Scripts
+
+```python
+# Configure standalone Python scripts (non-package files)
+configure_packages(
+    standalone_dirs=["notebooks", "scripts", "examples"],
+    recursive=True,                                 # Scan subdirectories
+    file_pattern="*.py",                            # File pattern to match
+    exclude_patterns=["**/test_*", "__pycache__"]  # Patterns to exclude
+)
+
+# Standalone scripts are automatically included in:
+# - find_references() - finds usages in notebooks/scripts
+# - find_imports() - tracks imports from standalone files
+# - find_symbol() - finds definitions in standalone scripts
+```
+
 ## 🎯 Framework-Specific Tools
 
 ### Pydantic (7 tools)
