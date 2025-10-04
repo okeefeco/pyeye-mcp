@@ -249,7 +249,7 @@ Configuration is loaded in the following order (later sources override earlier o
 1. **Global Config**: `~/.config/pyeye/config.json` or `~/.pyeye.json` - User defaults
 2. **Project Config**: `.pyeye.json` in project root or `[tool.pyeye]` in `pyproject.toml`
 3. **Override File**: `.pyeye.override.json` - Local development overrides (git-ignored)
-4. **Auto-Discovery**: Automatically finds sibling packages if no packages configured
+4. **Auto-Discovery**: Automatically detects source layouts and sibling packages if no packages configured
 
 ### Using Override Files
 
@@ -314,6 +314,43 @@ export PYEYE_MAX_WORKERS=2          # Fewer workers
 ```
 
 This file is automatically ignored by git and takes precedence over all other configuration sources.
+
+### Auto-Detection of Source Layouts
+
+PyEye automatically detects source layouts from `pyproject.toml` build backend metadata, supporting projects that use the `src/` directory pattern. This works with multiple build backends:
+
+**Setuptools:**
+
+```toml
+[tool.setuptools.packages.find]
+where = ["src"]
+```
+
+**Poetry:**
+
+```toml
+[[tool.poetry.packages]]
+include = "mypackage"
+from = "src"
+```
+
+**Hatch:**
+
+```toml
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+```
+
+**PDM:**
+
+```toml
+[tool.pdm.build]
+package-dir = "src"
+```
+
+If no configuration is found in `pyproject.toml`, PyEye will also check for the presence of a `src/` directory containing Python packages and automatically add it to the package paths.
+
+**Note:** Explicit `[tool.pyeye]` configuration always takes precedence over auto-detected layouts.
 
 ## Workflow Resources
 

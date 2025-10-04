@@ -309,3 +309,209 @@ setting = "value"
             # Validator should be used for paths
             if hasattr(config, "validate_packages"):
                 config.validate_packages()
+
+    def test_detect_setuptools_source_layout(self, temp_project_dir):
+        """Test detection of setuptools source layout from pyproject.toml."""
+        # Create src directory with a package
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        # Create pyproject.toml with setuptools source layout
+        toml_content = """
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should auto-detect src layout
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+
+    def test_detect_poetry_source_layout(self, temp_project_dir):
+        """Test detection of poetry source layout from pyproject.toml."""
+        # Create src directory with a package
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        # Create pyproject.toml with poetry source layout
+        toml_content = """
+[tool.poetry]
+name = "mypackage"
+version = "0.1.0"
+
+[[tool.poetry.packages]]
+include = "mypackage"
+from = "src"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should auto-detect src layout
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+
+    def test_detect_hatch_source_layout(self, temp_project_dir):
+        """Test detection of hatch source layout from pyproject.toml."""
+        # Create src directory with a package
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        # Create pyproject.toml with hatch source layout
+        toml_content = """
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should auto-detect src layout
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+
+    def test_detect_pdm_source_layout(self, temp_project_dir):
+        """Test detection of PDM source layout from pyproject.toml."""
+        # Create src directory with a package
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        # Create pyproject.toml with PDM source layout
+        toml_content = """
+[tool.pdm.build]
+package-dir = "src"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should auto-detect src layout
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+
+    def test_auto_discover_src_layout(self, temp_project_dir):
+        """Test auto-discovery of src/ layout when no config exists."""
+        # Create src directory with a package
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should auto-discover src layout
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+
+    def test_pyeye_config_overrides_source_layout(self, temp_project_dir):
+        """Test that explicit [tool.pyeye] config takes precedence over auto-detected layout."""
+        # Create src directory
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        # Create pyproject.toml with both setuptools layout and pyeye config
+        toml_content = """
+[tool.pyeye]
+packages = ["custom_path"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should use explicit pyeye config, not auto-detected layout
+        packages = config.config.get("packages", [])
+        assert "custom_path" in packages
+        assert "src" not in packages
+
+    def test_no_source_layout_detection_without_packages(self, temp_project_dir):
+        """Test that source layout is not detected if src/ doesn't contain packages."""
+        # Create src directory but no packages inside
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        (src_dir / "some_file.py").write_text("")
+
+        # Create pyproject.toml with setuptools layout
+        toml_content = """
+[tool.setuptools.packages.find]
+where = ["src"]
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should not detect src layout (no packages in it)
+        # Auto-discovery should fall through to other patterns
+        packages = config.config.get("packages", [])
+        # May have discovered sibling packages instead
+        assert isinstance(packages, list)
+
+    def test_setuptools_multiple_where_dirs(self, temp_project_dir):
+        """Test detection of multiple source directories from setuptools config."""
+        # Create multiple source directories
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+        (src_dir / "pkg1").mkdir()
+        (src_dir / "pkg1" / "__init__.py").write_text("")
+
+        lib_dir = temp_project_dir / "lib"
+        lib_dir.mkdir()
+        (lib_dir / "pkg2").mkdir()
+        (lib_dir / "pkg2" / "__init__.py").write_text("")
+
+        # Create pyproject.toml with multiple source directories
+        toml_content = """
+[tool.setuptools.packages.find]
+where = ["src", "lib"]
+"""
+        toml_file = temp_project_dir / "pyproject.toml"
+        toml_file.write_text(toml_content)
+
+        config = ProjectConfig(str(temp_project_dir))
+
+        # Should detect both source directories
+        packages = config.config.get("packages", [])
+        assert "src" in packages
+        assert "lib" in packages

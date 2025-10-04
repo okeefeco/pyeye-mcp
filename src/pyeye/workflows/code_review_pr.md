@@ -28,6 +28,21 @@ Perform comprehensive pull request reviews combining automated checks, semantic 
 - Manual review focuses on design and logic
 - Constructive feedback promotes growth
 
+## Steps
+
+This workflow consists of 8 phases (see detailed process below):
+
+1. **Automated Analysis** - Verify CI passes (5 min)
+2. **PR Context Understanding** - Read PR and understand changes (10 min)
+3. **Semantic Impact Analysis** - Use MCP tools to analyze impact (15 min)
+4. **Code Standards Review** - Check PEP compliance and best practices (10 min)
+5. **Security Review** - OWASP security checklist (15 min)
+6. **Testing Review** - Verify test quality and coverage (10 min)
+7. **Architecture & Design Review** - Check SOLID principles (15 min)
+8. **Manual Code Review** - Review logic, readability, performance (20 min)
+
+**Total time**: 15-20 minutes (small PR), 30-45 minutes (medium PR), 1-2 hours (large PR)
+
 ## Complete Review Process
 
 ### Phase 1: Automated Analysis (5 minutes)

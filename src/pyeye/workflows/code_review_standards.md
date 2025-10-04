@@ -23,6 +23,23 @@ This workflow enforces:
 - **Testing** - pytest best practices, 80%+ coverage
 - **Security** - Basic security patterns
 
+## Steps
+
+1. **Run automated checks** - ruff, black, mypy, pytest with coverage
+2. **Review code categories** - See detailed categories below:
+   - Code Style & Formatting (PEP 8)
+   - Type Safety & Type Hints (PEP 484)
+   - Documentation (PEP 257)
+   - Modern Python Features (3.10+)
+   - Testing Best Practices
+   - Common Anti-Patterns
+   - Architecture & Design
+   - Error Handling
+   - Import Organization
+   - Performance Considerations
+3. **MCP-enhanced analysis** - Use semantic tools to understand code structure
+4. **Manual code review** - Verify against checklist
+
 ## Review Categories
 
 ### 1. Code Style & Formatting (PEP 8)

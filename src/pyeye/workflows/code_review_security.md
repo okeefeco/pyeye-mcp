@@ -20,6 +20,17 @@ Combines:
 - **Manual review** - OWASP checklist
 - **Semantic analysis** - MCP tools for data flow tracing
 
+## Steps
+
+1. **Automated Scanning** - Run security tools (bandit, pip-audit, safety, detect-secrets)
+2. **Input Validation Review** - Trace user input flow with MCP tools
+3. **Authentication/Authorization Review** - Find and verify auth patterns
+4. **Data Flow Analysis** - Trace sensitive data with `get_call_hierarchy()`
+5. **Framework-Specific Review** - Use framework plugins (Flask/Django)
+6. **Review OWASP checklist** - Verify all security categories below
+
+See "Security Review Workflow" section for detailed process.
+
 ## OWASP Security Checklist
 
 ### 1. Input Validation

@@ -87,8 +87,15 @@ class ProjectConfig:
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
+
+                    # Read PyEye-specific config first
                     if "tool" in data and PROJECT_NAME in data["tool"]:
                         self.config.update(data["tool"][PROJECT_NAME])
+
+                    # Auto-detect source layouts from build backend metadata
+                    # Only apply if no packages already configured
+                    if not self.config.get("packages"):
+                        self._detect_source_layout(data)
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -115,8 +122,97 @@ class ProjectConfig:
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
 
+    def _detect_source_layout(self, pyproject_data: dict[str, Any]) -> None:
+        """Detect source layout from pyproject.toml build backend metadata.
+
+        Supports multiple build backends:
+        - setuptools: [tool.setuptools.packages.find.where]
+        - poetry: [tool.poetry.packages]
+        - hatch: [tool.hatch.build.targets.wheel.sources]
+        - pdm: [tool.pdm.build.source-includes]
+        - flit: [tool.flit.module] (less common for src layouts)
+
+        Args:
+            pyproject_data: Parsed pyproject.toml data
+        """
+        if "tool" not in pyproject_data:
+            return
+
+        tool_config = pyproject_data["tool"]
+        detected_paths: list[str] = []
+
+        # Setuptools: [tool.setuptools.packages.find]
+        if "setuptools" in tool_config:
+            setuptools_config = tool_config["setuptools"]
+
+            # Check packages.find.where
+            if "packages" in setuptools_config:
+                packages_config = setuptools_config["packages"]
+                if "find" in packages_config:
+                    where = packages_config["find"].get("where", [])
+                    if isinstance(where, list):
+                        detected_paths.extend(where)
+                    elif isinstance(where, str):
+                        detected_paths.append(where)
+
+        # Poetry: [tool.poetry.packages]
+        if "poetry" in tool_config:
+            poetry_config = tool_config["poetry"]
+            if "packages" in poetry_config:
+                for package in poetry_config["packages"]:
+                    if "from" in package:
+                        detected_paths.append(package["from"])
+
+        # Hatch: [tool.hatch.build.targets.wheel]
+        if "hatch" in tool_config:
+            hatch_config = tool_config["hatch"]
+            if "build" in hatch_config:
+                build_config = hatch_config["build"]
+                if "targets" in build_config and "wheel" in build_config["targets"]:
+                    wheel_config = build_config["targets"]["wheel"]
+                    if "sources" in wheel_config:
+                        sources = wheel_config["sources"]
+                        if isinstance(sources, list):
+                            detected_paths.extend(sources)
+                        elif isinstance(sources, str):
+                            detected_paths.append(sources)
+
+        # PDM: [tool.pdm.build]
+        if "pdm" in tool_config:
+            pdm_config = tool_config["pdm"]
+            if "build" in pdm_config:
+                build_config = pdm_config["build"]
+                # PDM typically uses source-includes or package-dir
+                if "package-dir" in build_config:
+                    detected_paths.append(build_config["package-dir"])
+
+        # If paths detected, add them to config
+        if detected_paths:
+            # Validate and add only existing directories
+            valid_paths = []
+            for path in detected_paths:
+                full_path = self.project_path / path
+                if full_path.exists() and full_path.is_dir():
+                    valid_paths.append(path)
+
+            if valid_paths:
+                self.config.setdefault("packages", []).extend(valid_paths)
+                logger.info(f"Auto-detected source layout from pyproject.toml: {valid_paths}")
+
     def _auto_discover(self) -> None:
         """Auto-discover package locations."""
+        # Check for src layout first (most specific pattern)
+        src_dir = self.project_path / "src"
+        if src_dir.exists() and src_dir.is_dir():
+            # Check if src/ contains Python packages
+            has_packages = any(
+                (item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()
+            )
+            if has_packages:
+                self.config.setdefault("packages", []).append("src")
+                logger.info("Auto-detected source layout: src/")
+                return  # Don't look for other patterns if src/ found
+
         # Look for common patterns
         parent = self.project_path.parent
 
