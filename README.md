@@ -342,6 +342,9 @@ ListMcpResourcesTool(server="pyeye")
 "Use pyeye refactoring workflow"
 "Use pyeye code-understanding workflow"
 "Use pyeye dependency-analysis workflow"
+"Use pyeye code-review-standards workflow"
+"Use pyeye code-review-security workflow"
+"Use pyeye code-review-pr workflow"
 ```
 
 **Permanent (adoption):**
@@ -372,6 +375,21 @@ The AI will fetch the workflow, add it to your context file, and automatically f
    - Map import relationships and identify circular dependencies
    - Calculate coupling metrics and assess change impact
    - Understand architectural patterns and module relationships
+
+5. **code-review-standards** - Python code review best practices (2025)
+   - Industry standards: PEP 8, PEP 257, PEP 484, modern Python features
+   - MCP-enhanced analysis: Type safety, anti-patterns, architecture review
+   - Automated checks combined with semantic understanding
+
+6. **code-review-security** - OWASP security code review
+   - Security checklist: Input validation, injection prevention, auth patterns
+   - Data flow analysis using MCP tools (trace user input through code)
+   - Framework-specific security (Flask/Django plugin integration)
+
+7. **code-review-pr** - Complete pull request review workflow
+   - Combines automated checks, semantic analysis, and manual review
+   - Step-by-step process: CI validation → impact analysis → standards → security
+   - Constructive feedback guidelines and time budgets
 
 ### Example Usage Flow
 
