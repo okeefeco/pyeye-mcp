@@ -120,6 +120,27 @@ class TestWorkflowResourceHandlers:
         assert "def load_workflow" in content, "load_workflow function should exist"
         assert "workflow_name: str" in content, "load_workflow should take workflow_name parameter"
 
+    def test_load_workflow_runtime(self):
+        """Verify load_workflow can actually load workflow files at runtime."""
+        from src.pyeye.mcp.server import load_workflow
+
+        # Test loading each workflow (discover from filesystem)
+        workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
+        workflow_files = list(workflows_dir.glob("*.md"))
+
+        assert len(workflow_files) > 0, "Should have at least one workflow file"
+
+        for workflow_file in workflow_files:
+            workflow_name = workflow_file.stem  # filename without .md extension
+
+            # Should not raise FileNotFoundError
+            content = load_workflow(workflow_name)
+
+            # Verify content is loaded
+            assert content, f"Workflow {workflow_name} should have content"
+            assert len(content) > 100, f"Workflow {workflow_name} should have substantial content"
+            assert isinstance(content, str), f"Workflow {workflow_name} should return string"
+
     def test_resource_decorators_exist(self):
         """Verify all workflow resource decorators are defined."""
         server_file = Path(__file__).parent.parent / "src" / "pyeye" / "mcp" / "server.py"
