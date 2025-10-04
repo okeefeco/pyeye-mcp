@@ -87,8 +87,15 @@ class ProjectConfig:
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)
+
+                    # Read PyEye-specific config first
                     if "tool" in data and PROJECT_NAME in data["tool"]:
                         self.config.update(data["tool"][PROJECT_NAME])
+
+                    # Auto-detect source layouts from build backend metadata
+                    # Only apply if no packages already configured
+                    if not self.config.get("packages"):
+                        self._detect_source_layout(data)
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
@@ -115,13 +122,160 @@ class ProjectConfig:
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
 
-    def _auto_discover(self) -> None:
-        """Auto-discover package locations."""
-        # Look for common patterns
+    def _detect_setuptools_layout(self, tool_config: dict[str, Any]) -> list[str]:
+        """Extract setuptools [tool.setuptools.packages.find.where].
+
+        Args:
+            tool_config: The [tool] section from pyproject.toml
+
+        Returns:
+            List of detected paths
+        """
+        paths = []
+        if "setuptools" in tool_config:
+            setuptools_config = tool_config["setuptools"]
+            if "packages" in setuptools_config:
+                packages_config = setuptools_config["packages"]
+                if "find" in packages_config:
+                    where = packages_config["find"].get("where", [])
+                    if isinstance(where, list):
+                        paths.extend(where)
+                    elif isinstance(where, str):
+                        paths.append(where)
+        return paths
+
+    def _detect_poetry_layout(self, tool_config: dict[str, Any]) -> list[str]:
+        """Extract poetry [tool.poetry.packages].
+
+        Args:
+            tool_config: The [tool] section from pyproject.toml
+
+        Returns:
+            List of detected paths
+        """
+        paths = []
+        if "poetry" in tool_config:
+            poetry_config = tool_config["poetry"]
+            if "packages" in poetry_config:
+                for package in poetry_config["packages"]:
+                    if "from" in package:
+                        paths.append(package["from"])
+        return paths
+
+    def _detect_hatch_layout(self, tool_config: dict[str, Any]) -> list[str]:
+        """Extract hatch [tool.hatch.build.targets.wheel.sources].
+
+        Args:
+            tool_config: The [tool] section from pyproject.toml
+
+        Returns:
+            List of detected paths
+        """
+        paths = []
+        if "hatch" in tool_config:
+            hatch_config = tool_config["hatch"]
+            if "build" in hatch_config:
+                build_config = hatch_config["build"]
+                if "targets" in build_config and "wheel" in build_config["targets"]:
+                    wheel_config = build_config["targets"]["wheel"]
+                    if "sources" in wheel_config:
+                        sources = wheel_config["sources"]
+                        if isinstance(sources, list):
+                            paths.extend(sources)
+                        elif isinstance(sources, str):
+                            paths.append(sources)
+        return paths
+
+    def _detect_pdm_layout(self, tool_config: dict[str, Any]) -> list[str]:
+        """Extract PDM [tool.pdm.build.package-dir].
+
+        Args:
+            tool_config: The [tool] section from pyproject.toml
+
+        Returns:
+            List of detected paths
+        """
+        paths = []
+        if "pdm" in tool_config:
+            pdm_config = tool_config["pdm"]
+            if "build" in pdm_config:
+                build_config = pdm_config["build"]
+                if "package-dir" in build_config:
+                    paths.append(build_config["package-dir"])
+        return paths
+
+    def _add_detected_paths(self, detected_paths: list[str]) -> None:
+        """Validate and add detected paths to config.
+
+        Args:
+            detected_paths: List of paths detected from build backend metadata
+        """
+        if not detected_paths:
+            return
+
+        valid_paths = []
+        for path in detected_paths:
+            full_path = self.project_path / path
+            if full_path.exists() and full_path.is_dir():
+                valid_paths.append(path)
+
+        if valid_paths:
+            self.config.setdefault("packages", []).extend(valid_paths)
+            logger.info(f"Auto-detected source layout from pyproject.toml: {valid_paths}")
+
+    def _detect_source_layout(self, pyproject_data: dict[str, Any]) -> None:
+        """Detect source layout from pyproject.toml build backend metadata.
+
+        Supports multiple build backends:
+        - setuptools: [tool.setuptools.packages.find.where]
+        - poetry: [tool.poetry.packages]
+        - hatch: [tool.hatch.build.targets.wheel.sources]
+        - pdm: [tool.pdm.build.package-dir]
+
+        Args:
+            pyproject_data: Parsed pyproject.toml data
+        """
+        if "tool" not in pyproject_data:
+            return
+
+        tool_config = pyproject_data["tool"]
+        detected_paths: list[str] = []
+
+        # Delegate to specialized methods
+        detected_paths.extend(self._detect_setuptools_layout(tool_config))
+        detected_paths.extend(self._detect_poetry_layout(tool_config))
+        detected_paths.extend(self._detect_hatch_layout(tool_config))
+        detected_paths.extend(self._detect_pdm_layout(tool_config))
+
+        self._add_detected_paths(detected_paths)
+
+    def _discover_src_layout(self) -> bool:
+        """Check for src/ layout and add if found.
+
+        Returns:
+            True if src/ layout was found and added, False otherwise
+        """
+        src_dir = self.project_path / "src"
+        if src_dir.exists() and src_dir.is_dir():
+            # Check if src/ contains Python packages
+            has_packages = any(
+                (item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()
+            )
+            if has_packages:
+                self.config.setdefault("packages", []).append("src")
+                logger.info("Auto-detected source layout: src/")
+                return True
+        return False
+
+    def _discover_sibling_packages(self) -> list[str]:
+        """Discover sibling packages in parent directory.
+
+        Returns:
+            List of sibling package paths
+        """
+        potential_packages = []
         parent = self.project_path.parent
 
-        # Check for sibling packages
-        potential_packages = []
         if parent != self.project_path:
             try:
                 for sibling in parent.iterdir():
@@ -131,16 +285,21 @@ class ProjectConfig:
                             and sibling != self.project_path
                             and (any(sibling.glob("*.py")) or (sibling / "setup.py").exists())
                         ):
-                            # It's a Python package
                             potential_packages.append(str(sibling))
                     except (PermissionError, OSError):
-                        # Skip inaccessible directories
                         continue
             except (PermissionError, OSError):
-                # Can't access parent directory
                 pass
 
-        # Check for virtualenv site-packages
+        return potential_packages
+
+    def _discover_venv_packages(self) -> list[str]:
+        """Discover packages in virtualenv site-packages.
+
+        Returns:
+            List of site-packages paths
+        """
+        potential_packages = []
         venv_paths = [
             self.project_path / "venv" / "lib",
             self.project_path / ".venv" / "lib",
@@ -149,13 +308,105 @@ class ProjectConfig:
 
         for venv_path in venv_paths:
             if venv_path.exists():
-                # Find site-packages
                 for site_packages in venv_path.rglob("site-packages"):
                     potential_packages.append(str(site_packages))
+
+        return potential_packages
+
+    def _auto_discover(self) -> None:
+        """Auto-discover package locations."""
+        # Check for src layout first (most specific pattern)
+        if self._discover_src_layout():
+            return  # Don't look for other patterns if src/ found
+
+        # Discover sibling packages and virtualenv packages
+        potential_packages = []
+        potential_packages.extend(self._discover_sibling_packages())
+        potential_packages.extend(self._discover_venv_packages())
 
         if potential_packages:
             logger.info(f"Auto-discovered packages: {potential_packages}")
             self.config.setdefault("packages", []).extend(potential_packages)
+
+    def _process_package_path(self, package: str) -> list[str]:
+        """Process a single package path, handling globs and validation.
+
+        Args:
+            package: Package path (may contain glob patterns)
+
+        Returns:
+            List of validated paths
+        """
+        paths = []
+        try:
+            if "*" in package:
+                from glob import glob
+
+                expanded = glob(os.path.expanduser(package))
+                for exp_path in expanded:
+                    validated = PathValidator.validate_path(exp_path)
+                    paths.append(str(validated))
+            else:
+                # Resolve relative to project directory
+                if not os.path.isabs(package):
+                    package = os.path.join(str(self.project_path), package)
+                validated = PathValidator.validate_path(package)
+                if validated.exists():
+                    paths.append(str(validated))
+        except ValidationError as e:
+            logger.warning(f"Skipping invalid package path {package}: {e}")
+
+        return paths
+
+    def _process_namespace_paths(self, namespaces: dict[str, list[str]]) -> list[str]:
+        """Process namespace paths, handling globs and validation.
+
+        Args:
+            namespaces: Dictionary mapping namespace to paths
+
+        Returns:
+            List of validated paths
+        """
+        paths = []
+        for _namespace, ns_paths in namespaces.items():
+            for ns_path in ns_paths:
+                try:
+                    if "*" in ns_path:
+                        from glob import glob
+
+                        expanded = glob(os.path.expanduser(ns_path))
+                        for exp_path in expanded:
+                            validated = PathValidator.validate_path(exp_path)
+                            paths.append(str(validated))
+                    else:
+                        validated = PathValidator.validate_path(ns_path)
+                        if validated.exists():
+                            paths.append(str(validated))
+                except ValidationError as e:
+                    logger.warning(
+                        f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"
+                    )
+
+        return paths
+
+    def _deduplicate_paths(self, paths: list[str]) -> list[str]:
+        """Remove duplicate paths while preserving order.
+
+        Args:
+            paths: List of paths (may contain duplicates)
+
+        Returns:
+            List of unique paths in original order
+        """
+        seen = set()
+        unique_paths: list[str] = []
+        for path in paths:
+            path_str = Path(path).as_posix()
+            if path_str not in seen:
+                seen.add(path_str)
+                unique_paths.append(path_str)
+
+        return unique_paths
 
     def get_package_paths(self) -> list[str]:
         """Get all configured package paths.
@@ -167,64 +418,17 @@ class ProjectConfig:
 
         # Add configured packages
         for package in self.config.get("packages", []):
-            try:
-                # Support glob patterns
-                if "*" in package:
-                    from glob import glob
-
-                    expanded = glob(os.path.expanduser(package))
-                    for exp_path in expanded:
-                        # Validate each expanded path
-                        validated = PathValidator.validate_path(exp_path)
-                        paths.append(str(validated))
-                else:
-                    # Resolve relative to project directory
-                    if not os.path.isabs(package):
-                        package = os.path.join(str(self.project_path), package)
-                    # Validate the path
-                    validated = PathValidator.validate_path(package)
-                    if validated.exists():
-                        paths.append(str(validated))
-            except ValidationError as e:
-                logger.warning(f"Skipping invalid package path {package}: {e}")
-                continue
+            paths.extend(self._process_package_path(package))
 
         # Add namespace paths
-        for _namespace, ns_paths in self.config.get("namespaces", {}).items():
-            for ns_path in ns_paths:
-                try:
-                    if "*" in ns_path:
-                        from glob import glob
-
-                        expanded = glob(os.path.expanduser(ns_path))
-                        for exp_path in expanded:
-                            # Validate each expanded path
-                            validated = PathValidator.validate_path(exp_path)
-                            paths.append(str(validated))
-                    else:
-                        # Validate the path
-                        validated = PathValidator.validate_path(ns_path)
-                        if validated.exists():
-                            paths.append(str(validated))
-                except ValidationError as e:
-                    logger.warning(
-                        f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"
-                    )
-                    continue
+        namespaces = self.config.get("namespaces", {})
+        paths.extend(self._process_namespace_paths(namespaces))
 
         # Always include current project
         paths.insert(0, str(self.project_path))
 
         # Remove duplicates while preserving order
-        seen = set()
-        unique_paths: list[str] = []
-        for path in paths:
-            path_str = Path(path).as_posix()
-            if path_str not in seen:
-                seen.add(path_str)
-                unique_paths.append(path_str)
-
-        return unique_paths
+        return self._deduplicate_paths(paths)
 
     def get_namespaces(self) -> dict[str, list[str]]:
         """Get configured namespace packages.

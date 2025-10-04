@@ -848,10 +848,10 @@ def load_workflow(workflow_name: str) -> str:
     Raises:
         FileNotFoundError: If workflow file doesn't exist
     """
-    workflow_file = Path(__file__).parent / "workflows" / f"{workflow_name}.md"
+    workflow_file = Path(__file__).parent.parent / "workflows" / f"{workflow_name}.md"
     if not workflow_file.exists():
         raise FileNotFoundError(f"Workflow not found: {workflow_name}")
-    return workflow_file.read_text()
+    return workflow_file.read_text(encoding="utf-8")
 
 
 @mcp.resource("workflows://find-references")
@@ -904,6 +904,48 @@ def get_dependency_analysis_workflow() -> str:
         Markdown workflow documentation
     """
     return load_workflow("dependency_analysis")
+
+
+@mcp.resource("workflows://code-review-standards")
+def get_code_review_standards_workflow() -> str:
+    """Get the Python Code Review Standards workflow.
+
+    This workflow provides industry best practices for Python code review
+    including PEP standards, modern Python features, type safety, testing,
+    and anti-pattern detection with MCP-enhanced semantic analysis.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("code_review_standards")
+
+
+@mcp.resource("workflows://code-review-security")
+def get_code_review_security_workflow() -> str:
+    """Get the Python Security Code Review workflow.
+
+    This workflow provides OWASP security guidelines for Python code review
+    including input validation, injection prevention, authentication patterns,
+    and data flow analysis using MCP tools.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("code_review_security")
+
+
+@mcp.resource("workflows://code-review-pr")
+def get_code_review_pr_workflow() -> str:
+    """Get the Complete Pull Request Review workflow.
+
+    This workflow provides a comprehensive PR review process combining
+    automated checks, semantic analysis, code standards, security review,
+    and manual review best practices.
+
+    Returns:
+        Markdown workflow documentation
+    """
+    return load_workflow("code_review_pr")
 
 
 # Main entry point
