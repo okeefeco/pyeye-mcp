@@ -35,13 +35,13 @@ This workflow consists of 8 phases (see detailed process below):
 1. **Automated Analysis** - Verify CI passes (5 min)
 2. **PR Context Understanding** - Read PR and understand changes (10 min)
 3. **Semantic Impact Analysis** - Use MCP tools to analyze impact (15 min)
-4. **Code Standards Review** - Check PEP compliance and best practices (10 min)
+4. **Code Standards Review** - Check PEP compliance, quality metrics, and best practices (15 min)
 5. **Security Review** - OWASP security checklist (15 min)
 6. **Testing Review** - Verify test quality and coverage (10 min)
 7. **Architecture & Design Review** - Check SOLID principles (15 min)
 8. **Manual Code Review** - Review logic, readability, performance (20 min)
 
-**Total time**: 15-20 minutes (small PR), 30-45 minutes (medium PR), 1-2 hours (large PR)
+**Total time**: 20-25 minutes (small PR), 35-50 minutes (medium PR), 1-2 hours (large PR)
 
 ## Complete Review Process
 
@@ -167,6 +167,34 @@ analyze_dependencies(module_path="refactored.module")
 - [ ] Modern Python features used (3.10+)
 - [ ] No anti-patterns (mutable defaults, god functions, etc.)
 - [ ] Tests are independent and comprehensive
+
+**Code Quality Metrics** (on changed files only):
+
+```bash
+# Get list of changed Python files
+git diff main...HEAD --name-only | grep '\.py$' > changed_files.txt
+
+# Check complexity
+ruff check --select C90 $(cat changed_files.txt)
+
+# Check magic values
+ruff check --select PLR2004 $(cat changed_files.txt)
+
+# Check function parameters
+ruff check --select PLR0913 $(cat changed_files.txt)
+
+# Check too many branches/returns/statements
+ruff check --select PLR0911,PLR0912,PLR0915 $(cat changed_files.txt)
+```
+
+**Quality Standards**:
+
+- [ ] Cyclomatic complexity ≤10 per function
+- [ ] No magic strings or numbers (use constants)
+- [ ] Functions have ≤5 parameters
+- [ ] Functions are ≤50 lines (excluding docstrings)
+
+**Note**: If changed files have existing violations, don't require fixing them in this PR. Create a follow-up issue instead.
 
 **Quick MCP Checks**:
 

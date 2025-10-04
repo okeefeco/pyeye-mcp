@@ -25,8 +25,19 @@ This workflow enforces:
 
 ## Steps
 
-1. **Run automated checks** - ruff, black, mypy, pytest with coverage
-2. **Review code categories** - See detailed categories below:
+### For Pull Request Review (Changed Files Only)
+
+1. **Run automated checks on changed files** - See "Review Workflow" section
+2. **Check quality metrics on new/modified code** - Complexity, magic values, parameters
+3. **Review code categories for changes** - See detailed categories below
+4. **MCP-enhanced analysis** - Impact of changes on existing code
+
+### For Full Codebase Audit (Periodic/On-Demand)
+
+1. **Run all automated checks** - Entire codebase
+2. **Generate quality report** - Identify all violations
+3. **Prioritize fixes** - Based on impact and severity
+4. **Review code categories systematically** - See detailed categories below:
    - Code Style & Formatting (PEP 8)
    - Type Safety & Type Hints (PEP 484)
    - Documentation (PEP 257)
@@ -37,8 +48,8 @@ This workflow enforces:
    - Error Handling
    - Import Organization
    - Performance Considerations
-3. **MCP-enhanced analysis** - Use semantic tools to understand code structure
-4. **Manual code review** - Verify against checklist
+5. **MCP-enhanced analysis** - Use semantic tools to understand code structure
+6. **Manual code review** - Verify against checklist
 
 ## Review Categories
 
@@ -411,6 +422,119 @@ get_call_hierarchy(function_name="slow_operation")
 # Returns: callers and callees - helps identify hot paths
 ```
 
+## Code Quality Metrics
+
+### Complexity Checks
+
+**Cyclomatic Complexity**: Max 10 per function
+
+```bash
+# Check complexity violations
+ruff check --select C90 src/
+
+# Or specify max complexity
+ruff check --select C90 --config "mccabe-max-complexity=10" src/
+```
+
+**Why it matters**: Functions with complexity >10 are:
+
+- Hard to test thoroughly (exponential test cases)
+- Difficult to modify safely
+- Prone to bugs
+- Challenging for new contributors
+
+**How to fix**: Break complex functions into smaller, focused functions.
+
+### Magic Values
+
+**Magic Strings & Numbers**: Use named constants
+
+```bash
+# Check for magic value comparisons
+ruff check --select PLR2004 src/
+```
+
+**Examples**:
+
+```python
+# ❌ BAD - Magic numbers
+if status == 200:
+    return data
+if retries > 3:
+    raise Error()
+
+# ✅ GOOD - Named constants
+HTTP_OK = 200
+MAX_RETRIES = 3
+
+if status == HTTP_OK:
+    return data
+if retries > MAX_RETRIES:
+    raise Error()
+```
+
+### Function Metrics
+
+**Function Length**: Max 50 lines (excluding docstrings)
+
+```bash
+# Check with radon (if available)
+radon cc src/ --min B
+```
+
+**Parameter Count**: Max 5 parameters
+
+```bash
+# Check too many arguments
+ruff check --select PLR0913 src/
+```
+
+**Examples**:
+
+```python
+# ❌ BAD - Too many parameters
+def create_user(name, email, age, country, city, zip_code, phone, address):
+    ...
+
+# ✅ GOOD - Use dataclass or config object
+@dataclass
+class UserInfo:
+    name: str
+    email: str
+    age: int
+    address: Address
+
+def create_user(user_info: UserInfo):
+    ...
+```
+
+### Code Duplication
+
+**Check for duplicated code blocks**:
+
+```bash
+# Using pylint (if available)
+pylint --disable=all --enable=duplicate-code src/
+
+# Or use ruff's similarity check
+ruff check --select PLR0912,PLR0915 src/
+```
+
+**Threshold**: Max 3 consecutive similar lines before extracting to a function.
+
+### Quality Standards Summary
+
+| Metric | Threshold | Ruff Rule | Why |
+|--------|-----------|-----------|-----|
+| Cyclomatic Complexity | ≤10 | C90 | Testability, maintainability |
+| Function Length | ≤50 lines | - | Readability, single responsibility |
+| Parameters | ≤5 | PLR0913 | Simplicity, cohesion |
+| Magic Values | 0 | PLR2004 | Maintainability, clarity |
+| Code Duplication | <3 lines | - | DRY principle |
+| Return Statements | ≤6 | PLR0911 | Simplicity |
+| Branches | ≤12 | PLR0912 | Complexity control |
+| Local Variables | ≤15 | PLR0914 | Cognitive load |
+
 ## Review Workflow
 
 ### Step 1: Automated Checks
@@ -418,11 +542,27 @@ get_call_hierarchy(function_name="slow_operation")
 Run tools (should be in CI):
 
 ```bash
-ruff check .           # Linting
+# Code quality and standards
+ruff check .           # Linting (E, W, F, I, B, C4, UP, ARG, SIM)
 black --check .        # Format check
 mypy .                # Type checking
-pytest --cov=src --cov-fail-under=80  # Tests + coverage
+
+# Quality metrics (add these for thorough review)
+ruff check --select C90 .           # Complexity (max 10)
+ruff check --select PLR2004 .       # Magic value comparisons
+ruff check --select PLR0913 .       # Too many arguments (>5)
+ruff check --select PLR0911 .       # Too many return statements
+ruff check --select PLR0912 .       # Too many branches
+ruff check --select PLR0915 .       # Too many statements
+
+# Testing
+pytest --cov=src --cov-fail-under=85  # Tests + coverage
 ```
+
+**Note**: Quality metric checks (C90, PLR*) may reveal existing technical debt. Use them for:
+
+- **PR Review**: Check only changed files
+- **Full Audit**: Check entire codebase, prioritize fixes
 
 ### Step 2: MCP-Enhanced Analysis
 
