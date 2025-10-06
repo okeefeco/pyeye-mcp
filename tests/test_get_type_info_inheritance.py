@@ -391,3 +391,185 @@ class ConcreteClass(AbstractBase):
         # MRO should include ABC chain
         assert any("ConcreteClass" in item for item in class_info["mro"])
         assert any("AbstractBase" in item for item in class_info["mro"])
+
+    @pytest.mark.asyncio
+    async def test_get_type_info_fully_qualified_base_no_import(self, analyzer, tmp_path):
+        """Test get_type_info with fully-qualified base class name (NO import).
+
+        This test reproduces issue #234 where inheritance detection fails when:
+        - Base class is referenced with full module path
+        - No explicit import statement for the base class
+        - Pattern: class Derived(package.module.BaseClass):
+
+        This is common in large codebases and namespace packages.
+        """
+        # Create package structure
+        pkg = tmp_path / "mypackage"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+
+        # Create base class in separate module
+        base_file = pkg / "base.py"
+        base_file.write_text(
+            """
+class BaseClass:
+    '''Base class in mypackage.base module.'''
+    pass
+"""
+        )
+
+        # Create derived class WITHOUT importing BaseClass
+        # Using fully-qualified name instead
+        derived_file = pkg / "derived.py"
+        derived_file.write_text(
+            """
+class DerivedClass(mypackage.base.BaseClass):
+    '''Derived using fully-qualified base name.'''
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(derived_file), 2, 6)
+
+        assert len(result["inferred_types"]) > 0
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "DerivedClass"
+        assert class_info["type"] == "class"
+
+        # BUG: This currently FAILS because Jedi can't resolve mypackage.base.BaseClass
+        # Expected: base_classes should contain "mypackage.base.BaseClass" or "BaseClass"
+        # Actual: base_classes is [] (empty list)
+        assert len(class_info["base_classes"]) == 1, (
+            f"Expected 1 base class, got {len(class_info['base_classes'])}. "
+            f"base_classes={class_info['base_classes']}"
+        )
+        assert "BaseClass" in class_info["base_classes"][0]
+
+        # MRO should also include the base class
+        assert any("DerivedClass" in item for item in class_info["mro"])
+        assert any(
+            "BaseClass" in item for item in class_info["mro"]
+        ), f"BaseClass not in MRO. MRO={class_info['mro']}"
+
+    @pytest.mark.asyncio
+    async def test_get_type_info_deep_module_path(self, analyzer, tmp_path):
+        """Test get_type_info with deeply nested module paths.
+
+        This mimics the real-world aac-catalog pattern from issue #234:
+        class service(aac.logical.patterns.common.components.iaas):
+
+        Tests whether PyEye can handle multi-level dotted names in inheritance.
+        """
+        # Create deep package structure: a/b/c/d/base.py
+        a = tmp_path / "a"
+        a.mkdir()
+        (a / "__init__.py").write_text("")
+
+        b = a / "b"
+        b.mkdir()
+        (b / "__init__.py").write_text("")
+
+        c = b / "c"
+        c.mkdir()
+        (c / "__init__.py").write_text("")
+
+        d = c / "d"
+        d.mkdir()
+        (d / "__init__.py").write_text("")
+
+        # Base class at a.b.c.d.base.BaseClass
+        base_file = d / "base.py"
+        base_file.write_text(
+            """
+class BaseClass:
+    '''Base class deep in package hierarchy.'''
+    pass
+"""
+        )
+
+        # Derived class at a/other.py using full path
+        derived_file = a / "other.py"
+        derived_file.write_text(
+            """
+class DerivedClass(a.b.c.d.base.BaseClass):
+    '''Derived from deeply nested base.'''
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(derived_file), 2, 6)
+
+        assert len(result["inferred_types"]) > 0
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "DerivedClass"
+        assert class_info["type"] == "class"
+
+        # BUG: Fails with deep paths - Jedi can't resolve a.b.c.d.base.BaseClass
+        assert len(class_info["base_classes"]) >= 1, (
+            f"Expected at least 1 base class for deeply nested inheritance. "
+            f"base_classes={class_info['base_classes']}"
+        )
+        assert any(
+            "BaseClass" in base for base in class_info["base_classes"]
+        ), f"BaseClass not found in base_classes={class_info['base_classes']}"
+
+    @pytest.mark.asyncio
+    async def test_get_type_info_cross_package_qualified_base(self, analyzer, tmp_path):
+        """Test get_type_info when base class is in different package with qualified name.
+
+        This tests the pattern:
+        - pkg1/models.py has BaseModel
+        - pkg2/derived.py has: class Derived(pkg1.models.BaseModel):
+        - NO import statement in derived.py
+
+        Common in microservices and multi-package projects.
+        """
+        # Create first package
+        pkg1 = tmp_path / "pkg1"
+        pkg1.mkdir()
+        (pkg1 / "__init__.py").write_text("")
+
+        base_file = pkg1 / "models.py"
+        base_file.write_text(
+            """
+class BaseModel:
+    '''Base model in pkg1.'''
+    def save(self):
+        pass
+"""
+        )
+
+        # Create second package
+        pkg2 = tmp_path / "pkg2"
+        pkg2.mkdir()
+        (pkg2 / "__init__.py").write_text("")
+
+        # Derived class references base with full qualified name
+        derived_file = pkg2 / "models.py"
+        derived_file.write_text(
+            """
+class UserModel(pkg1.models.BaseModel):
+    '''User model inheriting from pkg1.models.BaseModel.'''
+    def __init__(self, username):
+        self.username = username
+"""
+        )
+
+        result = await analyzer.get_type_info(str(derived_file), 2, 6)
+
+        assert len(result["inferred_types"]) > 0
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "UserModel"
+        assert class_info["type"] == "class"
+
+        # BUG: Cross-package qualified names fail to resolve
+        assert len(class_info["base_classes"]) >= 1, (
+            f"Expected base class from cross-package reference. "
+            f"base_classes={class_info['base_classes']}"
+        )
+        assert any(
+            "BaseModel" in base for base in class_info["base_classes"]
+        ), f"BaseModel not in base_classes={class_info['base_classes']}"
