@@ -665,7 +665,10 @@ class JediAnalyzer:
                         )
 
                         # Get all names in the standalone file
-                        names = standalone_script.get_names(all_scopes=True)
+                        # IMPORTANT: Include both definitions AND references (call sites)
+                        names = standalone_script.get_names(
+                            all_scopes=True, definitions=True, references=True
+                        )
 
                         # Filter to only names matching our symbol
                         for name in names:
