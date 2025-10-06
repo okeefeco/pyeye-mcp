@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=045a6e3a"></script>
+      <script src="../../../_static/documentation_options.js?v=a5747be5"></script>
       <script src="../../../_static/doctools.js?v=9bcbadda"></script>
       <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -692,9 +692,17 @@
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_references</span><span class="p">(</span>
-    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">include_subclasses</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all references to the symbol at a specific position.</span>
+
+<span class="sd">    When the symbol is a class and include_subclasses=True, performs a polymorphic</span>
+<span class="sd">    search - finding references to the base class AND all its subclasses.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        file: Path to the file</span>
@@ -702,12 +710,16 @@
 <span class="sd">        column: Column number (0-indexed)</span>
 <span class="sd">        project_path: Root path of the project</span>
 <span class="sd">        include_definitions: Whether to include definitions in results</span>
+<span class="sd">        include_subclasses: If symbol is a class, also find references to all subclasses</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        List of reference locations</span>
+<span class="sd">        List of reference locations. When include_subclasses=True, each result includes</span>
+<span class="sd">        &quot;referenced_class&quot; field showing which class in the hierarchy.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span>
+        <span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">,</span> <span class="n">include_subclasses</span>
+    <span class="p">)</span></div>
 
 
 
