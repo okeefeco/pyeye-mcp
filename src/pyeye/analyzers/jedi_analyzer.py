@@ -585,7 +585,20 @@ class JediAnalyzer:
     async def find_references(
         self, file: str, line: int, column: int, include_definitions: bool = True
     ) -> list[dict[str, Any]]:
-        """Find all references to a symbol."""
+        """Find all references to a symbol.
+
+        This searches both the main project (via Jedi) and standalone files
+        (via manual search) to find all references to the symbol at the given position.
+
+        Args:
+            file: Path to the file containing the symbol
+            line: Line number (1-indexed)
+            column: Column number (0-indexed)
+            include_definitions: Whether to include definitions in results
+
+        Returns:
+            List of reference locations with file, line, column, and is_definition info
+        """
         results: list[dict[str, Any]] = []
 
         try:
@@ -595,6 +608,8 @@ class JediAnalyzer:
 
             source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
+
+            # Get references from Jedi (searches main project paths)
             references = script.get_references(line, column, include_builtins=False)
 
             for ref in references:
@@ -604,6 +619,54 @@ class JediAnalyzer:
                 serialized = await self._serialize_name(ref)
                 serialized["is_definition"] = ref.is_definition()
                 results.append(serialized)
+
+            # Also search standalone files if configured
+            # Jedi's get_references() won't find these because standalone directories
+            # aren't in the Jedi project's sys_path
+            if self.standalone_paths and references:
+                # Get the symbol name from the first reference
+                # All references should be to the same symbol
+                symbol_name = references[0].name
+
+                # Search each standalone file for the symbol
+                standalone_files = await self._discover_standalone_files()
+
+                # Track files we've already searched via Jedi to avoid duplicates
+                searched_files = {ref.module_path for ref in references if ref.module_path}
+
+                for standalone_file in standalone_files:
+                    # Skip if already searched by Jedi
+                    if standalone_file in searched_files:
+                        continue
+
+                    try:
+                        standalone_source = await read_file_async(standalone_file)
+                        standalone_script = jedi.Script(
+                            standalone_source, path=standalone_file, project=self.project
+                        )
+
+                        # Get all names in the standalone file
+                        names = standalone_script.get_names(all_scopes=True)
+
+                        # Filter to only names matching our symbol
+                        for name in names:
+                            if name.name == symbol_name:
+                                # Check if this is the same symbol by trying goto_definitions
+                                # If it resolves to our original symbol, it's a reference
+                                try:
+                                    serialized = await self._serialize_name(name)
+                                    serialized["is_definition"] = name.is_definition()
+
+                                    # Avoid duplicates
+                                    if serialized not in results:
+                                        results.append(serialized)
+                                except Exception as e:
+                                    logger.debug(
+                                        f"Error serializing name in standalone file {standalone_file}: {e}"
+                                    )
+
+                    except Exception as e:
+                        logger.debug(f"Error searching standalone file {standalone_file}: {e}")
 
         except FileAccessError:
             raise  # Re-raise file access errors
@@ -1847,6 +1910,31 @@ class JediAnalyzer:
             # Get all Python files in the project (with smart default)
             py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
 
+            # Build a global class map for cross-file inheritance checking
+            # Maps: FQN -> (node, tree, file)
+            class_map: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
+
+            if include_indirect:
+                for py_file in py_files:
+                    try:
+                        content = await read_file_async(py_file)
+                        tree = ast.parse(content, filename=py_file.as_posix())
+
+                        for node in ast.walk(tree):
+                            if isinstance(node, ast.ClassDef):
+                                module_path = self._get_import_path_for_file(py_file)
+                                fqn = (
+                                    f"{module_path}.{node.name}"
+                                    if module_path
+                                    else f"{py_file.stem}.{node.name}"
+                                )
+                                class_map[fqn] = (node, tree, py_file)
+                                # Also map simple name for lookups
+                                if node.name not in class_map:
+                                    class_map[node.name] = (node, tree, py_file)
+                    except Exception as e:
+                        logger.debug(f"Error parsing {py_file} for class map: {e}")
+
             for py_file in py_files:
                 try:
                     content = await read_file_async(py_file)
@@ -1856,20 +1944,31 @@ class JediAnalyzer:
                         if isinstance(node, ast.ClassDef):
                             # Check if this class inherits from our base class
                             inheritance_info = self._check_inheritance(
-                                node, base_class, tree, include_indirect
+                                node, base_class, tree, include_indirect, class_map
                             )
 
-                            if inheritance_info and node.name not in processed_classes:
-                                processed_classes.add(node.name)
+                            if inheritance_info:
+                                # Calculate FQN for unique identification
+                                # Use module path + class name to avoid name collisions
+                                module_path = self._get_import_path_for_file(py_file)
+                                fqn = (
+                                    f"{module_path}.{node.name}"
+                                    if module_path
+                                    else f"{py_file.stem}.{node.name}"
+                                )
 
-                                subclass_info = {
-                                    "name": node.name,
-                                    "file": py_file.as_posix(),
-                                    "line": node.lineno,
-                                    "column": node.col_offset,
-                                    "direct_parent": inheritance_info["direct_parent"],
-                                    "is_direct": inheritance_info["is_direct"],
-                                }
+                                if fqn not in processed_classes:
+                                    processed_classes.add(fqn)
+
+                                    subclass_info = {
+                                        "name": node.name,
+                                        "full_name": fqn,
+                                        "file": py_file.as_posix(),
+                                        "line": node.lineno,
+                                        "column": node.col_offset,
+                                        "direct_parent": inheritance_info["direct_parent"],
+                                        "is_direct": inheritance_info["is_direct"],
+                                    }
 
                                 # Add inheritance chain if requested
                                 if show_hierarchy:
@@ -1892,9 +1991,21 @@ class JediAnalyzer:
         return subclasses
 
     def _check_inheritance(
-        self, class_node: ast.ClassDef, base_class: str, tree: ast.Module, include_indirect: bool
+        self,
+        class_node: ast.ClassDef,
+        base_class: str,
+        tree: ast.Module,
+        include_indirect: bool,
+        class_map: dict[str, tuple[ast.ClassDef, ast.Module, Path]] | None = None,
     ) -> dict[str, Any] | None:
         """Check if a class inherits from the base class.
+
+        Args:
+            class_node: The AST node of the class to check
+            base_class: The name of the base class we're looking for
+            tree: The AST tree of the file containing class_node
+            include_indirect: Whether to check for indirect inheritance
+            class_map: Optional global map of all classes for cross-file lookups
 
         Returns dict with inheritance info if it does, None otherwise.
         """
@@ -1912,11 +2023,24 @@ class JediAnalyzer:
             for base in class_node.bases:
                 base_name = self._get_base_name(base)
                 if base_name and base_name != "object":
-                    # Find the parent class definition and check its bases recursively
-                    parent_classes = self._find_class_in_tree(tree, base_name)
-                    for parent_class in parent_classes:
+                    # Try to find parent class definition
+                    parent_classes: list[tuple[ast.ClassDef, ast.Module]] = []
+
+                    # First check in the current file's tree
+                    local_parents = self._find_class_in_tree(tree, base_name)
+                    parent_classes.extend([(p, tree) for p in local_parents])
+
+                    # If not found and we have a global class map, search there
+                    if not parent_classes and class_map:
+                        # Try both FQN and simple name lookups
+                        if base_name in class_map:
+                            parent_node, parent_tree, parent_file = class_map[base_name]
+                            parent_classes.append((parent_node, parent_tree))
+
+                    # Recursively check each parent class
+                    for parent_class, parent_tree in parent_classes:
                         parent_info = self._check_inheritance(
-                            parent_class, base_class, tree, include_indirect
+                            parent_class, base_class, parent_tree, include_indirect, class_map
                         )
                         if parent_info:
                             return {
