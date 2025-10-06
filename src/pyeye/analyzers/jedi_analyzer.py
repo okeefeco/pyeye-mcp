@@ -2147,6 +2147,72 @@ class JediAnalyzer:
         except Exception as e:
             logger.error(f"Failed to populate dependencies: {e}")
 
+    def _extract_base_name_from_parso_node(self, node: Any) -> str | None:
+        """Extract qualified name from a parso node (Jedi's parse tree).
+
+        Handles both simple names and dotted names like:
+        - BaseClass (name node)
+        - module.BaseClass (power/atom_expr node)
+        - a.b.c.d.BaseClass (nested power/atom_expr)
+
+        Args:
+            node: Parso node representing a base class reference
+
+        Returns:
+            Qualified name as string, or None if extraction fails
+        """
+        try:
+            # Simple name node
+            if hasattr(node, "type") and node.type == "name":
+                return str(node.value) if hasattr(node, "value") else None
+
+            # Dotted name (power or atom_expr in parso)
+            # Use get_code() to extract the actual source text
+            if hasattr(node, "type") and node.type in ("power", "atom_expr"):
+                if hasattr(node, "get_code"):
+                    # get_code() returns the source code representation
+                    code: str = node.get_code().strip()
+                    if code:
+                        return code
+
+                # Fallback: traverse the node structure
+                parts: list[str] = []
+                self._collect_dotted_name_parts(node, parts)
+                if parts:
+                    return ".".join(parts)
+
+            # Final fallback: try to get value directly
+            if hasattr(node, "value"):
+                return str(node.value)
+
+        except Exception as e:
+            logger.debug(f"Could not extract base name from parso node: {e}")
+
+        return None
+
+    def _collect_dotted_name_parts(self, node: Any, parts: list[str]) -> None:
+        """Recursively collect parts of a dotted name from parso nodes.
+
+        For a.b.c, this collects ['a', 'b', 'c'] in order.
+        """
+        if not hasattr(node, "children"):
+            # Leaf node - check if it's a name
+            if hasattr(node, "type") and node.type == "name" and hasattr(node, "value"):
+                parts.append(node.value)
+            return
+
+        # Process children
+        for child in node.children:
+            if hasattr(child, "type"):
+                if child.type == "name" and hasattr(child, "value"):
+                    parts.append(child.value)
+                elif child.type in ("power", "atom_expr", "trailer"):
+                    # Recursively process nested structures
+                    self._collect_dotted_name_parts(child, parts)
+                elif child.type == "operator" and hasattr(child, "value") and child.value == ".":
+                    # Skip dot operators
+                    continue
+
     async def _get_class_inheritance_info(
         self, script: jedi.Script, class_def: Any
     ) -> tuple[list[str], list[str]]:
@@ -2225,33 +2291,130 @@ class JediAnalyzer:
                         if in_bases:
                             if hasattr(child, "type"):
                                 if child.type == "name":
-                                    # Single base class
+                                    # Single base class (simple name)
                                     try:
                                         base_line = child.start_pos[0]
                                         base_column = child.start_pos[1]
                                         base_inferred = script.infer(base_line, base_column)
-                                        for base_inf in base_inferred:
-                                            if base_inf.full_name:
-                                                base_classes.append(base_inf.full_name)
-                                                break
+
+                                        # Check if Jedi successfully resolved the base class
+                                        if base_inferred:
+                                            # Jedi found the base class
+                                            for base_inf in base_inferred:
+                                                if base_inf.full_name:
+                                                    base_classes.append(base_inf.full_name)
+                                                    break
+                                        else:
+                                            # Jedi couldn't resolve - use AST fallback
+                                            base_name = self._extract_base_name_from_parso_node(
+                                                child
+                                            )
+                                            if base_name:
+                                                base_classes.append(base_name)
                                     except Exception:
-                                        # Fallback to simple name if inference fails
-                                        base_classes.append(child.value)
+                                        # Exception during inference - use AST fallback
+                                        base_name = self._extract_base_name_from_parso_node(child)
+                                        if base_name:
+                                            base_classes.append(base_name)
+
+                                elif child.type in ("power", "atom_expr"):
+                                    # Qualified/dotted base class name (e.g., module.BaseClass)
+                                    # Try Jedi inference first, fall back to AST extraction
+                                    try:
+                                        base_line = child.start_pos[0]
+                                        base_column = child.start_pos[1]
+                                        base_inferred = script.infer(base_line, base_column)
+
+                                        if base_inferred:
+                                            # Jedi resolved it
+                                            for base_inf in base_inferred:
+                                                if base_inf.full_name:
+                                                    base_classes.append(base_inf.full_name)
+                                                    break
+                                        else:
+                                            # Jedi couldn't resolve - extract from AST
+                                            base_name = self._extract_base_name_from_parso_node(
+                                                child
+                                            )
+                                            if base_name:
+                                                base_classes.append(base_name)
+                                    except Exception:
+                                        # Exception during inference - extract from AST
+                                        base_name = self._extract_base_name_from_parso_node(child)
+                                        if base_name:
+                                            base_classes.append(base_name)
 
                                 elif child.type == "arglist":
                                     # Multiple base classes in arglist
                                     for arg in child.children:
-                                        if hasattr(arg, "type") and arg.type == "name":
-                                            try:
-                                                base_line = arg.start_pos[0]
-                                                base_column = arg.start_pos[1]
-                                                base_inferred = script.infer(base_line, base_column)
-                                                for base_inf in base_inferred:
-                                                    if base_inf.full_name:
-                                                        base_classes.append(base_inf.full_name)
-                                                        break
-                                            except Exception:
-                                                base_classes.append(arg.value)
+                                        if hasattr(arg, "type"):
+                                            if arg.type == "name":
+                                                # Simple name in arglist
+                                                try:
+                                                    base_line = arg.start_pos[0]
+                                                    base_column = arg.start_pos[1]
+                                                    base_inferred = script.infer(
+                                                        base_line, base_column
+                                                    )
+
+                                                    if base_inferred:
+                                                        # Jedi resolved it
+                                                        for base_inf in base_inferred:
+                                                            if base_inf.full_name:
+                                                                base_classes.append(
+                                                                    base_inf.full_name
+                                                                )
+                                                                break
+                                                    else:
+                                                        # Jedi couldn't resolve - use AST fallback
+                                                        base_name = (
+                                                            self._extract_base_name_from_parso_node(
+                                                                arg
+                                                            )
+                                                        )
+                                                        if base_name:
+                                                            base_classes.append(base_name)
+                                                except Exception:
+                                                    # Exception - use AST fallback
+                                                    base_name = (
+                                                        self._extract_base_name_from_parso_node(arg)
+                                                    )
+                                                    if base_name:
+                                                        base_classes.append(base_name)
+
+                                            elif arg.type in ("power", "atom_expr"):
+                                                # Qualified name in arglist
+                                                try:
+                                                    base_line = arg.start_pos[0]
+                                                    base_column = arg.start_pos[1]
+                                                    base_inferred = script.infer(
+                                                        base_line, base_column
+                                                    )
+
+                                                    if base_inferred:
+                                                        # Jedi resolved it
+                                                        for base_inf in base_inferred:
+                                                            if base_inf.full_name:
+                                                                base_classes.append(
+                                                                    base_inf.full_name
+                                                                )
+                                                                break
+                                                    else:
+                                                        # Jedi couldn't resolve - extract from AST
+                                                        base_name = (
+                                                            self._extract_base_name_from_parso_node(
+                                                                arg
+                                                            )
+                                                        )
+                                                        if base_name:
+                                                            base_classes.append(base_name)
+                                                except Exception:
+                                                    # Exception - extract from AST
+                                                    base_name = (
+                                                        self._extract_base_name_from_parso_node(arg)
+                                                    )
+                                                    if base_name:
+                                                        base_classes.append(base_name)
 
             # Build MRO
             if base_classes:
