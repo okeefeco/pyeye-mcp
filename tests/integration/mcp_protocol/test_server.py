@@ -373,7 +373,7 @@ class TestFindReferences:
         assert len(result) == 2
         assert result[0]["line"] == 10
         assert result[1]["line"] == 20
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, True)
+        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, True, False)
 
     @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
@@ -400,7 +400,7 @@ class TestFindReferences:
         # Should only include non-definition references
         assert len(result) == 1
         assert result[0]["line"] == 20
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, False)
+        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, False, False)
 
 
 class TestGetTypeInfo:

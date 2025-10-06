@@ -323,9 +323,17 @@ async def goto_definition(
 @metrics.measure("find_references")
 @track_mcp_operation("find_references")
 async def find_references(
-    file: str, line: int, column: int, project_path: str = ".", include_definitions: bool = True
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+    include_definitions: bool = True,
+    include_subclasses: bool = False,
 ) -> list[dict[str, Any]]:
     """Find all references to the symbol at a specific position.
+
+    When the symbol is a class and include_subclasses=True, performs a polymorphic
+    search - finding references to the base class AND all its subclasses.
 
     Args:
         file: Path to the file
@@ -333,12 +341,16 @@ async def find_references(
         column: Column number (0-indexed)
         project_path: Root path of the project
         include_definitions: Whether to include definitions in results
+        include_subclasses: If symbol is a class, also find references to all subclasses
 
     Returns:
-        List of reference locations
+        List of reference locations. When include_subclasses=True, each result includes
+        "referenced_class" field showing which class in the hierarchy.
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.find_references(file, line, column, include_definitions)
+    return await analyzer.find_references(
+        file, line, column, include_definitions, include_subclasses
+    )
 
 
 @mcp.tool()
