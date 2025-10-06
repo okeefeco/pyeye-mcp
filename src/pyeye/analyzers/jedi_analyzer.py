@@ -583,21 +583,40 @@ class JediAnalyzer:
         return None
 
     async def find_references(
-        self, file: str, line: int, column: int, include_definitions: bool = True
+        self,
+        file: str,
+        line: int,
+        column: int,
+        include_definitions: bool = True,
+        include_subclasses: bool = False,
     ) -> list[dict[str, Any]]:
         """Find all references to a symbol.
 
         This searches both the main project (via Jedi) and standalone files
         (via manual search) to find all references to the symbol at the given position.
 
+        When the symbol is a class and include_subclasses=True, this performs a
+        polymorphic search - finding references to the base class AND all its subclasses.
+
         Args:
             file: Path to the file containing the symbol
             line: Line number (1-indexed)
             column: Column number (0-indexed)
             include_definitions: Whether to include definitions in results
+            include_subclasses: If symbol is a class, also find references to all subclasses
+                (polymorphic search). Default False for backward compatibility.
 
         Returns:
-            List of reference locations with file, line, column, and is_definition info
+            List of reference locations with file, line, column, and is_definition info.
+            When include_subclasses=True, each result includes "referenced_class" field
+            showing which class in the hierarchy the reference is for.
+
+        Example:
+            # Find references to BaseService and all its subclasses
+            refs = await analyzer.find_references(
+                "components.py", 40, 6, include_subclasses=True
+            )
+            # Returns references to BaseService, ProdService, TestService, etc.
         """
         results: list[dict[str, Any]] = []
 
@@ -646,7 +665,10 @@ class JediAnalyzer:
                         )
 
                         # Get all names in the standalone file
-                        names = standalone_script.get_names(all_scopes=True)
+                        # IMPORTANT: Include both definitions AND references (call sites)
+                        names = standalone_script.get_names(
+                            all_scopes=True, definitions=True, references=True
+                        )
 
                         # Filter to only names matching our symbol
                         for name in names:
@@ -667,6 +689,87 @@ class JediAnalyzer:
 
                     except Exception as e:
                         logger.debug(f"Error searching standalone file {standalone_file}: {e}")
+
+            # Polymorphic search: if symbol is a class and include_subclasses=True,
+            # also find references to all subclasses
+            if include_subclasses and references:
+                # Check if the symbol at this position is a class
+                inferred = script.infer(line, column)
+                is_class = any(inf.type == "class" for inf in inferred)
+
+                if is_class and inferred:
+                    # Get the class name
+                    class_name = inferred[0].name
+                    logger.info(
+                        f"Polymorphic search: finding references to {class_name} and all subclasses"
+                    )
+
+                    try:
+                        # Find all subclasses (including indirect)
+                        subclasses = await self.find_subclasses(
+                            class_name, include_indirect=True, show_hierarchy=False
+                        )
+
+                        if subclasses:
+                            logger.info(f"Found {len(subclasses)} subclasses of {class_name}")
+
+                            # Track locations we've already found to avoid duplicates
+                            seen_locations = {(r["file"], r["line"], r["column"]) for r in results}
+
+                            # Find references to each subclass
+                            for subclass in subclasses:
+                                subclass_name = subclass["name"]
+                                subclass_file = subclass["file"]
+                                subclass_line = subclass["line"]
+                                subclass_column = subclass["column"]
+
+                                try:
+                                    # Recursively find references to this subclass
+                                    # IMPORTANT: Set include_subclasses=False to avoid infinite recursion
+                                    subclass_refs = await self.find_references(
+                                        subclass_file,
+                                        subclass_line,
+                                        subclass_column,
+                                        include_definitions=include_definitions,
+                                        include_subclasses=False,  # Prevent recursion
+                                    )
+
+                                    # Add subclass references to results, avoiding duplicates
+                                    for ref in subclass_refs:
+                                        location = (ref["file"], ref["line"], ref["column"])
+                                        if location not in seen_locations:
+                                            # Add metadata showing which class this reference is for
+                                            ref["referenced_class"] = subclass_name
+                                            results.append(ref)
+                                            seen_locations.add(location)
+                                        else:
+                                            # Location already found - keep the most specific class
+                                            # (prefer subclass over base class for same location)
+                                            logger.debug(
+                                                f"Duplicate reference at {location}, keeping existing"
+                                            )
+
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Error finding references to subclass {subclass_name}: {e}"
+                                    )
+                                    # Continue with other subclasses
+                        else:
+                            logger.info(f"No subclasses found for {class_name}")
+
+                        # Add "referenced_class" metadata to base class references
+                        # (do this even if no subclasses were found)
+                        for ref in results:
+                            if "referenced_class" not in ref:
+                                ref["referenced_class"] = class_name
+
+                    except Exception as e:
+                        logger.warning(f"Error during polymorphic search: {e}")
+                        # Continue with base class references only
+                        # Still add metadata
+                        for ref in results:
+                            if "referenced_class" not in ref:
+                                ref["referenced_class"] = class_name
 
         except FileAccessError:
             raise  # Re-raise file access errors
