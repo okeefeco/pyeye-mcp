@@ -905,3 +905,147 @@ class NetworkError(Exception):
         names = {r["name"] for r in results}
         assert "CustomError" in names
         assert "NetworkError" in names
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_identical_names_different_modules(self, temp_project_dir):
+        """Test finding subclasses when multiple classes have the same name in different modules.
+
+        Regression test for issue #234 - find_subclasses was using simple class name
+        for deduplication instead of FQN, causing it to skip identically-named classes.
+        """
+        # Create base class
+        base_file = temp_project_dir / "base.py"
+        base_file.write_text(
+            """
+class BaseService:
+    pass
+"""
+        )
+
+        # Create module A with a class named "Service"
+        module_a = temp_project_dir / "module_a"
+        module_a.mkdir()
+        (module_a / "__init__.py").write_text("")
+        (module_a / "components.py").write_text(
+            """
+from base import BaseService
+
+class Service(BaseService):
+    '''Service implementation for module A'''
+    pass
+"""
+        )
+
+        # Create module B with a DIFFERENT class also named "Service"
+        module_b = temp_project_dir / "module_b"
+        module_b.mkdir()
+        (module_b / "__init__.py").write_text("")
+        (module_b / "components.py").write_text(
+            """
+from base import BaseService
+
+class Service(BaseService):
+    '''Service implementation for module B'''
+    pass
+"""
+        )
+
+        # Create module C with ANOTHER class also named "Service"
+        module_c = temp_project_dir / "module_c"
+        module_c.mkdir()
+        (module_c / "__init__.py").write_text("")
+        (module_c / "components.py").write_text(
+            """
+from base import BaseService
+
+class Service(BaseService):
+    '''Service implementation for module C'''
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        results = await analyzer.find_subclasses("BaseService", include_indirect=False)
+
+        # Should find ALL THREE classes named "Service"
+        assert (
+            len(results) == 3
+        ), f"Expected 3 subclasses, found {len(results)}: {[r['name'] for r in results]}"
+
+        # Verify all three modules are represented
+        files = {r["file"] for r in results}
+        assert any("module_a" in f for f in files), "module_a.components.Service not found"
+        assert any("module_b" in f for f in files), "module_b.components.Service not found"
+        assert any("module_c" in f for f in files), "module_c.components.Service not found"
+
+        # Verify full_name field exists for disambiguation
+        for result in results:
+            assert "full_name" in result, "Missing full_name field for disambiguation"
+            assert result["name"] == "Service"
+
+        # Verify FQNs are different
+        fqns = {r["full_name"] for r in results}
+        assert len(fqns) == 3, f"FQNs should be unique, got: {fqns}"
+
+    @pytest.mark.asyncio
+    async def test_find_subclasses_indirect_across_files(self, temp_project_dir):
+        """Test finding indirect subclasses when inheritance crosses file boundaries.
+
+        Regression test for issue #234 - indirect inheritance only worked within
+        a single file because _check_inheritance only searched the current file's AST.
+        """
+        # Create base class
+        base_file = temp_project_dir / "base.py"
+        base_file.write_text(
+            """
+class BaseService:
+    pass
+"""
+        )
+
+        # Create intermediate class in module_a
+        module_a = temp_project_dir / "module_a"
+        module_a.mkdir()
+        (module_a / "__init__.py").write_text("")
+        (module_a / "components.py").write_text(
+            """
+from base import BaseService
+
+class Service(BaseService):
+    '''Direct subclass'''
+    pass
+"""
+        )
+
+        # Create indirect subclass in different module that imports from module_a
+        module_b = temp_project_dir / "module_b"
+        module_b.mkdir()
+        (module_b / "__init__.py").write_text("")
+        (module_b / "prod.py").write_text(
+            """
+from module_a.components import Service
+
+class ProdService(Service):
+    '''Indirect subclass - inherits from Service which inherits from BaseService'''
+    pass
+"""
+        )
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        results = await analyzer.find_subclasses("BaseService", include_indirect=True)
+
+        # Should find both Service (direct) and ProdService (indirect)
+        assert (
+            len(results) >= 2
+        ), f"Expected at least 2 subclasses, found {len(results)}: {[r['name'] for r in results]}"
+
+        names = {r["name"] for r in results}
+        assert "Service" in names, "Direct subclass 'Service' not found"
+        assert "ProdService" in names, "Indirect subclass 'ProdService' not found"
+
+        # Check is_direct flag
+        for result in results:
+            if result["name"] == "Service":
+                assert result["is_direct"] is True, "Service should be marked as direct"
+            elif result["name"] == "ProdService":
+                assert result["is_direct"] is False, "ProdService should be marked as indirect"
