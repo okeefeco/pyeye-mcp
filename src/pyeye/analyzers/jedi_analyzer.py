@@ -585,7 +585,20 @@ class JediAnalyzer:
     async def find_references(
         self, file: str, line: int, column: int, include_definitions: bool = True
     ) -> list[dict[str, Any]]:
-        """Find all references to a symbol."""
+        """Find all references to a symbol.
+
+        This searches both the main project (via Jedi) and standalone files
+        (via manual search) to find all references to the symbol at the given position.
+
+        Args:
+            file: Path to the file containing the symbol
+            line: Line number (1-indexed)
+            column: Column number (0-indexed)
+            include_definitions: Whether to include definitions in results
+
+        Returns:
+            List of reference locations with file, line, column, and is_definition info
+        """
         results: list[dict[str, Any]] = []
 
         try:
@@ -595,6 +608,8 @@ class JediAnalyzer:
 
             source = await read_file_async(file_path)
             script = jedi.Script(source, path=file_path, project=self.project)
+
+            # Get references from Jedi (searches main project paths)
             references = script.get_references(line, column, include_builtins=False)
 
             for ref in references:
@@ -604,6 +619,54 @@ class JediAnalyzer:
                 serialized = await self._serialize_name(ref)
                 serialized["is_definition"] = ref.is_definition()
                 results.append(serialized)
+
+            # Also search standalone files if configured
+            # Jedi's get_references() won't find these because standalone directories
+            # aren't in the Jedi project's sys_path
+            if self.standalone_paths and references:
+                # Get the symbol name from the first reference
+                # All references should be to the same symbol
+                symbol_name = references[0].name
+
+                # Search each standalone file for the symbol
+                standalone_files = await self._discover_standalone_files()
+
+                # Track files we've already searched via Jedi to avoid duplicates
+                searched_files = {ref.module_path for ref in references if ref.module_path}
+
+                for standalone_file in standalone_files:
+                    # Skip if already searched by Jedi
+                    if standalone_file in searched_files:
+                        continue
+
+                    try:
+                        standalone_source = await read_file_async(standalone_file)
+                        standalone_script = jedi.Script(
+                            standalone_source, path=standalone_file, project=self.project
+                        )
+
+                        # Get all names in the standalone file
+                        names = standalone_script.get_names(all_scopes=True)
+
+                        # Filter to only names matching our symbol
+                        for name in names:
+                            if name.name == symbol_name:
+                                # Check if this is the same symbol by trying goto_definitions
+                                # If it resolves to our original symbol, it's a reference
+                                try:
+                                    serialized = await self._serialize_name(name)
+                                    serialized["is_definition"] = name.is_definition()
+
+                                    # Avoid duplicates
+                                    if serialized not in results:
+                                        results.append(serialized)
+                                except Exception as e:
+                                    logger.debug(
+                                        f"Error serializing name in standalone file {standalone_file}: {e}"
+                                    )
+
+                    except Exception as e:
+                        logger.debug(f"Error searching standalone file {standalone_file}: {e}")
 
         except FileAccessError:
             raise  # Re-raise file access errors

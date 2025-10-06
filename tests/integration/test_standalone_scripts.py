@@ -137,6 +137,70 @@ class TestStandaloneReferences:
         # Should include usage in scripts/migrate.py
         assert any("migrate.py" in str(f) for f in ref_files)
 
+    @pytest.mark.asyncio
+    async def test_find_references_external_standalone_dirs(self, tmp_path):
+        """Test that find_references includes standalone scripts OUTSIDE project path.
+
+        Regression test for issue #258 - find_references was not searching standalone
+        directories when they were outside the main project path, because Jedi's
+        get_references() only searches within the Jedi project's sys_path.
+        """
+        # Create main project in one directory
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        # Create package with a class
+        (project_dir / "__init__.py").write_text("")
+        (project_dir / "models.py").write_text(
+            """
+class MyClass:
+    '''A test class'''
+    pass
+"""
+        )
+
+        # Create standalone directory OUTSIDE the project
+        notebooks_dir = tmp_path / "external_notebooks"
+        notebooks_dir.mkdir()
+
+        # Standalone script that uses MyClass
+        (notebooks_dir / "analysis.py").write_text(
+            """
+'''Analysis notebook that uses MyClass from project'''
+from myproject.models import MyClass
+
+# Use MyClass
+obj = MyClass()
+"""
+        )
+
+        # Create analyzer and configure standalone paths
+        analyzer = JediAnalyzer(str(project_dir))
+        analyzer.set_standalone_paths([notebooks_dir])
+
+        # Find MyClass definition
+        symbols = await analyzer.find_symbol("MyClass")
+        assert len(symbols) > 0, "Should find MyClass definition"
+
+        myclass_def = symbols[0]
+        file_path = myclass_def["file"]
+        line = myclass_def["line"]
+        column = myclass_def["column"]
+
+        # Find all references to MyClass
+        references = await analyzer.find_references(
+            file_path, line, column, include_definitions=True
+        )
+
+        # Should find reference in external standalone script
+        ref_files = {ref["file"] for ref in references}
+
+        # This is the bug: Jedi won't find the reference because notebooks_dir
+        # is not in the Jedi project's sys_path
+        assert any(
+            "analysis.py" in str(f) for f in ref_files
+        ), f"Should find reference in external standalone directory. Found refs in: {ref_files}"
+
 
 class TestStandaloneImports:
     """Test import tracking in standalone files."""
