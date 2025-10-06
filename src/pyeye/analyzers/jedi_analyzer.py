@@ -2182,7 +2182,9 @@ class JediAnalyzer:
                                                     break
                                         else:
                                             # Jedi couldn't resolve - use AST fallback
-                                            base_name = self._extract_base_name_from_parso_node(child)
+                                            base_name = self._extract_base_name_from_parso_node(
+                                                child
+                                            )
                                             if base_name:
                                                 base_classes.append(base_name)
                                     except Exception:
@@ -2207,7 +2209,9 @@ class JediAnalyzer:
                                                     break
                                         else:
                                             # Jedi couldn't resolve - extract from AST
-                                            base_name = self._extract_base_name_from_parso_node(child)
+                                            base_name = self._extract_base_name_from_parso_node(
+                                                child
+                                            )
                                             if base_name:
                                                 base_classes.append(base_name)
                                     except Exception:
@@ -2225,22 +2229,32 @@ class JediAnalyzer:
                                                 try:
                                                     base_line = arg.start_pos[0]
                                                     base_column = arg.start_pos[1]
-                                                    base_inferred = script.infer(base_line, base_column)
+                                                    base_inferred = script.infer(
+                                                        base_line, base_column
+                                                    )
 
                                                     if base_inferred:
                                                         # Jedi resolved it
                                                         for base_inf in base_inferred:
                                                             if base_inf.full_name:
-                                                                base_classes.append(base_inf.full_name)
+                                                                base_classes.append(
+                                                                    base_inf.full_name
+                                                                )
                                                                 break
                                                     else:
                                                         # Jedi couldn't resolve - use AST fallback
-                                                        base_name = self._extract_base_name_from_parso_node(arg)
+                                                        base_name = (
+                                                            self._extract_base_name_from_parso_node(
+                                                                arg
+                                                            )
+                                                        )
                                                         if base_name:
                                                             base_classes.append(base_name)
                                                 except Exception:
                                                     # Exception - use AST fallback
-                                                    base_name = self._extract_base_name_from_parso_node(arg)
+                                                    base_name = (
+                                                        self._extract_base_name_from_parso_node(arg)
+                                                    )
                                                     if base_name:
                                                         base_classes.append(base_name)
 
@@ -2249,22 +2263,32 @@ class JediAnalyzer:
                                                 try:
                                                     base_line = arg.start_pos[0]
                                                     base_column = arg.start_pos[1]
-                                                    base_inferred = script.infer(base_line, base_column)
+                                                    base_inferred = script.infer(
+                                                        base_line, base_column
+                                                    )
 
                                                     if base_inferred:
                                                         # Jedi resolved it
                                                         for base_inf in base_inferred:
                                                             if base_inf.full_name:
-                                                                base_classes.append(base_inf.full_name)
+                                                                base_classes.append(
+                                                                    base_inf.full_name
+                                                                )
                                                                 break
                                                     else:
                                                         # Jedi couldn't resolve - extract from AST
-                                                        base_name = self._extract_base_name_from_parso_node(arg)
+                                                        base_name = (
+                                                            self._extract_base_name_from_parso_node(
+                                                                arg
+                                                            )
+                                                        )
                                                         if base_name:
                                                             base_classes.append(base_name)
                                                 except Exception:
                                                     # Exception - extract from AST
-                                                    base_name = self._extract_base_name_from_parso_node(arg)
+                                                    base_name = (
+                                                        self._extract_base_name_from_parso_node(arg)
+                                                    )
                                                     if base_name:
                                                         base_classes.append(base_name)
 

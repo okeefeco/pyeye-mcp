@@ -448,9 +448,9 @@ class DerivedClass(mypackage.base.BaseClass):
 
         # MRO should also include the base class
         assert any("DerivedClass" in item for item in class_info["mro"])
-        assert any("BaseClass" in item for item in class_info["mro"]), (
-            f"BaseClass not in MRO. MRO={class_info['mro']}"
-        )
+        assert any(
+            "BaseClass" in item for item in class_info["mro"]
+        ), f"BaseClass not in MRO. MRO={class_info['mro']}"
 
     @pytest.mark.asyncio
     async def test_get_type_info_deep_module_path(self, analyzer, tmp_path):
@@ -511,9 +511,9 @@ class DerivedClass(a.b.c.d.base.BaseClass):
             f"Expected at least 1 base class for deeply nested inheritance. "
             f"base_classes={class_info['base_classes']}"
         )
-        assert any("BaseClass" in base for base in class_info["base_classes"]), (
-            f"BaseClass not found in base_classes={class_info['base_classes']}"
-        )
+        assert any(
+            "BaseClass" in base for base in class_info["base_classes"]
+        ), f"BaseClass not found in base_classes={class_info['base_classes']}"
 
     @pytest.mark.asyncio
     async def test_get_type_info_cross_package_qualified_base(self, analyzer, tmp_path):
@@ -570,6 +570,6 @@ class UserModel(pkg1.models.BaseModel):
             f"Expected base class from cross-package reference. "
             f"base_classes={class_info['base_classes']}"
         )
-        assert any("BaseModel" in base for base in class_info["base_classes"]), (
-            f"BaseModel not in base_classes={class_info['base_classes']}"
-        )
+        assert any(
+            "BaseModel" in base for base in class_info["base_classes"]
+        ), f"BaseModel not in base_classes={class_info['base_classes']}"
