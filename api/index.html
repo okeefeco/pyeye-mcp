@@ -13,7 +13,7 @@
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=6392f155"></script>
+      <script src="../_static/documentation_options.js?v=28f5a71b"></script>
       <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
@@ -371,25 +371,25 @@
 <table class="autosummary longtable docutils align-default">
 <tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_symbol.html#pyeye.mcp.server.find_symbol" title="pyeye.mcp.server.find_symbol"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_symbol</span></code></a>(name[, ...])</p></td>
-<td><p>Find symbol definitions in the project using semantic analysis.</p></td>
+<td><p>Python: Find class/function definitions.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.goto_definition.html#pyeye.mcp.server.goto_definition" title="pyeye.mcp.server.goto_definition"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.goto_definition</span></code></a>(file, line, ...)</p></td>
-<td><p>Go to symbol definition from a specific position.</p></td>
+<td><p>Python: Jump to where a symbol is defined from any usage location.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_references.html#pyeye.mcp.server.find_references" title="pyeye.mcp.server.find_references"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_references</span></code></a>(file, line, ...)</p></td>
-<td><p>Find all references to the symbol at a specific position.</p></td>
+<td><p>Python: Find ALL usages of a symbol.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_type_info.html#pyeye.mcp.server.get_type_info" title="pyeye.mcp.server.get_type_info"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_type_info</span></code></a>(file, line, ...)</p></td>
-<td><p>Get type information at a specific position.</p></td>
+<td><p>Python: Get type hints, docstrings, and base classes at cursor position.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_imports.html#pyeye.mcp.server.find_imports" title="pyeye.mcp.server.find_imports"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_imports</span></code></a>(module_name[, ...])</p></td>
-<td><p>Find all imports of a specific module in the project.</p></td>
+<td><p>Python: Find all files that import a specific module.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_call_hierarchy.html#pyeye.mcp.server.get_call_hierarchy" title="pyeye.mcp.server.get_call_hierarchy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_call_hierarchy</span></code></a>(...[, ...])</p></td>
-<td><p>Get the call hierarchy for a function.</p></td>
+<td><p>Python: Trace function callers and callees through the codebase.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_subclasses.html#pyeye.mcp.server.find_subclasses" title="pyeye.mcp.server.find_subclasses"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_subclasses</span></code></a>(base_class)</p></td>
-<td><p>Find all classes that inherit from a given base class.</p></td>
+<td><p>Python: Find inheritance tree including indirect subclasses.</p></td>
 </tr>
 </tbody>
 </table>
@@ -399,16 +399,16 @@
 <table class="autosummary longtable docutils align-default">
 <tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.configure_packages.html#pyeye.mcp.server.configure_packages" title="pyeye.mcp.server.configure_packages"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.configure_packages</span></code></a>([...])</p></td>
-<td><p>Configure additional package locations and standalone script directories.</p></td>
+<td><p>Python: Configure additional packages, namespaces, and standalone scripts for analysis.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.configure_namespace_package.html#pyeye.mcp.server.configure_namespace_package" title="pyeye.mcp.server.configure_namespace_package"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.configure_namespace_package</span></code></a>(...)</p></td>
-<td><p>Configure a namespace package spread across multiple repositories.</p></td>
+<td><p>Python: Set up namespace packages spread across multiple repositories.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_symbol_multi.html#pyeye.mcp.server.find_symbol_multi" title="pyeye.mcp.server.find_symbol_multi"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_symbol_multi</span></code></a>(name, ...)</p></td>
-<td><p>Find symbol across multiple projects.</p></td>
+<td><p>Python: Search for symbols across multiple projects simultaneously.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_project_structure.html#pyeye.mcp.server.list_project_structure" title="pyeye.mcp.server.list_project_structure"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_project_structure</span></code></a>([...])</p></td>
-<td><p>List the Python project structure.</p></td>
+<td><p>Python: Hierarchical view of Python files and packages in the project.</p></td>
 </tr>
 </tbody>
 </table>
@@ -418,16 +418,16 @@
 <table class="autosummary longtable docutils align-default">
 <tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_packages.html#pyeye.mcp.server.list_packages" title="pyeye.mcp.server.list_packages"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_packages</span></code></a>([project_path])</p></td>
-<td><p>List all Python packages in the project.</p></td>
+<td><p>Python: List all packages with their structure and subpackages.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_modules.html#pyeye.mcp.server.list_modules" title="pyeye.mcp.server.list_modules"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_modules</span></code></a>([project_path])</p></td>
-<td><p>List all Python modules with exports and metrics.</p></td>
+<td><p>Python: List all modules with their exports, classes, functions, and metrics.</p></td>
 </tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_module_info.html#pyeye.mcp.server.get_module_info" title="pyeye.mcp.server.get_module_info"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_module_info</span></code></a>(module_path)</p></td>
-<td><p>Get detailed information about a specific module.</p></td>
+<td><p>Python: Get module exports, classes, functions, and complexity metrics.</p></td>
 </tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies" title="pyeye.mcp.server.analyze_dependencies"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.analyze_dependencies</span></code></a>(...[, ...])</p></td>
-<td><p>Analyze import dependencies for a module.</p></td>
+<td><p>Python: Map module dependencies and detect circular imports.</p></td>
 </tr>
 </tbody>
 </table>

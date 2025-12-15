@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=6392f155"></script>
+      <script src="../../../_static/documentation_options.js?v=28f5a71b"></script>
       <script src="../../../_static/doctools.js?v=9bcbadda"></script>
       <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -511,7 +511,7 @@
     <span class="n">exclude_patterns</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">save</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure additional package locations and standalone script directories.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Configure additional packages, namespaces, and standalone scripts for analysis.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        packages: List of package paths to include</span>
@@ -578,7 +578,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_symbol</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">use_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find symbol definitions in the project using semantic analysis.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        name: Symbol name to search for</span>
@@ -627,7 +627,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">goto_definition</span><span class="p">(</span>
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Go to symbol definition from a specific position.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Jump to where a symbol is defined from any usage location.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        file: Path to the file</span>
@@ -654,7 +654,7 @@
     <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">include_subclasses</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all references to the symbol at a specific position.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        file: Path to the file</span>
@@ -679,7 +679,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_type_info</span><span class="p">(</span>
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get type information at a specific position.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get type hints, docstrings, and base classes at cursor position.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        file: Path to the file</span>
@@ -699,7 +699,7 @@
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_imports&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_imports</span><span class="p">(</span><span class="n">module_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all imports of a specific module in the project.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find all files that import a specific module.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        module_name: Name of the module to find imports for</span>
@@ -718,7 +718,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_call_hierarchy</span><span class="p">(</span>
     <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the call hierarchy for a function.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Trace function callers and callees through the codebase.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        function_name: Name of the function</span>
@@ -736,7 +736,7 @@
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;configure_namespace_package&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">configure_namespace_package</span><span class="p">(</span><span class="n">namespace</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">repo_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configure a namespace package spread across multiple repositories.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Set up namespace packages spread across multiple repositories.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        namespace: Package namespace (e.g., &quot;mycompany.services&quot;)</span>
@@ -777,7 +777,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">find_in_namespace</span><span class="p">(</span><span class="n">import_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">namespace_repos</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find a module/class within a namespace package spread across repos.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find symbols within namespace packages spread across multiple repos.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        import_path: Full import path (e.g., &quot;mycompany.auth.models.User&quot;)</span>
@@ -844,7 +844,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">find_symbol_multi</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find symbol across multiple projects.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Search for symbols across multiple projects simultaneously.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        name: Symbol name to search for</span>
@@ -894,7 +894,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_packages</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;List all Python packages in the project.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all packages with their structure and subpackages.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -922,7 +922,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_modules</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;List all Python modules with exports and metrics.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all modules with their exports, classes, functions, and metrics.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -949,7 +949,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">analyze_dependencies</span><span class="p">(</span>
     <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze import dependencies for a module.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Map module dependencies and detect circular imports. Semantic analysis grep can&#39;t do.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        module_path: Import path of the module (e.g., &quot;pyeye.mcp&quot;)</span>
@@ -981,7 +981,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_module_info</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get detailed information about a specific module.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get module exports, classes, functions, and complexity metrics.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        module_path: Import path of the module (e.g., &quot;pyeye.mcp&quot;)</span>
@@ -1012,7 +1012,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">list_project_structure</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;List the Python project structure.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Hierarchical view of Python files and packages in the project.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -1068,7 +1068,7 @@
     <span class="n">include_indirect</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">show_hierarchy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find all classes that inherit from a given base class.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find inheritance tree including indirect subclasses. Impossible with grep.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        base_class: Name of the base class to find subclasses for</span>
