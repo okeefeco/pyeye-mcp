@@ -211,6 +211,8 @@ class DogfoodingMetrics:
 
         except ImportError:
             # Fallback: try subprocess call if integration not available
+            # Note: get_performance_metrics tool was removed in issue #271
+            # This fallback will gracefully fail and return empty metrics below
             try:
                 result = subprocess.run(
                     ["mcp", "call", "get_performance_metrics"],
