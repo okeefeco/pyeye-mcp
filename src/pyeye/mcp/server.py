@@ -151,7 +151,7 @@ def configure_packages(
     exclude_patterns: list[str] | None = None,
     save: bool = True,
 ) -> dict[str, Any]:
-    """Configure additional package locations and standalone script directories.
+    """Python: Configure additional packages, namespaces, and standalone scripts for analysis.
 
     Args:
         packages: List of package paths to include
@@ -215,7 +215,7 @@ def configure_packages(
 async def find_symbol(
     name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
 ) -> list[dict[str, Any]]:
-    """Find symbol definitions in the project using semantic analysis.
+    """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
 
     Args:
         name: Symbol name to search for
@@ -261,7 +261,7 @@ async def find_symbol(
 async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
-    """Go to symbol definition from a specific position.
+    """Python: Jump to where a symbol is defined from any usage location.
 
     Args:
         file: Path to the file
@@ -285,7 +285,7 @@ async def find_references(
     include_definitions: bool = True,
     include_subclasses: bool = False,
 ) -> list[dict[str, Any]]:
-    """Find all references to the symbol at a specific position.
+    """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
     Args:
         file: Path to the file
@@ -307,7 +307,7 @@ async def find_references(
 async def get_type_info(
     file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
 ) -> dict[str, Any]:
-    """Get type information at a specific position.
+    """Python: Get type hints, docstrings, and base classes at cursor position.
 
     Args:
         file: Path to the file
@@ -324,7 +324,7 @@ async def get_type_info(
 @validate_mcp_inputs
 @metrics.measure("find_imports")
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
-    """Find all imports of a specific module in the project.
+    """Python: Find all files that import a specific module.
 
     Args:
         module_name: Name of the module to find imports for
@@ -340,7 +340,7 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
 async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
-    """Get the call hierarchy for a function.
+    """Python: Trace function callers and callees through the codebase.
 
     Args:
         function_name: Name of the function
@@ -355,7 +355,7 @@ async def get_call_hierarchy(
 @validate_mcp_inputs
 @metrics.measure("configure_namespace_package")
 def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[str, Any]:
-    """Configure a namespace package spread across multiple repositories.
+    """Python: Set up namespace packages spread across multiple repositories.
 
     Args:
         namespace: Package namespace (e.g., "mycompany.services")
@@ -395,7 +395,7 @@ def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[s
 @mcp.tool()
 @validate_mcp_inputs
 def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str, Any]:
-    """Find a module/class within a namespace package spread across repos.
+    """Python: Find symbols within namespace packages spread across multiple repos.
 
     Args:
         import_path: Full import path (e.g., "mycompany.auth.models.User")
@@ -460,7 +460,7 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
 def find_symbol_multi(
     name: str, project_paths: list[str], fuzzy: bool = False
 ) -> dict[str, list[dict[str, Any]]]:
-    """Find symbol across multiple projects.
+    """Python: Search for symbols across multiple projects simultaneously.
 
     Args:
         name: Symbol name to search for
@@ -507,7 +507,7 @@ def find_symbol_multi(
 @mcp.tool()
 @validate_mcp_inputs
 async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
-    """List all Python packages in the project.
+    """Python: List all packages with their structure and subpackages.
 
     Args:
         project_path: Root path of the project
@@ -532,7 +532,7 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 @mcp.tool()
 @validate_mcp_inputs
 async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
-    """List all Python modules with exports and metrics.
+    """Python: List all modules with their exports, classes, functions, and metrics.
 
     Args:
         project_path: Root path of the project
@@ -556,7 +556,7 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
 async def analyze_dependencies(
     module_path: str, project_path: str = ".", scope: str = "all"
 ) -> dict[str, Any]:
-    """Analyze import dependencies for a module.
+    """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -585,7 +585,7 @@ async def analyze_dependencies(
 @mcp.tool()
 @validate_mcp_inputs
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
-    """Get detailed information about a specific module.
+    """Python: Get module exports, classes, functions, and complexity metrics.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -613,7 +613,7 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
 @mcp.tool()
 @validate_mcp_inputs
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
-    """List the Python project structure.
+    """Python: Hierarchical view of Python files and packages in the project.
 
     Args:
         project_path: Root path of the project
@@ -666,7 +666,7 @@ async def find_subclasses(
     include_indirect: bool = True,
     show_hierarchy: bool = False,
 ) -> list[dict[str, Any]]:
-    """Find all classes that inherit from a given base class.
+    """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
     Args:
         base_class: Name of the base class to find subclasses for
