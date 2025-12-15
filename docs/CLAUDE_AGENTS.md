@@ -211,19 +211,6 @@ Agents should be tested for:
 - No false positives
 - MCP tool usage (not grep/regex)
 
-## Metrics and Monitoring
-
-Track agent effectiveness:
-
-```python
-# Check MCP usage
-mcp__pyeye__get_performance_metrics()
-
-# Verify semantic operations
-# Should see find_symbol, get_type_info, etc.
-# Should NOT see grep, ast.parse, etc.
-```
-
 ## Planned Agents
 
 ### test-coverage-enhancer
@@ -271,8 +258,7 @@ mcp__pyeye__get_performance_metrics()
 ### Poor Performance
 
 1. Agent might be using text search instead of semantic analysis
-2. Check `get_performance_metrics()` for MCP usage
-3. Refine agent prompt to prioritize MCP tools
+2. Refine agent prompt to prioritize MCP tools
 
 ## Extensibility: Growing Agent Capabilities
 

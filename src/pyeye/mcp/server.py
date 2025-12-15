@@ -812,39 +812,6 @@ async def find_subclasses(
         ) from e
 
 
-@mcp.tool()
-async def get_performance_metrics(
-    metric_name: str | None = None, export_format: str = "json"
-) -> dict[str, Any] | str:
-    """Get performance metrics for the MCP server.
-
-    Args:
-        metric_name: Optional specific metric name to retrieve
-        export_format: Output format - 'json' (default) or 'prometheus'
-
-    Returns:
-        Performance metrics in requested format
-
-    Example:
-        # Get all metrics
-        metrics = await get_performance_metrics()
-
-        # Get specific metric
-        symbol_search_stats = await get_performance_metrics("find_symbol")
-
-        # Export in Prometheus format
-        prometheus_data = await get_performance_metrics(export_format="prometheus")
-    """
-    if export_format == "prometheus":
-        return metrics.export_prometheus()
-
-    if metric_name:
-        return metrics.get_stats(metric_name)
-
-    # Return comprehensive performance report
-    return metrics.get_performance_report()
-
-
 # Workflow Resources
 
 
