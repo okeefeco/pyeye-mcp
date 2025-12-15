@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=a5747be5"></script>
+      <script src="../../../_static/documentation_options.js?v=1efacac6"></script>
       <script src="../../../_static/doctools.js?v=9bcbadda"></script>
       <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -1213,39 +1213,6 @@
             <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
         <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
 
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_performance_metrics</span><span class="p">(</span>
-    <span class="n">metric_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">export_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;json&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get performance metrics for the MCP server.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        metric_name: Optional specific metric name to retrieve</span>
-<span class="sd">        export_format: Output format - &#39;json&#39; (default) or &#39;prometheus&#39;</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Performance metrics in requested format</span>
-
-<span class="sd">    Example:</span>
-<span class="sd">        # Get all metrics</span>
-<span class="sd">        metrics = await get_performance_metrics()</span>
-
-<span class="sd">        # Get specific metric</span>
-<span class="sd">        symbol_search_stats = await get_performance_metrics(&quot;find_symbol&quot;)</span>
-
-<span class="sd">        # Export in Prometheus format</span>
-<span class="sd">        prometheus_data = await get_performance_metrics(export_format=&quot;prometheus&quot;)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">export_format</span> <span class="o">==</span> <span class="s2">&quot;prometheus&quot;</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">export_prometheus</span><span class="p">()</span>
-
-    <span class="k">if</span> <span class="n">metric_name</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_stats</span><span class="p">(</span><span class="n">metric_name</span><span class="p">)</span>
-
-    <span class="c1"># Return comprehensive performance report</span>
-    <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_performance_report</span><span class="p">()</span>
 
 
 <span class="c1"># Workflow Resources</span>
