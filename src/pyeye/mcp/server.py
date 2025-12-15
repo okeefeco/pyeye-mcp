@@ -151,29 +151,16 @@ def configure_packages(
     exclude_patterns: list[str] | None = None,
     save: bool = True,
 ) -> dict[str, Any]:
-    """Configure additional package locations and standalone script directories for analysis.
+    """Configure additional package locations and standalone script directories.
 
     Args:
         packages: List of package paths to include
         namespaces: Namespace packages with their repo paths
-        standalone_dirs: Directories containing standalone Python scripts (non-packages)
-        recursive: Whether to scan standalone directories recursively (default True)
-        file_pattern: Glob pattern for standalone files (default "*.py")
-        exclude_patterns: Patterns to exclude from standalone scanning (default [])
-        save: Whether to save configuration to .pyeye.json
-
-    Returns:
-        Current configuration
-
-    Example:
-        configure_packages(
-            packages=["../my-lib", "~/repos/shared-utils"],
-            namespaces={
-                "company": ["~/repos/company-auth", "~/repos/company-api"]
-            },
-            standalone_dirs=["notebooks", "scripts", "examples"],
-            exclude_patterns=["**/test_*", "**/__pycache__/**"]
-        )
+        standalone_dirs: Directories containing standalone Python scripts
+        recursive: Scan standalone directories recursively
+        file_pattern: Glob pattern for standalone files
+        exclude_patterns: Patterns to exclude from standalone scanning
+        save: Save configuration to .pyeye.json
     """
     # Load existing config
     global project_config
@@ -230,40 +217,11 @@ async def find_symbol(
 ) -> list[dict[str, Any]]:
     """Find symbol definitions in the project using semantic analysis.
 
-    Searches for class, function, variable, and module definitions using Jedi's
-    semantic analysis engine. Supports exact and fuzzy matching across configured
-    projects and namespace packages.
-
     Args:
-        name: Symbol name to search for (e.g., 'MyClass', 'my_function')
-        project_path: Root directory of the project to search (defaults to current directory)
-        fuzzy: Enable fuzzy matching for partial names (default False)
-        use_config: Load additional packages from configuration file (default True)
-
-    Returns:
-        List of symbol matches with location and type information:
-        [
-            {
-                'name': 'MyClass',
-                'type': 'class',
-                'file': '/path/to/file.py',
-                'line': 10,
-                'column': 0,
-                'import_paths': ['mymodule.MyClass']
-            }
-        ]
-
-    Raises:
-        FileAccessError: If project path is not found or not accessible
-        AnalysisError: If Jedi analysis fails or encounters errors
-        ValidationError: If symbol name is invalid
-
-    Example:
-        >>> await find_symbol('User', project_path='/my/project')
-        [{'name': 'User', 'type': 'class', 'file': '/my/project/models.py', ...}]
-
-        >>> await find_symbol('parse', fuzzy=True)  # Finds 'parse_json', 'html_parser', etc.
-        [{'name': 'parse_json', 'type': 'function', ...}, ...]
+        name: Symbol name to search for
+        project_path: Root directory of the project to search
+        fuzzy: Enable fuzzy matching for partial names
+        use_config: Load additional packages from configuration
     """
     try:
         # Use JediAnalyzer which now supports re-export tracking
@@ -310,9 +268,6 @@ async def goto_definition(
         line: Line number (1-indexed)
         column: Column number (0-indexed)
         project_path: Root path of the project
-
-    Returns:
-        Definition location or None if not found
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.goto_definition(file, line, column)
@@ -332,20 +287,13 @@ async def find_references(
 ) -> list[dict[str, Any]]:
     """Find all references to the symbol at a specific position.
 
-    When the symbol is a class and include_subclasses=True, performs a polymorphic
-    search - finding references to the base class AND all its subclasses.
-
     Args:
         file: Path to the file
         line: Line number (1-indexed)
         column: Column number (0-indexed)
         project_path: Root path of the project
-        include_definitions: Whether to include definitions in results
-        include_subclasses: If symbol is a class, also find references to all subclasses
-
-    Returns:
-        List of reference locations. When include_subclasses=True, each result includes
-        "referenced_class" field showing which class in the hierarchy.
+        include_definitions: Include definitions in results
+        include_subclasses: Also find references to all subclasses (polymorphic search)
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.find_references(
@@ -366,11 +314,7 @@ async def get_type_info(
         line: Line number (1-indexed)
         column: Column number (0-indexed)
         project_path: Root path of the project
-        detailed: Include additional information like methods and attributes (default False)
-
-    Returns:
-        Type information including inferred type, docstring, and for classes:
-        base classes and MRO
+        detailed: Include additional information like methods and attributes
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.get_type_info(file, line, column, detailed=detailed)
@@ -385,9 +329,6 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
     Args:
         module_name: Name of the module to find imports for
         project_path: Root path of the project
-
-    Returns:
-        List of import locations
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.find_imports(module_name)
@@ -405,9 +346,6 @@ async def get_call_hierarchy(
         function_name: Name of the function
         file: Optional file to search in (searches whole project if not specified)
         project_path: Root path of the project
-
-    Returns:
-        Call hierarchy with callers and callees
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.get_call_hierarchy(function_name, file)
@@ -422,19 +360,6 @@ def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[s
     Args:
         namespace: Package namespace (e.g., "mycompany.services")
         repo_paths: List of repository paths containing parts of this namespace
-
-    Returns:
-        Configuration details and discovered structure
-
-    Example:
-        configure_namespace_package(
-            namespace="mycompany",
-            repo_paths=[
-                "~/repos/mycompany-auth",
-                "~/repos/mycompany-api",
-                "~/repos/mycompany-utils"
-            ]
-        )
     """
     manager = get_project_manager()
     resolver = manager.namespace_resolver
@@ -475,15 +400,6 @@ def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str,
     Args:
         import_path: Full import path (e.g., "mycompany.auth.models.User")
         namespace_repos: Repository paths to search
-
-    Returns:
-        Locations where the import is found
-
-    Example:
-        find_in_namespace(
-            "mycompany.auth.models.User",
-            ["~/repos/mycompany-auth", "~/repos/mycompany-core"]
-        )
     """
     manager = get_project_manager()
     resolver = manager.namespace_resolver
@@ -550,9 +466,6 @@ def find_symbol_multi(
         name: Symbol name to search for
         project_paths: List of project paths to search
         fuzzy: Whether to use fuzzy matching
-
-    Returns:
-        Dictionary mapping project paths to their results
     """
     manager = get_project_manager()
     all_results = {}
@@ -598,9 +511,6 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 
     Args:
         project_path: Root path of the project
-
-    Returns:
-        List of packages with structure information
     """
     try:
         analyzer = get_analyzer(project_path)
@@ -626,9 +536,6 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
 
     Args:
         project_path: Root path of the project
-
-    Returns:
-        List of modules with exports, classes, functions, and metrics
     """
     try:
         analyzer = get_analyzer(project_path)
@@ -654,14 +561,7 @@ async def analyze_dependencies(
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
-        scope: Search scope (default "all"):
-            - "main": Only the main project
-            - "all": Main project + configured namespaces
-            - "namespace:name": Specific namespace
-            - ["main", "namespace:x"]: Multiple scopes
-
-    Returns:
-        Dependencies analysis including imports, imported_by, and circular dependencies
+        scope: Search scope - "main", "all", "namespace:name", or list
     """
     try:
         analyzer = get_analyzer(project_path)
@@ -690,9 +590,6 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
-
-    Returns:
-        Detailed module information including exports, classes, functions, metrics, and dependencies
     """
     try:
         analyzer = get_analyzer(project_path)
@@ -721,9 +618,6 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
     Args:
         project_path: Root path of the project
         max_depth: Maximum directory depth to traverse
-
-    Returns:
-        Project structure with Python files and directories
     """
     project_root = Path(project_path)
 
@@ -779,19 +673,6 @@ async def find_subclasses(
         project_path: Root path of the project
         include_indirect: Include indirect inheritance (grandchildren, etc.)
         show_hierarchy: Show the full inheritance chain
-
-    Returns:
-        List of subclasses with their locations and inheritance details
-
-    Example:
-        # Find all exception classes
-        subclasses = await find_subclasses("BaseException")
-
-        # Find direct subclasses only
-        direct_only = await find_subclasses("Animal", include_indirect=False)
-
-        # Show full inheritance hierarchy
-        with_hierarchy = await find_subclasses("Model", show_hierarchy=True)
     """
     try:
         analyzer = get_analyzer(project_path)
