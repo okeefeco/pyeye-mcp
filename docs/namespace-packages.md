@@ -428,20 +428,6 @@ deps = await analyzer.analyze_dependencies("mymodule", scope="all")
 print(deps["circular_dependencies"])
 ```
 
-### Performance Monitoring
-
-Monitor performance using the built-in metrics:
-
-```python
-metrics = await get_performance_metrics()
-
-# Check cache hit rates
-cache_stats = metrics["cache_hit_rate"]
-
-# Check search times
-search_times = metrics["find_symbol"]["avg_time_ms"]
-```
-
 ## Best Practices
 
 1. **Start with conservative scopes** - Use `main` by default, expand as needed

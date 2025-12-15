@@ -513,14 +513,6 @@ Workflows are exposed via MCP Resources protocol:
 - **`analyze_dependencies`** - Analyze module imports and detect circular dependencies
 - **`get_module_info`** - Get detailed module information including metrics and dependencies
 
-### Performance Monitoring
-
-- **`get_performance_metrics`** - Get detailed performance metrics and statistics
-  - Track operation latencies (p50, p95, p99)
-  - Monitor cache hit rates and memory usage
-  - Export metrics in JSON or Prometheus format
-  - Identify performance bottlenecks
-
 ### Framework-Specific Tools (Auto-Activated)
 
 #### Django (when Django is detected)
@@ -649,19 +641,6 @@ class MyProjectPlugin(AnalyzerPlugin):
 
 The server includes comprehensive performance monitoring to help identify bottlenecks and optimize performance for large-scale deployments.
 
-### Getting Performance Metrics
-
-```python
-# Get all performance metrics
-metrics = await get_performance_metrics()
-
-# Get metrics for a specific operation
-symbol_search_stats = await get_performance_metrics("find_symbol")
-
-# Export in Prometheus format for monitoring systems
-prometheus_data = await get_performance_metrics(export_format="prometheus")
-```
-
 ### Connection Pooling for Multi-Project Workflows
 
 Connection pooling is enabled by default to optimize performance when working with multiple projects. You can customize the pooling behavior:
@@ -704,20 +683,6 @@ The following performance baselines are enforced in CI:
 | goto_definition | 30 | 75 | 150 |
 | find_references | 100 | 250 | 500 |
 | cache_lookup | 0.1 | 0.5 | 1.0 |
-
-### Production Monitoring
-
-For production deployments, metrics can be exported to monitoring systems:
-
-```python
-# Prometheus endpoint integration
-prometheus_metrics = await get_performance_metrics(export_format="prometheus")
-# Send to your Prometheus server
-
-# JSON format for custom monitoring
-json_metrics = await get_performance_metrics()
-# Send to your monitoring system
-```
 
 ## Development
 
