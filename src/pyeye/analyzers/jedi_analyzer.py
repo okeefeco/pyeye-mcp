@@ -70,10 +70,12 @@ class JediAnalyzer:
                 # Filter to paths that are subdirectories of the project (like src/)
                 # These need to be added to sys.path for proper module resolution
                 additional = []
+                # Resolve project path for consistent comparison (handles Windows short paths)
+                resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
                     # Skip the project path itself and external paths
-                    if pkg != self.project_path and self._is_subpath(pkg, self.project_path):
+                    if pkg != resolved_project and self._is_subpath(pkg, resolved_project):
                         additional.append(pkg.as_posix())
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
                 if additional:
