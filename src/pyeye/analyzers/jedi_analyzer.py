@@ -63,9 +63,32 @@ class JediAnalyzer:
             raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
+            # Get additional sys paths from config (e.g., src/ layout detection)
+            added_sys_path: list[str] | None = None
+            if config:
+                package_paths = config.get_package_paths()
+                # Filter to paths that are subdirectories of the project (like src/)
+                # These need to be added to sys.path for proper module resolution
+                additional = []
+                for pkg_path in package_paths:
+                    pkg = Path(pkg_path).resolve()
+                    # Skip the project path itself and external paths
+                    if pkg != self.project_path and self._is_subpath(pkg, self.project_path):
+                        additional.append(pkg.as_posix())
+                        logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
+                if additional:
+                    added_sys_path = additional
+
             # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
             # Using as_posix() ensures cross-platform compatibility with forward slashes
-            self.project = jedi.Project(path=self.project_path.as_posix())
+            # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
+            if added_sys_path:
+                self.project = jedi.Project(
+                    path=self.project_path.as_posix(),
+                    added_sys_path=added_sys_path,
+                )
+            else:
+                self.project = jedi.Project(path=self.project_path.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -114,6 +137,23 @@ class JediAnalyzer:
         self.scope_validator = ScopeValidator(
             self.namespace_paths, self.additional_paths, scope_aliases
         )
+
+    @staticmethod
+    def _is_subpath(path: Path, parent: Path) -> bool:
+        """Check if path is a subdirectory of parent.
+
+        Args:
+            path: The path to check
+            parent: The potential parent path
+
+        Returns:
+            True if path is under parent, False otherwise
+        """
+        try:
+            path.relative_to(parent)
+            return True
+        except ValueError:
+            return False
 
     async def get_project_files(
         self,
