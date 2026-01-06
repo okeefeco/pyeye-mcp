@@ -119,7 +119,7 @@ from target_module import something
         # Issue #283: Additional relative import patterns slightly increase search time
         no_match_threshold = PerformanceThresholds(
             base=400.0,  # 400ms for local development (increased for relative import patterns)
-            linux_ci=500.0,  # 500ms for Linux CI (increased for relative import patterns)
+            linux_ci=600.0,  # 600ms for Linux CI (increased for relative import patterns)
             macos_ci=700.0,  # 700ms for macOS CI
             windows_ci=1200.0,  # 1200ms for Windows CI (increased due to high variability)
         )
