@@ -301,3 +301,310 @@ sources = ["src"]
             assert added_paths is not None
             src_path = (hatch_src_project / "src").resolve().as_posix()
             assert any(src_path in p for p in added_paths)
+
+
+class TestSrcLayoutEndToEnd:
+    """End-to-end tests that verify Jedi actually resolves modules correctly.
+
+    These tests don't mock Jedi - they verify the full resolution chain.
+    """
+
+    @pytest.fixture
+    def real_src_project(self, temp_project_dir: Path) -> Path:
+        """Create a real src-layout project for end-to-end testing.
+
+        Structure:
+            temp_project_dir/
+            ├── pyproject.toml
+            └── src/
+                └── mypackage/
+                    ├── __init__.py
+                    └── core.py  (with MyClass)
+        """
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+
+        (pkg_dir / "__init__.py").write_text('"""My Package."""\n\n__version__ = "1.0.0"\n')
+        (pkg_dir / "core.py").write_text(
+            '''"""Core module."""
+
+
+class MyClass:
+    """A class that should be findable via mypackage.core.MyClass."""
+
+    def my_method(self):
+        """A method."""
+        return 42
+
+
+def my_function():
+    """A function that should be findable via mypackage.core.my_function."""
+    return "hello"
+'''
+        )
+
+        # Create pyproject.toml with setuptools src layout
+        pyproject = temp_project_dir / "pyproject.toml"
+        pyproject.write_text(
+            """
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mypackage"
+version = "1.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+"""
+        )
+
+        return temp_project_dir
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path):
+        """Test that find_symbol returns 'mypackage.core.MyClass' not 'src.mypackage.core.MyClass'."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        # Find the class
+        results = await analyzer.find_symbol("MyClass")
+
+        assert len(results) >= 1, "Should find MyClass"
+
+        # Check the import path - it should be 'mypackage.core.MyClass', not 'src.mypackage.core.MyClass'
+        result = results[0]
+        import_paths = result.get("import_paths", [])
+
+        # At least one import path should NOT start with 'src.'
+        has_correct_path = any(
+            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        )
+        assert has_correct_path, (
+            f"Expected import path like 'mypackage.core.MyClass', "
+            f"got: {import_paths}. The 'src.' prefix should not appear."
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_function_uses_package_path(self, real_src_project: Path):
+        """Test that find_symbol for function returns correct import path."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        results = await analyzer.find_symbol("my_function")
+
+        assert len(results) >= 1, "Should find my_function"
+
+        result = results[0]
+        import_paths = result.get("import_paths", [])
+
+        has_correct_path = any(
+            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        )
+        assert has_correct_path, (
+            f"Expected import path like 'mypackage.core.my_function', "
+            f"got: {import_paths}. The 'src.' prefix should not appear."
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_module_info_uses_package_path(self, real_src_project: Path):
+        """Test that modules can be accessed via 'mypackage.core' not 'src.mypackage.core'."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        # Try to get info using 'mypackage.core' - this should work
+        # without needing 'src.mypackage.core'
+        module_info = await analyzer.get_module_info("mypackage.core")
+
+        assert module_info is not None, (
+            "Should be able to get module info using 'mypackage.core' " "(not 'src.mypackage.core')"
+        )
+        assert (
+            "classes" in module_info or "functions" in module_info
+        ), "Module info should have content"
+
+    @pytest.mark.asyncio
+    async def test_list_packages_uses_package_path_not_src(self, real_src_project: Path):
+        """Test that list_packages returns 'mypackage' not 'src.mypackage'.
+
+        This is a regression test for issue #281.
+        """
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        packages = await analyzer.list_packages()
+
+        # Find the mypackage entry
+        package_names = [p["name"] for p in packages]
+
+        # Should have 'mypackage', not 'src.mypackage' or 'src'
+        assert "mypackage" in package_names, (
+            f"Expected 'mypackage' in package names, got: {package_names}. "
+            "The 'src.' prefix should not appear."
+        )
+        assert "src.mypackage" not in package_names, (
+            f"Found 'src.mypackage' which is wrong - should be just 'mypackage'. "
+            f"Got: {package_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_modules_uses_package_path_not_src(self, real_src_project: Path):
+        """Test that list_modules returns 'mypackage.core' not 'src.mypackage.core'.
+
+        This is a regression test for issue #281.
+        """
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        modules = await analyzer.list_modules()
+
+        # Get all module import paths (the key is 'import_path', not 'module')
+        module_names = [m["import_path"] for m in modules]
+
+        # Should have modules like 'mypackage.core', not 'src.mypackage.core'
+        has_correct_module = any(
+            name == "mypackage.core" or name == "mypackage" for name in module_names
+        )
+        has_src_prefix = any(name.startswith("src.mypackage") for name in module_names)
+
+        assert (
+            has_correct_module
+        ), f"Expected 'mypackage' or 'mypackage.core' in module names, got: {module_names}"
+        assert (
+            not has_src_prefix
+        ), f"Found modules with 'src.mypackage' prefix which is wrong. Got: {module_names}"
+
+
+class TestSrcLayoutFindImports:
+    """Tests for find_imports with src-layout projects.
+
+    This is a regression test for issue #281 where find_imports returned empty
+    results for src-layout projects.
+    """
+
+    @pytest.fixture
+    def src_project_with_imports(self, temp_project_dir: Path) -> Path:
+        """Create a src-layout project with internal imports.
+
+        Structure:
+            temp_project_dir/
+            ├── pyproject.toml
+            └── src/
+                └── mypackage/
+                    ├── __init__.py
+                    ├── core.py  (imports mypackage.utils)
+                    └── utils.py
+        """
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+
+        (pkg_dir / "__init__.py").write_text('"""My Package."""\n')
+        (pkg_dir / "utils.py").write_text(
+            '''"""Utility module."""
+
+
+def helper_function():
+    """A helper function."""
+    return "helping"
+
+
+class UtilityClass:
+    """A utility class."""
+    pass
+'''
+        )
+        (pkg_dir / "core.py").write_text(
+            '''"""Core module that imports utils."""
+
+from mypackage.utils import helper_function, UtilityClass
+from mypackage import utils
+
+
+def main():
+    """Main function using utilities."""
+    result = helper_function()
+    obj = UtilityClass()
+    return result, obj
+'''
+        )
+
+        # Create pyproject.toml with setuptools src layout
+        pyproject = temp_project_dir / "pyproject.toml"
+        pyproject.write_text(
+            """
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mypackage"
+version = "1.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+"""
+        )
+
+        return temp_project_dir
+
+    @pytest.mark.asyncio
+    async def test_find_imports_works_for_src_layout(self, src_project_with_imports: Path):
+        """Test that find_imports finds imports in src-layout projects.
+
+        This is the main regression test for issue #281.
+        """
+        config = ProjectConfig(str(src_project_with_imports))
+        analyzer = JediAnalyzer(str(src_project_with_imports), config=config)
+
+        # Find files that import mypackage.utils
+        results = await analyzer.find_imports("mypackage.utils")
+
+        assert len(results) > 0, (
+            "find_imports should find core.py which imports mypackage.utils. "
+            "This was broken for src-layout projects (issue #281)."
+        )
+
+        # Verify the found file is core.py
+        found_files = [r["file"] for r in results]
+        assert any(
+            "core.py" in f for f in found_files
+        ), f"Expected to find core.py importing mypackage.utils, got: {found_files}"
+
+    @pytest.mark.asyncio
+    async def test_find_imports_with_from_import(self, src_project_with_imports: Path):
+        """Test that find_imports finds 'from module import' style imports."""
+        config = ProjectConfig(str(src_project_with_imports))
+        analyzer = JediAnalyzer(str(src_project_with_imports), config=config)
+
+        # Find files that import from mypackage.utils
+        results = await analyzer.find_imports("mypackage.utils")
+
+        # Should find the 'from mypackage.utils import helper_function' in core.py
+        import_statements = [r.get("import_statement", "") for r in results]
+
+        has_from_import = any("from mypackage.utils" in stmt for stmt in import_statements)
+        assert has_from_import, (
+            f"Expected to find 'from mypackage.utils import ...' statement. "
+            f"Got: {import_statements}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_imports_returns_correct_file_paths(self, src_project_with_imports: Path):
+        """Test that find_imports returns correct file paths (not src-prefixed)."""
+        config = ProjectConfig(str(src_project_with_imports))
+        analyzer = JediAnalyzer(str(src_project_with_imports), config=config)
+
+        results = await analyzer.find_imports("mypackage.utils")
+
+        # All file paths should be valid and point to real files
+        for result in results:
+            file_path = Path(result["file"])
+            assert file_path.exists(), f"File should exist: {file_path}"
+            assert file_path.suffix == ".py", f"Should be Python file: {file_path}"
