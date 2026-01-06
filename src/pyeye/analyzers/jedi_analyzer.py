@@ -47,6 +47,7 @@ class JediAnalyzer:
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
+        self.source_roots: list[Path] = []  # For src-layout roots (e.g., src/)
         self.config = config
 
         # Initialize scope utilities
@@ -80,6 +81,8 @@ class JediAnalyzer:
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
                 if additional:
                     added_sys_path = additional
+                    # Store source roots for use in import path computation
+                    self.source_roots = [Path(p) for p in additional]
 
             # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
             # Using as_posix() ensures cross-platform compatibility with forward slashes
@@ -352,7 +355,20 @@ class JediAnalyzer:
         Returns:
             Import path string, or None if it can't be determined
         """
-        # Try main project first
+        # Try source roots first (e.g., src/ layout)
+        # This ensures files in src/package/module.py return "package.module"
+        # instead of "src.package.module"
+        for source_root in self.source_roots:
+            try:
+                rel_path = py_file.relative_to(source_root)
+                module_parts = list(rel_path.parts[:-1])  # directories
+                if py_file.name != "__init__.py":
+                    module_parts.append(py_file.stem)
+                return ".".join(module_parts) if module_parts else py_file.stem
+            except ValueError:
+                continue
+
+        # Try main project
         try:
             rel_path = py_file.relative_to(self.project_path)
             module_parts = list(rel_path.parts[:-1])  # directories
@@ -1536,15 +1552,21 @@ class JediAnalyzer:
             module_parts = module_path.split(".")
 
             # Try different possible paths
-            possible_paths = [
-                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', os.sep)}.py",
-            ]
+            # First check source roots (e.g., src/ layout), then project root
+            search_roots = list(self.source_roots) + [self.project_path]
 
-            for path in possible_paths:
-                if path.exists():
-                    module_file = path
+            for root in search_roots:
+                possible_paths = [
+                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                    root / Path(*module_parts) / "__init__.py",
+                    root / f"{module_path.replace('.', os.sep)}.py",
+                ]
+
+                for path in possible_paths:
+                    if path.exists():
+                        module_file = path
+                        break
+                if module_file:
                     break
 
             if not module_file:
@@ -1752,15 +1774,21 @@ class JediAnalyzer:
             module_parts = module_path.split(".")
 
             # Try different possible paths
-            possible_paths = [
-                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', os.sep)}.py",
-            ]
+            # First check source roots (e.g., src/ layout), then project root
+            search_roots = list(self.source_roots) + [self.project_path]
 
-            for path in possible_paths:
-                if path.exists():
-                    module_file = path
+            for root in search_roots:
+                possible_paths = [
+                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                    root / Path(*module_parts) / "__init__.py",
+                    root / f"{module_path.replace('.', os.sep)}.py",
+                ]
+
+                for path in possible_paths:
+                    if path.exists():
+                        module_file = path
+                        break
+                if module_file:
                     break
 
             if not module_file:
@@ -1892,10 +1920,16 @@ class JediAnalyzer:
 
         # Add import paths if requested and we have module information
         if include_import_paths and name.full_name:
-            # Extract module path from full_name (everything except the last part)
-            parts = name.full_name.split(".")
-            if len(parts) > 1:
-                module_path = ".".join(parts[:-1])
+            # Use our _get_import_path_for_file to get correct module path
+            # This properly handles src-layout by using source_roots
+            if name.module_path:
+                module_path = self._get_import_path_for_file(Path(name.module_path))
+            else:
+                # Fall back to extracting from full_name if no file path
+                parts = name.full_name.split(".")
+                module_path = ".".join(parts[:-1]) if len(parts) > 1 else None
+
+            if module_path:
                 file_path = Path(name.module_path).as_posix() if name.module_path else None
                 import_paths = await self.find_reexports(name.name, module_path, file_path)
                 if import_paths:
@@ -1921,15 +1955,15 @@ class JediAnalyzer:
         # Determine the full module path
         if original_module:
             # If we have a file path, try to determine the full module path
+            # using our _get_import_path_for_file which handles src-layout
             if file_path and self.project_path:
                 try:
-                    # Convert file path to module path relative to project
                     file_path_obj = Path(file_path)
-                    rel_path = file_path_obj.relative_to(self.project_path)
-                    # Remove .py extension and convert to module path
-                    module_from_file = rel_path.with_suffix("").as_posix().replace("/", ".")
+                    module_from_file = self._get_import_path_for_file(file_path_obj)
                     # Use the module from file if it's more complete
-                    if len(module_from_file.split(".")) > len(original_module.split(".")):
+                    if module_from_file and len(module_from_file.split(".")) > len(
+                        original_module.split(".")
+                    ):
                         original_module = module_from_file.rsplit(".", 1)[
                             0
                         ]  # Remove the filename part
@@ -1960,8 +1994,8 @@ class JediAnalyzer:
             # Convert module path to file system path
             path_parts = module_path.split(".")
 
-            # Search in project path and any additional package paths
-            search_paths = [self.project_path]
+            # Search in source roots first (e.g., src/), then project path and additional paths
+            search_paths = list(self.source_roots) + [self.project_path]
             if hasattr(self, "additional_paths"):
                 search_paths.extend(self.additional_paths)
 

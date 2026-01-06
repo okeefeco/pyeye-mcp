@@ -301,3 +301,128 @@ sources = ["src"]
             assert added_paths is not None
             src_path = (hatch_src_project / "src").resolve().as_posix()
             assert any(src_path in p for p in added_paths)
+
+
+class TestSrcLayoutEndToEnd:
+    """End-to-end tests that verify Jedi actually resolves modules correctly.
+
+    These tests don't mock Jedi - they verify the full resolution chain.
+    """
+
+    @pytest.fixture
+    def real_src_project(self, temp_project_dir: Path) -> Path:
+        """Create a real src-layout project for end-to-end testing.
+
+        Structure:
+            temp_project_dir/
+            ├── pyproject.toml
+            └── src/
+                └── mypackage/
+                    ├── __init__.py
+                    └── core.py  (with MyClass)
+        """
+        src_dir = temp_project_dir / "src"
+        src_dir.mkdir()
+
+        pkg_dir = src_dir / "mypackage"
+        pkg_dir.mkdir()
+
+        (pkg_dir / "__init__.py").write_text('"""My Package."""\n\n__version__ = "1.0.0"\n')
+        (pkg_dir / "core.py").write_text(
+            '''"""Core module."""
+
+
+class MyClass:
+    """A class that should be findable via mypackage.core.MyClass."""
+
+    def my_method(self):
+        """A method."""
+        return 42
+
+
+def my_function():
+    """A function that should be findable via mypackage.core.my_function."""
+    return "hello"
+'''
+        )
+
+        # Create pyproject.toml with setuptools src layout
+        pyproject = temp_project_dir / "pyproject.toml"
+        pyproject.write_text(
+            """
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mypackage"
+version = "1.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+"""
+        )
+
+        return temp_project_dir
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path):
+        """Test that find_symbol returns 'mypackage.core.MyClass' not 'src.mypackage.core.MyClass'."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        # Find the class
+        results = await analyzer.find_symbol("MyClass")
+
+        assert len(results) >= 1, "Should find MyClass"
+
+        # Check the import path - it should be 'mypackage.core.MyClass', not 'src.mypackage.core.MyClass'
+        result = results[0]
+        import_paths = result.get("import_paths", [])
+
+        # At least one import path should NOT start with 'src.'
+        has_correct_path = any(
+            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        )
+        assert has_correct_path, (
+            f"Expected import path like 'mypackage.core.MyClass', "
+            f"got: {import_paths}. The 'src.' prefix should not appear."
+        )
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_function_uses_package_path(self, real_src_project: Path):
+        """Test that find_symbol for function returns correct import path."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        results = await analyzer.find_symbol("my_function")
+
+        assert len(results) >= 1, "Should find my_function"
+
+        result = results[0]
+        import_paths = result.get("import_paths", [])
+
+        has_correct_path = any(
+            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        )
+        assert has_correct_path, (
+            f"Expected import path like 'mypackage.core.my_function', "
+            f"got: {import_paths}. The 'src.' prefix should not appear."
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_module_info_uses_package_path(self, real_src_project: Path):
+        """Test that modules can be accessed via 'mypackage.core' not 'src.mypackage.core'."""
+        config = ProjectConfig(str(real_src_project))
+        analyzer = JediAnalyzer(str(real_src_project), config=config)
+
+        # Try to get info using 'mypackage.core' - this should work
+        # without needing 'src.mypackage.core'
+        module_info = await analyzer.get_module_info("mypackage.core")
+
+        assert module_info is not None, (
+            "Should be able to get module info using 'mypackage.core' " "(not 'src.mypackage.core')"
+        )
+        assert (
+            "classes" in module_info or "functions" in module_info
+        ), "Module info should have content"
