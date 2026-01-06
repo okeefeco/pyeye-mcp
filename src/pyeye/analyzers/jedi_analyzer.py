@@ -47,6 +47,7 @@ class JediAnalyzer:
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
+        self.source_roots: list[Path] = []  # For src-layout roots (e.g., src/)
         self.config = config
 
         # Initialize scope utilities
@@ -63,9 +64,36 @@ class JediAnalyzer:
             raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
+            # Get additional sys paths from config (e.g., src/ layout detection)
+            added_sys_path: list[str] | None = None
+            if config:
+                package_paths = config.get_package_paths()
+                # Filter to paths that are subdirectories of the project (like src/)
+                # These need to be added to sys.path for proper module resolution
+                additional = []
+                # Resolve project path for consistent comparison (handles Windows short paths)
+                resolved_project = self.project_path.resolve()
+                for pkg_path in package_paths:
+                    pkg = Path(pkg_path).resolve()
+                    # Skip the project path itself and external paths
+                    if pkg != resolved_project and self._is_subpath(pkg, resolved_project):
+                        additional.append(pkg.as_posix())
+                        logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
+                if additional:
+                    added_sys_path = additional
+                    # Store source roots for use in import path computation
+                    self.source_roots = [Path(p) for p in additional]
+
             # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
             # Using as_posix() ensures cross-platform compatibility with forward slashes
-            self.project = jedi.Project(path=self.project_path.as_posix())
+            # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
+            if added_sys_path:
+                self.project = jedi.Project(
+                    path=self.project_path.as_posix(),
+                    added_sys_path=added_sys_path,
+                )
+            else:
+                self.project = jedi.Project(path=self.project_path.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -114,6 +142,23 @@ class JediAnalyzer:
         self.scope_validator = ScopeValidator(
             self.namespace_paths, self.additional_paths, scope_aliases
         )
+
+    @staticmethod
+    def _is_subpath(path: Path, parent: Path) -> bool:
+        """Check if path is a subdirectory of parent.
+
+        Args:
+            path: The path to check
+            parent: The potential parent path
+
+        Returns:
+            True if path is under parent, False otherwise
+        """
+        try:
+            path.relative_to(parent)
+            return True
+        except ValueError:
+            return False
 
     async def get_project_files(
         self,
@@ -310,7 +355,20 @@ class JediAnalyzer:
         Returns:
             Import path string, or None if it can't be determined
         """
-        # Try main project first
+        # Try source roots first (e.g., src/ layout)
+        # This ensures files in src/package/module.py return "package.module"
+        # instead of "src.package.module"
+        for source_root in self.source_roots:
+            try:
+                rel_path = py_file.relative_to(source_root)
+                module_parts = list(rel_path.parts[:-1])  # directories
+                if py_file.name != "__init__.py":
+                    module_parts.append(py_file.stem)
+                return ".".join(module_parts) if module_parts else py_file.stem
+            except ValueError:
+                continue
+
+        # Try main project
         try:
             rel_path = py_file.relative_to(self.project_path)
             module_parts = list(rel_path.parts[:-1])  # directories
@@ -933,12 +991,29 @@ class JediAnalyzer:
             # Step 1: Use ripgrep to pre-filter files containing the module name
             # Escape dots in module name for regex (dots are literal in module names)
             escaped_module = re.escape(module_name)
+
+            # Extract the leaf module name for relative import matching
+            # e.g., "anz_devenv.nodejs" -> "nodejs"
+            leaf_module = module_name.split(".")[-1]
+            escaped_leaf = re.escape(leaf_module)
+
             # Create patterns for different import styles
             import_patterns = [
+                # Absolute import patterns (existing)
                 f"import {escaped_module}",
                 f"from {escaped_module}",
                 f"import.*{escaped_module}",
                 f"from.*{escaped_module}",
+                # Relative import patterns (new)
+                # Match "from . import nodejs" or "from .. import nodejs" etc.
+                # \.+ matches one or more literal dots
+                f"from \\.+ import.*\\b{escaped_leaf}\\b",
+                # Match "from .nodejs import" or "from ..nodejs import"
+                f"from \\.+{escaped_leaf} import",
+                # Match "from .subpkg.nodejs import" or from ..subpkg.nodejs import"
+                f"from \\.+\\w+\\.{escaped_leaf} import",
+                # Match deeper nesting like "from .a.b.nodejs import"
+                f"from \\.+[\\w.]+\\.{escaped_leaf} import",
             ]
 
             # Find files that might contain imports
@@ -959,15 +1034,56 @@ class JediAnalyzer:
             for py_file in candidate_files:
                 try:
                     # Create ImportAnalyzer for the appropriate root
-                    # For files under project_path, use project_path
-                    # For files elsewhere (namespace packages), use a suitable parent
-                    try:
-                        py_file.relative_to(self.project_path)
-                        analyzer_root = self.project_path
-                    except ValueError:
-                        # File is not under project_path, find appropriate root
-                        analyzer_root = py_file.parent
-                        # Walk up to find a directory with __init__.py or that contains Python packages
+                    # Try source roots first (e.g., src/ layout) to ensure
+                    # modules in src/package/module.py are recognized as "package.module"
+                    # instead of "src.package.module"
+                    analyzer_root = None
+
+                    # Resolve py_file to handle symlinks (e.g., /var -> /private/var on macOS)
+                    py_file_resolved = py_file.resolve()
+
+                    # First check source roots
+                    for source_root in self.source_roots:
+                        try:
+                            # Resolve both paths for consistent comparison
+                            source_root_resolved = source_root.resolve()
+                            py_file_resolved.relative_to(source_root_resolved)
+                            analyzer_root = source_root_resolved
+                            break
+                        except ValueError:
+                            continue
+
+                    # Then try project_path
+                    if analyzer_root is None:
+                        try:
+                            project_path_resolved = self.project_path.resolve()
+                            py_file_resolved.relative_to(project_path_resolved)
+                            analyzer_root = project_path_resolved
+                        except ValueError:
+                            pass
+
+                    # Finally check namespace paths and fall back to walking up
+                    if analyzer_root is None:
+                        # Check namespace paths
+                        for ns_paths in self.namespace_paths.values():
+                            for ns_path in ns_paths:
+                                try:
+                                    ns_path_resolved = (
+                                        ns_path.resolve()
+                                        if isinstance(ns_path, Path)
+                                        else Path(ns_path).resolve()
+                                    )
+                                    py_file_resolved.relative_to(ns_path_resolved)
+                                    analyzer_root = ns_path_resolved
+                                    break
+                                except ValueError:
+                                    continue
+                            if analyzer_root:
+                                break
+
+                    # Last resort: walk up to find appropriate root
+                    if analyzer_root is None:
+                        analyzer_root = py_file_resolved.parent
                         while analyzer_root.parent != analyzer_root:
                             if (analyzer_root / "__init__.py").exists() or any(
                                 (analyzer_root / p).is_dir()
@@ -983,48 +1099,40 @@ class JediAnalyzer:
                     # Use AST-based analysis for speed
                     import_info = import_analyzer.analyze_imports(py_file)
 
-                    # Check if this file imports our module
-                    found_imports = False
+                    # Find matching imports using import_details (includes line numbers)
+                    matching_details = []
+                    for detail in import_info.get("import_details", []):
+                        resolved = detail.get("resolved_module", "")
+                        # Check if the resolved module matches our target
+                        if resolved == module_name or resolved.startswith(f"{module_name}."):
+                            matching_details.append(detail)
 
-                    # Check direct imports
-                    for imported in import_info["imports"]:
-                        if imported == module_name or imported.startswith(f"{module_name}."):
-                            found_imports = True
-                            break
-
-                    # Check from imports
-                    if not found_imports:
-                        for from_module in import_info["from_imports"]:
-                            if from_module == module_name or from_module.startswith(
-                                f"{module_name}."
-                            ):
-                                found_imports = True
-                                break
-
-                    # If we found imports, extract line information
-                    if found_imports:
+                    # If we found imports, extract line information using the details
+                    if matching_details:
                         source = await read_file_async(py_file)
-
-                        # Use simple line-by-line search since AST already confirmed the import exists
                         lines = source.splitlines()
-                        for line_num, line in enumerate(lines, 1):
-                            # Check if this line contains the import
-                            # Handle both "import module" and "from module import ..."
-                            if f"import {module_name}" in line or f"from {module_name}" in line:
-                                # Find the column where the module name starts
-                                col = line.find(module_name)
-                                if col == -1:
-                                    col = 0
 
-                                results.append(
-                                    {
-                                        "file": py_file.as_posix(),
-                                        "line": line_num,
-                                        "column": col,
-                                        "import_statement": line.strip(),
-                                        "type": "import",
-                                    }
-                                )
+                        for detail in matching_details:
+                            line_num = detail.get("line", 0)
+                            col = detail.get("column", 0)
+
+                            # Get the actual line content
+                            if 0 < line_num <= len(lines):
+                                line_content = lines[line_num - 1].strip()
+                            else:
+                                line_content = ""
+
+                            results.append(
+                                {
+                                    "file": py_file.as_posix(),
+                                    "line": line_num,
+                                    "column": col,
+                                    "import_statement": line_content,
+                                    "type": "import",
+                                    "is_relative": detail.get("is_relative", False),
+                                    "resolved_module": detail.get("resolved_module", ""),
+                                }
+                            )
 
                 except Exception as e:
                     logger.warning(f"Error processing {py_file}: {e}")
@@ -1262,17 +1370,41 @@ class JediAnalyzer:
             init_files = await self.get_project_files("__init__.py", scope)
             for path in init_files:
                 package_dir = path.parent
+                # Resolve to handle symlinks (e.g., /var -> /private/var on macOS)
+                package_dir_resolved = package_dir.resolve()
 
                 # Determine package name based on which search path this file belongs to
                 package_name = None
                 rel_path = None
 
-                # Try to make relative to main project first
-                try:
-                    rel_path = package_dir.relative_to(self.project_path)
-                    package_name = rel_path.as_posix().replace("/", ".")
-                except ValueError:
-                    # Not under main project, check if it's in a namespace
+                # Try source roots first (e.g., src/ layout)
+                # This ensures packages in src/package/ return "package"
+                # instead of "src.package"
+                for source_root in self.source_roots:
+                    try:
+                        # Resolve both paths for consistent comparison
+                        source_root_resolved = source_root.resolve()
+                        rel_path = package_dir_resolved.relative_to(source_root_resolved)
+                        if rel_path == Path("."):
+                            # Package is at the root of source_root
+                            package_name = package_dir.name
+                        else:
+                            package_name = rel_path.as_posix().replace("/", ".")
+                        break
+                    except ValueError:
+                        continue
+
+                # Try main project if not found in source roots
+                if not package_name:
+                    try:
+                        project_path_resolved = self.project_path.resolve()
+                        rel_path = package_dir_resolved.relative_to(project_path_resolved)
+                        package_name = rel_path.as_posix().replace("/", ".")
+                    except ValueError:
+                        pass
+
+                # Check namespace paths if still not found
+                if not package_name:
                     for ns_name, ns_paths in self.namespace_paths.items():
                         for ns_path in ns_paths:
                             try:
@@ -1354,24 +1486,53 @@ class JediAnalyzer:
             # Find all Python files in the project
             py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
+                # Resolve to handle symlinks (e.g., /var -> /private/var on macOS)
+                py_file_resolved = py_file.resolve()
+
                 # Determine import path based on which search path this file belongs to
                 import_path = None
                 rel_path = None
 
-                # Try to make relative to main project first
-                try:
-                    rel_path = py_file.relative_to(self.project_path)
-                    module_parts = list(rel_path.parts[:-1])  # directories
-                    if py_file.name != "__init__.py":
-                        module_parts.append(py_file.stem)
-                    import_path = ".".join(module_parts) if module_parts else py_file.stem
-                except ValueError:
-                    # Not under main project, check if it's in a namespace
+                # Try source roots first (e.g., src/ layout)
+                # This ensures modules in src/package/module.py return "package.module"
+                # instead of "src.package.module"
+                for source_root in self.source_roots:
+                    try:
+                        # Resolve both paths for consistent comparison
+                        source_root_resolved = source_root.resolve()
+                        rel_path = py_file_resolved.relative_to(source_root_resolved)
+                        module_parts = list(rel_path.parts[:-1])  # directories
+                        if py_file.name != "__init__.py":
+                            module_parts.append(py_file.stem)
+                        import_path = ".".join(module_parts) if module_parts else py_file.stem
+                        break
+                    except ValueError:
+                        continue
+
+                # Try main project if not found in source roots
+                if not import_path:
+                    try:
+                        project_path_resolved = self.project_path.resolve()
+                        rel_path = py_file_resolved.relative_to(project_path_resolved)
+                        module_parts = list(rel_path.parts[:-1])  # directories
+                        if py_file.name != "__init__.py":
+                            module_parts.append(py_file.stem)
+                        import_path = ".".join(module_parts) if module_parts else py_file.stem
+                    except ValueError:
+                        pass
+
+                # Check namespace paths if still not found
+                if not import_path:
                     for ns_name, ns_paths in self.namespace_paths.items():
                         for ns_path in ns_paths:
                             try:
-                                if py_file.is_relative_to(ns_path):
-                                    ns_rel_path = py_file.relative_to(ns_path)
+                                ns_path_resolved = (
+                                    ns_path.resolve()
+                                    if isinstance(ns_path, Path)
+                                    else Path(ns_path).resolve()
+                                )
+                                if py_file_resolved.is_relative_to(ns_path_resolved):
+                                    ns_rel_path = py_file_resolved.relative_to(ns_path_resolved)
                                     module_parts = list(ns_rel_path.parts[:-1])
                                     if py_file.name != "__init__.py":
                                         module_parts.append(py_file.stem)
@@ -1494,15 +1655,21 @@ class JediAnalyzer:
             module_parts = module_path.split(".")
 
             # Try different possible paths
-            possible_paths = [
-                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', os.sep)}.py",
-            ]
+            # First check source roots (e.g., src/ layout), then project root
+            search_roots = list(self.source_roots) + [self.project_path]
 
-            for path in possible_paths:
-                if path.exists():
-                    module_file = path
+            for root in search_roots:
+                possible_paths = [
+                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                    root / Path(*module_parts) / "__init__.py",
+                    root / f"{module_path.replace('.', os.sep)}.py",
+                ]
+
+                for path in possible_paths:
+                    if path.exists():
+                        module_file = path
+                        break
+                if module_file:
                     break
 
             if not module_file:
@@ -1710,15 +1877,21 @@ class JediAnalyzer:
             module_parts = module_path.split(".")
 
             # Try different possible paths
-            possible_paths = [
-                self.project_path / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                self.project_path / Path(*module_parts) / "__init__.py",
-                self.project_path / f"{module_path.replace('.', os.sep)}.py",
-            ]
+            # First check source roots (e.g., src/ layout), then project root
+            search_roots = list(self.source_roots) + [self.project_path]
 
-            for path in possible_paths:
-                if path.exists():
-                    module_file = path
+            for root in search_roots:
+                possible_paths = [
+                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
+                    root / Path(*module_parts) / "__init__.py",
+                    root / f"{module_path.replace('.', os.sep)}.py",
+                ]
+
+                for path in possible_paths:
+                    if path.exists():
+                        module_file = path
+                        break
+                if module_file:
                     break
 
             if not module_file:
@@ -1850,10 +2023,16 @@ class JediAnalyzer:
 
         # Add import paths if requested and we have module information
         if include_import_paths and name.full_name:
-            # Extract module path from full_name (everything except the last part)
-            parts = name.full_name.split(".")
-            if len(parts) > 1:
-                module_path = ".".join(parts[:-1])
+            # Use our _get_import_path_for_file to get correct module path
+            # This properly handles src-layout by using source_roots
+            if name.module_path:
+                module_path = self._get_import_path_for_file(Path(name.module_path))
+            else:
+                # Fall back to extracting from full_name if no file path
+                parts = name.full_name.split(".")
+                module_path = ".".join(parts[:-1]) if len(parts) > 1 else None
+
+            if module_path:
                 file_path = Path(name.module_path).as_posix() if name.module_path else None
                 import_paths = await self.find_reexports(name.name, module_path, file_path)
                 if import_paths:
@@ -1879,15 +2058,15 @@ class JediAnalyzer:
         # Determine the full module path
         if original_module:
             # If we have a file path, try to determine the full module path
+            # using our _get_import_path_for_file which handles src-layout
             if file_path and self.project_path:
                 try:
-                    # Convert file path to module path relative to project
                     file_path_obj = Path(file_path)
-                    rel_path = file_path_obj.relative_to(self.project_path)
-                    # Remove .py extension and convert to module path
-                    module_from_file = rel_path.with_suffix("").as_posix().replace("/", ".")
+                    module_from_file = self._get_import_path_for_file(file_path_obj)
                     # Use the module from file if it's more complete
-                    if len(module_from_file.split(".")) > len(original_module.split(".")):
+                    if module_from_file and len(module_from_file.split(".")) > len(
+                        original_module.split(".")
+                    ):
                         original_module = module_from_file.rsplit(".", 1)[
                             0
                         ]  # Remove the filename part
@@ -1918,8 +2097,8 @@ class JediAnalyzer:
             # Convert module path to file system path
             path_parts = module_path.split(".")
 
-            # Search in project path and any additional package paths
-            search_paths = [self.project_path]
+            # Search in source roots first (e.g., src/), then project path and additional paths
+            search_paths = list(self.source_roots) + [self.project_path]
             if hasattr(self, "additional_paths"):
                 search_paths.extend(self.additional_paths)
 
