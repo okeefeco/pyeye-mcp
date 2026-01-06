@@ -991,12 +991,29 @@ class JediAnalyzer:
             # Step 1: Use ripgrep to pre-filter files containing the module name
             # Escape dots in module name for regex (dots are literal in module names)
             escaped_module = re.escape(module_name)
+
+            # Extract the leaf module name for relative import matching
+            # e.g., "anz_devenv.nodejs" -> "nodejs"
+            leaf_module = module_name.split(".")[-1]
+            escaped_leaf = re.escape(leaf_module)
+
             # Create patterns for different import styles
             import_patterns = [
+                # Absolute import patterns (existing)
                 f"import {escaped_module}",
                 f"from {escaped_module}",
                 f"import.*{escaped_module}",
                 f"from.*{escaped_module}",
+                # Relative import patterns (new)
+                # Match "from . import nodejs" or "from .. import nodejs" etc.
+                # \.+ matches one or more literal dots
+                f"from \\.+ import.*\\b{escaped_leaf}\\b",
+                # Match "from .nodejs import" or "from ..nodejs import"
+                f"from \\.+{escaped_leaf} import",
+                # Match "from .subpkg.nodejs import" or from ..subpkg.nodejs import"
+                f"from \\.+\\w+\\.{escaped_leaf} import",
+                # Match deeper nesting like "from .a.b.nodejs import"
+                f"from \\.+[\\w.]+\\.{escaped_leaf} import",
             ]
 
             # Find files that might contain imports
@@ -1082,48 +1099,40 @@ class JediAnalyzer:
                     # Use AST-based analysis for speed
                     import_info = import_analyzer.analyze_imports(py_file)
 
-                    # Check if this file imports our module
-                    found_imports = False
+                    # Find matching imports using import_details (includes line numbers)
+                    matching_details = []
+                    for detail in import_info.get("import_details", []):
+                        resolved = detail.get("resolved_module", "")
+                        # Check if the resolved module matches our target
+                        if resolved == module_name or resolved.startswith(f"{module_name}."):
+                            matching_details.append(detail)
 
-                    # Check direct imports
-                    for imported in import_info["imports"]:
-                        if imported == module_name or imported.startswith(f"{module_name}."):
-                            found_imports = True
-                            break
-
-                    # Check from imports
-                    if not found_imports:
-                        for from_module in import_info["from_imports"]:
-                            if from_module == module_name or from_module.startswith(
-                                f"{module_name}."
-                            ):
-                                found_imports = True
-                                break
-
-                    # If we found imports, extract line information
-                    if found_imports:
+                    # If we found imports, extract line information using the details
+                    if matching_details:
                         source = await read_file_async(py_file)
-
-                        # Use simple line-by-line search since AST already confirmed the import exists
                         lines = source.splitlines()
-                        for line_num, line in enumerate(lines, 1):
-                            # Check if this line contains the import
-                            # Handle both "import module" and "from module import ..."
-                            if f"import {module_name}" in line or f"from {module_name}" in line:
-                                # Find the column where the module name starts
-                                col = line.find(module_name)
-                                if col == -1:
-                                    col = 0
 
-                                results.append(
-                                    {
-                                        "file": py_file.as_posix(),
-                                        "line": line_num,
-                                        "column": col,
-                                        "import_statement": line.strip(),
-                                        "type": "import",
-                                    }
-                                )
+                        for detail in matching_details:
+                            line_num = detail.get("line", 0)
+                            col = detail.get("column", 0)
+
+                            # Get the actual line content
+                            if 0 < line_num <= len(lines):
+                                line_content = lines[line_num - 1].strip()
+                            else:
+                                line_content = ""
+
+                            results.append(
+                                {
+                                    "file": py_file.as_posix(),
+                                    "line": line_num,
+                                    "column": col,
+                                    "import_statement": line_content,
+                                    "type": "import",
+                                    "is_relative": detail.get("is_relative", False),
+                                    "resolved_module": detail.get("resolved_module", ""),
+                                }
+                            )
 
                 except Exception as e:
                     logger.warning(f"Error processing {py_file}: {e}")

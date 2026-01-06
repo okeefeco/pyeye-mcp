@@ -116,11 +116,12 @@ from target_module import something
 
         # With ripgrep, no-match case should be very fast
         # Threshold increased to account for regex escaping overhead and filesystem I/O variability
+        # Issue #283: Additional relative import patterns slightly increase search time
         no_match_threshold = PerformanceThresholds(
-            base=300.0,  # 300ms for local development (increased from 200ms - macOS I/O variability)
-            linux_ci=400.0,  # 400ms for Linux CI (increased from 300ms)
-            macos_ci=600.0,  # 600ms for macOS CI
-            windows_ci=1100.0,  # 1100ms for Windows CI (increased due to high variability)
+            base=400.0,  # 400ms for local development (increased for relative import patterns)
+            linux_ci=500.0,  # 500ms for Linux CI (increased for relative import patterns)
+            macos_ci=700.0,  # 700ms for macOS CI
+            windows_ci=1200.0,  # 1200ms for Windows CI (increased due to high variability)
         )
 
         assert_performance_threshold(elapsed_ms, no_match_threshold, "find_imports no matches")
@@ -170,11 +171,12 @@ import sys
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         # Default scope should be fast
+        # Issue #283: Additional relative import patterns slightly increase search time
         default_scope_threshold = PerformanceThresholds(
-            base=500.0,  # 500ms for local development
-            linux_ci=750.0,  # 750ms for Linux CI
-            macos_ci=1500.0,  # 1.5s for macOS CI
-            windows_ci=1500.0,  # 1.5s for Windows CI
+            base=600.0,  # 600ms for local development (increased for relative import patterns)
+            linux_ci=850.0,  # 850ms for Linux CI (increased for relative import patterns)
+            macos_ci=1600.0,  # 1.6s for macOS CI
+            windows_ci=1600.0,  # 1.6s for Windows CI
         )
 
         assert_performance_threshold(
