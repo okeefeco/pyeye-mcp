@@ -1017,15 +1017,56 @@ class JediAnalyzer:
             for py_file in candidate_files:
                 try:
                     # Create ImportAnalyzer for the appropriate root
-                    # For files under project_path, use project_path
-                    # For files elsewhere (namespace packages), use a suitable parent
-                    try:
-                        py_file.relative_to(self.project_path)
-                        analyzer_root = self.project_path
-                    except ValueError:
-                        # File is not under project_path, find appropriate root
-                        analyzer_root = py_file.parent
-                        # Walk up to find a directory with __init__.py or that contains Python packages
+                    # Try source roots first (e.g., src/ layout) to ensure
+                    # modules in src/package/module.py are recognized as "package.module"
+                    # instead of "src.package.module"
+                    analyzer_root = None
+
+                    # Resolve py_file to handle symlinks (e.g., /var -> /private/var on macOS)
+                    py_file_resolved = py_file.resolve()
+
+                    # First check source roots
+                    for source_root in self.source_roots:
+                        try:
+                            # Resolve both paths for consistent comparison
+                            source_root_resolved = source_root.resolve()
+                            py_file_resolved.relative_to(source_root_resolved)
+                            analyzer_root = source_root_resolved
+                            break
+                        except ValueError:
+                            continue
+
+                    # Then try project_path
+                    if analyzer_root is None:
+                        try:
+                            project_path_resolved = self.project_path.resolve()
+                            py_file_resolved.relative_to(project_path_resolved)
+                            analyzer_root = project_path_resolved
+                        except ValueError:
+                            pass
+
+                    # Finally check namespace paths and fall back to walking up
+                    if analyzer_root is None:
+                        # Check namespace paths
+                        for ns_paths in self.namespace_paths.values():
+                            for ns_path in ns_paths:
+                                try:
+                                    ns_path_resolved = (
+                                        ns_path.resolve()
+                                        if isinstance(ns_path, Path)
+                                        else Path(ns_path).resolve()
+                                    )
+                                    py_file_resolved.relative_to(ns_path_resolved)
+                                    analyzer_root = ns_path_resolved
+                                    break
+                                except ValueError:
+                                    continue
+                            if analyzer_root:
+                                break
+
+                    # Last resort: walk up to find appropriate root
+                    if analyzer_root is None:
+                        analyzer_root = py_file_resolved.parent
                         while analyzer_root.parent != analyzer_root:
                             if (analyzer_root / "__init__.py").exists() or any(
                                 (analyzer_root / p).is_dir()
@@ -1320,17 +1361,41 @@ class JediAnalyzer:
             init_files = await self.get_project_files("__init__.py", scope)
             for path in init_files:
                 package_dir = path.parent
+                # Resolve to handle symlinks (e.g., /var -> /private/var on macOS)
+                package_dir_resolved = package_dir.resolve()
 
                 # Determine package name based on which search path this file belongs to
                 package_name = None
                 rel_path = None
 
-                # Try to make relative to main project first
-                try:
-                    rel_path = package_dir.relative_to(self.project_path)
-                    package_name = rel_path.as_posix().replace("/", ".")
-                except ValueError:
-                    # Not under main project, check if it's in a namespace
+                # Try source roots first (e.g., src/ layout)
+                # This ensures packages in src/package/ return "package"
+                # instead of "src.package"
+                for source_root in self.source_roots:
+                    try:
+                        # Resolve both paths for consistent comparison
+                        source_root_resolved = source_root.resolve()
+                        rel_path = package_dir_resolved.relative_to(source_root_resolved)
+                        if rel_path == Path("."):
+                            # Package is at the root of source_root
+                            package_name = package_dir.name
+                        else:
+                            package_name = rel_path.as_posix().replace("/", ".")
+                        break
+                    except ValueError:
+                        continue
+
+                # Try main project if not found in source roots
+                if not package_name:
+                    try:
+                        project_path_resolved = self.project_path.resolve()
+                        rel_path = package_dir_resolved.relative_to(project_path_resolved)
+                        package_name = rel_path.as_posix().replace("/", ".")
+                    except ValueError:
+                        pass
+
+                # Check namespace paths if still not found
+                if not package_name:
                     for ns_name, ns_paths in self.namespace_paths.items():
                         for ns_path in ns_paths:
                             try:
@@ -1412,24 +1477,53 @@ class JediAnalyzer:
             # Find all Python files in the project
             py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
+                # Resolve to handle symlinks (e.g., /var -> /private/var on macOS)
+                py_file_resolved = py_file.resolve()
+
                 # Determine import path based on which search path this file belongs to
                 import_path = None
                 rel_path = None
 
-                # Try to make relative to main project first
-                try:
-                    rel_path = py_file.relative_to(self.project_path)
-                    module_parts = list(rel_path.parts[:-1])  # directories
-                    if py_file.name != "__init__.py":
-                        module_parts.append(py_file.stem)
-                    import_path = ".".join(module_parts) if module_parts else py_file.stem
-                except ValueError:
-                    # Not under main project, check if it's in a namespace
+                # Try source roots first (e.g., src/ layout)
+                # This ensures modules in src/package/module.py return "package.module"
+                # instead of "src.package.module"
+                for source_root in self.source_roots:
+                    try:
+                        # Resolve both paths for consistent comparison
+                        source_root_resolved = source_root.resolve()
+                        rel_path = py_file_resolved.relative_to(source_root_resolved)
+                        module_parts = list(rel_path.parts[:-1])  # directories
+                        if py_file.name != "__init__.py":
+                            module_parts.append(py_file.stem)
+                        import_path = ".".join(module_parts) if module_parts else py_file.stem
+                        break
+                    except ValueError:
+                        continue
+
+                # Try main project if not found in source roots
+                if not import_path:
+                    try:
+                        project_path_resolved = self.project_path.resolve()
+                        rel_path = py_file_resolved.relative_to(project_path_resolved)
+                        module_parts = list(rel_path.parts[:-1])  # directories
+                        if py_file.name != "__init__.py":
+                            module_parts.append(py_file.stem)
+                        import_path = ".".join(module_parts) if module_parts else py_file.stem
+                    except ValueError:
+                        pass
+
+                # Check namespace paths if still not found
+                if not import_path:
                     for ns_name, ns_paths in self.namespace_paths.items():
                         for ns_path in ns_paths:
                             try:
-                                if py_file.is_relative_to(ns_path):
-                                    ns_rel_path = py_file.relative_to(ns_path)
+                                ns_path_resolved = (
+                                    ns_path.resolve()
+                                    if isinstance(ns_path, Path)
+                                    else Path(ns_path).resolve()
+                                )
+                                if py_file_resolved.is_relative_to(ns_path_resolved):
+                                    ns_rel_path = py_file_resolved.relative_to(ns_path_resolved)
                                     module_parts = list(ns_rel_path.parts[:-1])
                                     if py_file.name != "__init__.py":
                                         module_parts.append(py_file.stem)
