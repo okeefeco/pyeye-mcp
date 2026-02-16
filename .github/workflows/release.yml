@@ -205,10 +205,32 @@ jobs:
           name: dist
           path: dist/
 
+  # Publish to TestPyPI first (dry run)
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/pyeye-mcp/
+
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+        # No token needed - uses Trusted Publisher (OIDC)
+
   # Publish to PyPI using Trusted Publisher (OIDC)
   publish-pypi:
     name: Publish to PyPI
-    needs: release
+    needs: [release, publish-testpypi]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -228,23 +250,24 @@ jobs:
   # Notify about the release
   notify:
     name: Notify Release Created
-    needs: [validate, release, publish-pypi]
+    needs: [validate, release, publish-testpypi, publish-pypi]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Release Success Notification
-        if: needs.release.result == 'success' && needs.publish-pypi.result == 'success'
+        if: needs.release.result == 'success' && needs.publish-testpypi.result == 'success' && needs.publish-pypi.result == 'success'
         run: |
           echo "🎉 Release successful!"
           echo "📦 GitHub Release: ${{ needs.release.outputs.release-url }}"
+          echo "🧪 TestPyPI: https://test.pypi.org/project/pyeye-mcp/"
           echo "🐍 PyPI: https://pypi.org/project/pyeye-mcp/"
           echo ""
           echo "Installation:"
           echo "  pip install pyeye-mcp"
 
       - name: Release Failure Notification
-        if: needs.validate.result == 'failure' || needs.release.result == 'failure' || needs.publish-pypi.result == 'failure'
+        if: needs.validate.result == 'failure' || needs.release.result == 'failure' || needs.publish-testpypi.result == 'failure' || needs.publish-pypi.result == 'failure'
         run: |
           echo "❌ Release failed!"
           echo "Check the logs above for detailed error information."
@@ -252,6 +275,7 @@ jobs:
           echo "Job results:"
           echo "- Validation: ${{ needs.validate.result }}"
           echo "- GitHub Release: ${{ needs.release.result }}"
+          echo "- TestPyPI Publish: ${{ needs.publish-testpypi.result }}"
           echo "- PyPI Publish: ${{ needs.publish-pypi.result }}"
           echo ""
           echo "Common issues:"
@@ -259,5 +283,5 @@ jobs:
           echo "- Test failures or coverage below threshold"
           echo "- Type checking or security check failures"
           echo "- Pre-commit hook failures"
-          echo "- PyPI Trusted Publisher not configured"
+          echo "- Trusted Publisher not configured (both TestPyPI and PyPI need separate setup)"
           exit 1
