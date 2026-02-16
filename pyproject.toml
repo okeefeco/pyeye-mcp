@@ -4,19 +4,21 @@ dynamic = ["version"]
 description = "PyEye - MCP server for semantic analysis and code navigation"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Mark O'Keefe (O'Keefe & Co Consulting Pty Ltd)", email = "mark_okeefe@mac.com"}
 ]
 keywords = ["mcp", "python", "code-intelligence", "jedi", "lsp", "static-analysis"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -59,6 +61,7 @@ dev = [
 Homepage = "https://github.com/okeefeco/pyeye-mcp"
 Repository = "https://github.com/okeefeco/pyeye-mcp"
 Issues = "https://github.com/okeefeco/pyeye-mcp/issues"
+Changelog = "https://github.com/okeefeco/pyeye-mcp/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]

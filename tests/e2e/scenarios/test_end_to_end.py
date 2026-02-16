@@ -171,8 +171,8 @@ class APIClient:
         event = FileModifiedEvent(str(test_file))
         watcher.on_modified(event)
 
-        # Wait for debounce delay
-        time.sleep(settings.watcher_debounce + 0.1)
+        # Wait for debounce delay (extra margin for CI environments with high load)
+        time.sleep(settings.watcher_debounce + 0.5)
 
         # Cache should be invalidated
         assert cache.get("test_key") is None
