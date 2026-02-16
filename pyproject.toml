@@ -46,7 +46,7 @@ dev = [
     "ruff==0.15.1",  # Pinned to avoid unexpected linting rule changes
     "mypy==1.19.1",  # Pinned to avoid type checking behavior changes
     "detect-secrets==1.5.0",  # Pinned to match current version
-    "bandit[toml]==1.9.2",  # Pinned for consistent security checks
+    "bandit[toml]==1.9.3",  # Pinned for consistent security checks
     "safety>=3.0.0",  # Dependency vulnerability scanning (Safety DB)
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
