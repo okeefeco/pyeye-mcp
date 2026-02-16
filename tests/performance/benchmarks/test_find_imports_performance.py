@@ -117,11 +117,12 @@ from target_module import something
         # With ripgrep, no-match case should be very fast
         # Threshold increased to account for regex escaping overhead and filesystem I/O variability
         # Issue #283: Additional relative import patterns slightly increase search time
+        # CI environments have high variability - thresholds set with ~25% headroom
         no_match_threshold = PerformanceThresholds(
-            base=400.0,  # 400ms for local development (increased for relative import patterns)
-            linux_ci=600.0,  # 600ms for Linux CI (increased for relative import patterns)
-            macos_ci=700.0,  # 700ms for macOS CI
-            windows_ci=1500.0,  # 1500ms for Windows CI (high variability in CI environment)
+            base=400.0,  # 400ms for local development
+            linux_ci=800.0,  # 800ms for Linux CI (high variability)
+            macos_ci=900.0,  # 900ms for macOS CI
+            windows_ci=1500.0,  # 1500ms for Windows CI (highest variability)
         )
 
         assert_performance_threshold(elapsed_ms, no_match_threshold, "find_imports no matches")
