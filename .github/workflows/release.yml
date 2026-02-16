@@ -11,7 +11,7 @@ on:
 
 permissions:
   contents: write  # Needed to create releases
-  packages: write  # Future PyPI publishing
+  id-token: write  # Needed for Trusted Publisher (PyPI OIDC)
 
 jobs:
   # Validate the release before creating it
@@ -199,38 +199,65 @@ jobs:
           asset_name: pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz
           asset_content_type: application/gzip
 
+      - name: Upload dist artifacts for PyPI publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # Publish to PyPI using Trusted Publisher (OIDC)
+  publish-pypi:
+    name: Publish to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pyeye-mcp/
+
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No token needed - uses Trusted Publisher (OIDC)
+
   # Notify about the release
   notify:
     name: Notify Release Created
-    needs: [validate, release]
+    needs: [validate, release, publish-pypi]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Release Success Notification
-        if: needs.release.result == 'success'
+        if: needs.release.result == 'success' && needs.publish-pypi.result == 'success'
         run: |
           echo "🎉 Release successful!"
           echo "📦 GitHub Release: ${{ needs.release.outputs.release-url }}"
-          echo "🔗 The release includes built packages ready for distribution"
+          echo "🐍 PyPI: https://pypi.org/project/pyeye-mcp/"
           echo ""
-          echo "Next steps:"
-          echo "1. ✅ GitHub release created automatically"
-          echo "2. 📦 Package artifacts uploaded to release"
-          echo "3. 🚀 Manual PyPI publishing can be done with: uv publish dist/*"
-          echo "4. 📢 Consider announcing the release to users"
+          echo "Installation:"
+          echo "  pip install pyeye-mcp"
 
       - name: Release Failure Notification
-        if: needs.validate.result == 'failure' || needs.release.result == 'failure'
+        if: needs.validate.result == 'failure' || needs.release.result == 'failure' || needs.publish-pypi.result == 'failure'
         run: |
           echo "❌ Release failed!"
           echo "Check the logs above for detailed error information."
+          echo ""
+          echo "Job results:"
+          echo "- Validation: ${{ needs.validate.result }}"
+          echo "- GitHub Release: ${{ needs.release.result }}"
+          echo "- PyPI Publish: ${{ needs.publish-pypi.result }}"
           echo ""
           echo "Common issues:"
           echo "- Version mismatch between tag and package"
           echo "- Test failures or coverage below threshold"
           echo "- Type checking or security check failures"
           echo "- Pre-commit hook failures"
+          echo "- PyPI Trusted Publisher not configured"
           exit 1
-
-  # Post-release step removed - version now managed by setuptools_scm from git tags
