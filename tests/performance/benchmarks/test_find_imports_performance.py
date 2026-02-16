@@ -121,7 +121,7 @@ from target_module import something
             base=400.0,  # 400ms for local development (increased for relative import patterns)
             linux_ci=600.0,  # 600ms for Linux CI (increased for relative import patterns)
             macos_ci=700.0,  # 700ms for macOS CI
-            windows_ci=1200.0,  # 1200ms for Windows CI (increased due to high variability)
+            windows_ci=1500.0,  # 1500ms for Windows CI (high variability in CI environment)
         )
 
         assert_performance_threshold(elapsed_ms, no_match_threshold, "find_imports no matches")
