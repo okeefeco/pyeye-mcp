@@ -42,8 +42,8 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-timeout>=2.2.0",  # Prevent individual test hangs
-    "black==25.12.0",  # Pinned to match .pre-commit-config.yaml
-    "ruff==0.14.10",  # Pinned to avoid unexpected linting rule changes
+    "black==26.1.0",  # Pinned to match .pre-commit-config.yaml
+    "ruff==0.15.1",  # Pinned to avoid unexpected linting rule changes
     "mypy==1.19.1",  # Pinned to avoid type checking behavior changes
     "detect-secrets==1.5.0",  # Pinned to match current version
     "bandit[toml]==1.9.2",  # Pinned for consistent security checks
