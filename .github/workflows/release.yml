@@ -200,7 +200,7 @@ jobs:
           asset_content_type: application/gzip
 
       - name: Upload dist artifacts for PyPI publishing
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist/
