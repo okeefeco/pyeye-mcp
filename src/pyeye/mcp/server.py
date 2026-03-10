@@ -47,6 +47,7 @@ from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
 from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
+from ..settings import settings
 from ..validation import validate_mcp_inputs
 
 # Configure logging
@@ -691,6 +692,34 @@ async def find_subclasses(
             file_path=project_path,
             error=str(e),
         ) from e
+
+
+# Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)
+
+
+async def get_performance_metrics(
+    metric_name: str | None = None, export_format: str = "json"
+) -> dict[str, Any] | str:
+    """Get performance metrics for the PyEye MCP server.
+
+    Args:
+        metric_name: Optional specific metric name to retrieve
+        export_format: Output format - 'json' (default) or 'prometheus'
+
+    Returns:
+        Performance metrics in requested format
+    """
+    if export_format == "prometheus":
+        return metrics.export_prometheus()
+
+    if metric_name:
+        return metrics.get_stats(metric_name)
+
+    return metrics.get_performance_report()
+
+
+if settings.enable_performance_metrics:
+    mcp.tool()(get_performance_metrics)
 
 
 # Workflow Resources

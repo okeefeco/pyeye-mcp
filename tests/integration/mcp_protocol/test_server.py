@@ -845,3 +845,75 @@ class TestInputValidation:
             await goto_definition("test.py", 10, -5)
 
         assert "column" in str(exc_info.value).lower()
+
+
+class TestGetPerformanceMetrics:
+    """Test the optional get_performance_metrics tool."""
+
+    @patch("pyeye.mcp.server.settings")
+    def test_tool_not_registered_by_default(self, mock_settings):
+        """Test that get_performance_metrics is not registered when disabled."""
+        mock_settings.enable_performance_metrics = False
+        # The tool is conditionally registered at import time,
+        # so we verify the setting defaults to False
+        from pyeye.settings import PerformanceSettings
+
+        default_settings = PerformanceSettings()
+        assert default_settings.enable_performance_metrics is False
+
+    @patch.dict("os.environ", {"PYEYE_ENABLE_PERFORMANCE_METRICS": "true"})
+    def test_setting_enabled_via_env(self):
+        """Test that the setting can be enabled via environment variable."""
+        from pyeye.settings import PerformanceSettings
+
+        settings = PerformanceSettings()
+        assert settings.enable_performance_metrics is True
+
+    def test_metrics_report_structure(self):
+        """Test that the metrics report has the expected structure."""
+        from pyeye.metrics import metrics
+
+        report = metrics.get_performance_report()
+        assert "uptime_seconds" in report
+        assert "memory" in report
+        assert "cache" in report
+        assert "operations" in report
+        assert "summary" in report
+
+    def test_metrics_prometheus_export(self):
+        """Test that prometheus export produces valid output."""
+        from pyeye.metrics import metrics
+
+        output = metrics.export_prometheus()
+        assert isinstance(output, str)
+        assert "pyeye_" in output
+
+    @pytest.mark.asyncio
+    async def test_tool_function_json_format(self):
+        """Test the tool function returns JSON report by default."""
+        from pyeye.mcp.server import get_performance_metrics
+
+        result = await get_performance_metrics()
+        assert isinstance(result, dict)
+        assert "uptime_seconds" in result
+        assert "memory" in result
+        assert result["memory"]["rss_mb"] > 0
+
+    @pytest.mark.asyncio
+    async def test_tool_function_specific_metric(self):
+        """Test requesting a specific metric name."""
+        from pyeye.mcp.server import get_performance_metrics
+
+        # Non-existent metric returns error
+        result = await get_performance_metrics(metric_name="nonexistent_metric")
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_tool_function_prometheus_format(self):
+        """Test requesting prometheus export format."""
+        from pyeye.mcp.server import get_performance_metrics
+
+        result = await get_performance_metrics(export_format="prometheus")
+        assert isinstance(result, str)
+        assert "pyeye_cache_hits" in result
+        assert "pyeye_memory_mb" in result
