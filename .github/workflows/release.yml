@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      release-url: ${{ steps.create-release.outputs.html_url }}
+      release-url: ${{ steps.create-release.outputs.url }}
 
     steps:
       - name: Checkout code
@@ -129,35 +129,6 @@ jobs:
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$TAG_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          # Try to use commitizen to generate changelog for this version
-          # Note: --incremental generates from last version tag
-          cz changelog --incremental --dry-run > RELEASE_NOTES.md 2>/dev/null || true
-
-          # If cz changelog didn't generate content or failed, create basic release notes
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "## Release ${{ steps.version.outputs.tag }}" > RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            echo "### Changes" >> RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            # Get commits since last tag or all commits if first release
-            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-            if [ -z "$LAST_TAG" ]; then
-              echo "First release - including all commits" >> RELEASE_NOTES.md
-              echo "" >> RELEASE_NOTES.md
-              git log --oneline --pretty=format:"- %s" | head -20 >> RELEASE_NOTES.md
-            else
-              echo "Changes since $LAST_TAG:" >> RELEASE_NOTES.md
-              echo "" >> RELEASE_NOTES.md
-              git log ${LAST_TAG}..HEAD --oneline --pretty=format:"- %s" >> RELEASE_NOTES.md
-            fi
-          fi
-
-          echo "Generated release notes:"
-          cat RELEASE_NOTES.md
-
       - name: Build package
         run: |
           # Build the Python package
@@ -169,35 +140,27 @@ jobs:
 
       - name: Create GitHub Release
         id: create-release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          release_name: "Release ${{ steps.version.outputs.tag }}"
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'a') || contains(steps.version.outputs.version, 'b') || contains(steps.version.outputs.version, 'rc') }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
 
-      - name: Upload package artifacts to release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: dist/pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
-          asset_name: pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl
-          asset_content_type: application/octet-stream
+          # Determine if this is a prerelease
+          PRERELEASE_FLAG=""
+          case "${{ steps.version.outputs.version }}" in
+            *a*|*b*|*rc*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
 
-      - name: Upload source distribution to release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create-release.outputs.upload_url }}
-          asset_path: dist/pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz
-          asset_name: pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz
-          asset_content_type: application/gzip
+          # Create release with auto-generated notes and attach assets
+          RELEASE_URL=$(gh release create "$TAG" \
+            --title "Release $TAG" \
+            --generate-notes \
+            $PRERELEASE_FLAG \
+            dist/pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl \
+            dist/pyeye_mcp-${{ steps.version.outputs.version }}.tar.gz)
+
+          echo "url=$RELEASE_URL" >> $GITHUB_OUTPUT
+          echo "Created release: $RELEASE_URL"
 
       - name: Upload dist artifacts for PyPI publishing
         uses: actions/upload-artifact@v4
