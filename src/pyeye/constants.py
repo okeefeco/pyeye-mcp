@@ -23,3 +23,26 @@ METRICS_DIR = f".{PROJECT_NAME}/metrics"
 
 # pyproject.toml section name
 TOML_SECTION = f"tool.{PROJECT_NAME}"
+
+# Directories to exclude from file scanning (virtual envs, caches, build artifacts)
+EXCLUDED_DIRS = frozenset(
+    {
+        ".venv",
+        "venv",
+        ".env",
+        "env",
+        "__pycache__",
+        ".git",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        ".eggs",
+        "*.egg-info",
+        "build",
+        "dist",
+        ".hg",
+    }
+)
