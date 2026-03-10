@@ -86,16 +86,26 @@ async def glob_async(pattern: str, path: Path) -> list[Path]:
 
 
 async def rglob_async(pattern: str, path: Path) -> list[Path]:
-    """Recursively glob files asynchronously.
+    """Recursively glob files asynchronously, excluding common non-project directories.
 
     Args:
         pattern: Glob pattern
         path: Base path to search in
 
     Returns:
-        List of matching paths
+        List of matching paths (excludes .venv, __pycache__, .git, etc.)
     """
-    return await asyncio.to_thread(lambda: list(path.rglob(pattern)))
+    from .constants import EXCLUDED_DIRS
+
+    def _filtered_rglob() -> list[Path]:
+        results = []
+        for p in path.rglob(pattern):
+            # Check if any parent directory is in the exclusion set
+            if not any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in p.parts):
+                results.append(p)
+        return results
+
+    return await asyncio.to_thread(_filtered_rglob)
 
 
 async def read_files_batch(paths: list[Path]) -> dict[Path, str | None]:

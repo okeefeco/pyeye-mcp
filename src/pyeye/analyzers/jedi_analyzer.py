@@ -2168,6 +2168,11 @@ class JediAnalyzer:
     ) -> list[dict[str, Any]]:
         """Find all classes that inherit from a given base class.
 
+        Uses a hybrid Jedi + AST approach for performance:
+        1. Single-pass AST parsing of scoped files (no double-read)
+        2. Builds a parent->children graph for efficient indirect lookups
+        3. Uses Jedi Script.goto() to resolve aliased imports
+
         Args:
             base_class: Name of the base class to find subclasses for
             scope: Search scope (default from smart defaults):
@@ -2183,44 +2188,19 @@ class JediAnalyzer:
             List of subclasses with their locations and inheritance details
         """
         subclasses = []
-        processed_classes = set()  # To avoid duplicates
+        processed_classes: set[str] = set()
 
         try:
-            # First, try to find the base class definition (may not exist for builtins)
-            base_symbols = await self.find_symbol(base_class, fuzzy=False)
-            if not base_symbols:
-                # For built-in classes like Exception, str, int, etc., we still want to proceed
-                logger.info(
-                    f"Base class '{base_class}' not found in project, checking for subclasses anyway"
-                )
-
-            # Get all Python files in the project (with smart default)
+            # Get all Python files in scope (cached by get_project_files)
             py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
 
-            # Build a global class map for cross-file inheritance checking
-            # Maps: FQN -> (node, tree, file)
-            class_map: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-
-            if include_indirect:
-                for py_file in py_files:
-                    try:
-                        content = await read_file_async(py_file)
-                        tree = ast.parse(content, filename=py_file.as_posix())
-
-                        for node in ast.walk(tree):
-                            if isinstance(node, ast.ClassDef):
-                                module_path = self._get_import_path_for_file(py_file)
-                                fqn = (
-                                    f"{module_path}.{node.name}"
-                                    if module_path
-                                    else f"{py_file.stem}.{node.name}"
-                                )
-                                class_map[fqn] = (node, tree, py_file)
-                                # Also map simple name for lookups
-                                if node.name not in class_map:
-                                    class_map[node.name] = (node, tree, py_file)
-                    except Exception as e:
-                        logger.debug(f"Error parsing {py_file} for class map: {e}")
+            # Single pass: parse each file once, extract all class info
+            # Maps class simple name -> list of (node, tree, file) for cross-file lookups
+            classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
+            # Maps FQN -> (node, tree, file) for deduplication
+            classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
+            # Maps parent name -> set of child FQNs (for indirect traversal)
+            parent_to_children: dict[str, set[str]] = {}
 
             for py_file in py_files:
                 try:
@@ -2228,45 +2208,92 @@ class JediAnalyzer:
                     tree = ast.parse(content, filename=py_file.as_posix())
 
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.ClassDef):
-                            # Check if this class inherits from our base class
-                            inheritance_info = self._check_inheritance(
-                                node, base_class, tree, include_indirect, class_map
-                            )
+                        if not isinstance(node, ast.ClassDef):
+                            continue
 
-                            if inheritance_info:
-                                # Calculate FQN for unique identification
-                                # Use module path + class name to avoid name collisions
-                                module_path = self._get_import_path_for_file(py_file)
-                                fqn = (
-                                    f"{module_path}.{node.name}"
-                                    if module_path
-                                    else f"{py_file.stem}.{node.name}"
-                                )
+                        module_path = self._get_import_path_for_file(py_file)
+                        fqn = (
+                            f"{module_path}.{node.name}"
+                            if module_path
+                            else f"{py_file.stem}.{node.name}"
+                        )
 
-                                if fqn not in processed_classes:
-                                    processed_classes.add(fqn)
+                        classes_by_fqn[fqn] = (node, tree, py_file)
+                        classes_by_name.setdefault(node.name, []).append((node, tree, py_file))
 
-                                    subclass_info = {
-                                        "name": node.name,
-                                        "full_name": fqn,
-                                        "file": py_file.as_posix(),
-                                        "line": node.lineno,
-                                        "column": node.col_offset,
-                                        "direct_parent": inheritance_info["direct_parent"],
-                                        "is_direct": inheritance_info["is_direct"],
-                                    }
-
-                                # Add inheritance chain if requested
-                                if show_hierarchy:
-                                    subclass_info["inheritance_chain"] = (
-                                        await self._get_inheritance_chain(node, tree)
-                                    )
-
-                                subclasses.append(subclass_info)
-
+                        # Record parent->child edges for all bases
+                        for base in node.bases:
+                            parent_name = self._get_base_name_from_ast(base)
+                            if parent_name and parent_name != "object":
+                                parent_to_children.setdefault(parent_name, set()).add(fqn)
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
+
+            # Find all direct subclasses by name match
+            direct_fqns: set[str] = set()
+
+            # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
+            if base_class in parent_to_children:
+                direct_fqns.update(parent_to_children[base_class])
+
+            # Check dotted name matches (e.g., class Foo(module.Animal))
+            for parent_name, children in parent_to_children.items():
+                if parent_name != base_class and parent_name.endswith(f".{base_class}"):
+                    direct_fqns.update(children)
+
+            # Try Jedi-based resolution for aliased imports
+            # e.g., "from module import Animal as A" -> class Foo(A)
+            direct_fqns.update(
+                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
+            )
+
+            # Collect indirect subclasses via graph traversal
+            if include_indirect:
+                all_matching_fqns = set(direct_fqns)
+                queue = list(direct_fqns)
+                while queue:
+                    current_fqn = queue.pop()
+                    if current_fqn not in classes_by_fqn:
+                        continue
+                    current_node = classes_by_fqn[current_fqn][0]
+                    current_name = current_node.name
+                    # Find children of this class
+                    if current_name in parent_to_children:
+                        for child_fqn in parent_to_children[current_name]:
+                            if child_fqn not in all_matching_fqns:
+                                all_matching_fqns.add(child_fqn)
+                                queue.append(child_fqn)
+            else:
+                all_matching_fqns = direct_fqns
+
+            # Build result list
+            for fqn in all_matching_fqns:
+                if fqn in processed_classes or fqn not in classes_by_fqn:
+                    continue
+                processed_classes.add(fqn)
+
+                node, tree, py_file = classes_by_fqn[fqn]
+                is_direct = fqn in direct_fqns
+
+                # Determine direct parent name
+                direct_parent = self._find_direct_parent_name(node, base_class, is_direct)
+
+                subclass_info: dict[str, Any] = {
+                    "name": node.name,
+                    "full_name": fqn,
+                    "file": py_file.as_posix(),
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "direct_parent": direct_parent,
+                    "is_direct": is_direct,
+                }
+
+                if show_hierarchy:
+                    subclass_info["inheritance_chain"] = self._build_inheritance_chain(
+                        node, classes_by_name
+                    )
+
+                subclasses.append(subclass_info)
 
         except Exception as e:
             logger.error(f"Error finding subclasses: {e}")
@@ -2277,72 +2304,91 @@ class JediAnalyzer:
 
         return subclasses
 
-    def _check_inheritance(
+    async def _resolve_aliased_bases(
         self,
-        class_node: ast.ClassDef,
         base_class: str,
-        tree: ast.Module,
-        include_indirect: bool,
-        class_map: dict[str, tuple[ast.ClassDef, ast.Module, Path]] | None = None,
-    ) -> dict[str, Any] | None:
-        """Check if a class inherits from the base class.
+        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
+        parent_to_children: dict[str, set[str]],
+    ) -> set[str]:
+        """Use Jedi goto() to resolve aliased base class references.
 
-        Args:
-            class_node: The AST node of the class to check
-            base_class: The name of the base class we're looking for
-            tree: The AST tree of the file containing class_node
-            include_indirect: Whether to check for indirect inheritance
-            class_map: Optional global map of all classes for cross-file lookups
-
-        Returns dict with inheritance info if it does, None otherwise.
+        Handles cases like 'from module import Animal as A; class Foo(A):'
+        where AST name matching alone would miss the relationship.
         """
-        # Check direct inheritance
-        for base in class_node.bases:
-            base_name = self._get_base_name(base)
-            if base_name == base_class:
-                return {
-                    "direct_parent": base_class,
-                    "is_direct": True,
-                }
+        resolved_fqns: set[str] = set()
 
-        # Check indirect inheritance if requested
-        if include_indirect:
-            for base in class_node.bases:
-                base_name = self._get_base_name(base)
-                if base_name and base_name != "object":
-                    # Try to find parent class definition
-                    parent_classes: list[tuple[ast.ClassDef, ast.Module]] = []
+        # Only check parent names that didn't match the base_class by simple name
+        # These are candidates for aliased imports
+        candidate_parents = {
+            name
+            for name in parent_to_children
+            if name != base_class and not name.endswith(f".{base_class}")
+        }
 
-                    # First check in the current file's tree
-                    local_parents = self._find_class_in_tree(tree, base_name)
-                    parent_classes.extend([(p, tree) for p in local_parents])
+        if not candidate_parents:
+            return resolved_fqns
 
-                    # If not found and we have a global class map, search there
-                    if not parent_classes and class_map:
-                        # Try both FQN and simple name lookups
-                        if base_name in class_map:
-                            parent_node, parent_tree, parent_file = class_map[base_name]
-                            parent_classes.append((parent_node, parent_tree))
+        # Group classes by file to minimize Jedi Script creation
+        file_to_classes: dict[str, list[tuple[str, ast.ClassDef]]] = {}
+        for fqn, (node, _tree, py_file) in classes_by_fqn.items():
+            file_key = py_file.as_posix()
+            for base in node.bases:
+                parent_name = self._get_base_name_from_ast(base)
+                if parent_name in candidate_parents:
+                    file_to_classes.setdefault(file_key, []).append((fqn, node))
+                    break
 
-                    # Recursively check each parent class
-                    for parent_class, parent_tree in parent_classes:
-                        parent_info = self._check_inheritance(
-                            parent_class, base_class, parent_tree, include_indirect, class_map
-                        )
-                        if parent_info:
-                            return {
-                                "direct_parent": base_name,
-                                "is_direct": False,
-                            }
+        for file_path_str, class_entries in file_to_classes.items():
+            try:
+                file_path = Path(file_path_str)
+                content = await read_file_async(file_path)
+                script = jedi.Script(content, path=file_path, project=self.project)
 
-        return None
+                for fqn, node in class_entries:
+                    for base in node.bases:
+                        parent_name = self._get_base_name_from_ast(base)
+                        if parent_name not in candidate_parents:
+                            continue
 
-    def _get_base_name(self, base: Any) -> str | None:
-        """Extract the name from a base class node."""
+                        # Use goto() to resolve what this base name points to
+                        try:
+                            goto_results = script.goto(
+                                base.lineno, base.col_offset, follow_imports=True
+                            )
+                            for result in goto_results:
+                                if result.name == base_class:
+                                    resolved_fqns.add(fqn)
+                                    break
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.debug(f"Error resolving aliases in {file_path_str}: {e}")
+
+        return resolved_fqns
+
+    def _find_direct_parent_name(
+        self,
+        node: ast.ClassDef,
+        base_class: str,
+        is_direct: bool,
+    ) -> str:
+        """Determine the direct parent class name for a subclass result."""
+        if is_direct:
+            return base_class
+
+        # For indirect subclasses, find which base is in the inheritance chain
+        for base in node.bases:
+            parent_name = self._get_base_name_from_ast(base)
+            if parent_name:
+                return parent_name
+        return "unknown"
+
+    @staticmethod
+    def _get_base_name_from_ast(base: Any) -> str | None:
+        """Extract the name from an AST base class node."""
         if isinstance(base, ast.Name):
             return base.id
         elif isinstance(base, ast.Attribute):
-            # Handle module.Class style bases
             parts = []
             node: Any = base
             while isinstance(node, ast.Attribute):
@@ -2353,37 +2399,37 @@ class JediAnalyzer:
             return ".".join(reversed(parts))
         return None
 
-    def _find_class_in_tree(self, tree: ast.Module, class_name: str) -> list[ast.ClassDef]:
-        """Find class definitions by name in the AST tree."""
-        classes = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == class_name:
-                classes.append(node)
-        return classes
-
-    async def _get_inheritance_chain(self, class_node: ast.ClassDef, tree: ast.Module) -> list[str]:
-        """Build the complete inheritance chain for a class."""
+    @staticmethod
+    def _build_inheritance_chain(
+        class_node: ast.ClassDef,
+        classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]],
+    ) -> list[str]:
+        """Build the inheritance chain using the pre-built class map."""
         chain = [class_node.name]
-        visited = {class_node.name}  # Prevent infinite loops
+        visited = {class_node.name}
 
         current_bases = class_node.bases
 
         while current_bases:
-            next_bases = []
+            next_bases: list[Any] = []
             for base in current_bases:
-                base_name = self._get_base_name(base)
+                base_name: str | None = None
+                if isinstance(base, ast.Name):
+                    base_name = base.id
+                elif isinstance(base, ast.Attribute):
+                    base_name = base.attr
+
                 if base_name and base_name not in visited:
                     chain.append(base_name)
                     visited.add(base_name)
 
-                    # Find this base class and get its bases
-                    parent_classes = self._find_class_in_tree(tree, base_name)
-                    for parent_class in parent_classes:
-                        next_bases.extend(parent_class.bases)
+                    # Look up parent class in the cross-file map
+                    if base_name in classes_by_name:
+                        for parent_node, _, _ in classes_by_name[base_name]:
+                            next_bases.extend(parent_node.bases)
 
             current_bases = next_bases
 
-        # Add object if not already present
         if "object" not in chain:
             chain.append("object")
 
