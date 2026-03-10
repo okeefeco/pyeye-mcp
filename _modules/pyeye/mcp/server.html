@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=3080d592"></script>
+      <script src="../../../_static/documentation_options.js?v=bfd6ca4a"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -405,6 +405,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlaskPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">PydanticPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..project_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_project_manager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">settings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
 
 <span class="c1"># Configure logging</span>
@@ -1094,6 +1095,34 @@
             <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
         <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
 
+
+
+<span class="c1"># Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_performance_metrics</span><span class="p">(</span>
+    <span class="n">metric_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">export_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;json&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get performance metrics for the PyEye MCP server.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        metric_name: Optional specific metric name to retrieve</span>
+<span class="sd">        export_format: Output format - &#39;json&#39; (default) or &#39;prometheus&#39;</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Performance metrics in requested format</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">export_format</span> <span class="o">==</span> <span class="s2">&quot;prometheus&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">export_prometheus</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">metric_name</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_stats</span><span class="p">(</span><span class="n">metric_name</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">metrics</span><span class="o">.</span><span class="n">get_performance_report</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="n">settings</span><span class="o">.</span><span class="n">enable_performance_metrics</span><span class="p">:</span>
+    <span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()(</span><span class="n">get_performance_metrics</span><span class="p">)</span>
 
 
 <span class="c1"># Workflow Resources</span>
