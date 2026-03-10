@@ -696,6 +696,58 @@ def main():
         assert "callers" in result
         assert "callees" in result
 
+    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
+    @pytest.mark.asyncio
+    async def test_get_call_hierarchy_with_class(
+        self, mock_project_class, mock_script_class, temp_project_dir
+    ):
+        """Test get_call_hierarchy supports class names."""
+        mock_project = Mock()
+        mock_project_class.return_value = mock_project
+
+        test_file = temp_project_dir / "test.py"
+        test_file.write_text(
+            """
+class MyClass:
+    def __init__(self):
+        self.value = 0
+
+def create():
+    obj = MyClass()
+    return obj
+"""
+        )
+
+        # Mock class definition search
+        mock_class_def = Mock()
+        mock_class_def.name = "MyClass"
+        mock_class_def.type = "class"
+        mock_class_def.module_path = test_file
+        mock_class_def.line = 2
+        mock_class_def.column = 6
+
+        mock_project.search.return_value = [mock_class_def]
+
+        # Mock references (instantiation sites)
+        mock_ref = Mock()
+        mock_ref.is_definition = Mock(return_value=False)
+        mock_ref.module_path = test_file
+        mock_ref.line = 7
+        mock_ref.column = 10
+
+        mock_script = Mock()
+        mock_script.get_references.return_value = [mock_class_def, mock_ref]
+        mock_script.get_names.return_value = []
+        mock_script_class.return_value = mock_script
+
+        analyzer = JediAnalyzer(str(temp_project_dir))
+        result = await analyzer.get_call_hierarchy("MyClass", str(test_file))
+
+        assert result["function"] == "MyClass"
+        assert len(result["callers"]) == 1
+        assert result["callers"][0]["line"] == 7
+
     @pytest.mark.asyncio
     async def test_find_subclasses_direct(self, temp_project_dir):
         """Test finding direct subclasses only."""
