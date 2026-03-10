@@ -1154,10 +1154,13 @@ class JediAnalyzer:
     async def get_call_hierarchy(
         self, function_name: str, file: str | None = None
     ) -> dict[str, Any]:
-        """Get the call hierarchy for a function.
+        """Get the call hierarchy for a function or class.
+
+        For functions, finds callers (who calls it) and callees (what it calls).
+        For classes, finds instantiation sites (callers) and what __init__ calls (callees).
 
         Args:
-            function_name: Name of the function
+            function_name: Name of the function or class
             file: Optional file to search in (searches whole project if not specified)
 
         Returns:
@@ -1170,17 +1173,19 @@ class JediAnalyzer:
         }
 
         try:
-            # First find the function definition
+            # First find the function or class definition
             search_results = self.project.search(function_name, all_scopes=True)
 
             function_def = None
             for res in search_results:
-                if res.type == "function" and (file is None or str(res.module_path) == file):
+                if res.type in ("function", "class") and (
+                    file is None or str(res.module_path) == file
+                ):
                     function_def = res
                     break
 
             if not function_def or not function_def.module_path:
-                return {"error": f"Function {function_name} not found"}
+                return {"error": f"Symbol {function_name} not found"}
 
             # Get the function's source
             source = await read_file_async(function_def.module_path)
