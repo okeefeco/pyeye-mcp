@@ -39,11 +39,11 @@ Install directly into your Python project's virtual environment:
 # Activate your project's virtual environment
 source /path/to/your/project/venv/bin/activate
 
-# Install from PyPI (when available)
+# Install from PyPI
 pip install pyeye-mcp
 
 # Or install from source
-git clone https://github.com/hangie/pyeye-mcp.git
+git clone https://github.com/okeefeco/pyeye-mcp.git
 pip install -e ./pyeye-mcp
 ```
 
@@ -76,7 +76,7 @@ pipx install pyeye-mcp
 pip install --user pyeye-mcp
 
 # Or from source
-git clone https://github.com/hangie/pyeye-mcp.git
+git clone https://github.com/okeefeco/pyeye-mcp.git
 cd pyeye-mcp
 pip install --user .
 ```
@@ -140,7 +140,7 @@ pip install pyeye-mcp
 pipx install pyeye-mcp
 
 # Option C: Install from source
-git clone https://github.com/hangie/pyeye-mcp.git
+git clone https://github.com/okeefeco/pyeye-mcp.git
 pip install -e ./pyeye-mcp
 ```
 

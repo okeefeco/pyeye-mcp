@@ -36,7 +36,7 @@ The PyEye Server provides semantic code analysis for Python projects through the
 
 ```bash
 # Clone repository
-git clone https://github.com/hangie/pyeye-mcp.git
+git clone https://github.com/okeefeco/pyeye-mcp.git
 cd pyeye-mcp
 
 # Install dependencies with uv
