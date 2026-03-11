@@ -573,3 +573,297 @@ class UserModel(pkg1.models.BaseModel):
         assert any(
             "BaseModel" in base for base in class_info["base_classes"]
         ), f"BaseModel not in base_classes={class_info['base_classes']}"
+
+
+class TestMROOrdering:
+    """Test that MRO is computed with correct C3 linearization ordering."""
+
+    @pytest.fixture
+    async def analyzer(self, tmp_path):
+        """Create a JediAnalyzer instance with a temp directory."""
+        return JediAnalyzer(str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_mro_diamond_inheritance_ordering(self, analyzer, tmp_path):
+        """Test C3 linearization for diamond inheritance pattern.
+
+        D(B, C) where B(A) and C(A) should produce:
+        D -> B -> C -> A -> object (NOT D -> B -> A -> object -> C)
+        """
+        test_file = tmp_path / "diamond.py"
+        test_file.write_text(
+            """
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "D"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        # Verify correct C3 linearization order
+        assert mro_names == ["D", "B", "C", "A", "object"], (
+            f"Diamond MRO ordering incorrect. Expected [D, B, C, A, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_deep_chain_completeness(self, analyzer, tmp_path):
+        """Test that MRO includes all intermediate classes in a deep chain.
+
+        D -> C -> B -> A -> object (none should be skipped)
+        """
+        test_file = tmp_path / "deep_chain.py"
+        test_file.write_text(
+            """
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(B):
+    pass
+
+class D(C):
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "D"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert mro_names == ["D", "C", "B", "A", "object"], (
+            f"Deep chain MRO incomplete. Expected [D, C, B, A, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_with_abc_mixin(self, analyzer, tmp_path):
+        """Test that ABC appears in MRO when used as a base class."""
+        test_file = tmp_path / "abc_mixin.py"
+        test_file.write_text(
+            """
+from abc import ABC
+
+class Base(ABC):
+    pass
+
+class Derived(Base):
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(test_file), 7, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Derived"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert "ABC" in mro_names, f"ABC missing from MRO. Got {mro_names}"
+        # Verify ordering: Derived before Base before ABC before object
+        assert mro_names.index("Derived") < mro_names.index("Base")
+        assert mro_names.index("Base") < mro_names.index("ABC")
+        assert mro_names.index("ABC") < mro_names.index("object")
+
+    @pytest.mark.asyncio
+    async def test_mro_complex_diamond_with_mixin(self, analyzer, tmp_path):
+        """Test C3 linearization with a mixin added to a diamond.
+
+        E(D, Mixin) where D(B, C), B(A), C(A)
+        Should produce: E -> D -> B -> C -> A -> Mixin -> object
+        """
+        test_file = tmp_path / "complex_diamond.py"
+        test_file.write_text(
+            """
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+
+class Mixin:
+    pass
+
+class E(D, Mixin):
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(test_file), 17, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "E"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert mro_names == ["E", "D", "B", "C", "A", "Mixin", "object"], (
+            f"Complex diamond MRO incorrect. "
+            f"Expected [E, D, B, C, A, Mixin, object], got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_multiple_independent_bases(self, analyzer, tmp_path):
+        """Test MRO ordering with multiple independent base classes."""
+        test_file = tmp_path / "multi_bases.py"
+        test_file.write_text(
+            """
+class X:
+    pass
+
+class Y:
+    pass
+
+class Z:
+    pass
+
+class Child(X, Y, Z):
+    pass
+"""
+        )
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Child"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        # With independent bases, order follows declaration order
+        assert mro_names == ["Child", "X", "Y", "Z", "object"], (
+            f"Multi-base MRO incorrect. Expected [Child, X, Y, Z, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_cross_file_inheritance(self, analyzer, tmp_path):  # noqa: ARG002
+        """Test MRO completeness when classes span multiple files."""
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+
+        (pkg / "base.py").write_text(
+            """
+class Base:
+    pass
+"""
+        )
+
+        (pkg / "middle.py").write_text(
+            """
+from mypkg.base import Base
+
+class Middle(Base):
+    pass
+"""
+        )
+
+        (pkg / "leaf.py").write_text(
+            """
+from mypkg.middle import Middle
+
+class Leaf(Middle):
+    pass
+"""
+        )
+
+        # Re-create analyzer with tmp_path as project root
+        cross_analyzer = JediAnalyzer(str(tmp_path))
+        result = await cross_analyzer.get_type_info(str(pkg / "leaf.py"), 4, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Leaf"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert "Middle" in mro_names, f"Middle class missing from cross-file MRO. Got {mro_names}"
+        assert "Base" in mro_names, f"Base class missing from cross-file MRO. Got {mro_names}"
+        # Verify ordering
+        assert mro_names.index("Leaf") < mro_names.index("Middle")
+        assert mro_names.index("Middle") < mro_names.index("Base")
+        assert mro_names.index("Base") < mro_names.index("object")
+
+
+class TestC3Linearize:
+    """Unit tests for the _c3_linearize static method."""
+
+    def test_single_class_no_bases(self):
+        """A class with no bases returns just itself."""
+        result = JediAnalyzer._c3_linearize("A", {"A": []})
+        assert result == ["A"]
+
+    def test_single_class_not_in_map(self):
+        """A class not in the bases map returns just itself."""
+        result = JediAnalyzer._c3_linearize("A", {})
+        assert result == ["A"]
+
+    def test_simple_chain(self):
+        """B(A) -> [B, A]."""
+        bases_map = {"B": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("B", bases_map)
+        assert result == ["B", "A"]
+
+    def test_diamond(self):
+        """D(B, C) where B(A), C(A) -> [D, B, C, A]."""
+        bases_map = {"D": ["B", "C"], "B": ["A"], "C": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("D", bases_map)
+        assert result == ["D", "B", "C", "A"]
+
+    def test_deep_chain(self):
+        """D(C), C(B), B(A) -> [D, C, B, A]."""
+        bases_map = {"D": ["C"], "C": ["B"], "B": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("D", bases_map)
+        assert result == ["D", "C", "B", "A"]
+
+    def test_multiple_independent_bases(self):
+        """C(A, B) where A and B are independent -> [C, A, B]."""
+        bases_map = {"C": ["A", "B"], "A": [], "B": []}
+        result = JediAnalyzer._c3_linearize("C", bases_map)
+        assert result == ["C", "A", "B"]
+
+    def test_complex_diamond_with_mixin(self):
+        """E(D, M) where D(B, C), B(A), C(A) -> [E, D, B, C, A, M]."""
+        bases_map = {
+            "E": ["D", "M"],
+            "D": ["B", "C"],
+            "B": ["A"],
+            "C": ["A"],
+            "A": [],
+            "M": [],
+        }
+        result = JediAnalyzer._c3_linearize("E", bases_map)
+        assert result == ["E", "D", "B", "C", "A", "M"]
+
+    def test_matches_python_mro(self):
+        """Verify our C3 matches Python's actual MRO for a known case.
+
+        Python's own example from the C3 linearization documentation.
+        """
+        # O = object
+        # F(O), E(O), D(O), C(D, F), B(D, E), A(B, C)
+        bases_map = {
+            "A": ["B", "C"],
+            "B": ["D", "E"],
+            "C": ["D", "F"],
+            "D": ["O"],
+            "E": ["O"],
+            "F": ["O"],
+            "O": [],
+        }
+        result = JediAnalyzer._c3_linearize("A", bases_map)
+        assert result == ["A", "B", "C", "D", "E", "F", "O"]

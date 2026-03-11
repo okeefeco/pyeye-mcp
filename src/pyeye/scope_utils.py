@@ -48,12 +48,8 @@ class SmartScopeResolver:
         "find_cli_commands": "main",
         # Symbol finding defaults to all (want to find everywhere)
         "find_symbol": "all",
-        "find_symbol_multi": "all",
         "goto_definition": "all",
         "get_type_info": "all",
-        # Namespace-specific methods
-        "configure_namespace_package": "all",
-        "find_in_namespace": "all",
     }
 
     def __init__(self, config: ProjectConfig | None = None):
