@@ -1,6 +1,0 @@
-﻿pyeye.mcp.server.configure\_namespace\_package
-==============================================
-
-.. currentmodule:: pyeye.mcp.server
-
-.. autofunction:: configure_namespace_package

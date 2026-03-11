@@ -5,14 +5,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>pyeye.mcp.server &mdash; PyEye Server v1.0</title>
+  <title>pyeye.mcp.server &mdash; PyEye Server v1.1</title>
       <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=8d00a971"></script>
+      <script src="../../../_static/documentation_options.js?v=6126d4b2"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -207,8 +207,6 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#project-management-tools">Project Management Tools</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.configure_packages.html">pyeye.mcp.server.configure_packages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.configure_namespace_package.html">pyeye.mcp.server.configure_namespace_package</a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_symbol_multi.html">pyeye.mcp.server.find_symbol_multi</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.list_project_structure.html">pyeye.mcp.server.list_project_structure</a></li>
 </ul>
 </li>
@@ -577,30 +575,27 @@
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_symbol&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_symbol</span><span class="p">(</span>
-    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">use_config</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.</span>
+
+<span class="sd">    Searches across the main project plus all configured additional packages</span>
+<span class="sd">    and namespace packages. Use the scope parameter to control search breadth.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        name: Symbol name to search for</span>
 <span class="sd">        project_path: Root directory of the project to search</span>
 <span class="sd">        fuzzy: Enable fuzzy matching for partial names</span>
-<span class="sd">        use_config: Load additional packages from configuration</span>
+<span class="sd">        scope: Search scope - &quot;main&quot;, &quot;all&quot;, &quot;namespace:name&quot;, or list of scopes</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="c1"># Use JediAnalyzer which now supports re-export tracking</span>
         <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-
-        <span class="c1"># Configure additional paths if requested</span>
-        <span class="k">if</span> <span class="n">use_config</span><span class="p">:</span>
-            <span class="n">config</span> <span class="o">=</span> <span class="n">ProjectConfig</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-            <span class="n">all_paths</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_package_paths</span><span class="p">()</span>
-            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_paths</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-                <span class="c1"># Set additional paths on the analyzer if needed</span>
-                <span class="n">analyzer</span><span class="o">.</span><span class="n">additional_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">Path</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">:]]</span>
-
-        <span class="c1"># Use the analyzer&#39;s find_symbol method which includes import_paths</span>
-        <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_symbol</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="n">fuzzy</span><span class="p">,</span> <span class="n">include_import_paths</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_symbol</span><span class="p">(</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="n">fuzzy</span><span class="p">,</span> <span class="n">include_import_paths</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">scope</span>
+        <span class="p">)</span>
 
     <span class="k">except</span> <span class="ne">FileNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
@@ -728,165 +723,6 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_call_hierarchy</span><span class="p">(</span><span class="n">function_name</span><span class="p">,</span> <span class="n">file</span><span class="p">)</span></div>
-
-
-
-<div class="viewcode-block" id="configure_namespace_package">
-<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.configure_namespace_package.html#pyeye.mcp.server.configure_namespace_package">[docs]</a>
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;configure_namespace_package&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">configure_namespace_package</span><span class="p">(</span><span class="n">namespace</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">repo_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Set up namespace packages spread across multiple repositories.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        namespace: Package namespace (e.g., &quot;mycompany.services&quot;)</span>
-<span class="sd">        repo_paths: List of repository paths containing parts of this namespace</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
-    <span class="n">resolver</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">namespace_resolver</span>
-
-    <span class="c1"># Discover namespace packages</span>
-    <span class="n">discovered</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">discover_namespaces</span><span class="p">(</span><span class="n">repo_paths</span><span class="p">)</span>
-
-    <span class="c1"># Register the namespace</span>
-    <span class="k">if</span> <span class="n">namespace</span> <span class="ow">in</span> <span class="n">discovered</span><span class="p">:</span>
-        <span class="n">resolver</span><span class="o">.</span><span class="n">register_namespace</span><span class="p">(</span><span class="n">namespace</span><span class="p">,</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">discovered</span><span class="p">[</span><span class="n">namespace</span><span class="p">]])</span>
-
-    <span class="c1"># Build structure map</span>
-    <span class="n">structure</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">build_namespace_map</span><span class="p">(</span><span class="n">repo_paths</span><span class="p">)</span>
-
-    <span class="c1"># Configure Jedi projects for all paths</span>
-    <span class="n">all_paths</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">ns_paths</span> <span class="ow">in</span> <span class="n">discovered</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
-        <span class="n">all_paths</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">ns_paths</span><span class="p">])</span>
-
-    <span class="c1"># Create a unified project with all namespace paths</span>
-    <span class="k">if</span> <span class="n">all_paths</span><span class="p">:</span>
-        <span class="c1"># Use first path as main, rest as includes</span>
-        <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="n">all_paths</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_paths</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
-
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;namespace&quot;</span><span class="p">:</span> <span class="n">namespace</span><span class="p">,</span>
-        <span class="s2">&quot;discovered_namespaces&quot;</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">discovered</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
-        <span class="s2">&quot;structure&quot;</span><span class="p">:</span> <span class="n">structure</span><span class="p">,</span>
-        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;configured&quot;</span><span class="p">,</span>
-    <span class="p">}</span></div>
-
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">find_in_namespace</span><span class="p">(</span><span class="n">import_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">namespace_repos</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find symbols within namespace packages spread across multiple repos.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        import_path: Full import path (e.g., &quot;mycompany.auth.models.User&quot;)</span>
-<span class="sd">        namespace_repos: Repository paths to search</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
-    <span class="n">resolver</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">namespace_resolver</span>
-
-    <span class="c1"># Discover namespaces if not already done</span>
-    <span class="n">resolver</span><span class="o">.</span><span class="n">discover_namespaces</span><span class="p">(</span><span class="n">namespace_repos</span><span class="p">)</span>
-
-    <span class="c1"># Resolve the import</span>
-    <span class="n">resolved_paths</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_import</span><span class="p">(</span><span class="n">import_path</span><span class="p">,</span> <span class="n">namespace_repos</span><span class="p">)</span>
-
-    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;import_path&quot;</span><span class="p">:</span> <span class="n">import_path</span><span class="p">,</span> <span class="s2">&quot;found_at&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;namespace_structure&quot;</span><span class="p">:</span> <span class="p">{}}</span>
-
-    <span class="c1"># For each resolved path, find the specific symbol</span>
-    <span class="n">parts</span> <span class="o">=</span> <span class="n">import_path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)</span>
-    <span class="n">symbol_name</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">parts</span> <span class="k">else</span> <span class="kc">None</span>
-
-    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">resolved_paths</span><span class="p">:</span>
-        <span class="c1"># Get the project for this path</span>
-        <span class="n">project_root</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">parent</span>
-        <span class="k">while</span> <span class="n">project_root</span><span class="o">.</span><span class="n">parent</span> <span class="o">!=</span> <span class="n">project_root</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">project_root</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;*.py&quot;</span><span class="p">)):</span>
-            <span class="n">project_root</span> <span class="o">=</span> <span class="n">project_root</span><span class="o">.</span><span class="n">parent</span>
-
-        <span class="n">project</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">project_root</span><span class="p">))</span>
-
-        <span class="c1"># Search for the symbol</span>
-        <span class="k">if</span> <span class="n">symbol_name</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">search_results</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">symbol_name</span><span class="p">,</span> <span class="n">all_scopes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-                <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">search_results</span><span class="p">:</span>
-                    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span> <span class="o">==</span> <span class="n">path</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span>
-                        <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="p">)</span>
-                    <span class="p">):</span>
-                        <span class="n">found_at_list</span> <span class="o">=</span> <span class="n">results</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;found_at&quot;</span><span class="p">,</span> <span class="p">[])</span>
-                        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">found_at_list</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-                            <span class="n">found_at_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                                <span class="p">{</span>
-                                    <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="p">(</span>
-                                        <span class="n">Path</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span>
-                                        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span>
-                                        <span class="k">else</span> <span class="kc">None</span>
-                                    <span class="p">),</span>
-                                    <span class="s2">&quot;line&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">line</span><span class="p">,</span>
-                                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
-                                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
-                                <span class="p">}</span>
-                            <span class="p">)</span>
-            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error searching in </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-    <span class="c1"># Add namespace structure</span>
-    <span class="n">results</span><span class="p">[</span><span class="s2">&quot;namespace_structure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">build_namespace_map</span><span class="p">(</span><span class="n">namespace_repos</span><span class="p">)</span>
-
-    <span class="k">return</span> <span class="n">results</span>
-
-
-<div class="viewcode-block" id="find_symbol_multi">
-<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_symbol_multi.html#pyeye.mcp.server.find_symbol_multi">[docs]</a>
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">find_symbol_multi</span><span class="p">(</span>
-    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_paths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">fuzzy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Search for symbols across multiple projects simultaneously.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        name: Symbol name to search for</span>
-<span class="sd">        project_paths: List of project paths to search</span>
-<span class="sd">        fuzzy: Whether to use fuzzy matching</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">manager</span> <span class="o">=</span> <span class="n">get_project_manager</span><span class="p">()</span>
-    <span class="n">all_results</span> <span class="o">=</span> <span class="p">{}</span>
-
-    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">project_paths</span><span class="p">:</span>
-        <span class="c1"># Ensure each project is loaded</span>
-        <span class="n">project</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">get_project</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-
-        <span class="c1"># Search in this project</span>
-        <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">search_results</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">all_scopes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-            <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">search_results</span><span class="p">:</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="n">fuzzy</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="n">name</span><span class="p">:</span>
-                    <span class="k">continue</span>
-
-                <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                    <span class="p">{</span>
-                        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
-                        <span class="s2">&quot;file&quot;</span><span class="p">:</span> <span class="n">Path</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">module_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">module_path</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-                        <span class="s2">&quot;line&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">line</span><span class="p">,</span>
-                        <span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
-                        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
-                        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">result</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
-                    <span class="p">}</span>
-                <span class="p">)</span>
-
-            <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
-                <span class="n">all_results</span><span class="p">[</span><span class="n">path</span><span class="p">]</span> <span class="o">=</span> <span class="n">results</span>
-
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error searching in </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="n">all_results</span><span class="p">[</span><span class="n">path</span><span class="p">]</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}]</span>
-
-    <span class="k">return</span> <span class="n">all_results</span></div>
 
 
 

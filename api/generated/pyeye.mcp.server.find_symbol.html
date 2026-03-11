@@ -6,14 +6,14 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>pyeye.mcp.server.find_symbol &mdash; PyEye Server v1.0</title>
+  <title>pyeye.mcp.server.find_symbol &mdash; PyEye Server v1.1</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../_static/documentation_options.js?v=8d00a971"></script>
+      <script src="../../_static/documentation_options.js?v=6126d4b2"></script>
       <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/js/theme.js"></script>
@@ -210,8 +210,6 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../index.html#project-management-tools">Project Management Tools</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pyeye.mcp.server.configure_packages.html">pyeye.mcp.server.configure_packages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="pyeye.mcp.server.configure_namespace_package.html">pyeye.mcp.server.configure_namespace_package</a></li>
-<li class="toctree-l4"><a class="reference internal" href="pyeye.mcp.server.find_symbol_multi.html">pyeye.mcp.server.find_symbol_multi</a></li>
 <li class="toctree-l4"><a class="reference internal" href="pyeye.mcp.server.list_project_structure.html">pyeye.mcp.server.list_project_structure</a></li>
 </ul>
 </li>
@@ -363,15 +361,17 @@
 <h1>pyeye.mcp.server.find_symbol<a class="headerlink" href="#pyeye-mcp-server-find-symbol" title="Link to this heading"></a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="pyeye.mcp.server.find_symbol">
-<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyeye.mcp.server.</span></span><span class="sig-name descname"><span class="pre">find_symbol</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fuzzy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/pyeye/mcp/server.html#find_symbol"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pyeye.mcp.server.find_symbol" title="Link to this definition"></a></dt>
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyeye.mcp.server.</span></span><span class="sig-name descname"><span class="pre">find_symbol</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fuzzy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scope</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'all'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/pyeye/mcp/server.html#find_symbol"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pyeye.mcp.server.find_symbol" title="Link to this definition"></a></dt>
 <dd><p>Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.</p>
+<p>Searches across the main project plus all configured additional packages
+and namespace packages. Use the scope parameter to control search breadth.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>name</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – Symbol name to search for</p></li>
 <li><p><strong>project_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – Root directory of the project to search</p></li>
 <li><p><strong>fuzzy</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – Enable fuzzy matching for partial names</p></li>
-<li><p><strong>use_config</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – Load additional packages from configuration</p></li>
+<li><p><strong>scope</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – Search scope - “main”, “all”, “namespace:name”, or list of scopes</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
