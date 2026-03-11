@@ -48,6 +48,7 @@ class JediAnalyzer:
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
         self.source_roots: list[Path] = []  # For src-layout roots (e.g., src/)
+        self._additional_projects: dict[Path, jedi.Project] = {}  # Cached Jedi projects
         self.config = config
 
         # Initialize scope utilities
@@ -135,6 +136,58 @@ class JediAnalyzer:
         logger.info(f"Set {len(paths)} standalone script directories for {self.project_path}")
         # Invalidate cache when standalone paths change
         self.scoped_cache.invalidate_all()
+
+    def _get_project_for_path(self, path: Path) -> jedi.Project:
+        """Get or create a cached Jedi project for an additional path.
+
+        Args:
+            path: Filesystem path to create a Jedi project for
+
+        Returns:
+            A Jedi Project instance for the given path
+        """
+        resolved = path.resolve()
+        if resolved not in self._additional_projects:
+            self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
+        return self._additional_projects[resolved]
+
+    async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
+        """Search for a symbol name across all configured scopes.
+
+        Uses Jedi project.search() on the main project, then searches
+        additional and namespace paths. Deduplicates by (name, file, line).
+
+        Args:
+            name: Symbol name to search for
+            scope: Search scope - "main", "all", "namespace:name", etc.
+                   Defaults to "all" if not specified.
+
+        Returns:
+            List of Jedi Name objects from all matching scopes
+        """
+        effective_scope = scope if scope is not None else "all"
+        search_paths = await self._resolve_scope_to_paths(effective_scope)
+
+        results: list[Any] = []
+        seen: set[tuple[str, str, int]] = set()
+
+        for path in search_paths:
+            is_main = path == self.project_path
+            try:
+                project = self.project if is_main else self._get_project_for_path(path)
+
+                for r in project.search(name, all_scopes=True):
+                    key = (r.name, str(r.module_path), r.line)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(r)
+            except Exception as e:
+                if is_main:
+                    # Let main project errors propagate for proper error handling
+                    raise
+                logger.debug(f"Could not search {path}: {e}")
+
+        return results
 
     def _update_validator(self) -> None:
         """Update the scope validator with current configuration."""
@@ -485,27 +538,35 @@ class JediAnalyzer:
         return discovered_files
 
     async def find_symbol(
-        self, name: str, fuzzy: bool = False, include_import_paths: bool = True
+        self,
+        name: str,
+        fuzzy: bool = False,
+        include_import_paths: bool = True,
+        scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
-        """Find symbol definitions in the project.
+        """Find symbol definitions across all configured scopes.
+
+        Searches the main project plus any configured additional packages
+        and namespace packages.
 
         Args:
             name: Symbol name to search for (supports compound symbols like "Model.__init__")
             fuzzy: Enable fuzzy matching
             include_import_paths: Include alternative import paths for re-exported symbols
+            scope: Search scope - "main", "all", "namespace:name", etc.
+                   Defaults to "all" (searches everything configured).
 
         Returns:
             List of symbol matches with location and optional import path information
         """
         # Check if this is a compound symbol (e.g., "Model.__init__")
         if is_compound_symbol(name):
-            return await self._find_compound_symbol(name, include_import_paths)
+            return await self._find_compound_symbol(name, include_import_paths, scope)
 
-        # Original implementation for simple symbols
         results = []
 
         try:
-            search_results = self.project.search(name, all_scopes=True)
+            search_results = await self._search_all_scopes(name, scope)
 
             for result in search_results:
                 if not fuzzy and result.name != name:
@@ -530,7 +591,6 @@ class JediAnalyzer:
                 error_str = str(e)
                 # Special handling for exceptions that contain Path objects
                 if hasattr(e, "args") and e.args and any(isinstance(arg, Path) for arg in e.args):
-                    # If the exception has Path objects in args, convert them
                     converted_args = []
                     for arg in e.args:
                         if isinstance(arg, Path):
@@ -549,13 +609,17 @@ class JediAnalyzer:
         return results
 
     async def _find_compound_symbol(
-        self, name: str, include_import_paths: bool = True
+        self,
+        name: str,
+        include_import_paths: bool = True,
+        scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
         """Find compound symbol definitions (e.g., "Model.__init__").
 
         Args:
             name: Compound symbol name (e.g., "Model.__init__", "module.Class.method")
             include_import_paths: Include alternative import paths
+            scope: Search scope - "main", "all", "namespace:name", etc.
 
         Returns:
             List of symbol matches with location information
@@ -570,14 +634,16 @@ class JediAnalyzer:
 
         if len(components) < 2:
             # Not actually a compound symbol
-            return await self.find_symbol(name, include_import_paths=include_import_paths)
+            return await self.find_symbol(
+                name, include_import_paths=include_import_paths, scope=scope
+            )
 
         try:
             # Get parent and member names
             parent_path, member_name = get_parent_and_member(components)
 
-            # First, find the parent symbol (class or module)
-            parent_results = self.project.search(components[-2], all_scopes=True)
+            # First, find the parent symbol (class or module) across all scopes
+            parent_results = await self._search_all_scopes(components[-2], scope)
 
             for parent_result in parent_results:
                 # Check if this parent matches our full parent path
@@ -1173,8 +1239,8 @@ class JediAnalyzer:
         }
 
         try:
-            # First find the function or class definition
-            search_results = self.project.search(function_name, all_scopes=True)
+            # First find the function or class definition across all scopes
+            search_results = await self._search_all_scopes(function_name)
 
             function_def = None
             for res in search_results:
