@@ -96,12 +96,10 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
         json_file.write_text(json.dumps(json_config))
 
         toml_file = temp_project_dir / "pyproject.toml"
-        toml_file.write_text(
-            f"""
+        toml_file.write_text(f"""
 [tool.pyeye]
 packages = {json.dumps(toml_config["packages"])}
-"""
-        )
+""")
 
         config = ProjectConfig(str(temp_project_dir))
 

@@ -102,8 +102,7 @@ class TestListModules:
     async def test_list_modules_single_file(self, tmp_path):
         """Test listing a single module."""
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            '''
+        module_file.write_text('''
 """Module docstring."""
 
 def public_func():
@@ -117,8 +116,7 @@ def _private_func():
 class MyClass:
     """A class."""
     pass
-'''
-        )
+''')
 
         result = await list_modules(str(tmp_path))
         assert len(result) == 1
@@ -135,8 +133,7 @@ class MyClass:
     async def test_list_modules_with_imports(self, tmp_path):
         """Test module with imports."""
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            """
+        module_file.write_text("""
 import os
 import json
 from pathlib import Path
@@ -144,8 +141,7 @@ from typing import List
 
 def process_file(path: Path) -> List[str]:
     return []
-"""
-        )
+""")
 
         result = await list_modules(str(tmp_path))
         assert len(result) == 1
@@ -197,13 +193,11 @@ class TestAnalyzeDependencies:
         """Test analyzing dependencies of a simple module."""
         # Create module with imports
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            """
+        module_file.write_text("""
 import os
 import json
 from pathlib import Path
-"""
-        )
+""")
 
         result = await analyze_dependencies("module", str(tmp_path))
         assert result["module"] == "module"
@@ -218,14 +212,12 @@ from pathlib import Path
         """Test analyzing internal dependencies."""
         # Create two modules where one imports the other
         (tmp_path / "module_a.py").write_text("def func_a(): pass")
-        (tmp_path / "module_b.py").write_text(
-            """
+        (tmp_path / "module_b.py").write_text("""
 import module_a
 
 def func_b():
     module_a.func_a()
-"""
-        )
+""")
 
         result = await analyze_dependencies("module_b", str(tmp_path))
         assert "module_a" in result["imports"]["internal"]
@@ -260,12 +252,10 @@ def func_b():
         pkg_dir = tmp_path / "mypackage"
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
-        (pkg_dir / "module.py").write_text(
-            """
+        (pkg_dir / "module.py").write_text("""
 import os
 from . import __init__
-"""
-        )
+""")
 
         result = await analyze_dependencies("mypackage.module", str(tmp_path))
         assert result["module"] == "mypackage.module"
@@ -279,8 +269,7 @@ class TestGetModuleInfo:
     async def test_get_module_info_simple(self, tmp_path):
         """Test getting info for a simple module."""
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            '''
+        module_file.write_text('''
 """Module documentation."""
 
 MODULE_CONSTANT = 42
@@ -301,8 +290,7 @@ class MyClass:
 
     def _private_method(self):
         pass
-'''
-        )
+''')
 
         result = await get_module_info("module", str(tmp_path))
         assert result["module"] == "module"
@@ -342,14 +330,12 @@ class MyClass:
     async def test_get_module_info_with_imports(self, tmp_path):
         """Test module info with imports."""
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            """
+        module_file.write_text("""
 import os
 from pathlib import Path
 import json as j
 from typing import List, Dict
-"""
-        )
+""")
 
         result = await get_module_info("module", str(tmp_path))
 
@@ -370,8 +356,7 @@ from typing import List, Dict
     async def test_get_module_info_complexity(self, tmp_path):
         """Test cyclomatic complexity calculation."""
         module_file = tmp_path / "module.py"
-        module_file.write_text(
-            """
+        module_file.write_text("""
 def complex_function(x):
     if x > 0:
         if x > 10:
@@ -386,8 +371,7 @@ def complex_function(x):
     for i in range(10):
         if i % 2 == 0:
             print(i)
-"""
-        )
+""")
 
         result = await get_module_info("module", str(tmp_path))
         # Base complexity + if/elif/else + for + nested ifs

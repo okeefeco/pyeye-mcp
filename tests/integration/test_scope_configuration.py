@@ -71,8 +71,7 @@ class TestScopeConfiguration:
     def test_load_from_pyproject_toml(self, tmp_path):
         """Test loading configuration from pyproject.toml."""
         config_file = tmp_path / "pyproject.toml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 [tool.pyeye]
 packages = ["../shared"]
 
@@ -89,8 +88,7 @@ find_subclasses = "all"
 [tool.pyeye.scope_aliases]
 production = ["namespace:company.core", "namespace:company.api"]
 development = ["main", "namespace:company"]
-"""
-        )
+""")
 
         config = ProjectConfig(str(tmp_path))
 

@@ -232,7 +232,9 @@ Analysis Period: Last {days} days
 
         # Generate recommendations based on metrics
         if metrics["success_rate"] < 70:
-            report += "- ⚠️ Success rate is below 70%. Review repeated issues and implement fixes.\n"
+            report += (
+                "- ⚠️ Success rate is below 70%. Review repeated issues and implement fixes.\n"
+            )
 
         if metrics["user_intervention_rate"] > 25:
             report += "- ⚠️ High user intervention rate. Improve error handling and recovery.\n"

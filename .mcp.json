@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "pyeye": {
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "python",
+        "-m",
+        "pyeye.mcp"
+      ],
+      "command": "uv"
+    }
+  }
+}

@@ -24,8 +24,7 @@ def temp_project():
 
         # Create test Python files
         test_file = project_path / "test_module.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class TestClass:
     def method1(self):
         return "test"
@@ -37,20 +36,17 @@ def test_function(x, y):
     return x + y
 
 TEST_CONSTANT = 42
-"""
-        )
+""")
 
         # Create another file for cross-file testing
         other_file = project_path / "other_module.py"
-        other_file.write_text(
-            """
+        other_file.write_text("""
 from test_module import TestClass, test_function
 
 def use_imports():
     obj = TestClass()
     return test_function(1, 2)
-"""
-        )
+""")
 
         yield project_path
 

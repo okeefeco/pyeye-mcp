@@ -52,31 +52,26 @@ def cross_project_setup():
         main = root / "main_project"
         main.mkdir()
         (main / "__init__.py").write_text("")
-        (main / "models.py").write_text(
-            """
+        (main / "models.py").write_text("""
 class LocalModel:
     '''A model defined in the main project.'''
     def save(self):
         pass
-"""
-        )
-        (main / "app.py").write_text(
-            """
+""")
+        (main / "app.py").write_text("""
 from main_project.models import LocalModel
 
 def run_app():
     '''Main application entry point.'''
     model = LocalModel()
     model.save()
-"""
-        )
+""")
 
         # Shared library (additional package)
         shared = root / "shared_lib"
         shared.mkdir()
         (shared / "__init__.py").write_text("")
-        (shared / "utils.py").write_text(
-            """
+        (shared / "utils.py").write_text("""
 class SharedHelper:
     '''Helper class in shared library.'''
     def assist(self):
@@ -87,8 +82,7 @@ def shared_func():
     helper = SharedHelper()
     helper.assist()
     return helper
-"""
-        )
+""")
 
         # Namespace package: company-auth repo
         auth_repo = root / "company-auth"
@@ -96,8 +90,7 @@ def shared_func():
         auth_ns = auth_repo / "company" / "auth"
         auth_ns.mkdir(parents=True)
         (auth_ns / "__init__.py").write_text("")
-        (auth_ns / "models.py").write_text(
-            """
+        (auth_ns / "models.py").write_text("""
 class AuthUser:
     '''User model from auth namespace package.'''
     def authenticate(self):
@@ -106,8 +99,7 @@ class AuthUser:
 class AuthToken:
     '''Token model from auth namespace package.'''
     pass
-"""
-        )
+""")
 
         # Namespace package: company-api repo
         api_repo = root / "company-api"
@@ -115,8 +107,7 @@ class AuthToken:
         api_ns = api_repo / "company" / "api"
         api_ns.mkdir(parents=True)
         (api_ns / "__init__.py").write_text("")
-        (api_ns / "endpoints.py").write_text(
-            """
+        (api_ns / "endpoints.py").write_text("""
 class APIEndpoint:
     '''Endpoint class from API namespace package.'''
     def handle(self):
@@ -126,8 +117,7 @@ def handle_request():
     '''Process an incoming request.'''
     endpoint = APIEndpoint()
     endpoint.handle()
-"""
-        )
+""")
 
         yield {
             "root": root,

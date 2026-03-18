@@ -143,6 +143,7 @@ def initialize_plugins(project_path: str = ".") -> None:
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
+@track_mcp_operation("configure_packages")
 def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
@@ -302,6 +303,7 @@ async def find_references(
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_type_info")
+@track_mcp_operation("get_type_info")
 async def get_type_info(
     file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
 ) -> dict[str, Any]:
@@ -321,6 +323,7 @@ async def get_type_info(
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_imports")
+@track_mcp_operation("find_imports")
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Python: Find all files that import a specific module.
 
@@ -335,6 +338,7 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_call_hierarchy")
+@track_mcp_operation("get_call_hierarchy")
 async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
@@ -351,6 +355,8 @@ async def get_call_hierarchy(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("list_packages")
+@track_mcp_operation("list_packages")
 async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
     """Python: List all packages with their structure and subpackages.
 
@@ -376,6 +382,8 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("list_modules")
+@track_mcp_operation("list_modules")
 async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
     """Python: List all modules with their exports, classes, functions, and metrics.
 
@@ -398,6 +406,8 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("analyze_dependencies")
+@track_mcp_operation("analyze_dependencies")
 async def analyze_dependencies(
     module_path: str, project_path: str = ".", scope: str = "all"
 ) -> dict[str, Any]:
@@ -429,6 +439,8 @@ async def analyze_dependencies(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("get_module_info")
+@track_mcp_operation("get_module_info")
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Python: Get module exports, classes, functions, and complexity metrics.
 
@@ -457,6 +469,8 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("list_project_structure")
+@track_mcp_operation("list_project_structure")
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
     """Python: Hierarchical view of Python files and packages in the project.
 
@@ -505,6 +519,7 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_subclasses")
+@track_mcp_operation("find_subclasses")
 async def find_subclasses(
     base_class: str,
     project_path: str = ".",
