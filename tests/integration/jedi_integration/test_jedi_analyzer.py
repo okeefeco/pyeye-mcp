@@ -96,14 +96,12 @@ class TestJediAnalyzer:
 
         # Create test file
         test_file = temp_project_dir / "test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 def test_function():
     pass
 
 test_function()
-"""
-        )
+""")
 
         # Mock definition
         mock_definition = Mock()
@@ -158,15 +156,13 @@ test_function()
         mock_project_class.return_value = mock_project
 
         test_file = temp_project_dir / "test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 def func():
     pass
 
 func()
 func()
-"""
-        )
+""")
 
         # Mock references
         references = []
@@ -205,14 +201,12 @@ func()
         mock_project_class.return_value = mock_project
 
         test_file = temp_project_dir / "test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 def func() -> str:
     return "hello"
 
 result = func()
-"""
-        )
+""")
 
         # Mock type inference
         mock_type = Mock()
@@ -341,16 +335,14 @@ result = func()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             init_file = Path(tmpdir) / "__init__.py"
-            init_file.write_text(
-                """
+            init_file.write_text("""
 from .models import User, Admin
 
 __all__ = [
     "User",
     "Admin",
 ]
-"""
-            )
+""")
 
             fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
             analyzer = JediAnalyzer(str(fixture_path))
@@ -391,21 +383,17 @@ __all__ = [
 
         # Create test files with imports
         file1 = temp_project_dir / "file1.py"
-        file1.write_text(
-            """
+        file1.write_text("""
 import os
 from pathlib import Path
 import sys
-"""
-        )
+""")
 
         file2 = temp_project_dir / "file2.py"
-        file2.write_text(
-            """
+        file2.write_text("""
 import os
 import json
-"""
-        )
+""")
 
         # Mock the get_names results for each file
         mock_name1 = Mock()
@@ -449,8 +437,7 @@ import json
         mock_project_class.return_value = mock_project
 
         test_file = temp_project_dir / "test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 def caller():
     callee()
 
@@ -459,8 +446,7 @@ def callee():
 
 def main():
     caller()
-"""
-        )
+""")
 
         # Mock function definition search
         mock_func_def = Mock()
@@ -707,8 +693,7 @@ def main():
         mock_project_class.return_value = mock_project
 
         test_file = temp_project_dir / "test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class MyClass:
     def __init__(self):
         self.value = 0
@@ -716,8 +701,7 @@ class MyClass:
 def create():
     obj = MyClass()
     return obj
-"""
-        )
+""")
 
         # Mock class definition search
         mock_class_def = Mock()
@@ -753,8 +737,7 @@ def create():
         """Test finding direct subclasses only."""
         # Create test files with class hierarchy
         base_file = temp_project_dir / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class Animal:
     def speak(self):
         pass
@@ -766,12 +749,10 @@ class Dog(Animal):
 class Cat(Animal):
     def speak(self):
         return "Meow!"
-"""
-        )
+""")
 
         child_file = temp_project_dir / "child.py"
-        child_file.write_text(
-            """
+        child_file.write_text("""
 from base import Dog
 
 class Puppy(Dog):
@@ -781,8 +762,7 @@ class Puppy(Dog):
 class Kitten(Cat):  # This won't be found since Cat is not imported
     def speak(self):
         return "Mew!"
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
 
@@ -805,8 +785,7 @@ class Kitten(Cat):  # This won't be found since Cat is not imported
         """Test finding both direct and indirect subclasses."""
         # Create test files with deeper hierarchy
         base_file = temp_project_dir / "hierarchy.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class Animal:
     pass
 
@@ -824,8 +803,7 @@ class Bird(Animal):
 
 class Eagle(Bird):
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
 
@@ -851,8 +829,7 @@ class Eagle(Bird):
         """Test finding subclasses with full hierarchy chain."""
         # Create test file
         test_file = temp_project_dir / "classes.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class A:
     pass
 
@@ -864,8 +841,7 @@ class C(B):
 
 class D(C):
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
 
@@ -890,8 +866,7 @@ class D(C):
     async def test_find_subclasses_multiple_inheritance(self, temp_project_dir):
         """Test finding subclasses with multiple inheritance."""
         test_file = temp_project_dir / "multiple.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Flyable:
     def fly(self):
         pass
@@ -905,8 +880,7 @@ class Duck(Flyable, Swimmable):
 
 class Airplane(Flyable):
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
 
@@ -933,8 +907,7 @@ class Airplane(Flyable):
     async def test_find_subclasses_builtin_class(self, temp_project_dir):
         """Test finding subclasses of builtin classes."""
         test_file = temp_project_dir / "exceptions.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class CustomError(Exception):
     pass
 
@@ -943,8 +916,7 @@ class ValidationError(CustomError):
 
 class NetworkError(Exception):
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
 
@@ -967,54 +939,46 @@ class NetworkError(Exception):
         """
         # Create base class
         base_file = temp_project_dir / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseService:
     pass
-"""
-        )
+""")
 
         # Create module A with a class named "Service"
         module_a = temp_project_dir / "module_a"
         module_a.mkdir()
         (module_a / "__init__.py").write_text("")
-        (module_a / "components.py").write_text(
-            """
+        (module_a / "components.py").write_text("""
 from base import BaseService
 
 class Service(BaseService):
     '''Service implementation for module A'''
     pass
-"""
-        )
+""")
 
         # Create module B with a DIFFERENT class also named "Service"
         module_b = temp_project_dir / "module_b"
         module_b.mkdir()
         (module_b / "__init__.py").write_text("")
-        (module_b / "components.py").write_text(
-            """
+        (module_b / "components.py").write_text("""
 from base import BaseService
 
 class Service(BaseService):
     '''Service implementation for module B'''
     pass
-"""
-        )
+""")
 
         # Create module C with ANOTHER class also named "Service"
         module_c = temp_project_dir / "module_c"
         module_c.mkdir()
         (module_c / "__init__.py").write_text("")
-        (module_c / "components.py").write_text(
-            """
+        (module_c / "components.py").write_text("""
 from base import BaseService
 
 class Service(BaseService):
     '''Service implementation for module C'''
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
         results = await analyzer.find_subclasses("BaseService", include_indirect=False)
@@ -1048,40 +1012,34 @@ class Service(BaseService):
         """
         # Create base class
         base_file = temp_project_dir / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseService:
     pass
-"""
-        )
+""")
 
         # Create intermediate class in module_a
         module_a = temp_project_dir / "module_a"
         module_a.mkdir()
         (module_a / "__init__.py").write_text("")
-        (module_a / "components.py").write_text(
-            """
+        (module_a / "components.py").write_text("""
 from base import BaseService
 
 class Service(BaseService):
     '''Direct subclass'''
     pass
-"""
-        )
+""")
 
         # Create indirect subclass in different module that imports from module_a
         module_b = temp_project_dir / "module_b"
         module_b.mkdir()
         (module_b / "__init__.py").write_text("")
-        (module_b / "prod.py").write_text(
-            """
+        (module_b / "prod.py").write_text("""
 from module_a.components import Service
 
 class ProdService(Service):
     '''Indirect subclass - inherits from Service which inherits from BaseService'''
     pass
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(temp_project_dir))
         results = await analyzer.find_subclasses("BaseService", include_indirect=True)

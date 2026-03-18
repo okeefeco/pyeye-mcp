@@ -23,8 +23,7 @@ class TestJediIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a real Python file
             test_file = Path(temp_dir) / "test_module.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 class TestClass:
     def test_method(self):
         pass
@@ -33,8 +32,7 @@ def test_function():
     return 42
 
 TEST_CONSTANT = "value"
-"""
-            )
+""")
 
             # Use real JediAnalyzer
             analyzer = JediAnalyzer(temp_dir)
@@ -134,15 +132,13 @@ TEST_CONSTANT = "value"
         """Test goto_definition returns JSON-serializable results."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def target_function():
     pass
 
 # Usage
 target_function()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -163,15 +159,13 @@ target_function()
         """Test find_references returns JSON-serializable results."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 class MyClass:
     pass
 
 obj1 = MyClass()
 obj2 = MyClass()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -227,23 +221,19 @@ obj2 = MyClass()
 
             # Create module.py
             module_file = package_dir / "module.py"
-            module_file.write_text(
-                """
+            module_file.write_text("""
 class MyClass:
     def method(self):
         return "test"
-"""
-            )
+""")
 
             # Create a script that uses the package
             script_file = Path(temp_dir) / "script.py"
-            script_file.write_text(
-                """
+            script_file.write_text("""
 from mypackage import MyClass
 
 obj = MyClass()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -290,8 +280,7 @@ obj = MyClass()
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test files
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def caller_function():
     target_function()
 
@@ -301,8 +290,7 @@ def target_function():
 
 def helper_function():
     pass
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -330,12 +318,10 @@ def helper_function():
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a simple module
             test_file = Path(temp_dir) / "test_module.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def test_function():
     pass
-"""
-            )
+""")
 
             # Test each MCP tool
             tools_to_test = [

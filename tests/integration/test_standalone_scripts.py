@@ -151,28 +151,24 @@ class TestStandaloneReferences:
 
         # Create package with a class
         (project_dir / "__init__.py").write_text("")
-        (project_dir / "models.py").write_text(
-            """
+        (project_dir / "models.py").write_text("""
 class MyClass:
     '''A test class'''
     pass
-"""
-        )
+""")
 
         # Create standalone directory OUTSIDE the project
         notebooks_dir = tmp_path / "external_notebooks"
         notebooks_dir.mkdir()
 
         # Standalone script that uses MyClass
-        (notebooks_dir / "analysis.py").write_text(
-            """
+        (notebooks_dir / "analysis.py").write_text("""
 '''Analysis notebook that uses MyClass from project'''
 from myproject.models import MyClass
 
 # Use MyClass
 obj = MyClass()
-"""
-        )
+""")
 
         # Create analyzer and configure standalone paths
         analyzer = JediAnalyzer(str(project_dir))

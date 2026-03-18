@@ -26,8 +26,7 @@ class TestCompoundSymbols:
         """Test finding __init__ method of specific class."""
         # Create test file with multiple classes
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def __init__(self, name: str):
         self.name = name
@@ -35,8 +34,7 @@ class User:
 class Product:
     def __init__(self, id: int):
         self.id = id
-"""
-        )
+""")
 
         # This should find only User's __init__, not Product's
         result = await find_symbol("User.__init__", project_path=str(tmp_path))
@@ -50,8 +48,7 @@ class Product:
     async def test_find_class_instance_method(self, tmp_path: Path) -> None:
         """Test finding instance method of specific class."""
         test_file = tmp_path / "calculator.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Calculator:
     def add(self, a: int, b: int) -> int:
         return a + b
@@ -62,8 +59,7 @@ class Calculator:
 class ScientificCalculator:
     def add(self, a: float, b: float) -> float:
         return a + b
-"""
-        )
+""")
 
         # Should find only Calculator.add, not ScientificCalculator.add
         result = await find_symbol("Calculator.add", project_path=str(tmp_path))
@@ -81,16 +77,14 @@ class ScientificCalculator:
         (models_dir / "__init__.py").touch()
 
         user_file = models_dir / "user.py"
-        user_file.write_text(
-            """
+        user_file.write_text("""
 class User:
     def save(self) -> None:
         pass
 
     def delete(self) -> None:
         pass
-"""
-        )
+""")
 
         # Should find models.user.User.save
         result = await find_symbol("models.user.User.save", project_path=str(tmp_path))
@@ -103,8 +97,7 @@ class User:
     async def test_find_static_method(self, tmp_path: Path) -> None:
         """Test finding static method of a class."""
         test_file = tmp_path / "utils.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class DateUtils:
     @staticmethod
     def format_date(date: str) -> str:
@@ -118,8 +111,7 @@ class StringUtils:
     @staticmethod
     def format_date(text: str) -> str:
         return text.upper()
-"""
-        )
+""")
 
         # Should find only DateUtils.format_date
         result = await find_symbol("DateUtils.format_date", project_path=str(tmp_path))
@@ -132,8 +124,7 @@ class StringUtils:
     async def test_find_class_method(self, tmp_path: Path) -> None:
         """Test finding class method."""
         test_file = tmp_path / "factory.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class UserFactory:
     @classmethod
     def create(cls, name: str):
@@ -146,8 +137,7 @@ class ProductFactory:
     @classmethod
     def create(cls, id: int):
         return cls(id)
-"""
-        )
+""")
 
         # Should find only UserFactory.create
         result = await find_symbol("UserFactory.create", project_path=str(tmp_path))
@@ -159,8 +149,7 @@ class ProductFactory:
     async def test_find_property(self, tmp_path: Path) -> None:
         """Test finding property of a class."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def __init__(self, email: str):
         self._email = email
@@ -177,8 +166,7 @@ class Admin:
     @property
     def email(self) -> str:
         return "admin@example.com"
-"""
-        )
+""")
 
         # Should find only User.email property getter
         result = await find_symbol("User.email", project_path=str(tmp_path))
@@ -190,8 +178,7 @@ class Admin:
     async def test_find_nested_class_method(self, tmp_path: Path) -> None:
         """Test finding method in nested class."""
         test_file = tmp_path / "nested.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Outer:
     class Inner:
         def method(self) -> str:
@@ -199,8 +186,7 @@ class Outer:
 
     def method(self) -> str:
         return "outer"
-"""
-        )
+""")
 
         # Should find Inner.method
         result = await find_symbol("Outer.Inner.method", project_path=str(tmp_path))
@@ -212,15 +198,13 @@ class Outer:
     async def test_backward_compatibility_simple_symbol(self, tmp_path: Path) -> None:
         """Test that simple symbols still work (backward compatibility)."""
         test_file = tmp_path / "simple.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class SimpleClass:
     pass
 
 def simple_function():
     pass
-"""
-        )
+""")
 
         # Simple class name should still work
         result = await find_symbol("SimpleClass", project_path=str(tmp_path))
@@ -269,15 +253,13 @@ def simple_function():
         (os_module / "__init__.py").touch()
 
         path_module = os_module / "path.py"
-        path_module.write_text(
-            """
+        path_module.write_text("""
 def join(*paths):
     return "/".join(paths)
 
 def split(path):
     return path.split("/")
-"""
-        )
+""")
 
         # Should find myos.path.join
         result = await find_symbol("myos.path.join", project_path=str(tmp_path))
@@ -289,8 +271,7 @@ def split(path):
     async def test_async_method(self, tmp_path: Path) -> None:
         """Test finding async methods."""
         test_file = tmp_path / "client.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class AsyncClient:
     async def connect(self) -> None:
         pass
@@ -301,8 +282,7 @@ class AsyncClient:
 class SyncClient:
     def connect(self) -> None:
         pass
-"""
-        )
+""")
 
         # Should find only AsyncClient.connect
         result = await find_symbol("AsyncClient.connect", project_path=str(tmp_path))
@@ -314,13 +294,11 @@ class SyncClient:
     async def test_method_not_found(self, tmp_path: Path) -> None:
         """Test behavior when compound symbol doesn't exist."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def save(self):
         pass
-"""
-        )
+""")
 
         # Non-existent method should return empty list
         result = await find_symbol("User.delete", project_path=str(tmp_path))
@@ -333,8 +311,7 @@ class User:
     async def test_partial_match_not_returned(self, tmp_path: Path) -> None:
         """Test that partial matches are not returned for compound symbols."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def save(self):
         pass
@@ -345,8 +322,7 @@ class User:
 class UserProfile:
     def save(self):
         pass
-"""
-        )
+""")
 
         # Should find only User.save, not User.save_async or UserProfile.save
         result = await find_symbol("User.save", project_path=str(tmp_path))

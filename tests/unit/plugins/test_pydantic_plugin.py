@@ -88,8 +88,7 @@ class TestPydanticPlugin:
     async def test_find_models(self, temp_project):
         """Test finding Pydantic models."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -101,8 +100,7 @@ class User(BaseModel):
 class Product(BaseModel):
     title: str
     price: float = Field(gt=0)
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         models = await plugin.find_models()
@@ -120,15 +118,13 @@ class Product(BaseModel):
     async def test_get_model_schema(self, temp_project):
         """Test getting model schema."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel
 
 class User(BaseModel):
     name: str
     email: str
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         await plugin.find_models()  # First find the models
@@ -150,8 +146,7 @@ class User(BaseModel):
     async def test_find_validators(self, temp_project):
         """Test finding validators."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel, validator, field_validator
 
 class User(BaseModel):
@@ -169,8 +164,7 @@ class User(BaseModel):
         if '@' not in v:
             raise ValueError('Invalid email')
         return v
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         validators = await plugin.find_validators()
@@ -183,8 +177,7 @@ class User(BaseModel):
     async def test_find_field_validators(self, temp_project):
         """Test finding field-specific validators."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel, field_validator
 
 class User(BaseModel):
@@ -194,8 +187,7 @@ class User(BaseModel):
     @field_validator('name', 'email')
     def validate_fields(cls, v):
         return v.strip()
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         validators = await plugin.find_field_validators()
@@ -207,8 +199,7 @@ class User(BaseModel):
     async def test_find_model_config(self, temp_project):
         """Test finding model configurations."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel
 
 class User(BaseModel):
@@ -224,8 +215,7 @@ class Product(BaseModel):
         'str_strip_whitespace': True,
         'validate_assignment': True
     }
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         configs = await plugin.find_model_config()
@@ -242,27 +232,23 @@ class Product(BaseModel):
         """Test tracing model inheritance."""
         # Create separate files for better detection
         base_file = temp_project / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 from pydantic import BaseModel
 
 class BaseUser(BaseModel):
     id: int
     name: str
-"""
-        )
+""")
 
         user_file = temp_project / "user.py"
-        user_file.write_text(
-            """
+        user_file.write_text("""
 from pydantic import BaseModel
 
 class User(BaseModel):
     id: int
     name: str
     email: str
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         models = await plugin.find_models()
@@ -283,8 +269,7 @@ class User(BaseModel):
     async def test_find_computed_fields(self, temp_project):
         """Test finding computed fields."""
         model_file = temp_project / "models.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel, computed_field
 
 class User(BaseModel):
@@ -299,8 +284,7 @@ class User(BaseModel):
     @property
     def display_name(self) -> str:
         return self.full_name.upper()
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         computed = await plugin.find_computed_fields()
@@ -558,8 +542,7 @@ class User(BaseModel):
     async def test_complex_model(self, temp_project):
         """Test with a complex Pydantic model."""
         model_file = temp_project / "complex.py"
-        model_file.write_text(
-            """
+        model_file.write_text("""
 from pydantic import BaseModel, Field, validator, computed_field
 from typing import Optional, List
 from datetime import datetime
@@ -591,8 +574,7 @@ class User(BaseModel):
     class Config:
         validate_assignment = True
         use_enum_values = True
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         models = await plugin.find_models()
@@ -633,29 +615,25 @@ class User(BaseModel):
 
             # Setup main project with a model
             main_model = main_dir / "models.py"
-            main_model.write_text(
-                """
+            main_model.write_text("""
 from pydantic import BaseModel
 
 class MainUser(BaseModel):
     name: str
     email: str
-"""
-            )
+""")
 
             # Setup namespace directory (outside main project)
             ns_path = Path(tmpdir) / "namespace_auth"
             ns_path.mkdir()
             ns_model = ns_path / "models.py"
-            ns_model.write_text(
-                """
+            ns_model.write_text("""
 from pydantic import BaseModel
 
 class AuthUser(BaseModel):
     username: str
     password: str
-"""
-            )
+""")
 
             plugin = PydanticPlugin(main_dir)
             plugin.set_namespace_paths({"auth": [str(ns_path)]})
@@ -680,8 +658,7 @@ class AuthUser(BaseModel):
         """Test finding validators with different scopes."""
         # Main project validator
         main_val = temp_project / "validators.py"
-        main_val.write_text(
-            """
+        main_val.write_text("""
 from pydantic import BaseModel, field_validator
 
 class User(BaseModel):
@@ -690,15 +667,13 @@ class User(BaseModel):
     @field_validator('email')
     def validate_email(cls, v):
         return v.lower()
-"""
-        )
+""")
 
         # Additional package validator
         pkg_path = temp_project / "shared"
         pkg_path.mkdir()
         pkg_val = pkg_path / "validators.py"
-        pkg_val.write_text(
-            """
+        pkg_val.write_text("""
 from pydantic import BaseModel, field_validator
 
 class Product(BaseModel):
@@ -707,8 +682,7 @@ class Product(BaseModel):
     @field_validator('price')
     def validate_price(cls, v):
         return max(0, v)
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         plugin.set_additional_paths([pkg_path])
@@ -736,8 +710,7 @@ class Product(BaseModel):
         ns_path = temp_project / "namespace_models"
         ns_path.mkdir()
         ns_model = ns_path / "user.py"
-        ns_model.write_text(
-            """
+        ns_model.write_text("""
 from pydantic import BaseModel
 from typing import Optional
 
@@ -745,8 +718,7 @@ class NamespaceUser(BaseModel):
     id: int
     name: str
     email: Optional[str] = None
-"""
-        )
+""")
 
         plugin = PydanticPlugin(temp_project)
         plugin.set_namespace_paths({"models": [str(ns_path)]})

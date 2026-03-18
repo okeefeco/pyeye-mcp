@@ -18,8 +18,7 @@ def temp_namespace_project():
         main_project = root / "main_project"
         main_project.mkdir()
         (main_project / "__init__.py").touch()
-        (main_project / "models.py").write_text(
-            """
+        (main_project / "models.py").write_text("""
 class MainModel:
     pass
 
@@ -29,14 +28,11 @@ class UserModel(MainModel):
 import external_lib
 import company.auth.models
 from company.api import tools
-"""
-        )
-        (main_project / "utils.py").write_text(
-            """
+""")
+        (main_project / "utils.py").write_text("""
 def main_utility():
     pass
-"""
-        )
+""")
 
         # Create namespace package: company.auth
         auth_repo = root / "company-auth"
@@ -44,8 +40,7 @@ def main_utility():
         auth_ns = auth_repo / "company" / "auth"
         auth_ns.mkdir(parents=True)
         (auth_ns / "__init__.py").touch()
-        (auth_ns / "models.py").write_text(
-            """
+        (auth_ns / "models.py").write_text("""
 class BaseAuthModel:
     pass
 
@@ -54,16 +49,13 @@ class AuthUser(BaseAuthModel):
 
 import requests
 from company.api import endpoints
-"""
-        )
-        (auth_ns / "views.py").write_text(
-            """
+""")
+        (auth_ns / "views.py").write_text("""
 from .models import AuthUser
 
 def auth_view():
     pass
-"""
-        )
+""")
 
         # Create namespace package: company.api
         api_repo = root / "company-api"
@@ -71,22 +63,19 @@ def auth_view():
         api_ns = api_repo / "company" / "api"
         api_ns.mkdir(parents=True)
         (api_ns / "__init__.py").touch()
-        (api_ns / "endpoints.py").write_text(
-            """
+        (api_ns / "endpoints.py").write_text("""
 class APIEndpoint:
     pass
 
 import json
 from company.auth.models import AuthUser
-"""
-        )
+""")
 
         # Create sub-namespace: company.api.tools
         tools_ns = api_ns / "tools"
         tools_ns.mkdir()
         (tools_ns / "__init__.py").touch()
-        (tools_ns / "validators.py").write_text(
-            """
+        (tools_ns / "validators.py").write_text("""
 class Validator:
     pass
 
@@ -95,8 +84,7 @@ class EmailValidator(Validator):
 
 import re
 from company.auth import models
-"""
-        )
+""")
 
         yield {
             "root": root,

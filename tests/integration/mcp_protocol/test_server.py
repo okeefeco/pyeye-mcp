@@ -580,8 +580,7 @@ class TestFindSubclasses:
         """Test basic find_subclasses functionality."""
         # Create test file with class hierarchy
         test_file = temp_project_dir / "animals.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Animal:
     pass
 
@@ -590,8 +589,7 @@ class Dog(Animal):
 
 class Cat(Animal):
     pass
-"""
-        )
+""")
 
         result = await find_subclasses("Animal", str(temp_project_dir))
 
@@ -605,8 +603,7 @@ class Cat(Animal):
     async def test_find_subclasses_with_params(self, temp_project_dir):
         """Test find_subclasses with include_indirect and show_hierarchy."""
         test_file = temp_project_dir / "hierarchy.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Base:
     pass
 
@@ -615,8 +612,7 @@ class Middle(Base):
 
 class Leaf(Middle):
     pass
-"""
-        )
+""")
 
         # Test with indirect=False
         result = await find_subclasses("Base", str(temp_project_dir), include_indirect=False)

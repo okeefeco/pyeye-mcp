@@ -23,8 +23,7 @@ class TestEndToEndWorkflow:
         src_dir.mkdir()
 
         main_py = src_dir / "main.py"
-        main_py.write_text(
-            """
+        main_py.write_text("""
 def main():
     \"\"\"Main entry point.\"\"\"
     result = helper(42)
@@ -36,8 +35,7 @@ def helper(value: int) -> int:
 
 if __name__ == "__main__":
     main()
-"""
-        )
+""")
 
         # Step 2: Create configuration
         config_file = temp_project_dir / ".pyeye.json"
@@ -108,27 +106,23 @@ if __name__ == "__main__":
         auth_pkg = auth_repo / "company" / "auth"
         auth_pkg.mkdir(parents=True)
         (auth_pkg / "__init__.py").write_text("")
-        (auth_pkg / "models.py").write_text(
-            """
+        (auth_pkg / "models.py").write_text("""
 class User:
     def __init__(self, username: str):
         self.username = username
-"""
-        )
+""")
 
         # API repository
         api_pkg = api_repo / "company" / "api"
         api_pkg.mkdir(parents=True)
         (api_pkg / "__init__.py").write_text("")
-        (api_pkg / "client.py").write_text(
-            """
+        (api_pkg / "client.py").write_text("""
 from company.auth.models import User
 
 class APIClient:
     def __init__(self, user: User):
         self.user = user
-"""
-        )
+""")
 
         # Configure namespace
         resolver = NamespaceResolver()
@@ -185,28 +179,24 @@ class APIClient:
 
         # Create Flask project
         app_py = temp_project_dir / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return 'Hello'
-"""
-        )
+""")
 
         # Create Pydantic models
         models_py = temp_project_dir / "models.py"
-        models_py.write_text(
-            """
+        models_py.write_text("""
 from pydantic import BaseModel
 
 class User(BaseModel):
     name: str
     age: int
-"""
-        )
+""")
 
         # Test Flask plugin detection
         flask_plugin = FlaskPlugin(str(temp_project_dir))
@@ -321,13 +311,11 @@ class User(BaseModel):
 
             for j in range(10):
                 py_file = module_dir / f"file{j}.py"
-                py_file.write_text(
-                    f"""
+                py_file.write_text(f"""
 def function_{i}_{j}():
     \"\"\"Function in module {i} file {j}\"\"\"
     pass
-"""
-                )
+""")
 
         # Test project structure listing
         from pyeye.mcp.server import list_project_structure
@@ -346,37 +334,31 @@ def function_{i}_{j}():
         # Create main project
         main_proj = temp_project_dir / "main"
         main_proj.mkdir()
-        (main_proj / "app.py").write_text(
-            """
+        (main_proj / "app.py").write_text("""
 from lib.utils import helper
 from shared.models import User
 
 def main():
     user = User("test")
     return helper(user)
-"""
-        )
+""")
 
         # Create lib repository
         lib_repo = temp_project_dir / "lib"
         lib_repo.mkdir()
-        (lib_repo / "utils.py").write_text(
-            """
+        (lib_repo / "utils.py").write_text("""
 def helper(data):
     return str(data)
-"""
-        )
+""")
 
         # Create shared repository
         shared_repo = temp_project_dir / "shared"
         shared_repo.mkdir()
-        (shared_repo / "models.py").write_text(
-            """
+        (shared_repo / "models.py").write_text("""
 class User:
     def __init__(self, name):
         self.name = name
-"""
-        )
+""")
 
         # Configure project with dependencies
         manager = ProjectManager()

@@ -245,8 +245,7 @@ class TestSmartScopeResolver:
     def test_user_configured_defaults(self, tmp_path):
         """Test user-configured scope defaults."""
         config_file = tmp_path / ".pyeye.json"
-        config_file.write_text(
-            """{
+        config_file.write_text("""{
             "scope_defaults": {
                 "global": "namespace:custom",
                 "methods": {
@@ -254,8 +253,7 @@ class TestSmartScopeResolver:
                     "find_routes": "namespace:api"
                 }
             }
-        }"""
-        )
+        }""")
 
         config = ProjectConfig(str(tmp_path))
         resolver = SmartScopeResolver(config)
@@ -273,14 +271,12 @@ class TestSmartScopeResolver:
     def test_scope_alias_resolution(self, tmp_path):
         """Test scope alias resolution."""
         config_file = tmp_path / ".pyeye.json"
-        config_file.write_text(
-            """{
+        config_file.write_text("""{
             "scope_aliases": {
                 "backend": ["namespace:api", "namespace:db"],
                 "all-services": ["main", "backend", "namespace:workers"]
             }
-        }"""
-        )
+        }""")
 
         config = ProjectConfig(str(tmp_path))
         resolver = SmartScopeResolver(config)
