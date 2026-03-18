@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=6126d4b2"></script>
+      <script src="../../../_static/documentation_options.js?v=8e8c48c6"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -501,6 +501,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;configure_packages&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;configure_packages&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">configure_packages</span><span class="p">(</span>
     <span class="n">packages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">namespaces</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -672,6 +673,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_type_info</span><span class="p">(</span>
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
@@ -694,6 +696,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_imports&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_imports&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_imports</span><span class="p">(</span><span class="n">module_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find all files that import a specific module.</span>
 
@@ -711,6 +714,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_call_hierarchy&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_call_hierarchy&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_call_hierarchy</span><span class="p">(</span>
     <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
@@ -730,6 +734,8 @@
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_packages.html#pyeye.mcp.server.list_packages">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;list_packages&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_packages&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_packages</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all packages with their structure and subpackages.</span>
 
@@ -758,6 +764,8 @@
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_modules.html#pyeye.mcp.server.list_modules">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;list_modules&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_modules&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_modules</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all modules with their exports, classes, functions, and metrics.</span>
 
@@ -783,6 +791,8 @@
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">analyze_dependencies</span><span class="p">(</span>
     <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
@@ -817,6 +827,8 @@
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_module_info.html#pyeye.mcp.server.get_module_info">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_module_info&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_module_info&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_module_info</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get module exports, classes, functions, and complexity metrics.</span>
 
@@ -848,6 +860,8 @@
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_project_structure.html#pyeye.mcp.server.list_project_structure">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;list_project_structure&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_project_structure&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">list_project_structure</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Hierarchical view of Python files and packages in the project.</span>
 
@@ -899,6 +913,7 @@
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_subclasses&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_subclasses&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_subclasses</span><span class="p">(</span>
     <span class="n">base_class</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
