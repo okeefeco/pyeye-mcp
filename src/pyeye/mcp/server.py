@@ -214,30 +214,27 @@ def configure_packages(
 @metrics.measure("find_symbol")
 @track_mcp_operation("find_symbol")
 async def find_symbol(
-    name: str, project_path: str = ".", fuzzy: bool = False, use_config: bool = True
+    name: str,
+    project_path: str = ".",
+    fuzzy: bool = False,
+    scope: str = "all",
 ) -> list[dict[str, Any]]:
     """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
+
+    Searches across the main project plus all configured additional packages
+    and namespace packages. Use the scope parameter to control search breadth.
 
     Args:
         name: Symbol name to search for
         project_path: Root directory of the project to search
         fuzzy: Enable fuzzy matching for partial names
-        use_config: Load additional packages from configuration
+        scope: Search scope - "main", "all", "namespace:name", or list of scopes
     """
     try:
-        # Use JediAnalyzer which now supports re-export tracking
         analyzer = get_analyzer(project_path)
-
-        # Configure additional paths if requested
-        if use_config:
-            config = ProjectConfig(project_path)
-            all_paths = config.get_package_paths()
-            if len(all_paths) > 1:
-                # Set additional paths on the analyzer if needed
-                analyzer.additional_paths = [Path(p) for p in all_paths[1:]]
-
-        # Use the analyzer's find_symbol method which includes import_paths
-        results = await analyzer.find_symbol(name, fuzzy=fuzzy, include_import_paths=True)
+        results = await analyzer.find_symbol(
+            name, fuzzy=fuzzy, include_import_paths=True, scope=scope
+        )
 
     except FileNotFoundError as e:
         raise FileAccessError(
@@ -350,159 +347,6 @@ async def get_call_hierarchy(
     """
     analyzer = get_analyzer(project_path)
     return await analyzer.get_call_hierarchy(function_name, file)
-
-
-@mcp.tool()
-@validate_mcp_inputs
-@metrics.measure("configure_namespace_package")
-def configure_namespace_package(namespace: str, repo_paths: list[str]) -> dict[str, Any]:
-    """Python: Set up namespace packages spread across multiple repositories.
-
-    Args:
-        namespace: Package namespace (e.g., "mycompany.services")
-        repo_paths: List of repository paths containing parts of this namespace
-    """
-    manager = get_project_manager()
-    resolver = manager.namespace_resolver
-
-    # Discover namespace packages
-    discovered = resolver.discover_namespaces(repo_paths)
-
-    # Register the namespace
-    if namespace in discovered:
-        resolver.register_namespace(namespace, [str(p) for p in discovered[namespace]])
-
-    # Build structure map
-    structure = resolver.build_namespace_map(repo_paths)
-
-    # Configure Jedi projects for all paths
-    all_paths = []
-    for ns_paths in discovered.values():
-        all_paths.extend([str(p) for p in ns_paths])
-
-    # Create a unified project with all namespace paths
-    if all_paths:
-        # Use first path as main, rest as includes
-        manager.get_project(all_paths[0], all_paths[1:] if len(all_paths) > 1 else None)
-
-    return {
-        "namespace": namespace,
-        "discovered_namespaces": {k: [str(p) for p in v] for k, v in discovered.items()},
-        "structure": structure,
-        "status": "configured",
-    }
-
-
-@mcp.tool()
-@validate_mcp_inputs
-def find_in_namespace(import_path: str, namespace_repos: list[str]) -> dict[str, Any]:
-    """Python: Find symbols within namespace packages spread across multiple repos.
-
-    Args:
-        import_path: Full import path (e.g., "mycompany.auth.models.User")
-        namespace_repos: Repository paths to search
-    """
-    manager = get_project_manager()
-    resolver = manager.namespace_resolver
-
-    # Discover namespaces if not already done
-    resolver.discover_namespaces(namespace_repos)
-
-    # Resolve the import
-    resolved_paths = resolver.resolve_import(import_path, namespace_repos)
-
-    results = {"import_path": import_path, "found_at": [], "namespace_structure": {}}
-
-    # For each resolved path, find the specific symbol
-    parts = import_path.split(".")
-    symbol_name = parts[-1] if parts else None
-
-    for path in resolved_paths:
-        # Get the project for this path
-        project_root = path.parent
-        while project_root.parent != project_root and any(project_root.glob("*.py")):
-            project_root = project_root.parent
-
-        project = manager.get_project(str(project_root))
-
-        # Search for the symbol
-        if symbol_name:
-            try:
-                search_results = project.search(symbol_name, all_scopes=True)
-                for result in search_results:
-                    if result.module_path == path or str(result.module_path).startswith(
-                        str(path.parent)
-                    ):
-                        found_at_list = results.get("found_at", [])
-                        if isinstance(found_at_list, list):
-                            found_at_list.append(
-                                {
-                                    "file": (
-                                        Path(result.module_path).as_posix()
-                                        if result.module_path
-                                        else None
-                                    ),
-                                    "line": result.line,
-                                    "type": result.type,
-                                    "description": result.description,
-                                }
-                            )
-            except Exception as e:
-                logger.error(f"Error searching in {Path(path).as_posix()}: {e}")
-
-    # Add namespace structure
-    results["namespace_structure"] = resolver.build_namespace_map(namespace_repos)
-
-    return results
-
-
-@mcp.tool()
-@validate_mcp_inputs
-def find_symbol_multi(
-    name: str, project_paths: list[str], fuzzy: bool = False
-) -> dict[str, list[dict[str, Any]]]:
-    """Python: Search for symbols across multiple projects simultaneously.
-
-    Args:
-        name: Symbol name to search for
-        project_paths: List of project paths to search
-        fuzzy: Whether to use fuzzy matching
-    """
-    manager = get_project_manager()
-    all_results = {}
-
-    for path in project_paths:
-        # Ensure each project is loaded
-        project = manager.get_project(path)
-
-        # Search in this project
-        results = []
-        try:
-            search_results = project.search(name, all_scopes=True)
-
-            for result in search_results:
-                if not fuzzy and result.name != name:
-                    continue
-
-                results.append(
-                    {
-                        "name": result.name,
-                        "file": Path(result.module_path).as_posix() if result.module_path else None,
-                        "line": result.line,
-                        "column": result.column,
-                        "type": result.type,
-                        "description": result.description,
-                    }
-                )
-
-            if results:
-                all_results[path] = results
-
-        except Exception as e:
-            logger.error(f"Error searching in {Path(path).as_posix()}: {e}")
-            all_results[path] = [{"error": str(e)}]
-
-    return all_results
 
 
 @mcp.tool()
