@@ -427,7 +427,9 @@ class TestGetTypeInfo:
         assert len(result["inferred_types"]) > 0
         assert result["inferred_types"][0]["name"] == "str"
         assert result["docstring"] == "String type"
-        mock_analyzer.get_type_info.assert_called_with("test.py", 10, 5, detailed=False)
+        mock_analyzer.get_type_info.assert_called_with(
+            "test.py", 10, 5, detailed=False, fields=None
+        )
 
 
 class TestFindImports:

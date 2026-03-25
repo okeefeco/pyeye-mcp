@@ -377,7 +377,12 @@ async def find_references(
 @metrics.measure("get_type_info")
 @track_mcp_operation("get_type_info")
 async def get_type_info(
-    file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+    detailed: bool = False,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
 
@@ -387,9 +392,15 @@ async def get_type_info(
         column: Column number (0-indexed)
         project_path: Root path of the project
         detailed: Include additional information like methods and attributes
+        fields: Optional list of top-level fields to include in response.
+               Valid fields: position, inferred_types, docstring
+               Examples:
+               - fields=["position", "docstring"] - Only position and docstring
+               - fields=["inferred_types"] - Only type information
+               - fields=None (default) - All fields included
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.get_type_info(file, line, column, detailed=detailed)
+    return await analyzer.get_type_info(file, line, column, detailed=detailed, fields=fields)
 
 
 @mcp.tool()
