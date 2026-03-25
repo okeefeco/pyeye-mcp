@@ -140,6 +140,78 @@ def initialize_plugins(project_path: str = ".") -> None:
             # Don't raise - plugins are optional
 
 
+def filter_fields(
+    data: dict[str, Any] | list[dict[str, Any]],
+    fields: list[str] | None,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Filter dictionary or list of dictionaries to include only specified fields.
+
+    Args:
+        data: Single dictionary or list of dictionaries to filter
+        fields: List of field names to include, or None to return shallow copy
+
+    Returns:
+        Filtered dictionary or list of dictionaries
+
+    Raises:
+        ValueError: If fields is an empty list, or if any field is not valid
+        TypeError: If data is not a dict or list of dicts, or if fields is not a list when provided
+    """
+    # Type validation for data
+    if not isinstance(data, (dict, list)):
+        raise TypeError(f"data must be a dict or list of dicts, got {type(data).__name__}")
+
+    if isinstance(data, list):
+        if not all(isinstance(item, dict) for item in data):
+            raise TypeError("All items in list must be dictionaries")
+
+    # If no fields specified, return shallow copy
+    if fields is None:
+        if isinstance(data, dict):
+            return data.copy()
+        else:
+            return [item.copy() for item in data]
+
+    # Type validation for fields
+    if not isinstance(fields, list):
+        raise TypeError(f"fields must be a list or None, got {type(fields).__name__}")
+
+    # Validate fields is not empty
+    if len(fields) == 0:
+        raise ValueError("fields list cannot be empty")
+
+    # Determine valid fields from data
+    if isinstance(data, dict):
+        valid_fields = list(data.keys())
+    elif isinstance(data, list):
+        # Empty list: no validation needed, just return empty list
+        if len(data) == 0:
+            return []
+        # Non-empty list: validate against first item
+        valid_fields = list(data[0].keys())
+    else:
+        valid_fields = []
+
+    # Validate requested fields
+    invalid_fields = [f for f in fields if f not in valid_fields]
+    if invalid_fields:
+        # Sort invalid fields for consistent error messages
+        invalid_sorted = sorted(invalid_fields)
+        # Format with single quotes
+        invalid_str = ", ".join(f"'{f}'" for f in invalid_sorted)
+        # Sort valid fields alphabetically, no quotes
+        valid_sorted = ", ".join(sorted(valid_fields))
+        raise ValueError(f"Invalid field(s): {invalid_str}. Valid fields are: {valid_sorted}")
+
+    # Filter the data
+    if isinstance(data, dict):
+        # Single dictionary - include only fields that exist, preserve requested order
+        return {k: data[k] for k in fields if k in data}
+    else:
+        # List of dictionaries - filter each one, skip missing fields
+        return [{k: item[k] for k in fields if k in item} for item in data]
+
+
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
