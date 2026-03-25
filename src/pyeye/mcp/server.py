@@ -467,15 +467,33 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 @validate_mcp_inputs
 @metrics.measure("list_modules")
 @track_mcp_operation("list_modules")
-async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
+async def list_modules(
+    project_path: str = ".", fields: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Python: List all modules with their exports, classes, functions, and metrics.
 
     Args:
         project_path: Root path of the project
+        fields: Optional list of fields to include in each module's response.
+               Valid fields: name, import_path, file, exports, classes, functions,
+                           imports_from, size_lines, has_tests
+               Examples:
+               - fields=["name", "file"] - Only module name and file path
+               - fields=["exports", "classes"] - Only exports and class info
+               - fields=None (default) - All fields included
     """
     try:
         analyzer = get_analyzer(project_path)
-        return await analyzer.list_modules()
+        result = await analyzer.list_modules()
+
+        # Apply field filtering if requested
+        if fields is not None:
+            result = filter_fields(result, fields)  # type: ignore
+
+        return result
+    except (ValueError, TypeError):
+        # Let validation errors propagate directly
+        raise
     except ProjectNotFoundError as e:
         raise FileAccessError(
             f"Project path not found: {Path(project_path).as_posix()}", project_path
