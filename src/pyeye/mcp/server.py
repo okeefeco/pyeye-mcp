@@ -355,6 +355,7 @@ async def find_references(
     project_path: str = ".",
     include_definitions: bool = True,
     include_subclasses: bool = False,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
@@ -365,11 +366,23 @@ async def find_references(
         project_path: Root path of the project
         include_definitions: Include definitions in results
         include_subclasses: Also find references to all subclasses (polymorphic search)
+        fields: Optional list of fields to include in each reference dict.
+               Valid fields: name, type, line, column, description, full_name, file, is_definition
+               Examples:
+               - fields=["file", "line", "name"] - Only file, line, and name
+               - fields=["file", "line", "column"] - Only location information
+               - fields=None (default) - All fields included
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.find_references(
+    result = await analyzer.find_references(
         file, line, column, include_definitions, include_subclasses
     )
+
+    # Apply field filtering if requested
+    if fields is not None:
+        result = filter_fields(result, fields)  # type: ignore
+
+    return result
 
 
 @mcp.tool()
