@@ -388,8 +388,35 @@ async def find_references(
             "error": "Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead"
         }
     elif symbol_name is not None:
-        # Branch 2: Symbol name provided (no coordinates) — placeholder
-        return {"error": "Symbol resolution not yet implemented"}
+        # Branch 2: Symbol name provided (no coordinates) — resolve to coordinates
+        _sym_analyzer = get_analyzer(project_path)
+        symbol_results = await _sym_analyzer.find_symbol(
+            symbol_name, fuzzy=False, include_import_paths=True, scope="all"
+        )
+        if len(symbol_results) == 0:
+            import builtins
+
+            if hasattr(builtins, symbol_name):
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            return {"error": f"No symbol found matching '{symbol_name}'"}
+        elif len(symbol_results) == 1:
+            match = symbol_results[0]
+            if "file" not in match:
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            # Set coordinates and fall through to the existing resolution code
+            file = match["file"]
+            line = match["line"]
+            column = match["column"]
+        else:
+            # Multiple matches — return disambiguation response
+            return {
+                "error": f"Multiple symbols found matching '{symbol_name}'. Specify file, line, and column to disambiguate.",
+                "matches": symbol_results,
+            }
     else:
         # Branch 4: Neither coordinates nor symbol_name provided
         return {"error": "Either symbol_name or file+line+column required"}
