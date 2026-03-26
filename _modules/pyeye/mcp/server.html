@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=e2fa60f7"></script>
+      <script src="../../../_static/documentation_options.js?v=476523e7"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -496,6 +496,78 @@
             <span class="c1"># Don&#39;t raise - plugins are optional</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">filter_fields</span><span class="p">(</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Filter dictionary or list of dictionaries to include only specified fields.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        data: Single dictionary or list of dictionaries to filter</span>
+<span class="sd">        fields: List of field names to include, or None to return shallow copy</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Filtered dictionary or list of dictionaries</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If fields is an empty list, or if any field is not valid</span>
+<span class="sd">        TypeError: If data is not a dict or list of dicts, or if fields is not a list when provided</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Type validation for data</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">dict</span><span class="p">,</span> <span class="nb">list</span><span class="p">)):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;data must be a dict or list of dicts, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;All items in list must be dictionaries&quot;</span><span class="p">)</span>
+
+    <span class="c1"># If no fields specified, return shallow copy</span>
+    <span class="k">if</span> <span class="n">fields</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">item</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="p">]</span>
+
+    <span class="c1"># Type validation for fields</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fields</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fields must be a list or None, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Validate fields is not empty</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;fields list cannot be empty&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Determine valid fields from data</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">valid_fields</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="c1"># Empty list: no validation needed, just return empty list</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="c1"># Non-empty list: validate against first item</span>
+        <span class="n">valid_fields</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">valid_fields</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Validate requested fields</span>
+    <span class="n">invalid_fields</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fields</span> <span class="k">if</span> <span class="n">f</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">valid_fields</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">invalid_fields</span><span class="p">:</span>
+        <span class="c1"># Sort invalid fields for consistent error messages</span>
+        <span class="n">invalid_sorted</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">invalid_fields</span><span class="p">)</span>
+        <span class="c1"># Format with single quotes</span>
+        <span class="n">invalid_str</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2">&#39;&quot;</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">invalid_sorted</span><span class="p">)</span>
+        <span class="c1"># Sort valid fields alphabetically, no quotes</span>
+        <span class="n">valid_sorted</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">valid_fields</span><span class="p">))</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid field(s): </span><span class="si">{</span><span class="n">invalid_str</span><span class="si">}</span><span class="s2">. Valid fields are: </span><span class="si">{</span><span class="n">valid_sorted</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Filter the data</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="c1"># Single dictionary - include only fields that exist, preserve requested order</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">fields</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">data</span><span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># List of dictionaries - filter each one, skip missing fields</span>
+        <span class="k">return</span> <span class="p">[{</span><span class="n">k</span><span class="p">:</span> <span class="n">item</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">fields</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">item</span><span class="p">}</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">data</span><span class="p">]</span>
+
+
 <div class="viewcode-block" id="configure_packages">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.configure_packages.html#pyeye.mcp.server.configure_packages">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -650,6 +722,7 @@
     <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
     <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">include_subclasses</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.</span>
 
@@ -660,11 +733,23 @@
 <span class="sd">        project_path: Root path of the project</span>
 <span class="sd">        include_definitions: Include definitions in results</span>
 <span class="sd">        include_subclasses: Also find references to all subclasses (polymorphic search)</span>
+<span class="sd">        fields: Optional list of fields to include in each reference dict.</span>
+<span class="sd">               Valid fields: name, type, line, column, description, full_name, file, is_definition</span>
+<span class="sd">               Examples:</span>
+<span class="sd">               - fields=[&quot;file&quot;, &quot;line&quot;, &quot;name&quot;] - Only file, line, and name</span>
+<span class="sd">               - fields=[&quot;file&quot;, &quot;line&quot;, &quot;column&quot;] - Only location information</span>
+<span class="sd">               - fields=None (default) - All fields included</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span>
         <span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">,</span> <span class="n">include_subclasses</span>
-    <span class="p">)</span></div>
+    <span class="p">)</span>
+
+    <span class="c1"># Apply field filtering if requested</span>
+    <span class="k">if</span> <span class="n">fields</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">filter_fields</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">fields</span><span class="p">)</span>  <span class="c1"># type: ignore</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
 
 
 
@@ -675,7 +760,12 @@
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_type_info&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_type_info</span><span class="p">(</span>
-    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">detailed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get type hints, docstrings, and base classes at cursor position.</span>
 
@@ -685,9 +775,28 @@
 <span class="sd">        column: Column number (0-indexed)</span>
 <span class="sd">        project_path: Root path of the project</span>
 <span class="sd">        detailed: Include additional information like methods and attributes</span>
+<span class="sd">        fields: Optional list of top-level fields to include in response.</span>
+<span class="sd">               This filters the TOP-LEVEL response keys only.</span>
+
+<span class="sd">               Valid top-level fields:</span>
+<span class="sd">               - position: File location information (dict with file, line, column)</span>
+<span class="sd">               - inferred_types: Type information (list of type dicts with name, type,</span>
+<span class="sd">                                base_classes, mro, methods, attributes, etc.)</span>
+<span class="sd">               - docstring: Documentation string</span>
+
+<span class="sd">               Note: Fields like base_classes, mro, methods, attributes are NESTED</span>
+<span class="sd">               inside the inferred_types field, not top-level. Phase 2 only supports</span>
+<span class="sd">               top-level filtering. Use fields=[&quot;inferred_types&quot;] to get all type</span>
+<span class="sd">               information without position or docstring overhead.</span>
+
+<span class="sd">               Token optimization examples:</span>
+<span class="sd">               - fields=[&quot;inferred_types&quot;] reduces tokens by 69.6% (~400 vs ~700 tokens)</span>
+<span class="sd">               - fields=[&quot;position&quot;, &quot;docstring&quot;] returns only position and docstring</span>
+<span class="sd">               - fields=[&quot;inferred_types&quot;, &quot;docstring&quot;] returns type info and docs</span>
+<span class="sd">               - fields=None (default) returns all top-level fields</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_type_info</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">detailed</span><span class="o">=</span><span class="n">detailed</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_type_info</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">detailed</span><span class="o">=</span><span class="n">detailed</span><span class="p">,</span> <span class="n">fields</span><span class="o">=</span><span class="n">fields</span><span class="p">)</span></div>
 
 
 
@@ -766,15 +875,33 @@
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;list_modules&quot;</span><span class="p">)</span>
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_modules&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_modules</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_modules</span><span class="p">(</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all modules with their exports, classes, functions, and metrics.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
+<span class="sd">        fields: Optional list of fields to include in each module&#39;s response.</span>
+<span class="sd">               Valid fields: name, import_path, file, exports, classes, functions,</span>
+<span class="sd">                           imports_from, size_lines, has_tests</span>
+<span class="sd">               Examples:</span>
+<span class="sd">               - fields=[&quot;name&quot;, &quot;file&quot;] - Only module name and file path</span>
+<span class="sd">               - fields=[&quot;exports&quot;, &quot;classes&quot;] - Only exports and class info</span>
+<span class="sd">               - fields=None (default) - All fields included</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">list_modules</span><span class="p">()</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">list_modules</span><span class="p">()</span>
+
+        <span class="c1"># Apply field filtering if requested</span>
+        <span class="k">if</span> <span class="n">fields</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">filter_fields</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">fields</span><span class="p">)</span>  <span class="c1"># type: ignore</span>
+
+        <span class="k">return</span> <span class="n">result</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+        <span class="c1"># Let validation errors propagate directly</span>
+        <span class="k">raise</span>
     <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>

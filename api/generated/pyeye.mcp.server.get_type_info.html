@@ -13,7 +13,7 @@
   
       <script src="../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../_static/documentation_options.js?v=e2fa60f7"></script>
+      <script src="../../_static/documentation_options.js?v=476523e7"></script>
       <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/js/theme.js"></script>
@@ -361,7 +361,7 @@
 <h1>pyeye.mcp.server.get_type_info<a class="headerlink" href="#pyeye-mcp-server-get-type-info" title="Link to this heading"></a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="pyeye.mcp.server.get_type_info">
-<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyeye.mcp.server.</span></span><span class="sig-name descname"><span class="pre">get_type_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">column</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detailed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/pyeye/mcp/server.html#get_type_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pyeye.mcp.server.get_type_info" title="Link to this definition"></a></dt>
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">pyeye.mcp.server.</span></span><span class="sig-name descname"><span class="pre">get_type_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">column</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">project_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detailed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fields</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/pyeye/mcp/server.html#get_type_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pyeye.mcp.server.get_type_info" title="Link to this definition"></a></dt>
 <dd><p>Python: Get type hints, docstrings, and base classes at cursor position.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -371,6 +371,27 @@
 <li><p><strong>column</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) – Column number (0-indexed)</p></li>
 <li><p><strong>project_path</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – Root path of the project</p></li>
 <li><p><strong>detailed</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – Include additional information like methods and attributes</p></li>
+<li><p><strong>fields</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>] | <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span>) – <p>Optional list of top-level fields to include in response.
+This filters the TOP-LEVEL response keys only.</p>
+<p>Valid top-level fields:
+- position: File location information (dict with file, line, column)
+- inferred_types: Type information (list of type dicts with name, type,</p>
+<blockquote>
+<div><p>base_classes, mro, methods, attributes, etc.)</p>
+</div></blockquote>
+<ul>
+<li><p>docstring: Documentation string</p></li>
+</ul>
+<p>Note: Fields like base_classes, mro, methods, attributes are NESTED
+inside the inferred_types field, not top-level. Phase 2 only supports
+top-level filtering. Use fields=[“inferred_types”] to get all type
+information without position or docstring overhead.</p>
+<p>Token optimization examples:
+- fields=[“inferred_types”] reduces tokens by 69.6% (~400 vs ~700 tokens)
+- fields=[“position”, “docstring”] returns only position and docstring
+- fields=[“inferred_types”, “docstring”] returns type info and docs
+- fields=None (default) returns all top-level fields</p>
+</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
