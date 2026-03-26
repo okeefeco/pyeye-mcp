@@ -360,20 +360,23 @@ async def find_references(
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
+    Two calling conventions (coordinates take precedence if both provided):
+    1. Coordinates: file + line + column (precise, unambiguous)
+    2. Symbol name: symbol_name only (convenient; fails if name is ambiguous)
+
+    If symbol_name matches multiple symbols, returns error with a "matches" list
+    so you can pick the right one and retry with coordinates.
+
     Args:
         file: Path to the file (required with line and column)
         line: Line number (1-indexed, required with file and column)
         column: Column number (0-indexed, required with file and line)
+        symbol_name: Symbol name (alternative to file+line+column)
         project_path: Root path of the project
         include_definitions: Include definitions in results
         include_subclasses: Also find references to all subclasses (polymorphic search)
-        fields: Optional list of fields to include in each reference dict.
-               Valid fields: name, type, line, column, description, full_name, file, is_definition
-               Examples:
-               - fields=["file", "line", "name"] - Only file, line, and name
-               - fields=["file", "line", "column"] - Only location information
-               - fields=None (default) - All fields included
-        symbol_name: Symbol name to look up (alternative to file+line+column)
+        fields: Fields to include per reference. Valid: name, type, line, column,
+               description, full_name, file, is_definition. Default: all fields.
     """
     # Validate input: determine which branch to use
     all_coords = file is not None and line is not None and column is not None
