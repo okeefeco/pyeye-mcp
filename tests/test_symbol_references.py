@@ -269,6 +269,39 @@ class TestSymbolReferencesInteraction:
             )
 
     @pytest.mark.asyncio
+    async def test_include_definitions_false_with_symbol_name(self):
+        """include_definitions=False should propagate through symbol_name
+        resolution so that the definition itself is excluded from results.
+        """
+        # First get results WITH definitions to establish baseline
+        with_defs = await find_references(
+            symbol_name="UniqueWidget",
+            project_path=str(_SYMBOL_REF_FIXTURE),
+            include_definitions=True,
+        )
+        assert isinstance(with_defs, list), f"Expected list, got: {with_defs}"
+
+        # Now get results WITHOUT definitions
+        without_defs = await find_references(
+            symbol_name="UniqueWidget",
+            project_path=str(_SYMBOL_REF_FIXTURE),
+            include_definitions=False,
+        )
+        assert isinstance(without_defs, list), f"Expected list, got: {without_defs}"
+
+        # Without definitions should have fewer (or equal) results
+        assert len(without_defs) <= len(with_defs), (
+            f"include_definitions=False should not return more results than True: "
+            f"{len(without_defs)} vs {len(with_defs)}"
+        )
+
+        # No result should be marked as a definition
+        for ref in without_defs:
+            assert not ref.get(
+                "is_definition", False
+            ), f"include_definitions=False should exclude definitions: {ref}"
+
+    @pytest.mark.asyncio
     async def test_include_subclasses_with_symbol_name(self):
         """include_subclasses=True should work through the symbol_name
         resolution path — the resolved coordinates are passed on with the

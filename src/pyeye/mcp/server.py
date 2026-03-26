@@ -1,5 +1,6 @@
 """Main MCP server implementation for PyEye."""
 
+import builtins
 import logging
 from pathlib import Path
 from typing import Any
@@ -397,8 +398,6 @@ async def find_references(
             symbol_name, fuzzy=False, include_import_paths=True, scope="all"
         )
         if len(symbol_results) == 0:
-            import builtins
-
             if hasattr(builtins, symbol_name):
                 return {
                     "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
