@@ -349,20 +349,21 @@ async def goto_definition(
 @metrics.measure("find_references")
 @track_mcp_operation("find_references")
 async def find_references(
-    file: str,
-    line: int,
-    column: int,
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
     project_path: str = ".",
     include_definitions: bool = True,
     include_subclasses: bool = False,
     fields: list[str] | None = None,
-) -> list[dict[str, Any]]:
+    symbol_name: str | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
     Args:
-        file: Path to the file
-        line: Line number (1-indexed)
-        column: Column number (0-indexed)
+        file: Path to the file (required with line and column)
+        line: Line number (1-indexed, required with file and column)
+        column: Column number (0-indexed, required with file and line)
         project_path: Root path of the project
         include_definitions: Include definitions in results
         include_subclasses: Also find references to all subclasses (polymorphic search)
@@ -372,7 +373,27 @@ async def find_references(
                - fields=["file", "line", "name"] - Only file, line, and name
                - fields=["file", "line", "column"] - Only location information
                - fields=None (default) - All fields included
+        symbol_name: Symbol name to look up (alternative to file+line+column)
     """
+    # Validate input: determine which branch to use
+    all_coords = file is not None and line is not None and column is not None
+    any_coord = file is not None or line is not None or column is not None
+
+    if all_coords:
+        # Branch 1: All coordinates present — use them directly (ignore symbol_name)
+        pass
+    elif any_coord:
+        # Branch 3: Some but not all coordinates provided (checked before symbol_name)
+        return {
+            "error": "Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead"
+        }
+    elif symbol_name is not None:
+        # Branch 2: Symbol name provided (no coordinates) — placeholder
+        return {"error": "Symbol resolution not yet implemented"}
+    else:
+        # Branch 4: Neither coordinates nor symbol_name provided
+        return {"error": "Either symbol_name or file+line+column required"}
+
     analyzer = get_analyzer(project_path)
     result = await analyzer.find_references(
         file, line, column, include_definitions, include_subclasses
