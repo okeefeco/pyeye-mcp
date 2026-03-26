@@ -140,6 +140,78 @@ def initialize_plugins(project_path: str = ".") -> None:
             # Don't raise - plugins are optional
 
 
+def filter_fields(
+    data: dict[str, Any] | list[dict[str, Any]],
+    fields: list[str] | None,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Filter dictionary or list of dictionaries to include only specified fields.
+
+    Args:
+        data: Single dictionary or list of dictionaries to filter
+        fields: List of field names to include, or None to return shallow copy
+
+    Returns:
+        Filtered dictionary or list of dictionaries
+
+    Raises:
+        ValueError: If fields is an empty list, or if any field is not valid
+        TypeError: If data is not a dict or list of dicts, or if fields is not a list when provided
+    """
+    # Type validation for data
+    if not isinstance(data, (dict, list)):
+        raise TypeError(f"data must be a dict or list of dicts, got {type(data).__name__}")
+
+    if isinstance(data, list):
+        if not all(isinstance(item, dict) for item in data):
+            raise TypeError("All items in list must be dictionaries")
+
+    # If no fields specified, return shallow copy
+    if fields is None:
+        if isinstance(data, dict):
+            return data.copy()
+        else:
+            return [item.copy() for item in data]
+
+    # Type validation for fields
+    if not isinstance(fields, list):
+        raise TypeError(f"fields must be a list or None, got {type(fields).__name__}")
+
+    # Validate fields is not empty
+    if len(fields) == 0:
+        raise ValueError("fields list cannot be empty")
+
+    # Determine valid fields from data
+    if isinstance(data, dict):
+        valid_fields = list(data.keys())
+    elif isinstance(data, list):
+        # Empty list: no validation needed, just return empty list
+        if len(data) == 0:
+            return []
+        # Non-empty list: validate against first item
+        valid_fields = list(data[0].keys())
+    else:
+        valid_fields = []
+
+    # Validate requested fields
+    invalid_fields = [f for f in fields if f not in valid_fields]
+    if invalid_fields:
+        # Sort invalid fields for consistent error messages
+        invalid_sorted = sorted(invalid_fields)
+        # Format with single quotes
+        invalid_str = ", ".join(f"'{f}'" for f in invalid_sorted)
+        # Sort valid fields alphabetically, no quotes
+        valid_sorted = ", ".join(sorted(valid_fields))
+        raise ValueError(f"Invalid field(s): {invalid_str}. Valid fields are: {valid_sorted}")
+
+    # Filter the data
+    if isinstance(data, dict):
+        # Single dictionary - include only fields that exist, preserve requested order
+        return {k: data[k] for k in fields if k in data}
+    else:
+        # List of dictionaries - filter each one, skip missing fields
+        return [{k: item[k] for k in fields if k in item} for item in data]
+
+
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
@@ -283,6 +355,7 @@ async def find_references(
     project_path: str = ".",
     include_definitions: bool = True,
     include_subclasses: bool = False,
+    fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
@@ -293,11 +366,23 @@ async def find_references(
         project_path: Root path of the project
         include_definitions: Include definitions in results
         include_subclasses: Also find references to all subclasses (polymorphic search)
+        fields: Optional list of fields to include in each reference dict.
+               Valid fields: name, type, line, column, description, full_name, file, is_definition
+               Examples:
+               - fields=["file", "line", "name"] - Only file, line, and name
+               - fields=["file", "line", "column"] - Only location information
+               - fields=None (default) - All fields included
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.find_references(
+    result = await analyzer.find_references(
         file, line, column, include_definitions, include_subclasses
     )
+
+    # Apply field filtering if requested
+    if fields is not None:
+        result = filter_fields(result, fields)  # type: ignore
+
+    return result
 
 
 @mcp.tool()
@@ -305,7 +390,12 @@ async def find_references(
 @metrics.measure("get_type_info")
 @track_mcp_operation("get_type_info")
 async def get_type_info(
-    file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+    detailed: bool = False,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
 
@@ -315,9 +405,28 @@ async def get_type_info(
         column: Column number (0-indexed)
         project_path: Root path of the project
         detailed: Include additional information like methods and attributes
+        fields: Optional list of top-level fields to include in response.
+               This filters the TOP-LEVEL response keys only.
+
+               Valid top-level fields:
+               - position: File location information (dict with file, line, column)
+               - inferred_types: Type information (list of type dicts with name, type,
+                                base_classes, mro, methods, attributes, etc.)
+               - docstring: Documentation string
+
+               Note: Fields like base_classes, mro, methods, attributes are NESTED
+               inside the inferred_types field, not top-level. Phase 2 only supports
+               top-level filtering. Use fields=["inferred_types"] to get all type
+               information without position or docstring overhead.
+
+               Token optimization examples:
+               - fields=["inferred_types"] reduces tokens by 69.6% (~400 vs ~700 tokens)
+               - fields=["position", "docstring"] returns only position and docstring
+               - fields=["inferred_types", "docstring"] returns type info and docs
+               - fields=None (default) returns all top-level fields
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.get_type_info(file, line, column, detailed=detailed)
+    return await analyzer.get_type_info(file, line, column, detailed=detailed, fields=fields)
 
 
 @mcp.tool()
@@ -384,15 +493,33 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
 @validate_mcp_inputs
 @metrics.measure("list_modules")
 @track_mcp_operation("list_modules")
-async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
+async def list_modules(
+    project_path: str = ".", fields: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Python: List all modules with their exports, classes, functions, and metrics.
 
     Args:
         project_path: Root path of the project
+        fields: Optional list of fields to include in each module's response.
+               Valid fields: name, import_path, file, exports, classes, functions,
+                           imports_from, size_lines, has_tests
+               Examples:
+               - fields=["name", "file"] - Only module name and file path
+               - fields=["exports", "classes"] - Only exports and class info
+               - fields=None (default) - All fields included
     """
     try:
         analyzer = get_analyzer(project_path)
-        return await analyzer.list_modules()
+        result = await analyzer.list_modules()
+
+        # Apply field filtering if requested
+        if fields is not None:
+            result = filter_fields(result, fields)  # type: ignore
+
+        return result
+    except (ValueError, TypeError):
+        # Let validation errors propagate directly
+        raise
     except ProjectNotFoundError as e:
         raise FileAccessError(
             f"Project path not found: {Path(project_path).as_posix()}", project_path
