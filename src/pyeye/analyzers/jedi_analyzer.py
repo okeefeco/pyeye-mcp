@@ -1318,6 +1318,9 @@ class JediAnalyzer:
                         callees_list.append(
                             {
                                 "name": name.name,
+                                "file": (
+                                    Path(name.module_path).as_posix() if name.module_path else None
+                                ),
                                 "line": name.line,
                                 "column": name.column,
                                 "type": name.type,
