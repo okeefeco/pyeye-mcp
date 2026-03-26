@@ -56,10 +56,13 @@ Never run `list_project_structure()` for a scoped single-symbol task.
 
 ### Example: "Find classes that consume api_mesh"
 
-Step 1: `pyeye.find_symbol(name="api_mesh")` → note the file, line, column from result
-Step 2: `pyeye.find_references(file=<from step 1>, line=<from step 1>, column=<from step 1>)` → all consumers
+`pyeye.find_references(symbol_name="api_mesh")` → all consumers
 
-This two-step chain is required because find_references needs exact coordinates to trace the reference graph.
+If the short name is ambiguous (multiple matches), use the FQN from `full_name`:
+`pyeye.find_references(symbol_name="aac.logical.patterns.common.cdis.components.api_mesh")`
+
+You can also use coordinates directly if you already have them:
+`pyeye.find_references(file=<path>, line=<line>, column=<column>)`
 
 ## Exit Criteria
 
@@ -121,6 +124,8 @@ digraph python_explore {
 - **Fully Qualified Name (FQN):** e.g., `aac.logical.patterns.common.cdis.components.api_mesh`
 - **File path with line number:** e.g., `aac/logical/patterns/common/cdis/components.py:13`
 
+The `full_name` field in pyeye results IS the FQN — use it as-is in summaries. You can also pass it directly as `symbol_name` to `find_references` for unambiguous resolution without needing coordinates.
+
 Never reference a class with only a name, only a line number, or only a module path. Both FQN and file:line are required for every class to make the summary actionable.
 
 This creates an audit trail the user can correct if wrong.
@@ -130,7 +135,7 @@ This creates an audit trail the user can correct if wrong.
 | Purpose | Tool |
 |---------|------|
 | Module structure | `pyeye.get_module_info(module_path="...")` |
-| Find usages | `pyeye.find_references(file="...", line=X, column=Y)` |
+| Find usages | `pyeye.find_references(symbol_name="X")` or `pyeye.find_references(file="...", line=X, column=Y)` |
 | Dependency graph | `pyeye.analyze_dependencies(module_path="...")` |
 | Project layout | `pyeye.list_project_structure(max_depth=3)` |
 | All modules | `pyeye.list_modules()` |
