@@ -320,6 +320,29 @@ class TestSymbolReferencesInteraction:
         ), f"Expected a list of references with include_subclasses=True, got: {result}"
 
     @pytest.mark.asyncio
+    async def test_fqn_resolves_without_disambiguation(self):
+        """A fully qualified symbol_name like 'module_a.config.Config' should
+        resolve to exactly one match and return references — not trigger
+        disambiguation even though the short name 'Config' is ambiguous.
+        """
+        # Short name is ambiguous (2 Config classes)
+        ambiguous = await find_references(
+            symbol_name="Config",
+            project_path=str(_SYMBOL_REF_FIXTURE),
+        )
+        assert (
+            isinstance(ambiguous, dict) and "matches" in ambiguous
+        ), f"Expected disambiguation for short name 'Config', got: {ambiguous}"
+
+        # FQN should resolve unambiguously
+        result = await find_references(
+            symbol_name="module_a.config.Config",
+            project_path=str(_SYMBOL_REF_FIXTURE),
+        )
+        assert isinstance(result, list), f"Expected list of references for FQN, got: {result}"
+        assert len(result) > 0, "Expected at least one reference for module_a.config.Config"
+
+    @pytest.mark.asyncio
     async def test_project_path_forwarding(self):
         """symbol_name resolution should use project_path to scope the search.
 

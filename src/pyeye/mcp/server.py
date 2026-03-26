@@ -397,6 +397,13 @@ async def find_references(
         symbol_results = await _sym_analyzer.find_symbol(
             symbol_name, fuzzy=False, include_import_paths=True, scope="all"
         )
+        # If symbol_name is a FQN (contains dots) and multiple results came
+        # back, narrow to exact full_name match before disambiguation.
+        if "." in symbol_name and len(symbol_results) > 1:
+            fqn_matches = [r for r in symbol_results if r.get("full_name") == symbol_name]
+            if fqn_matches:
+                symbol_results = fqn_matches
+
         if len(symbol_results) == 0:
             if hasattr(builtins, symbol_name):
                 return {

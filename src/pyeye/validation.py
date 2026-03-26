@@ -359,7 +359,8 @@ def validate_mcp_inputs(func: Any) -> Any:
                     else:
                         # Standard validation for other cases
                         bound.arguments[param_name] = InputValidator.validate_identifier(
-                            value, allow_dots=param_name in ["module_name", "import_path"]
+                            value,
+                            allow_dots=param_name in ["module_name", "import_path", "symbol_name"],
                         )
                 except ValidationError as e:
                     raise ValidationError(
