@@ -14,6 +14,7 @@ from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..import_analyzer import ImportAnalyzer
+from ..path_utils import paths_equal
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -1259,7 +1260,8 @@ class JediAnalyzer:
             function_def = None
             for res in search_results:
                 if res.type in ("function", "class") and (
-                    file is None or str(res.module_path) == file
+                    file is None
+                    or (res.module_path is not None and paths_equal(res.module_path, file))
                 ):
                     function_def = res
                     break

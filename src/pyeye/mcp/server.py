@@ -430,6 +430,12 @@ async def find_references(
         # Branch 4: Neither coordinates nor symbol_name provided
         return {"error": "Either symbol_name or file+line+column required"}
 
+    # At this point, all three coordinates are guaranteed non-None
+    # (either provided directly or resolved from symbol_name).
+    assert file is not None
+    assert line is not None
+    assert column is not None
+
     analyzer = get_analyzer(project_path)
     result = await analyzer.find_references(
         file, line, column, include_definitions, include_subclasses
