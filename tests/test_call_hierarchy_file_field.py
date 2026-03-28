@@ -46,6 +46,7 @@ def outer():
             mock_callee_name = MagicMock()
             mock_callee_name.type = "function"
             mock_callee_name.name = "inner"
+            mock_callee_name.full_name = "sample.inner"
             mock_callee_name.line = 6  # Within range of outer (line 5 + 50)
             mock_callee_name.column = 11
             mock_callee_name.module_path = module_file
@@ -130,6 +131,7 @@ def outer():
             mock_callee_name = MagicMock()
             mock_callee_name.type = "function"
             mock_callee_name.name = "inner"
+            mock_callee_name.full_name = "sample.inner"
             mock_callee_name.line = 6
             mock_callee_name.column = 11
             mock_callee_name.module_path = module_file
@@ -192,6 +194,7 @@ def outer():
             mock_callee_name = MagicMock()
             mock_callee_name.type = "function"
             mock_callee_name.name = "len"
+            mock_callee_name.full_name = "builtins.len"
             mock_callee_name.line = 1
             mock_callee_name.column = 14
             mock_callee_name.module_path = None  # builtins have no module_path
