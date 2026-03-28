@@ -430,3 +430,153 @@ async def test_enrich_attribute_generic_type_hint(analyzer: JediAnalyzer) -> Non
 
     # default: empty list
     assert result["default"] == "[]"
+
+
+# ---------------------------------------------------------------------------
+# _get_module_variables
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def utils_script_and_source(analyzer: JediAnalyzer):
+    """Return (script, source) for the utils.py fixture."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+    return script, source, analyzer
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_typed_and_untyped(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables returns MAX_RETRIES with type_hint int and DEFAULT_TIMEOUT with none."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = {v["name"]: v for v in variables}
+
+    assert "MAX_RETRIES" in names, "Expected MAX_RETRIES in module variables"
+    max_retries = names["MAX_RETRIES"]
+    assert max_retries["type_hint"] is not None
+    assert max_retries["type_hint"]["name"] == "int"
+    assert max_retries["default"] == "3"
+
+    assert "DEFAULT_TIMEOUT" in names, "Expected DEFAULT_TIMEOUT in module variables"
+    default_timeout = names["DEFAULT_TIMEOUT"]
+    assert default_timeout["type_hint"] is None
+    assert default_timeout["default"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_no_class_or_function_contamination(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables does NOT include functions or classes."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = [v["name"] for v in variables]
+
+    assert "create_manager" not in names, "create_manager (function) must not appear"
+    assert "helper" not in names, "helper (function) must not appear"
+    assert "ServiceConfig" not in names, "ServiceConfig (import) must not appear"
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_complex_default(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables captures COMPLEX_DEFAULT as a constructor call expression."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = {v["name"]: v for v in variables}
+
+    assert "COMPLEX_DEFAULT" in names, "Expected COMPLEX_DEFAULT in module variables"
+    complex_default = names["COMPLEX_DEFAULT"]
+    assert complex_default["type_hint"] is None
+    assert complex_default["default"] is not None
+    assert "ServiceConfig" in complex_default["default"]
+    assert "prod.example.com" in complex_default["default"]
+
+
+# ---------------------------------------------------------------------------
+# get_call_hierarchy: callers have name/full_name, callees have full_name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_callers_have_navigable_ref_fields(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Callers returned by get_call_hierarchy have name, full_name, file, and line fields."""
+    # create_manager is called by build_client — should have at least one caller
+    result = await analyzer.get_call_hierarchy("create_manager")
+
+    assert "callers" in result, f"Expected 'callers' key: {result}"
+    callers = result["callers"]
+    assert isinstance(callers, list)
+    assert len(callers) > 0, "Expected at least one caller for create_manager"
+
+    for caller in callers:
+        assert "name" in caller, f"Caller missing 'name': {caller}"
+        assert "full_name" in caller, f"Caller missing 'full_name': {caller}"
+        assert "file" in caller, f"Caller missing 'file': {caller}"
+        assert "line" in caller, f"Caller missing 'line': {caller}"
+        # name must be a string
+        assert isinstance(
+            caller["name"], str
+        ), f"Caller 'name' should be str, got {type(caller['name'])}: {caller}"
+        # file must be a POSIX path string
+        if caller["file"] is not None:
+            assert (
+                "\\" not in caller["file"]
+            ), f"Caller 'file' must use POSIX separators: {caller['file']}"
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_callees_have_full_name(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Callees returned by get_call_hierarchy include a full_name field."""
+    # build_client is a top-level function that calls create_manager and ServiceConfig
+    result = await analyzer.get_call_hierarchy("build_client")
+
+    assert "callees" in result, f"Expected 'callees' key: {result}"
+    callees = result["callees"]
+    assert isinstance(callees, list)
+    # The heuristic may or may not find callees depending on the source range,
+    # so only assert field presence when callees are returned.
+    for callee in callees:
+        assert "name" in callee, f"Callee missing 'name': {callee}"
+        assert "full_name" in callee, f"Callee missing 'full_name': {callee}"
+        assert "file" in callee, f"Callee missing 'file': {callee}"
+        assert "line" in callee, f"Callee missing 'line': {callee}"
+        assert isinstance(
+            callee["name"], str
+        ), f"Callee 'name' should be str, got {type(callee['name'])}: {callee}"
+        if callee["file"] is not None:
+            assert (
+                "\\" not in callee["file"]
+            ), f"Callee 'file' must use POSIX separators: {callee['file']}"
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_caller_full_name_is_string_or_none(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Caller full_name must be a string or None — never a non-serializable type."""
+    import json
+
+    result = await analyzer.get_call_hierarchy("create_manager")
+    callers = result.get("callers", [])
+    assert len(callers) > 0, "Expected callers for create_manager"
+
+    for caller in callers:
+        fn = caller.get("full_name")
+        assert fn is None or isinstance(
+            fn, str
+        ), f"full_name must be str or None, got {type(fn)}: {fn}"
+        # Entire caller dict must be JSON-serializable
+        json.dumps(caller)

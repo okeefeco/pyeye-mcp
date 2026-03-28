@@ -1289,6 +1289,8 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
+                                "name": ref.name,
+                                "full_name": ref.full_name,
                                 "file": (
                                     Path(ref.module_path).as_posix() if ref.module_path else None
                                 ),
@@ -1320,6 +1322,7 @@ class JediAnalyzer:
                         callees_list.append(
                             {
                                 "name": name.name,
+                                "full_name": name.full_name,
                                 "file": (
                                     Path(name.module_path).as_posix() if name.module_path else None
                                 ),
@@ -2322,6 +2325,30 @@ class JediAnalyzer:
         result["type_hint"] = await self._build_type_ref(type_hint_str)
         result["default"] = default_str
         return result
+
+    async def _get_module_variables(self, script: jedi.Script, source: str) -> list[dict[str, Any]]:
+        """Extract module-level variable assignments with type hints and defaults.
+
+        Returns enriched dicts for all top-level variable statements in the
+        module, excluding class/function definitions and import statements.
+
+        Args:
+            script: A Jedi Script object for the module to inspect.
+            source: The full source text of the module.
+
+        Returns:
+            A list of dicts, each with keys:
+
+            - ``name``: the variable's simple name
+            - ``full_name``: fully qualified name or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        names = script.get_names(all_scopes=False)
+        variables = [n for n in names if n.type == "statement" and n.is_definition()]
+        return [await self._enrich_attribute(name, source) for name in variables]
 
     async def _serialize_name(
         self,
