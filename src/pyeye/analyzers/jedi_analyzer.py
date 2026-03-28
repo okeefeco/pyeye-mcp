@@ -2089,6 +2089,74 @@ class JediAnalyzer:
 
         return info
 
+    def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Build a minimal navigable reference dict from a Jedi Name object.
+
+        Args:
+            name: A Jedi Name object from project.search() or similar.
+
+        Returns:
+            Dict with keys: name, full_name, file (POSIX or None), line.
+        """
+        return {
+            "name": name.name,
+            "full_name": name.full_name,
+            "file": Path(name.module_path).as_posix() if name.module_path else None,
+            "line": name.line,
+        }
+
+    async def _build_type_ref(self, type_hint_str: str | None) -> dict[str, Any] | None:
+        """Build a navigable reference from a type hint string.
+
+        For project-local classes, resolves the definition and returns file/line.
+        For builtins, returns full_name with builtins prefix and no file/line.
+        For complex types (generics, unions), returns partial reference with name only.
+
+        Args:
+            type_hint_str: A type hint string such as "int", "ServiceConfig",
+                "list[str]", or "str | None". Pass None or empty string to get None.
+
+        Returns:
+            A navigable reference dict, or None if type_hint_str is None/empty.
+        """
+        if not type_hint_str:
+            return None
+
+        # Complex types (generics, unions, tuples) can't resolve to a single definition
+        if any(ch in type_hint_str for ch in ("[", "|", ",")):
+            return {"name": type_hint_str, "full_name": None, "file": None, "line": None}
+
+        # Try to resolve via Jedi search
+        results = await self._search_all_scopes(type_hint_str)
+        if results:
+            return self._build_navigable_ref(results[0])
+
+        # Fallback: check for known builtins
+        _BUILTINS = {
+            "int",
+            "str",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "bytes",
+            "None",
+            "type",
+            "object",
+        }
+        if type_hint_str in _BUILTINS:
+            return {
+                "name": type_hint_str,
+                "full_name": f"builtins.{type_hint_str}",
+                "file": None,
+                "line": None,
+            }
+
+        # Unknown type — return partial reference with name only
+        return {"name": type_hint_str, "full_name": None, "file": None, "line": None}
+
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
