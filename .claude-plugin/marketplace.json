@@ -26,11 +26,7 @@
       ],
       "license": "MIT",
       "name": "pyeye",
-      "repository": "https://github.com/okeefeco/pyeye-mcp",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/okeefeco/pyeye-mcp.git"
-      },
+      "source": "./",
       "version": "1.0.0"
     }
   ]
