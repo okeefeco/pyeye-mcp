@@ -36,15 +36,15 @@ If pyeye output is already in context, skip to summary and proceed.
 
 | Task Scope | Pyeye Calls |
 |------------|-------------|
-| Single class/function change | `get_module_info()` + `find_references()` |
-| Cross-module change | Add `analyze_dependencies()` |
+| Single class/function change | `lookup()` (primary entry point) — for advanced use: `find_references()` with field filtering |
+| Cross-module change | `lookup()` + `analyze_dependencies()` |
 | "I don't know where to start" | Full: `list_project_structure()` → `list_modules()` → drill down |
 
 Never run `list_project_structure()` for a scoped single-symbol task.
 
 ## Relationship Queries Require Pyeye, Not Grep
 
-**These patterns require `find_references` or `get_call_hierarchy`, NEVER Grep:**
+**These patterns start with `lookup()`. Use `find_references` for the complete reference list with field filtering, or `get_call_hierarchy` for full call graphs. NEVER Grep:**
 
 - "Find classes that consume/use X"
 - "Which code references this symbol"
@@ -56,9 +56,12 @@ Never run `list_project_structure()` for a scoped single-symbol task.
 
 ### Example: "Find classes that consume api_mesh"
 
-`pyeye.find_references(symbol_name="api_mesh")` → all consumers
+`pyeye.lookup(identifier="api_mesh")` → returns symbol info including references in one call
 
-If the short name is ambiguous (multiple matches), use the FQN from `full_name`:
+If the short name is ambiguous (multiple matches), use the full dotted path from `full_name`:
+`pyeye.lookup(identifier="aac.logical.patterns.common.cdis.components.api_mesh")`
+
+For the complete unfiltered reference list (e.g., with field filtering), use the targeted tool:
 `pyeye.find_references(symbol_name="aac.logical.patterns.common.cdis.components.api_mesh")`
 
 You can also use coordinates directly if you already have them:
@@ -121,12 +124,12 @@ digraph python_explore {
 
 **CRITICAL: Every class referenced in the summary MUST include:**
 
-- **Fully Qualified Name (FQN):** e.g., `aac.logical.patterns.common.cdis.components.api_mesh`
+- **Full dotted path:** e.g., `aac.logical.patterns.common.cdis.components.api_mesh`
 - **File path with line number:** e.g., `aac/logical/patterns/common/cdis/components.py:13`
 
-The `full_name` field in pyeye results IS the FQN — use it as-is in summaries. You can also pass it directly as `symbol_name` to `find_references` for unambiguous resolution without needing coordinates.
+The `full_name` field in pyeye results is the full dotted path — use it as-is in summaries. You can also pass it directly as `identifier` to `lookup` (or as `symbol_name` to `find_references`) for unambiguous resolution without needing coordinates.
 
-Never reference a class with only a name, only a line number, or only a module path. Both FQN and file:line are required for every class to make the summary actionable.
+Never reference a class with only a name, only a line number, or only a module path. Both full dotted path and file:line are required for every class to make the summary actionable.
 
 This creates an audit trail the user can correct if wrong.
 
@@ -134,14 +137,15 @@ This creates an audit trail the user can correct if wrong.
 
 | Purpose | Tool |
 |---------|------|
-| Module structure | `pyeye.get_module_info(module_path="...")` |
-| Find usages | `pyeye.find_references(symbol_name="X")` or `pyeye.find_references(file="...", line=X, column=Y)` |
-| Dependency graph | `pyeye.analyze_dependencies(module_path="...")` |
-| Project layout | `pyeye.list_project_structure(max_depth=3)` |
-| All modules | `pyeye.list_modules()` |
-| Symbol location | `pyeye.find_symbol(name="X")` |
-| Inheritance | `pyeye.find_subclasses(base_class="X")` |
-| Call chain | `pyeye.get_call_hierarchy(function_name="X")` |
+| Look up any identifier (name, dotted path, file path, or coordinates) | `pyeye.lookup(identifier="X")` — **primary entry point** |
+| Fuzzy symbol search | `pyeye.find_symbol(name="X")` — targeted: when you need fuzzy matching |
+| Full reference lists with field filtering | `pyeye.find_references(symbol_name="X")` or `pyeye.find_references(file="...", line=X, column=Y)` — targeted |
+| Complete call graphs | `pyeye.get_call_hierarchy(function_name="X")` — targeted |
+| Inheritance hierarchies | `pyeye.find_subclasses(base_class="X")` — targeted: use `show_hierarchy=True` for trees |
+| Circular dependency detection | `pyeye.analyze_dependencies(module_path="...")` — targeted |
+| Project layout | `pyeye.list_project_structure(max_depth=3)` — discovery |
+| All modules | `pyeye.list_modules()` — discovery |
+| All packages | `pyeye.list_packages()` — discovery |
 
 ## Failure Mode
 
@@ -158,6 +162,7 @@ Do not block — degrade gracefully but make the limitation visible.
 - First tool call is Read() on a Python file you haven't explored
 - Reaching for Grep to find a class/function definition
 - Reaching for Grep to find relationships (see "Relationship Queries" section above)
+- Calling `find_symbol` or `get_module_info` when `lookup` would do
 - "Let me just quickly read this file" without pyeye context
 - Modifying code without knowing what depends on it
 
