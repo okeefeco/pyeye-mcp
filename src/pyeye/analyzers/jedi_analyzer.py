@@ -2157,6 +2157,124 @@ class JediAnalyzer:
         # Unknown type — return partial reference with name only
         return {"name": type_hint_str, "full_name": None, "file": None, "line": None}
 
+    @staticmethod
+    def _extract_param_default(description: str) -> str | None:
+        """Extract the default value string from a Jedi param description.
+
+        Jedi param descriptions have the format:
+        - ``param self``                      → no default
+        - ``param port: int=8080``            → default is ``"8080"``
+        - ``param name: str="default"``       → default is ``'"default"'``
+        - ``param y=10``                      → default is ``"10"``
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            The default value as a source-text string, or None if no default.
+        """
+        # Strip leading "param " prefix
+        body = description[len("param ") :].strip()
+        if ":" in body:
+            # Type-annotated: "name: type=default" or "name: type"
+            colon_idx = body.index(":")
+            after_type = body[colon_idx + 1 :].strip()
+            if "=" in after_type:
+                eq_idx = after_type.index("=")
+                return after_type[eq_idx + 1 :].strip()
+        elif "=" in body:
+            # No type annotation: "name=default"
+            eq_idx = body.index("=")
+            return body[eq_idx + 1 :].strip()
+        return None
+
+    @staticmethod
+    def _has_type_annotation(description: str) -> bool:
+        """Return True if the Jedi param description contains a type annotation.
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            True if the description includes a ``:`` annotation marker.
+        """
+        body = description[len("param ") :].strip()
+        return ":" in body
+
+    async def _enrich_method(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Extract full method details including signature, parameters, and return type.
+
+        Takes a Jedi Name object whose ``type`` is ``"function"`` and returns a
+        rich dict with navigable references for the return type and each
+        parameter's type hint.
+
+        Args:
+            name: A Jedi Name object representing a function/method.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the method's simple name
+            - ``full_name``: fully qualified name or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``signature``: the full signature string (e.g. ``"start(self, port: int = 8080) -> bool"``)
+              or None if no signatures are available
+            - ``return_type``: navigable ref dict for the return type, or None
+            - ``parameters``: list of parameter dicts, each with:
+
+              - ``name``: parameter name
+              - ``type_hint``: navigable ref dict or None
+              - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        sigs = name.get_signatures()
+        if not sigs:
+            result["signature"] = None
+            result["return_type"] = None
+            result["parameters"] = []
+            return result
+
+        sig = sigs[0]
+        result["signature"] = sig.to_string()
+
+        # Parse return type from signature string
+        sig_str = sig.to_string()
+        return_type_str: str | None = None
+        match = re.search(r"->\s*(.+)$", sig_str)
+        if match:
+            return_type_str = match.group(1).strip()
+        result["return_type"] = await self._build_type_ref(return_type_str)
+
+        # Build parameter list
+        parameters: list[dict[str, Any]] = []
+        _IMPLICIT_PARAMS = {"self", "cls"}
+        for param in sig.params:
+            pname = param.name
+            desc = param.description
+
+            # Detect whether the source code actually annotates this param.
+            # Jedi infers a type for 'self'/'cls' from the enclosing class, so
+            # we must check the description rather than get_type_hint().
+            if pname in _IMPLICIT_PARAMS or not self._has_type_annotation(desc):
+                type_hint_ref = None
+            else:
+                hint_str = param.get_type_hint()
+                type_hint_ref = await self._build_type_ref(hint_str)
+
+            default = self._extract_param_default(desc)
+            parameters.append(
+                {
+                    "name": pname,
+                    "type_hint": type_hint_ref,
+                    "default": default,
+                }
+            )
+
+        result["parameters"] = parameters
+        return result
+
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
