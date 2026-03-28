@@ -2108,34 +2108,8 @@ class JediAnalyzer:
             "line": name.line,
         }
 
-    async def _build_type_ref(self, type_hint_str: str | None) -> dict[str, Any] | None:
-        """Build a navigable reference from a type hint string.
-
-        For project-local classes, resolves the definition and returns file/line.
-        For builtins, returns full_name with builtins prefix and no file/line.
-        For complex types (generics, unions), returns partial reference with name only.
-
-        Args:
-            type_hint_str: A type hint string such as "int", "ServiceConfig",
-                "list[str]", or "str | None". Pass None or empty string to get None.
-
-        Returns:
-            A navigable reference dict, or None if type_hint_str is None/empty.
-        """
-        if not type_hint_str:
-            return None
-
-        # Complex types (generics, unions, tuples) can't resolve to a single definition
-        if any(ch in type_hint_str for ch in ("[", "|", ",")):
-            return {"name": type_hint_str, "full_name": None, "file": None, "line": None}
-
-        # Try to resolve via Jedi search
-        results = await self._search_all_scopes(type_hint_str)
-        if results:
-            return self._build_navigable_ref(results[0])
-
-        # Fallback: check for known builtins
-        _BUILTINS = {
+    _BUILTINS = frozenset(
+        {
             "int",
             "str",
             "float",
@@ -2149,16 +2123,198 @@ class JediAnalyzer:
             "type",
             "object",
         }
-        if type_hint_str in _BUILTINS:
+    )
+
+    # Single-arg wrappers that should be unwrapped to resolve the inner type
+    _TYPE_WRAPPERS = frozenset(
+        {
+            "ClassVar",
+            "Optional",
+            "Final",
+            "List",
+            "Sequence",
+            "Set",
+            "FrozenSet",
+            "Tuple",
+            "Type",
+            "Deque",
+            "Iterator",
+            "Iterable",
+            "AsyncIterator",
+            "AsyncIterable",
+            "Awaitable",
+            "Coroutine",
+            "Generator",
+            "AsyncGenerator",
+            # Lowercase generic forms (Python 3.9+)
+            "list",
+            "set",
+            "frozenset",
+            "tuple",
+            "type",
+        }
+    )
+
+    async def _build_type_ref(self, type_hint_str: str | None) -> dict[str, Any] | None:
+        """Build a navigable reference from a type hint string.
+
+        For simple types (bare names), resolves via Jedi or builtin lookup.
+        For complex types (generics, unions), returns the outer name plus
+        ``inner_types`` — a list of navigable references for each leaf type
+        found by recursively unwrapping wrappers like ClassVar, Optional, List.
+
+        Args:
+            type_hint_str: A type hint string such as ``"int"``,
+                ``"ServiceConfig"``, ``"ClassVar[Optional[Zone]]"``, or
+                ``"str | None"``. Pass *None* or empty string to get *None*.
+
+        Returns:
+            A navigable reference dict, or *None* if *type_hint_str* is
+            None/empty.  Complex types include an ``inner_types`` list.
+        """
+        if not type_hint_str:
+            return None
+
+        # If the type string is complex (contains [ | ,) extract and resolve
+        # inner types recursively.
+        if any(ch in type_hint_str for ch in ("[", "|", ",")):
+            inner_types = await self._resolve_inner_types(type_hint_str)
             return {
                 "name": type_hint_str,
-                "full_name": f"builtins.{type_hint_str}",
+                "full_name": None,
+                "file": None,
+                "line": None,
+                "inner_types": inner_types,
+            }
+
+        # Simple name — try to resolve directly
+        return await self._resolve_simple_type(type_hint_str)
+
+    async def _resolve_simple_type(self, name: str) -> dict[str, Any]:
+        """Resolve a bare type name to a navigable reference."""
+        name = name.strip()
+        if not name:
+            return {"name": "", "full_name": None, "file": None, "line": None}
+
+        # Known builtins
+        if name in self._BUILTINS:
+            return {
+                "name": name,
+                "full_name": f"builtins.{name}",
                 "file": None,
                 "line": None,
             }
 
-        # Unknown type — return partial reference with name only
-        return {"name": type_hint_str, "full_name": None, "file": None, "line": None}
+        # Try Jedi resolution for project-local types
+        try:
+            results = await self._search_all_scopes(name)
+            if results:
+                return self._build_navigable_ref(results[0])
+        except Exception:
+            pass
+
+        # Unknown — partial reference
+        return {"name": name, "full_name": None, "file": None, "line": None}
+
+    async def _resolve_inner_types(self, type_hint_str: str) -> list[dict[str, Any]]:
+        """Recursively unwrap a complex type hint and resolve all leaf types.
+
+        Handles:
+        - Wrappers: ``ClassVar[X]``, ``Optional[X]``, ``List[X]`` etc.
+        - Multi-arg: ``dict[K, V]`` → resolves both K and V
+        - Unions: ``X | Y`` → resolves both X and Y
+        - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
+
+        Returns:
+            A list of navigable references for each resolved leaf type.
+        """
+        leaves = self._extract_leaf_types(type_hint_str)
+        resolved = []
+        for leaf in leaves:
+            ref = await self._resolve_simple_type(leaf)
+            resolved.append(ref)
+        return resolved
+
+    def _extract_leaf_types(self, type_hint_str: str) -> list[str]:
+        """Extract leaf type names from a potentially nested type expression.
+
+        Recursively unwraps single-arg wrappers and splits multi-arg generics
+        and unions into individual type names.
+
+        Returns:
+            A flat list of bare type name strings (no brackets or pipes).
+        """
+        s = type_hint_str.strip()
+
+        # Handle union syntax: X | Y
+        if "|" in s and "[" not in s:
+            # Simple union without nested generics
+            return [
+                leaf for part in s.split("|") for leaf in self._extract_leaf_types(part.strip())
+            ]
+
+        # Handle union with nested generics — need bracket-aware splitting
+        if "|" in s:
+            parts = self._split_top_level(s, "|")
+            if len(parts) > 1:
+                return [leaf for part in parts for leaf in self._extract_leaf_types(part.strip())]
+
+        # Handle generic: Name[...]
+        if "[" in s:
+            outer, inner = self._split_generic(s)
+            outer = outer.strip()
+
+            if outer in self._TYPE_WRAPPERS:
+                # Single-arg wrapper — unwrap and recurse into inner
+                return self._extract_leaf_types(inner)
+            else:
+                # Multi-arg generic (e.g., dict[K, V]) — resolve each arg
+                args = self._split_top_level(inner, ",")
+                return [leaf for arg in args for leaf in self._extract_leaf_types(arg.strip())]
+
+        # Bare name — this is a leaf
+        return [s] if s else []
+
+    @staticmethod
+    def _split_generic(s: str) -> tuple[str, str]:
+        """Split 'Outer[Inner]' into ('Outer', 'Inner').
+
+        Handles nested brackets correctly.
+        """
+        idx = s.index("[")
+        outer = s[:idx]
+        # Strip the outer brackets
+        inner = s[idx + 1 :]
+        if inner.endswith("]"):
+            inner = inner[:-1]
+        return outer, inner
+
+    @staticmethod
+    def _split_top_level(s: str, delimiter: str) -> list[str]:
+        """Split a string by delimiter, respecting bracket nesting.
+
+        ``"str, dict[str, int], bool"`` split by ``,`` →
+        ``["str", "dict[str, int]", "bool"]``
+        """
+        parts: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for ch in s:
+            if ch == "[":
+                depth += 1
+                current.append(ch)
+            elif ch == "]":
+                depth -= 1
+                current.append(ch)
+            elif ch == delimiter[0] and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        remainder = "".join(current).strip()
+        if remainder:
+            parts.append(remainder)
+        return parts
 
     @staticmethod
     def _extract_param_default(description: str) -> str | None:
