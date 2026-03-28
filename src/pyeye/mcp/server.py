@@ -280,7 +280,7 @@ def configure_packages(
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
-        "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
+        "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
 
 

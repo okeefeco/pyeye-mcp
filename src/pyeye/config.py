@@ -74,7 +74,7 @@ class ProjectConfig:
 
             elif config_path.suffix in [".yaml", ".yml"]:
                 with open(config_path) as f:
-                    import yaml  # type: ignore[import-untyped]
+                    import yaml
 
                     data = yaml.safe_load(f)
                     if PROJECT_NAME in data:
@@ -428,7 +428,7 @@ class ProjectConfig:
         paths.extend(self._process_namespace_paths(namespaces))
 
         # Always include current project
-        paths.insert(0, str(self.project_path))
+        paths.insert(0, self.project_path.as_posix())
 
         # Remove duplicates while preserving order
         return self._deduplicate_paths(paths)

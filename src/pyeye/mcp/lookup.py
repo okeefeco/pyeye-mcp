@@ -318,7 +318,7 @@ async def _resolve_file_path(identifier: str, project_path: str) -> dict[str, An
 
             try:
                 source = file_path.read_text(encoding="utf-8")
-                script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+                script = jedi.Script(source, path=file_path.as_posix(), project=analyzer.project)
                 # Try infer first, then goto
                 try:
                     names = script.get_names(all_scopes=True, definitions=True)

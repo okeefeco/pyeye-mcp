@@ -57,6 +57,8 @@ repos:
         additional_dependencies:
           - types-setuptools
           - types-requests
+          - types-PyYAML
+          - types-aiofiles
         args: ['--ignore-missing-imports']
         exclude: ^tests/
 

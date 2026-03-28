@@ -66,25 +66,27 @@ class JediAnalyzer:
             raise ProjectNotFoundError(self.project_path.as_posix())
 
         try:
-            # Get additional sys paths from config (e.g., src/ layout detection)
+            # Get additional sys paths from config (e.g., src/ layout, sibling packages)
             added_sys_path: list[str] | None = None
             if config:
                 package_paths = config.get_package_paths()
-                # Filter to paths that are subdirectories of the project (like src/)
-                # These need to be added to sys.path for proper module resolution
+                # Include all configured paths except the project itself.
+                # This covers both subdirectories (src/ layouts) and sibling
+                # packages declared in .pyeye.json / pyproject.toml so that
+                # Jedi's core project can resolve cross-project symbols.
                 additional = []
-                # Resolve project path for consistent comparison (handles Windows short paths)
                 resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    # Skip the project path itself and external paths
-                    if pkg != resolved_project and self._is_subpath(pkg, resolved_project):
+                    if pkg != resolved_project and pkg.exists():
                         additional.append(pkg.as_posix())
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
                 if additional:
                     added_sys_path = additional
-                    # Store source roots for use in import path computation
-                    self.source_roots = [Path(p) for p in additional]
+                    # Store source roots (subdirectories only) for import path computation
+                    self.source_roots = [
+                        Path(p) for p in additional if self._is_subpath(Path(p), resolved_project)
+                    ]
 
             # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
             # Using as_posix() ensures cross-platform compatibility with forward slashes
@@ -170,7 +172,7 @@ class JediAnalyzer:
         search_paths = await self._resolve_scope_to_paths(effective_scope)
 
         results: list[Any] = []
-        seen: set[tuple[str, str, int]] = set()
+        seen: set[tuple[str, str | None, int]] = set()
 
         for path in search_paths:
             is_main = path == self.project_path
@@ -178,7 +180,11 @@ class JediAnalyzer:
                 project = self.project if is_main else self._get_project_for_path(path)
 
                 for r in project.search(name, all_scopes=True):
-                    key = (r.name, str(r.module_path), r.line)
+                    key = (
+                        r.name,
+                        Path(r.module_path).as_posix() if r.module_path else None,
+                        r.line,
+                    )
                     if key not in seen:
                         seen.add(key)
                         results.append(r)
