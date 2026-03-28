@@ -26,6 +26,7 @@ class ProjectConfig:
         """
         self.project_path = Path(project_path).resolve()
         self.config: dict[str, Any] = {}
+        self.has_explicit_config: bool = False
         self.load_config()
 
     def load_config(self) -> None:
@@ -45,12 +46,14 @@ class ProjectConfig:
             config_path = self.project_path / config_file
             if config_path.exists():
                 self._load_from_file(config_path)
+                self.has_explicit_config = True
                 break
 
         # 3. Load override file (highest precedence)
         override_path = self.project_path / OVERRIDE_FILE
         if override_path.exists():
             self._load_from_file(override_path)
+            self.has_explicit_config = True
 
         # 4. Auto-discover if no config found
         if not self.config.get("packages"):

@@ -269,6 +269,32 @@ class ProjectManager:
         # Convert project_path to Path for lookup
         path_key = Path(project_path).resolve()
 
+        # Bridge: apply namespace configuration from config file to the namespace resolver
+        config_namespaces = config.get_namespaces()
+        for ns, paths in config_namespaces.items():
+            # Resolve relative paths against the project directory
+            resolved_paths = []
+            for p in paths:
+                resolved = Path(p)
+                if not resolved.is_absolute():
+                    resolved = path_key / resolved
+                resolved_paths.append(str(resolved))
+            self.namespace_resolver.register_namespace(ns, resolved_paths)
+            logger.info(f"Bridged namespace '{ns}' from config to namespace resolver")
+
+        # Bridge: apply package paths from config file to dependencies.
+        # Only apply when packages were explicitly configured (not auto-discovered)
+        # to avoid spuriously picking up unrelated sibling directories.
+        if config.has_explicit_config:
+            config_package_paths = config.get_package_paths()
+            # get_package_paths() always prepends the project itself; skip the first entry
+            extra_paths = [p for p in config_package_paths if Path(p).resolve() != path_key]
+            if extra_paths:
+                self.get_project(str(path_key), extra_paths)
+                logger.info(
+                    f"Bridged {len(extra_paths)} extra package paths from config to dependencies"
+                )
+
         # Set additional paths if this project has dependencies configured
         if path_key in self.dependencies:
             analyzer.set_additional_paths(list(self.dependencies[path_key]))
@@ -279,9 +305,10 @@ class ProjectManager:
         # Set namespace paths if any are configured
         if self.namespace_resolver.namespace_paths:
             # Convert namespace paths to string format for the analyzer
-            namespace_strings = {}
-            for ns, paths in self.namespace_resolver.namespace_paths.items():
-                namespace_strings[ns] = [str(p) for p in paths]
+            namespace_strings: dict[str, list[str]] = {
+                ns: [str(p) for p in ns_paths]
+                for ns, ns_paths in self.namespace_resolver.namespace_paths.items()
+            }
             analyzer.set_namespace_paths(namespace_strings)
             logger.info(f"Configured analyzer with {len(namespace_strings)} namespace mappings")
 
