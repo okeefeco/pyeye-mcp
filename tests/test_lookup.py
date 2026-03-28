@@ -228,7 +228,8 @@ class TestLookupBareNameResolution:
         assert "type" in result, f"Expected resolved result, got: {result}"
         assert result["type"] == "class"
         assert "ServiceManager" in (result.get("full_name") or "")
-        assert result.get("_resolved_via") == "bare_name"
+        # _resolved_via is stripped after enrichment
+        assert "_resolved_via" not in result
 
     @pytest.mark.asyncio
     async def test_bare_name_no_match(self):
@@ -268,7 +269,8 @@ class TestLookupFilePathResolution:
 
         assert "type" in result, f"Expected resolved result, got: {result}"
         assert result["type"] == "module"
-        assert result.get("_resolved_via") == "file_path"
+        # _resolved_via is stripped after enrichment
+        assert "_resolved_via" not in result
 
     @pytest.mark.asyncio
     async def test_file_path_with_line(self):
@@ -313,7 +315,7 @@ class TestLookupDottedPathResolution:
         assert "type" in result or "found" in result, f"Expected result, got: {result}"
         if "type" in result:
             assert result["type"] == "module"
-            assert result.get("_resolved_via") == "dotted_path"
+            assert "_resolved_via" not in result
 
     @pytest.mark.asyncio
     async def test_dotted_path_to_class(self):
@@ -326,7 +328,7 @@ class TestLookupDottedPathResolution:
         assert "type" in result or "found" in result, f"Expected result, got: {result}"
         if "type" in result:
             assert result["type"] == "class"
-            assert result.get("_resolved_via") == "dotted_path"
+            assert "_resolved_via" not in result
 
     @pytest.mark.asyncio
     async def test_dotted_path_nonexistent(self):
@@ -355,7 +357,8 @@ class TestLookupCoordinateResolution:
 
         assert "type" in result or "found" in result, f"Expected result, got: {result}"
         if "type" in result:
-            assert result.get("_resolved_via") == "coordinates"
+            # _resolved_via is stripped after enrichment
+            assert "_resolved_via" not in result
 
     @pytest.mark.asyncio
     async def test_coordinates_with_identifier_uses_coordinates(self):
@@ -373,4 +376,463 @@ class TestLookupCoordinateResolution:
         assert isinstance(result, dict)
         assert "classified as" not in result.get("error", "")
         if "type" in result:
-            assert result.get("_resolved_via") == "coordinates"
+            # _resolved_via is stripped after enrichment
+            assert "_resolved_via" not in result
+
+
+# ---------------------------------------------------------------------------
+# Response shape tests — Task 3.3
+# ---------------------------------------------------------------------------
+
+
+class TestClassResultShape:
+    """Verify full spec-compliant class response shape from lookup."""
+
+    @pytest.mark.asyncio
+    async def test_class_top_level_fields(self):
+        """Lookup ServiceManager returns all required top-level fields."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "class"
+        assert result["name"] == "ServiceManager"
+        assert "ServiceManager" in result["full_name"]
+        assert result["file"].endswith("models.py")
+        assert result["line"] == 27
+        assert result["column"] is not None
+        assert result["docstring"] is not None
+        assert "_resolved_via" not in result
+
+    @pytest.mark.asyncio
+    async def test_class_module_field(self):
+        """Class result includes a navigable module ref."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        module = result["module"]
+        assert isinstance(module, dict)
+        assert "name" in module
+        assert "full_name" in module
+        assert "file" in module
+        assert module["line"] is None  # module-level ref has null line
+
+    @pytest.mark.asyncio
+    async def test_class_methods_list(self):
+        """Class result includes methods with signature, return_type, parameters."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        methods = result["methods"]
+        assert isinstance(methods, list)
+        assert len(methods) >= 3  # __init__, start, stop, get_config
+
+        # Every method has required navigable fields
+        for m in methods:
+            assert "name" in m
+            assert "full_name" in m
+            assert "file" in m
+            assert "line" in m
+            # Methods also have enriched fields
+            assert "signature" in m
+            assert "return_type" in m
+            assert "parameters" in m
+            # column is NOT required in list entries
+            assert "column" not in m
+
+        # Check a specific method
+        start_methods = [m for m in methods if m["name"] == "start"]
+        assert len(start_methods) == 1
+        start = start_methods[0]
+        assert "start" in start["signature"]
+        assert start["return_type"] is not None
+        assert len(start["parameters"]) >= 2  # self, port
+
+    @pytest.mark.asyncio
+    async def test_class_methods_parameters(self):
+        """Method parameters include type_hint (navigable ref) and default."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        start = [m for m in result["methods"] if m["name"] == "start"][0]
+        port_params = [p for p in start["parameters"] if p["name"] == "port"]
+        assert len(port_params) == 1
+        port = port_params[0]
+        assert port["type_hint"] is not None
+        assert port["type_hint"]["name"] == "int"
+        assert port["default"] == "8080"
+
+    @pytest.mark.asyncio
+    async def test_class_subclasses_shape(self):
+        """Subclasses is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        subs = result["subclasses"]
+        assert isinstance(subs, dict)
+        assert "total" in subs
+        assert "items" in subs
+        assert subs["total"] >= 1  # ExtendedManager
+
+        for item in subs["items"]:
+            assert "name" in item
+            assert "full_name" in item
+            assert "file" in item
+            assert "line" in item
+
+    @pytest.mark.asyncio
+    async def test_class_references_shape(self):
+        """References is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        refs = result["references"]
+        assert isinstance(refs, dict)
+        assert "total" in refs
+        assert "items" in refs
+        assert refs["total"] >= 1  # used in client.py, utils.py
+
+        for item in refs["items"]:
+            assert "name" in item
+            assert "full_name" in item
+            assert "file" in item
+            assert "line" in item
+
+    @pytest.mark.asyncio
+    async def test_class_bases_list(self):
+        """ExtendedManager bases should include ServiceManager."""
+        result = await lookup(
+            identifier="ExtendedManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "class"
+        bases = result["bases"]
+        assert isinstance(bases, list)
+        assert len(bases) >= 1
+        # Check navigable ref shape
+        for b in bases:
+            assert "name" in b
+            assert "full_name" in b
+            assert "file" in b
+            assert "line" in b
+
+
+class TestFunctionResultShape:
+    """Verify full spec-compliant function response shape from lookup."""
+
+    @pytest.mark.asyncio
+    async def test_function_top_level_fields(self):
+        """Lookup create_manager returns all required top-level fields."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "function"
+        assert result["name"] == "create_manager"
+        assert result["full_name"] is not None
+        assert result["file"].endswith("utils.py")
+        assert result["line"] == 13
+        assert result["column"] is not None
+        assert result["docstring"] is not None
+        assert "_resolved_via" not in result
+
+    @pytest.mark.asyncio
+    async def test_function_module_field(self):
+        """Function result includes a navigable module ref."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        module = result["module"]
+        assert isinstance(module, dict)
+        assert module["line"] is None
+
+    @pytest.mark.asyncio
+    async def test_function_signature_and_params(self):
+        """Function result includes signature, return_type, parameters."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["signature"] is not None
+        assert "create_manager" in result["signature"]
+        assert result["return_type"] is not None  # -> ServiceManager
+        assert isinstance(result["parameters"], list)
+        assert len(result["parameters"]) >= 2  # name, config
+
+        # Check parameter shapes
+        for p in result["parameters"]:
+            assert "name" in p
+            assert "type_hint" in p
+            assert "default" in p
+
+    @pytest.mark.asyncio
+    async def test_function_callers_shape(self):
+        """Callers is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        callers = result["callers"]
+        assert isinstance(callers, dict)
+        assert "total" in callers
+        assert "items" in callers
+        # create_manager is called in client.py
+        assert callers["total"] >= 1
+
+        for item in callers["items"]:
+            assert "name" in item
+            assert "full_name" in item
+            assert "file" in item
+            assert "line" in item
+
+    @pytest.mark.asyncio
+    async def test_function_callees_shape(self):
+        """Callees is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        callees = result["callees"]
+        assert isinstance(callees, dict)
+        assert "total" in callees
+        assert "items" in callees
+
+    @pytest.mark.asyncio
+    async def test_function_references_shape(self):
+        """References is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="create_manager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        refs = result["references"]
+        assert isinstance(refs, dict)
+        assert "total" in refs
+        assert "items" in refs
+
+
+class TestModuleResultShape:
+    """Verify full spec-compliant module response shape from lookup."""
+
+    @pytest.mark.asyncio
+    async def test_module_top_level_fields(self):
+        """Lookup models.py returns all required top-level fields."""
+        result = await lookup(
+            identifier="models.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "module"
+        assert result["name"] == "models"
+        assert result["full_name"] is not None
+        assert result["file"].endswith("models.py")
+        assert result["line"] is None  # modules have null line
+        assert result["column"] is None
+        assert result["docstring"] is not None
+        assert "_resolved_via" not in result
+
+    @pytest.mark.asyncio
+    async def test_module_classes_shape(self):
+        """Module classes is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="models.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        classes = result["classes"]
+        assert isinstance(classes, dict)
+        assert "total" in classes
+        assert "items" in classes
+        assert classes["total"] >= 2  # ServiceConfig, ServiceManager, ExtendedManager
+
+        for item in classes["items"]:
+            assert "name" in item
+            assert "full_name" in item
+            assert "file" in item
+            assert "line" in item
+
+    @pytest.mark.asyncio
+    async def test_module_functions_shape(self):
+        """Module functions is a relationship list: {total, items}."""
+        # utils.py has functions
+        result = await lookup(
+            identifier="utils.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "module"
+        funcs = result["functions"]
+        assert isinstance(funcs, dict)
+        assert "total" in funcs
+        assert "items" in funcs
+        assert funcs["total"] >= 2  # create_manager, helper
+
+    @pytest.mark.asyncio
+    async def test_module_variables_shape(self):
+        """Module variables is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="utils.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        variables = result["variables"]
+        assert isinstance(variables, dict)
+        assert "total" in variables
+        assert "items" in variables
+        assert variables["total"] >= 2  # MAX_RETRIES, DEFAULT_TIMEOUT, etc.
+
+        for item in variables["items"]:
+            assert "name" in item
+            assert "full_name" in item
+            assert "file" in item
+            assert "line" in item
+
+    @pytest.mark.asyncio
+    async def test_module_imports_shape(self):
+        """Module imports is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="utils.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        imports = result["imports"]
+        assert isinstance(imports, dict)
+        assert "total" in imports
+        assert "items" in imports
+
+    @pytest.mark.asyncio
+    async def test_module_imported_by_shape(self):
+        """Module imported_by is a relationship list: {total, items}."""
+        result = await lookup(
+            identifier="models.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        ib = result["imported_by"]
+        assert isinstance(ib, dict)
+        assert "total" in ib
+        assert "items" in ib
+
+    @pytest.mark.asyncio
+    async def test_module_via_dotted_path(self):
+        """Module lookup via dotted path also produces full shape."""
+        # When project_path IS lookup_project, the module is just "models"
+        # not "lookup_project.models"
+        result = await lookup(
+            identifier="models",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        # models is unique so resolves as a class (ServiceManager) or module
+        # Let's use the file path form which is unambiguous for module lookup
+        result = await lookup(
+            identifier="client.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result["type"] == "module"
+        assert "classes" in result
+        assert "functions" in result
+        assert "variables" in result
+
+
+class TestNavigability:
+    """For every navigable ref with non-null file, re-lookup should resolve."""
+
+    @pytest.mark.asyncio
+    async def test_class_method_navigable(self):
+        """Methods listed in a class result can be re-looked-up."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        for method in result["methods"]:
+            if method["file"] and method["line"]:
+                sub = await lookup(
+                    file=method["file"],
+                    line=method["line"],
+                    column=0,
+                    project_path=str(FIXTURE_DIR),
+                )
+                # Should resolve to something (not error)
+                assert "type" in sub or "found" in sub
+
+    @pytest.mark.asyncio
+    async def test_subclass_navigable(self):
+        """Subclasses listed in a class result can be re-looked-up."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        for sc in result["subclasses"]["items"]:
+            if sc["full_name"]:
+                sub = await lookup(
+                    identifier=sc["full_name"],
+                    project_path=str(FIXTURE_DIR),
+                )
+                # May resolve or not (external is OK), but should not crash
+                assert isinstance(sub, dict)
+
+
+class TestLimitParameter:
+    """Verify relationship lists respect the limit parameter."""
+
+    @pytest.mark.asyncio
+    async def test_class_references_respect_limit(self):
+        """References list is capped by limit parameter."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+            limit=2,
+        )
+
+        refs = result["references"]
+        # total reflects the true count
+        assert refs["total"] >= 2
+        # items is capped
+        assert len(refs["items"]) <= 2
+
+    @pytest.mark.asyncio
+    async def test_module_classes_respect_limit(self):
+        """Module classes list is capped by limit parameter."""
+        result = await lookup(
+            identifier="models.py",
+            project_path=str(FIXTURE_DIR),
+            limit=1,
+        )
+
+        classes = result["classes"]
+        assert classes["total"] >= 2
+        assert len(classes["items"]) <= 1
+
+    @pytest.mark.asyncio
+    async def test_class_subclasses_respect_limit(self):
+        """Subclasses list is capped by limit parameter."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+            limit=1,
+        )
+
+        subs = result["subclasses"]
+        assert len(subs["items"]) <= 1

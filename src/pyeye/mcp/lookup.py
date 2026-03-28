@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .lookup_builders import assemble_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,9 +45,8 @@ async def lookup(
 
     if all_coords:
         # Branch 1: All coordinates provided — use them (ignore identifier).
-        return await _resolve_coordinates(file, line, column, project_path)
-
-    if any_coord:
+        result = await _resolve_coordinates(file, line, column, project_path)
+    elif any_coord:
         # Branch 3: Partial coordinates — reject with a clear message.
         return {
             "error": (
@@ -53,19 +54,27 @@ async def lookup(
                 " or use identifier instead"
             )
         }
-
-    if identifier is not None:
+    elif identifier is not None:
         # Branch 2: Identifier provided, no (or partial) coordinates.
         case_type = _classify_identifier(identifier)
         if case_type == "bare_name":
-            return await _resolve_bare_name(identifier, project_path, limit)
+            result = await _resolve_bare_name(identifier, project_path, limit)
         elif case_type == "file_path":
-            return await _resolve_file_path(identifier, project_path)
+            result = await _resolve_file_path(identifier, project_path)
         else:  # dotted_path
-            return await _resolve_dotted_path(identifier, project_path, limit)
+            result = await _resolve_dotted_path(identifier, project_path, limit)
+    else:
+        # Branch 4: Nothing provided.
+        return {"error": "Either identifier or file+line+column required"}
 
-    # Branch 4: Nothing provided.
-    return {"error": "Either identifier or file+line+column required"}
+    # Enrich resolution stubs into full spec-compliant responses.
+    if "_resolved_via" in result:
+        from .server import get_analyzer
+
+        analyzer = get_analyzer(project_path)
+        return await assemble_response(analyzer, result, limit)
+
+    return result
 
 
 def _classify_identifier(identifier: str) -> str:
