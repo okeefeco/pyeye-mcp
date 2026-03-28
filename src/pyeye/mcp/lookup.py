@@ -299,7 +299,7 @@ async def _resolve_file_path(identifier: str, project_path: str) -> dict[str, An
                 "identifier": identifier,
                 "searched": {
                     "indexed": True,
-                    "as_module": False,
+                    "as_module": True,
                     "as_symbol": False,
                     "scopes": ["main"],
                     "packages": 0,

@@ -836,3 +836,164 @@ class TestLimitParameter:
 
         subs = result["subclasses"]
         assert len(subs["items"]) <= 1
+
+
+# ---------------------------------------------------------------------------
+# Response discrimination tests — Task 3.4
+# ---------------------------------------------------------------------------
+
+# Fixture with two Config classes (one in module_a, one in module_b) for
+# producing ambiguous lookup results.
+AMBIGUOUS_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "symbol_references"
+
+
+class TestResponseDiscrimination:
+    """Verify that each response type uses its own exclusive discriminating field.
+
+    Spec:
+    - Success:   has ``type``, does NOT have ``ambiguous``/``found``/``error``
+    - Ambiguous: has ``ambiguous: True``, does NOT have ``type``/``found``/``error``
+    - Not-found: has ``found: False``, does NOT have ``type``/``ambiguous``/``error``
+    - Error:     has ``error``, does NOT have ``type``/``ambiguous``/``found``
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_has_type_and_no_other_discriminators(self):
+        """Resolved symbol has ``type`` and no ``ambiguous``/``found``/``error``."""
+        result = await lookup(
+            identifier="ServiceManager",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert "type" in result, f"Expected 'type' in success result, got: {result}"
+        assert "ambiguous" not in result, "Success result must not have 'ambiguous'"
+        assert "found" not in result, "Success result must not have 'found'"
+        assert "error" not in result, "Success result must not have 'error'"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_has_flag_and_no_other_discriminators(self):
+        """Ambiguous lookup has ``ambiguous: True`` and no ``type``/``found``/``error``."""
+        # The symbol_references fixture has two Config classes (module_a and module_b)
+        # so looking up "Config" by bare name produces an ambiguous result.
+        result = await lookup(
+            identifier="Config",
+            project_path=str(AMBIGUOUS_FIXTURE_DIR),
+        )
+
+        assert (
+            result.get("ambiguous") is True
+        ), f"Expected ambiguous result for 'Config' in symbol_references fixture, got: {result}"
+        assert "type" not in result, "Ambiguous result must not have 'type'"
+        assert "found" not in result, "Ambiguous result must not have 'found'"
+        assert "error" not in result, "Ambiguous result must not have 'error'"
+
+    @pytest.mark.asyncio
+    async def test_not_found_has_flag_and_no_other_discriminators(self):
+        """Not-found response has ``found: False`` and no ``type``/``ambiguous``/``error``."""
+        result = await lookup(
+            identifier="Nonexistent__XYZ__Symbol999",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert (
+            result.get("found") is False
+        ), f"Expected found=False for nonexistent symbol, got: {result}"
+        assert "type" not in result, "Not-found result must not have 'type'"
+        assert "ambiguous" not in result, "Not-found result must not have 'ambiguous'"
+        assert "error" not in result, "Not-found result must not have 'error'"
+
+    @pytest.mark.asyncio
+    async def test_error_has_field_and_no_other_discriminators(self):
+        """Error response (partial coordinates) has ``error`` and no ``type``/``ambiguous``/``found``."""
+        # Partial coordinates → error
+        result = await lookup(
+            file="some_file.py",
+            line=1,
+            # column intentionally omitted
+        )
+
+        assert "error" in result, f"Expected 'error' in partial-coords result, got: {result}"
+        assert "type" not in result, "Error result must not have 'type'"
+        assert "ambiguous" not in result, "Error result must not have 'ambiguous'"
+        assert "found" not in result, "Error result must not have 'found'"
+
+
+class TestNotFoundDetails:
+    """Verify the ``searched`` sub-object in not-found responses reflects the lookup form.
+
+    Spec:
+    - Bare name:   ``as_module: False, as_symbol: True``
+    - Dotted path: ``as_module: True,  as_symbol: True``
+    - File path:   ``as_module: True,  as_symbol: False``
+    - Invalid project path: ``indexed: False``
+    """
+
+    @pytest.mark.asyncio
+    async def test_bare_name_not_found_searched_fields(self):
+        """Bare name not-found: as_module=False, as_symbol=True."""
+        result = await lookup(
+            identifier="Nonexistent__XYZ__Bare",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result.get("found") is False
+        searched = result.get("searched", {})
+        assert (
+            searched.get("as_module") is False
+        ), f"Bare name not-found should have as_module=False, got: {searched}"
+        assert (
+            searched.get("as_symbol") is True
+        ), f"Bare name not-found should have as_symbol=True, got: {searched}"
+
+    @pytest.mark.asyncio
+    async def test_dotted_path_not_found_searched_fields(self):
+        """Dotted path not-found: as_module=True, as_symbol=True."""
+        result = await lookup(
+            identifier="lookup_project.models.NonexistentClass99",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result.get("found") is False, f"Expected not-found, got: {result}"
+        searched = result.get("searched", {})
+        assert (
+            searched.get("as_module") is True
+        ), f"Dotted path not-found should have as_module=True, got: {searched}"
+        assert (
+            searched.get("as_symbol") is True
+        ), f"Dotted path not-found should have as_symbol=True, got: {searched}"
+
+    @pytest.mark.asyncio
+    async def test_file_path_not_found_searched_fields(self):
+        """File path not-found: as_module=True, as_symbol=False."""
+        result = await lookup(
+            identifier="nonexistent_file_xyz.py",
+            project_path=str(FIXTURE_DIR),
+        )
+
+        assert result.get("found") is False, f"Expected not-found, got: {result}"
+        searched = result.get("searched", {})
+        assert (
+            searched.get("as_module") is True
+        ), f"File path not-found should have as_module=True, got: {searched}"
+        assert (
+            searched.get("as_symbol") is False
+        ), f"File path not-found should have as_symbol=False, got: {searched}"
+
+    @pytest.mark.asyncio
+    async def test_invalid_project_path_returns_indexed_false(self):
+        """When project_path does not exist, searched.indexed must be False."""
+        result = await lookup(
+            identifier="AnySymbol",
+            project_path="/nonexistent/project/path/xyz",
+        )
+
+        # Either found=False (with indexed=False) or error is acceptable
+        if "found" in result:
+            assert result.get("found") is False
+            searched = result.get("searched", {})
+            assert (
+                searched.get("indexed") is False
+            ), f"Invalid project path should have indexed=False, got: {searched}"
+        else:
+            # An error response is also acceptable when project path is invalid
+            assert "error" in result or result.get("found") is False
