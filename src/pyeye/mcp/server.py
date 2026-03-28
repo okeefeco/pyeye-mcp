@@ -50,6 +50,7 @@ from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
+from .lookup import lookup as _lookup_impl
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -741,6 +742,31 @@ async def find_subclasses(
             file_path=project_path,
             error=str(e),
         ) from e
+
+
+@mcp.tool()
+@metrics.measure("lookup")
+@track_mcp_operation("lookup")
+async def lookup(
+    identifier: str | None = None,
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
+    project_path: str = ".",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Python: Look up any identifier — name, full dotted path, file path, or coordinates.
+
+    Returns comprehensive structural information about the resolved Python object.
+    """
+    return await _lookup_impl(
+        identifier=identifier,
+        file=file,
+        line=line,
+        column=column,
+        project_path=project_path,
+        limit=limit,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)
