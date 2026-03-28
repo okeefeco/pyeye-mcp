@@ -291,3 +291,142 @@ async def test_enrich_method_init_self_and_typed_params(analyzer: JediAnalyzer) 
     assert name_param["type_hint"]["name"] == "str"
     assert name_param["type_hint"]["full_name"] == "builtins.str"
     assert name_param["default"] == '"default"'
+
+
+# ---------------------------------------------------------------------------
+# Helpers for _enrich_attribute tests
+# ---------------------------------------------------------------------------
+
+
+def _get_attribute_name(
+    analyzer: JediAnalyzer, file_path: Path, attr_name: str, full_name_fragment: str | None = None
+) -> jedi.api.classes.Name:
+    """Return a statement/instance Name object from a Jedi Script for an attribute."""
+    source = file_path.read_text()
+    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+    names = script.get_names(all_scopes=True)
+    matching = [
+        n
+        for n in names
+        if n.name == attr_name
+        and n.type in ("statement", "instance")
+        and (full_name_fragment is None or full_name_fragment in (n.full_name or ""))
+    ]
+    assert matching, (
+        f"No statement/instance Name found for {attr_name!r} "
+        f"(fragment={full_name_fragment!r}) in {file_path}"
+    )
+    return matching[0]
+
+
+# ---------------------------------------------------------------------------
+# _enrich_attribute
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_annotated_with_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for ServiceConfig.host returns str type_hint and 'localhost' default."""
+    file_path = FIXTURE_PATH / "models.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "host", "ServiceConfig.host")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "host"
+    assert result["full_name"] is not None
+    assert "host" in result["full_name"]
+    assert result["file"] is not None
+    assert result["file"].endswith("models.py")
+    assert "\\" not in result["file"], "File must use POSIX path"
+    assert isinstance(result["line"], int)
+
+    # type_hint: str (builtin)
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "str"
+    assert th["full_name"] == "builtins.str"
+    assert th["file"] is None
+    assert th["line"] is None
+
+    # default: "localhost" (as a quoted string)
+    assert result["default"] == "'localhost'"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_unannotated_with_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for DEFAULT_TIMEOUT has no type_hint and default '30'."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "DEFAULT_TIMEOUT")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "DEFAULT_TIMEOUT"
+    assert result["file"] is not None
+    assert result["file"].endswith("utils.py")
+
+    # No annotation → type_hint must be None
+    assert result["type_hint"] is None
+
+    # default is the literal 30
+    assert result["default"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_annotated_no_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for API_BASE (str | None = None) returns union type_hint and 'None' default."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "API_BASE")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "API_BASE"
+
+    # str | None is a union — returns partial ref (no full_name/file/line)
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "str | None"
+    assert th["full_name"] is None
+
+    # The value is "None" (the literal)
+    assert result["default"] == "None"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_complex_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for COMPLEX_DEFAULT captures constructor call as default text."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "COMPLEX_DEFAULT")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "COMPLEX_DEFAULT"
+
+    # No annotation → type_hint must be None
+    assert result["type_hint"] is None
+
+    # default is the expression text
+    assert result["default"] is not None
+    assert "ServiceConfig" in result["default"]
+    assert "prod.example.com" in result["default"]
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_generic_type_hint(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for ServiceConfig.tags returns list[str] partial ref and '[]' default."""
+    file_path = FIXTURE_PATH / "models.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "tags", "ServiceConfig.tags")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "tags"
+
+    # list[str] is generic — returns partial ref
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "list[str]"
+    assert th["full_name"] is None
+    assert th["file"] is None
+    assert th["line"] is None
+
+    # default: empty list
+    assert result["default"] == "[]"

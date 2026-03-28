@@ -2275,6 +2275,54 @@ class JediAnalyzer:
         result["parameters"] = parameters
         return result
 
+    async def _enrich_attribute(self, name: jedi.api.classes.Name, source: str) -> dict[str, Any]:
+        """Extract attribute details including type hint and default value.
+
+        Takes a Jedi Name object whose ``type`` is ``"statement"`` or
+        ``"instance"`` (a module-level or class-level attribute) and returns a
+        rich dict by parsing the enclosing source text to extract the annotation
+        and default value.
+
+        Args:
+            name: A Jedi Name object representing an attribute.
+            source: The full source text of the module containing the attribute.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the attribute's simple name
+            - ``full_name``: fully qualified name or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        type_hint_str: str | None = None
+        default_str: str | None = None
+
+        try:
+            tree = ast.parse(source)
+            target_line = name.line  # 1-based
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign) and node.col_offset >= 0:
+                    if node.lineno == target_line:
+                        type_hint_str = ast.unparse(node.annotation)
+                        default_str = ast.unparse(node.value) if node.value is not None else None
+                        break
+                elif isinstance(node, ast.Assign):
+                    if node.lineno == target_line:
+                        default_str = ast.unparse(node.value)
+                        break
+        except Exception:
+            logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
+
+        result["type_hint"] = await self._build_type_ref(type_hint_str)
+        result["default"] = default_str
+        return result
+
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
