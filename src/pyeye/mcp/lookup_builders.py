@@ -32,6 +32,47 @@ def _paginate(items: list, limit: int) -> dict[str, Any]:
     return {"total": len(items), "items": items[:limit]}
 
 
+def _get_package_prefix(analyzer: Any) -> str | None:
+    """Return the project root's package name if the root is itself a package.
+
+    When the project root contains ``__init__.py``, the root directory is a
+    Python package and its name must be prepended to all dotted paths that
+    Jedi or ``_get_import_path_for_file`` produce (since those are relative
+    to the root).
+
+    Returns:
+        The root directory name (e.g. ``"lookup_project"``), or *None* if the
+        root is not a package.
+    """
+    project_path = Path(analyzer.project_path).resolve()
+    if (project_path / "__init__.py").exists():
+        return project_path.name
+    return None
+
+
+def _qualify_full_name(analyzer: Any, raw_full_name: str | None) -> str | None:
+    """Ensure *raw_full_name* includes the project-root package prefix.
+
+    Jedi and ``_get_import_path_for_file`` report dotted paths relative to
+    the project root.  When the root IS a package this strips the leading
+    component.  This helper re-adds it if missing.
+
+    Args:
+        analyzer: A ``JediAnalyzer`` instance.
+        raw_full_name: The dotted path as reported by Jedi / import-path
+            resolution.  May be ``None``.
+
+    Returns:
+        The corrected full_name, or *None* if *raw_full_name* is None.
+    """
+    if not raw_full_name:
+        return raw_full_name
+    prefix = _get_package_prefix(analyzer)
+    if prefix and not raw_full_name.startswith(f"{prefix}.") and raw_full_name != prefix:
+        return f"{prefix}.{raw_full_name}"
+    return raw_full_name
+
+
 def _module_ref_for_file(analyzer: Any, file_path: str) -> dict[str, Any]:
     """Build a navigable reference for the module containing *file_path*.
 
@@ -45,7 +86,8 @@ def _module_ref_for_file(analyzer: Any, file_path: str) -> dict[str, Any]:
     """
     module_path = analyzer._get_import_path_for_file(Path(file_path))
     if module_path:
-        short_name = module_path.rsplit(".", 1)[-1]
+        module_path = _qualify_full_name(analyzer, module_path)
+        short_name = module_path.rsplit(".", 1)[-1] if module_path else Path(file_path).stem
     else:
         short_name = Path(file_path).stem
         module_path = short_name
@@ -55,6 +97,13 @@ def _module_ref_for_file(analyzer: Any, file_path: str) -> dict[str, Any]:
         "file": file_path,
         "line": None,
     }
+
+
+def _qualify_ref(analyzer: Any, ref: dict[str, Any]) -> dict[str, Any]:
+    """Apply package prefix qualification to a navigable reference's full_name."""
+    if ref and ref.get("full_name"):
+        ref["full_name"] = _qualify_full_name(analyzer, ref["full_name"])
+    return ref
 
 
 def _get_jedi_names(analyzer: Any, file_path: str, *, all_scopes: bool = True) -> list[Any]:
@@ -113,10 +162,12 @@ async def _build_class_result(
     target_name = name_info["name"]
     target_line = name_info["line"]
 
+    qualified_full_name = _qualify_full_name(analyzer, name_info.get("full_name"))
+
     result: dict[str, Any] = {
         "type": "class",
         "name": target_name,
-        "full_name": name_info.get("full_name"),
+        "full_name": qualified_full_name,
         "file": file_path,
         "line": target_line,
         "column": name_info.get("column"),
@@ -175,7 +226,12 @@ async def _build_class_result(
                                                 )
                                                 if base_refs:
                                                     result["bases"].append(
-                                                        analyzer._build_navigable_ref(base_refs[0])
+                                                        _qualify_ref(
+                                                            analyzer,
+                                                            analyzer._build_navigable_ref(
+                                                                base_refs[0]
+                                                            ),
+                                                        )
                                                     )
                                                 else:
                                                     result["bases"].append(
@@ -193,7 +249,10 @@ async def _build_class_result(
                                         base_refs = await analyzer._search_all_scopes(base_name)
                                         if base_refs:
                                             result["bases"].append(
-                                                analyzer._build_navigable_ref(base_refs[0])
+                                                _qualify_ref(
+                                                    analyzer,
+                                                    analyzer._build_navigable_ref(base_refs[0]),
+                                                )
                                             )
                                         else:
                                             result["bases"].append(
@@ -228,7 +287,11 @@ async def _build_class_result(
                                 base_name_str.split(".")[-1]
                             )
                             if base_refs:
-                                result["bases"].append(analyzer._build_navigable_ref(base_refs[0]))
+                                result["bases"].append(
+                                    _qualify_ref(
+                                        analyzer, analyzer._build_navigable_ref(base_refs[0])
+                                    )
+                                )
                             else:
                                 result["bases"].append(
                                     {
@@ -283,7 +346,7 @@ async def _build_class_result(
                 ref_items.append(
                     {
                         "name": ref.get("name"),
-                        "full_name": ref.get("full_name"),
+                        "full_name": _qualify_full_name(analyzer, ref.get("full_name")),
                         "file": ref.get("file"),
                         "line": ref.get("line"),
                     }
@@ -315,10 +378,12 @@ async def _build_function_result(
     target_name = name_info["name"]
     target_line = name_info["line"]
 
+    qualified_full_name = _qualify_full_name(analyzer, name_info.get("full_name"))
+
     result: dict[str, Any] = {
         "type": name_info.get("type", "function"),
         "name": target_name,
-        "full_name": name_info.get("full_name"),
+        "full_name": qualified_full_name,
         "file": file_path,
         "line": target_line,
         "column": name_info.get("column"),
@@ -391,7 +456,7 @@ async def _build_function_result(
                 ref_items.append(
                     {
                         "name": ref.get("name"),
-                        "full_name": ref.get("full_name"),
+                        "full_name": _qualify_full_name(analyzer, ref.get("full_name")),
                         "file": ref.get("file"),
                         "line": ref.get("line"),
                     }
@@ -420,7 +485,8 @@ async def _build_module_result(
         Spec-compliant module result dict.
     """
     file_path = name_info["file"]
-    module_full_name = name_info.get("full_name") or name_info.get("name")
+    raw_module_name = name_info.get("full_name") or name_info.get("name")
+    module_full_name = _qualify_full_name(analyzer, raw_module_name)
 
     # Parent package ref
     parts = module_full_name.rsplit(".", 1) if module_full_name else []
@@ -479,7 +545,7 @@ async def _build_module_result(
                 class_items.append(
                     {
                         "name": n.name,
-                        "full_name": n.full_name,
+                        "full_name": _qualify_full_name(analyzer, n.full_name),
                         "file": Path(n.module_path).as_posix() if n.module_path else file_path,
                         "line": n.line,
                     }
@@ -493,7 +559,7 @@ async def _build_module_result(
                 func_items.append(
                     {
                         "name": n.name,
-                        "full_name": n.full_name,
+                        "full_name": _qualify_full_name(analyzer, n.full_name),
                         "file": Path(n.module_path).as_posix() if n.module_path else file_path,
                         "line": n.line,
                     }
@@ -514,7 +580,7 @@ async def _build_module_result(
                 import_items.append(
                     {
                         "name": n.name,
-                        "full_name": n.full_name,
+                        "full_name": n.full_name,  # imports keep their original full_name
                         "file": Path(n.module_path).as_posix() if n.module_path else None,
                         "line": n.line,
                     }
@@ -563,7 +629,7 @@ async def _build_basic_result(analyzer: Any, name_info: dict[str, Any]) -> dict[
     result: dict[str, Any] = {
         "type": name_info.get("type"),
         "name": name_info.get("name"),
-        "full_name": name_info.get("full_name"),
+        "full_name": _qualify_full_name(analyzer, name_info.get("full_name")),
         "file": file_path,
         "line": name_info.get("line"),
         "column": name_info.get("column"),
