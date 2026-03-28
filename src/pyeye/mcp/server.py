@@ -296,6 +296,9 @@ async def find_symbol(
 ) -> list[dict[str, Any]]:
     """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fuzzy search and scope filtering for targeted queries.
+
     Searches across the main project plus all configured additional packages
     and namespace packages. Use the scope parameter to control search breadth.
 
@@ -336,6 +339,8 @@ async def goto_definition(
 ) -> dict[str, Any] | None:
     """Python: Jump to where a symbol is defined from any usage location.
 
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
+
     Args:
         file: Path to the file
         line: Line number (1-indexed)
@@ -361,6 +366,9 @@ async def find_references(
     symbol_name: str | None = None,
 ) -> list[dict[str, Any]] | dict[str, Any]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fields filtering, include_subclasses, and symbol_name for full reference lists.
 
     Two calling conventions (coordinates take precedence if both provided):
     1. Coordinates: file + line + column (precise, unambiguous)
@@ -398,7 +406,7 @@ async def find_references(
         symbol_results = await _sym_analyzer.find_symbol(
             symbol_name, fuzzy=False, include_import_paths=True, scope="all"
         )
-        # If symbol_name is a FQN (contains dots) and multiple results came
+        # If symbol_name is a full dotted path (contains dots) and multiple results came
         # back, narrow to exact full_name match before disambiguation.
         if "." in symbol_name and len(symbol_results) > 1:
             fqn_matches = [r for r in symbol_results if r.get("full_name") == symbol_name]
@@ -463,6 +471,9 @@ async def get_type_info(
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides detailed mode and fields filtering for targeted queries.
+
     Args:
         file: Path to the file
         line: Line number (1-indexed)
@@ -500,6 +511,8 @@ async def get_type_info(
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Python: Find all files that import a specific module.
 
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
+
     Args:
         module_name: Name of the module to find imports for
         project_path: Root path of the project
@@ -516,6 +529,9 @@ async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
     """Python: Trace function callers and callees through the codebase.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides full call graph traversal beyond the default limit.
 
     Args:
         function_name: Name of the function
@@ -604,6 +620,9 @@ async def analyze_dependencies(
 ) -> dict[str, Any]:
     """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides circular dependency detection and scope filtering for targeted queries.
+
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
@@ -634,6 +653,8 @@ async def analyze_dependencies(
 @track_mcp_operation("get_module_info")
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Python: Get module exports, classes, functions, and complexity metrics.
+
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -718,6 +739,9 @@ async def find_subclasses(
     show_hierarchy: bool = False,
 ) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides show_hierarchy and indirect inheritance chains for targeted queries.
 
     Args:
         base_class: Name of the base class to find subclasses for

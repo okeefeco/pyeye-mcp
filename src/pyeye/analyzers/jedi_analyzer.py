@@ -2218,7 +2218,7 @@ class JediAnalyzer:
             A dict with keys:
 
             - ``name``: the method's simple name
-            - ``full_name``: fully qualified name or None
+            - ``full_name``: full dotted path or None
             - ``file``: POSIX file path or None
             - ``line``: 1-based line number or None
             - ``signature``: the full signature string (e.g. ``"start(self, port: int = 8080) -> bool"``)
@@ -2294,7 +2294,7 @@ class JediAnalyzer:
             A dict with keys:
 
             - ``name``: the attribute's simple name
-            - ``full_name``: fully qualified name or None
+            - ``full_name``: full dotted path or None
             - ``file``: POSIX file path or None
             - ``line``: 1-based line number or None
             - ``type_hint``: navigable ref dict or None
@@ -2340,7 +2340,7 @@ class JediAnalyzer:
             A list of dicts, each with keys:
 
             - ``name``: the variable's simple name
-            - ``full_name``: fully qualified name or None
+            - ``full_name``: full dotted path or None
             - ``file``: POSIX file path or None
             - ``line``: 1-based line number or None
             - ``type_hint``: navigable ref dict or None
@@ -2543,9 +2543,9 @@ class JediAnalyzer:
             # Single pass: parse each file once, extract all class info
             # Maps class simple name -> list of (node, tree, file) for cross-file lookups
             classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
-            # Maps FQN -> (node, tree, file) for deduplication
+            # Maps full_name -> (node, tree, file) for deduplication
             classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-            # Maps parent name -> set of child FQNs (for indirect traversal)
+            # Maps parent name -> set of child full_names (for indirect traversal)
             parent_to_children: dict[str, set[str]] = {}
 
             for py_file in py_files:
@@ -2905,7 +2905,7 @@ class JediAnalyzer:
             class_def: The Jedi class definition (Name object)
 
         Returns:
-            Tuple of (base_classes, mro) where both are lists of fully qualified names
+            Tuple of (base_classes, mro) where both are lists of full dotted paths
         """
         base_classes: list[str] = []
         mro: list[str] = []
@@ -2973,7 +2973,7 @@ class JediAnalyzer:
                 # Use py__mro__() to discover all classes in the hierarchy
                 mro_classes = list(value.py__mro__())
 
-                # Build name->FQN mapping and bases graph from Jedi values
+                # Build name->full_name mapping and bases graph from Jedi values
                 name_to_fqn: dict[str, str] = {}
                 bases_map: dict[str, list[str]] = {}
 
@@ -2982,7 +2982,7 @@ class JediAnalyzer:
                     if not cls_name:
                         continue
 
-                    # Build FQN
+                    # Build full_name
                     fqn = cls_name
                     module = cls.get_root_context()
                     if hasattr(module, "py__name__"):
@@ -3014,7 +3014,7 @@ class JediAnalyzer:
                 # Compute correct C3 linearization
                 c3_order = self._c3_linearize(root_name, bases_map)
 
-                # Convert to FQNs
+                # Convert to full dotted paths
                 mro = [name_to_fqn.get(name, name) for name in c3_order]
 
                 if mro:
@@ -3082,11 +3082,11 @@ class JediAnalyzer:
         """Extract direct base class names using Parso AST parsing.
 
         Args:
-            script: The Jedi script instance (for resolving base class FQNs)
+            script: The Jedi script instance (for resolving base class full dotted paths)
             class_def: A Jedi Name object for a class
 
         Returns:
-            List of fully qualified base class names
+            List of full dotted base class names
         """
         base_classes: list[str] = []
 
@@ -3151,7 +3151,7 @@ class JediAnalyzer:
                             ):
                                 base_nodes.append(arg)
 
-            # Resolve each base node to a FQN
+            # Resolve each base node to a full dotted path
             for node in base_nodes:
                 base_name = self._resolve_base_node(script, node)
                 if base_name:
@@ -3163,7 +3163,7 @@ class JediAnalyzer:
         return base_classes
 
     def _resolve_base_node(self, script: jedi.Script, node: Any) -> str | None:
-        """Resolve a Parso base class node to a fully qualified name.
+        """Resolve a Parso base class node to a full dotted name.
 
         Tries Jedi inference first, falls back to AST extraction.
 
@@ -3172,7 +3172,7 @@ class JediAnalyzer:
             node: A Parso AST node for a base class reference
 
         Returns:
-            Fully qualified name string, or None
+            Full dotted name string, or None
         """
         try:
             base_line = node.start_pos[0]
