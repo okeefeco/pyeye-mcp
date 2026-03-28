@@ -57,7 +57,7 @@ repos:
         additional_dependencies:
           - types-setuptools
           - types-requests
-        args: ['--ignore-missing-imports', '--no-strict-optional']
+        args: ['--ignore-missing-imports']
         exclude: ^tests/
 
   # Documentation

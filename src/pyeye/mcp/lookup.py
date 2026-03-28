@@ -45,6 +45,9 @@ async def lookup(
 
     if all_coords:
         # Branch 1: All coordinates provided — use them (ignore identifier).
+        assert file is not None
+        assert line is not None
+        assert column is not None
         result = await _resolve_coordinates(file, line, column, project_path)
     elif any_coord:
         # Branch 3: Partial coordinates — reject with a clear message.
