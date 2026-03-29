@@ -93,6 +93,45 @@ class TestProjectConfigBridgeIntegration:
         ), f"Expected type='class' for SiblingClass, got: {result}"
         assert result.get("name") == "SiblingClass", f"Expected name='SiblingClass', got: {result}"
 
+    def test_jedi_core_project_sees_sibling_package_path(self):
+        """Jedi's core project resolves sibling imports via added_sys_path.
+
+        This validates that configured sibling package paths from pyproject.toml
+        flow into the Jedi Project's added_sys_path — not just the secondary
+        _search_all_scopes layer.  Without this, Jedi's internal symbol
+        resolution (imports, goto-definition) can't cross project boundaries.
+
+        The pyproject_fixture has:
+            pyproject.toml → [tool.pyeye] packages = ["../lookup_namespace_sibling"]
+
+        SiblingClass lives in ``testns.sibling_module`` inside the sibling dir.
+        Jedi's Script.goto() on an import of SiblingClass must resolve it,
+        proving the core project has visibility to the sibling package.
+        """
+        import jedi
+
+        from pyeye.project_manager import ProjectManager
+
+        pm = ProjectManager()
+        analyzer = pm.get_analyzer(str(PYPROJECT_FIXTURE))
+
+        # Use Jedi's Script API directly with the analyzer's project.
+        # This proves the core Jedi project has the sibling in added_sys_path,
+        # NOT just the secondary _search_all_scopes multi-path search.
+        script = jedi.Script(
+            "from testns.sibling_module import SiblingClass\n",
+            project=analyzer.project,
+        )
+        names = script.goto(1, 40)
+
+        assert len(names) > 0, (
+            "Expected Jedi's core project to resolve SiblingClass import via "
+            "added_sys_path, but goto() returned no results"
+        )
+        assert any("SiblingClass" in n.full_name for n in names), (
+            f"Expected SiblingClass in goto results, got: " f"{[n.full_name for n in names]}"
+        )
+
     @pytest.mark.asyncio
     async def test_lookup_no_config_file_resolves_local_symbol(self):
         """lookup works normally for a project with no config file.
