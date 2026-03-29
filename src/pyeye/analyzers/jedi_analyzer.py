@@ -88,16 +88,26 @@ class JediAnalyzer:
                         Path(p) for p in additional if self._is_subpath(Path(p), resolved_project)
                     ]
 
+            # When the project_path IS a Python package (has __init__.py),
+            # Jedi must be rooted at the PARENT so that the package name is
+            # included in full_name values.  Otherwise Jedi treats the
+            # contents as top-level modules and full_names are truncated.
+            jedi_root = self.project_path.resolve()
+            self._jedi_root_is_parent = False
+            if (jedi_root / "__init__.py").exists():
+                jedi_root = jedi_root.parent
+                self._jedi_root_is_parent = True
+
             # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
             # Using as_posix() ensures cross-platform compatibility with forward slashes
             # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
             if added_sys_path:
                 self.project = jedi.Project(
-                    path=self.project_path.as_posix(),
+                    path=jedi_root.as_posix(),
                     added_sys_path=added_sys_path,
                 )
             else:
-                self.project = jedi.Project(path=self.project_path.as_posix())
+                self.project = jedi.Project(path=jedi_root.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -180,6 +190,15 @@ class JediAnalyzer:
                 project = self.project if is_main else self._get_project_for_path(path)
 
                 for r in project.search(name, all_scopes=True):
+                    # When the Jedi project root is wider than the search path
+                    # (e.g., root moved to parent dir for package prefix), filter
+                    # results to only include files within the requested scope path.
+                    if is_main and self._jedi_root_is_parent and r.module_path:
+                        try:
+                            Path(r.module_path).relative_to(path.resolve())
+                        except ValueError:
+                            continue  # Result is outside the requested scope
+
                     key = (
                         r.name,
                         Path(r.module_path).as_posix() if r.module_path else None,

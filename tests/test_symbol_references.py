@@ -334,13 +334,16 @@ class TestSymbolReferencesInteraction:
             isinstance(ambiguous, dict) and "matches" in ambiguous
         ), f"Expected disambiguation for short name 'Config', got: {ambiguous}"
 
-        # FQN should resolve unambiguously
+        # FQN should resolve unambiguously — use the full dotted path
+        # including the package prefix (symbol_references.module_a.config.Config)
         result = await find_references(
-            symbol_name="module_a.config.Config",
+            symbol_name="symbol_references.module_a.config.Config",
             project_path=str(_SYMBOL_REF_FIXTURE),
         )
         assert isinstance(result, list), f"Expected list of references for FQN, got: {result}"
-        assert len(result) > 0, "Expected at least one reference for module_a.config.Config"
+        assert (
+            len(result) > 0
+        ), "Expected at least one reference for symbol_references.module_a.config.Config"
 
     @pytest.mark.asyncio
     async def test_project_path_forwarding(self):
