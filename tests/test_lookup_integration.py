@@ -21,6 +21,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 NAMESPACE_FIXTURE = FIXTURES / "lookup_namespace_project"
 PYPROJECT_FIXTURE = FIXTURES / "lookup_pyproject_project"
+PYRIGHT_FIXTURE = FIXTURES / "lookup_pyright_project"
 BASIC_FIXTURE = FIXTURES / "lookup_project"
 
 
@@ -155,3 +156,44 @@ class TestProjectConfigBridgeIntegration:
         assert (
             result.get("name") == "ServiceManager"
         ), f"Expected name='ServiceManager', got: {result}"
+
+
+class TestPyrightExtraPathsIntegration:
+    """Test that [tool.pyright] extraPaths in pyproject.toml are picked up."""
+
+    @pytest.mark.asyncio
+    async def test_pyright_extra_paths_resolve_sibling_class(self):
+        """lookup should find SiblingClass via pyright extraPaths.
+
+        The pyright_fixture has pyproject.toml with:
+            [tool.pyright]
+            executionEnvironments = [
+                { root = ".", extraPaths = ["../lookup_namespace_sibling"] }
+            ]
+
+        SiblingClass lives in lookup_namespace_sibling/testns/sibling_module.py.
+        The extraPaths declaration should make it visible without a .pyeye.json.
+        """
+        result = await lookup(
+            identifier="SiblingClass",
+            project_path=str(PYRIGHT_FIXTURE),
+        )
+
+        assert result.get("type") == "class", (
+            f"Expected SiblingClass to resolve as class via pyright extraPaths, " f"got: {result}"
+        )
+        assert result.get("name") == "SiblingClass"
+
+    @pytest.mark.asyncio
+    async def test_pyright_extra_paths_config_is_loaded(self):
+        """Verify ProjectConfig reads [tool.pyright] extraPaths."""
+        from pyeye.config import ProjectConfig
+
+        config = ProjectConfig(str(PYRIGHT_FIXTURE))
+        packages = config.get_package_paths()
+
+        # Should include the sibling path from pyright extraPaths
+        sibling = str((FIXTURES / "lookup_namespace_sibling").resolve())
+        assert any(
+            sibling in p for p in packages
+        ), f"Expected pyright extraPaths to be in package_paths, got: {packages}"

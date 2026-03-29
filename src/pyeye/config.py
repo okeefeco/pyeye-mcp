@@ -95,6 +95,10 @@ class ProjectConfig:
                     if "tool" in data and PROJECT_NAME in data["tool"]:
                         self.config.update(data["tool"][PROJECT_NAME])
 
+                    # Read [tool.pyright] extraPaths — projects already declare
+                    # their dependencies here, no need for duplicate .pyeye.json
+                    self._read_pyright_extra_paths(data)
+
                     # Auto-detect source layouts from build backend metadata
                     # Only apply if no packages already configured
                     if not self.config.get("packages"):
@@ -225,6 +229,58 @@ class ProjectConfig:
         if valid_paths:
             self.config.setdefault("packages", []).extend(valid_paths)
             logger.info(f"Auto-detected source layout from pyproject.toml: {valid_paths}")
+
+    def _read_pyright_extra_paths(self, pyproject_data: dict[str, Any]) -> None:
+        """Read extra paths from [tool.pyright] in pyproject.toml.
+
+        Projects often declare their cross-package dependencies in pyright's
+        ``executionEnvironments[*].extraPaths``.  These are the same paths
+        pyeye needs to resolve symbols across packages, so we read them
+        instead of requiring a separate ``.pyeye.json``.
+
+        Also reads the top-level ``[tool.pyright].extraPaths`` which is the
+        simpler single-environment form.
+
+        Args:
+            pyproject_data: Parsed pyproject.toml data.
+        """
+        if "tool" not in pyproject_data or "pyright" not in pyproject_data["tool"]:
+            return
+
+        pyright = pyproject_data["tool"]["pyright"]
+        extra_paths: list[str] = []
+
+        # Top-level extraPaths (simple form)
+        if "extraPaths" in pyright and isinstance(pyright["extraPaths"], list):
+            extra_paths.extend(pyright["extraPaths"])
+
+        # executionEnvironments[*].extraPaths (multi-environment form)
+        if "executionEnvironments" in pyright and isinstance(
+            pyright["executionEnvironments"], list
+        ):
+            for env in pyright["executionEnvironments"]:
+                if isinstance(env, dict) and "extraPaths" in env:
+                    for p in env["extraPaths"]:
+                        if p not in extra_paths:
+                            extra_paths.append(p)
+
+        if not extra_paths:
+            return
+
+        # Resolve relative paths and add as packages
+        resolved = []
+        for p in extra_paths:
+            path = Path(p)
+            if not path.is_absolute():
+                path = self.project_path / path
+            path = path.resolve()
+            if path.exists() and path.as_posix() not in resolved:
+                resolved.append(path.as_posix())
+
+        if resolved:
+            self.config.setdefault("packages", []).extend(resolved)
+            self.has_explicit_config = True
+            logger.info(f"Read {len(resolved)} extra paths from [tool.pyright]: {resolved}")
 
     def _detect_source_layout(self, pyproject_data: dict[str, Any]) -> None:
         """Detect source layout from pyproject.toml build backend metadata.
