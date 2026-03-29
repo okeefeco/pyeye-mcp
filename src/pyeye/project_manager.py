@@ -262,25 +262,35 @@ class ProjectManager:
         # Import here to avoid circular imports
         from .config import ProjectConfig
 
-        # Create the analyzer with project config
         config = ProjectConfig(project_path)
-        analyzer = JediAnalyzer(project_path, config=config)
-
-        # Convert project_path to Path for lookup
         path_key = Path(project_path).resolve()
 
-        # Bridge: apply namespace configuration from config file to the namespace resolver
+        # Resolve namespace paths from config file AND namespace_resolver.
+        # These must be computed BEFORE creating the analyzer so the Jedi
+        # project is created with namespace repo roots in added_sys_path —
+        # ensuring full_name values include the namespace prefix from the
+        # very first query.
+        namespace_config: dict[str, list[str]] = {}
         config_namespaces = config.get_namespaces()
         for ns, paths in config_namespaces.items():
-            # Resolve relative paths against the project directory
             resolved_paths = []
             for p in paths:
                 resolved = Path(p)
                 if not resolved.is_absolute():
                     resolved = path_key / resolved
                 resolved_paths.append(str(resolved))
+            namespace_config[ns] = resolved_paths
+            # Also register with namespace_resolver for scope-based file searching
             self.namespace_resolver.register_namespace(ns, resolved_paths)
             logger.info(f"Bridged namespace '{ns}' from config to namespace resolver")
+        # Include namespaces from prior configure_packages calls
+        for ns_key, ns_path_list in self.namespace_resolver.namespace_paths.items():
+            if ns_key not in namespace_config:
+                namespace_config[ns_key] = [str(p) for p in ns_path_list]
+
+        analyzer = JediAnalyzer(
+            project_path, config=config, namespace_config=namespace_config or None
+        )
 
         # Bridge: apply package paths from config file to dependencies.
         # Only apply when packages were explicitly configured (not auto-discovered)
@@ -302,15 +312,9 @@ class ProjectManager:
                 f"Configured analyzer with {len(self.dependencies[path_key])} additional paths"
             )
 
-        # Set namespace paths if any are configured
-        if self.namespace_resolver.namespace_paths:
-            # Convert namespace paths to string format for the analyzer
-            namespace_strings: dict[str, list[str]] = {
-                ns: [str(p) for p in ns_paths]
-                for ns, ns_paths in self.namespace_resolver.namespace_paths.items()
-            }
-            analyzer.set_namespace_paths(namespace_strings)
-            logger.info(f"Configured analyzer with {len(namespace_strings)} namespace mappings")
+        # Namespace paths were already applied via namespace_config at init time.
+        # No need to call set_namespace_paths — the Jedi project was created
+        # with namespace repo roots in added_sys_path atomically.
 
         # Configure standalone directories from project config
         standalone_config = config.get_standalone_config()

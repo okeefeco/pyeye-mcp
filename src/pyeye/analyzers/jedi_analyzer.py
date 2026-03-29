@@ -34,12 +34,22 @@ Scope = str | list[str]
 class JediAnalyzer:
     """Wrapper around Jedi for semantic Python analysis."""
 
-    def __init__(self, project_path: str = ".", config: ProjectConfig | None = None):
+    def __init__(
+        self,
+        project_path: str = ".",
+        config: ProjectConfig | None = None,
+        namespace_config: dict[str, list[str]] | None = None,
+    ):
         """Initialize the Jedi analyzer.
 
         Args:
             project_path: Root path of the project to analyze
             config: Optional project configuration for smart defaults
+            namespace_config: Optional namespace package mappings
+                (``{"ns_name": ["repo_root_path", ...]}``) to include in
+                the Jedi project's ``added_sys_path`` at init time.  This
+                ensures ``full_name`` values include the namespace prefix
+                from the very first query.
 
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
@@ -65,42 +75,49 @@ class JediAnalyzer:
         if not self.project_path.exists():
             raise ProjectNotFoundError(self.project_path.as_posix())
 
+        # Apply namespace_config immediately so namespace_paths is populated
+        # before the Jedi project is created.
+        if namespace_config:
+            self.namespace_paths = {
+                ns: [Path(p) for p in paths] for ns, paths in namespace_config.items()
+            }
+
         try:
             # Get additional sys paths from config (e.g., src/ layout, sibling packages)
-            added_sys_path: list[str] | None = None
+            added_sys_path: list[str] = []
             if config:
                 package_paths = config.get_package_paths()
-                # Include all configured paths except the project itself.
-                # This covers both subdirectories (src/ layouts) and sibling
-                # packages declared in .pyeye.json / pyproject.toml so that
-                # Jedi's core project can resolve cross-project symbols.
-                additional = []
                 resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
                     if pkg != resolved_project and pkg.exists():
-                        additional.append(pkg.as_posix())
+                        added_sys_path.append(pkg.as_posix())
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if additional:
-                    added_sys_path = additional
-                    # Store source roots (subdirectories only) for import path computation
+                if added_sys_path:
                     self.source_roots = [
-                        Path(p) for p in additional if self._is_subpath(Path(p), resolved_project)
+                        Path(p)
+                        for p in added_sys_path
+                        if self._is_subpath(Path(p), resolved_project)
                     ]
+
+            # Add namespace repo roots to Jedi's sys_path so full_name values
+            # include the namespace prefix from the first query.
+            for ns_paths in self.namespace_paths.values():
+                for ns_path in ns_paths:
+                    resolved = ns_path.resolve()
+                    if resolved.exists() and resolved.as_posix() not in added_sys_path:
+                        added_sys_path.append(resolved.as_posix())
+                        logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
 
             # When the project_path IS a Python package (has __init__.py),
             # Jedi must be rooted at the PARENT so that the package name is
-            # included in full_name values.  Otherwise Jedi treats the
-            # contents as top-level modules and full_names are truncated.
+            # included in full_name values.
             jedi_root = self.project_path.resolve()
             self._jedi_root_is_parent = False
             if (jedi_root / "__init__.py").exists():
                 jedi_root = jedi_root.parent
                 self._jedi_root_is_parent = True
 
-            # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
-            # Using as_posix() ensures cross-platform compatibility with forward slashes
-            # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
             if added_sys_path:
                 self.project = jedi.Project(
                     path=jedi_root.as_posix(),
@@ -130,6 +147,13 @@ class JediAnalyzer:
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
 
+        For namespace packages (no ``__init__.py``), the parent directories of
+        each namespace path must be in Jedi's ``added_sys_path`` so that Jedi
+        resolves ``full_name`` values with the namespace prefix.  For example,
+        if namespace ``aac`` has path ``/repos/aac-catalog/aac/logical/``, then
+        ``/repos/aac-catalog/`` must be in Jedi's sys path so Jedi reports
+        ``aac.logical.patterns.X`` instead of ``logical.patterns.X``.
+
         Args:
             namespaces: Dictionary mapping namespace names to their paths
         """
@@ -138,6 +162,30 @@ class JediAnalyzer:
         self._update_validator()
         # Invalidate lazy loader cache when namespaces change
         self.lazy_loader.invalidate()
+
+        # Add namespace repo roots to Jedi's sys_path so full_name values
+        # include the namespace prefix.  The declared paths in .pyeye.json are
+        # repo roots that CONTAIN the namespace package directory.  E.g., for
+        # "aac": ["../aac-catalog"], the path ../aac-catalog/ contains aac/ as
+        # a subdirectory.  Adding aac-catalog/ to sys_path lets Jedi resolve
+        # "aac.logical.patterns.X" instead of just "logical.patterns.X".
+        ns_sys_paths: set[str] = set()
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                resolved = ns_path.resolve()
+                if resolved.exists():
+                    ns_sys_paths.add(resolved.as_posix())
+
+        if ns_sys_paths:
+            # Merge with existing added_sys_path and recreate the Jedi project
+            existing = list(self.project.added_sys_path or [])
+            merged = list(set(existing) | ns_sys_paths)
+            jedi_root = self.project.path
+            self.project = jedi.Project(
+                path=str(jedi_root),
+                added_sys_path=merged,
+            )
+            logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
         """Set standalone script directories.
@@ -184,18 +232,37 @@ class JediAnalyzer:
         results: list[Any] = []
         seen: set[tuple[str, str | None, int]] = set()
 
+        # Collect all namespace repo roots so we can use the main project
+        # (which has them in added_sys_path) instead of creating separate projects.
+        ns_roots: list[Path] = []
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                ns_roots.append(ns_path.resolve())
+
         for path in search_paths:
             is_main = path == self.project_path
+            # Use the main project for namespace paths — it has their repo
+            # roots in added_sys_path so full_name includes the namespace prefix.
+            # Check if this search path is under any namespace root.
+            resolved_path = path.resolve()
+            is_namespace = any(
+                resolved_path == root or self._is_subpath(resolved_path, root) for root in ns_roots
+            )
             try:
-                project = self.project if is_main else self._get_project_for_path(path)
+                project = (
+                    self.project if (is_main or is_namespace) else self._get_project_for_path(path)
+                )
 
                 for r in project.search(name, all_scopes=True):
-                    # When the Jedi project root is wider than the search path
-                    # (e.g., root moved to parent dir for package prefix), filter
-                    # results to only include files within the requested scope path.
-                    if is_main and self._jedi_root_is_parent and r.module_path:
+                    # When using the main Jedi project (which may be wider than
+                    # the requested scope), filter results to files within the
+                    # search path. This applies when:
+                    # - is_main and Jedi root was moved to parent for package prefix
+                    # - is_namespace and we're using the main project for correct full_name
+                    uses_wider_project = (is_main and self._jedi_root_is_parent) or is_namespace
+                    if uses_wider_project and r.module_path:
                         try:
-                            Path(r.module_path).relative_to(path.resolve())
+                            Path(r.module_path).relative_to(resolved_path)
                         except ValueError:
                             continue  # Result is outside the requested scope
 
