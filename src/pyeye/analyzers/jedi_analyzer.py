@@ -232,39 +232,42 @@ class JediAnalyzer:
         results: list[Any] = []
         seen: set[tuple[str, str | None, int]] = set()
 
-        # Collect all namespace repo roots so we can use the main project
-        # (which has them in added_sys_path) instead of creating separate projects.
-        ns_roots: list[Path] = []
+        # Map namespace subdirectory paths back to their repo roots.
+        # _resolve_scope_to_paths returns subdirectories (e.g., aac-modules/aac/)
+        # but Jedi projects should be rooted at the repo root (aac-modules/)
+        # so full_name includes the namespace prefix.
+        ns_roots: dict[Path, Path] = {}  # subdirectory → repo root
         for ns_paths in self.namespace_paths.values():
             for ns_path in ns_paths:
-                ns_roots.append(ns_path.resolve())
+                repo_root = ns_path.resolve()
+                for subdir in self._get_namespace_directory_structure(ns_path):
+                    ns_roots[subdir.resolve()] = repo_root
 
         for path in search_paths:
             is_main = path == self.project_path
-            # Use the main project for namespace paths — it has their repo
-            # roots in added_sys_path so full_name includes the namespace prefix.
-            # Check if this search path is under any namespace root.
             resolved_path = path.resolve()
-            is_namespace = any(
-                resolved_path == root or self._is_subpath(resolved_path, root) for root in ns_roots
-            )
             try:
-                project = (
-                    self.project if (is_main or is_namespace) else self._get_project_for_path(path)
-                )
+                # Use the main project for the main project path.
+                # For namespace subdirectories, use a project rooted at the
+                # repo root (not the subdirectory) so Jedi reports full_name
+                # with the namespace prefix.
+                # For other paths, use per-path projects.
+                if is_main:
+                    project = self.project
+                elif resolved_path in ns_roots:
+                    project = self._get_project_for_path(ns_roots[resolved_path])
+                else:
+                    project = self._get_project_for_path(path)
 
                 for r in project.search(name, all_scopes=True):
-                    # When using the main Jedi project (which may be wider than
-                    # the requested scope), filter results to files within the
-                    # search path. This applies when:
-                    # - is_main and Jedi root was moved to parent for package prefix
-                    # - is_namespace and we're using the main project for correct full_name
-                    uses_wider_project = (is_main and self._jedi_root_is_parent) or is_namespace
-                    if uses_wider_project and r.module_path:
+                    # When the main Jedi root is wider than the project_path
+                    # (e.g., root moved to parent for __init__.py package prefix),
+                    # filter results to files within the actual project path.
+                    if is_main and self._jedi_root_is_parent and r.module_path:
                         try:
                             Path(r.module_path).relative_to(resolved_path)
                         except ValueError:
-                            continue  # Result is outside the requested scope
+                            continue  # Result is outside the main project
 
                     key = (
                         r.name,
