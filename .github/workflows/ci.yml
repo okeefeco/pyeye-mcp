@@ -128,7 +128,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
           fail_ci_if_error: true
@@ -170,7 +170,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
           fail_ci_if_error: true
