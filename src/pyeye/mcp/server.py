@@ -768,6 +768,7 @@ async def find_subclasses(
 
 
 @mcp.tool()
+@validate_mcp_inputs
 @metrics.measure("lookup")
 @track_mcp_operation("lookup")
 async def lookup(
