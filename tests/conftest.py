@@ -22,8 +22,7 @@ def sample_python_project(temp_project_dir: Path) -> Path:
     """Create a sample Python project structure."""
     # Create main module
     main_py = temp_project_dir / "main.py"
-    main_py.write_text(
-        """
+    main_py.write_text("""
 import utils
 from models import User
 
@@ -33,13 +32,11 @@ def main():
 
 if __name__ == "__main__":
     main()
-"""
-    )
+""")
 
     # Create utils module
     utils_py = temp_project_dir / "utils.py"
-    utils_py.write_text(
-        """
+    utils_py.write_text("""
 def process(data):
     \"\"\"Process the input data.\"\"\"
     return str(data)
@@ -47,13 +44,11 @@ def process(data):
 def helper(x: int) -> int:
     \"\"\"Helper function with type hints.\"\"\"
     return x * 2
-"""
-    )
+""")
 
     # Create models module
     models_py = temp_project_dir / "models.py"
-    models_py.write_text(
-        """
+    models_py.write_text("""
 class User:
     \"\"\"User model class.\"\"\"
 
@@ -69,8 +64,7 @@ class Admin(User):
     def __init__(self, name: str, level: int = 1):
         super().__init__(name)
         self.level = level
-"""
-    )
+""")
 
     # Create nested package
     package_dir = temp_project_dir / "mypackage"
@@ -80,13 +74,11 @@ class Admin(User):
     init_py.write_text('__version__ = "0.1.0"')
 
     module_py = package_dir / "module.py"
-    module_py.write_text(
-        """
+    module_py.write_text("""
 def package_function():
     \"\"\"Function inside a package.\"\"\"
     return "package"
-"""
-    )
+""")
 
     return temp_project_dir
 
@@ -101,13 +93,11 @@ def namespace_package_dirs(temp_project_dir: Path) -> dict[str, list[Path]]:
     auth_pkg.mkdir(parents=True)
 
     (auth_pkg / "__init__.py").write_text("")
-    (auth_pkg / "models.py").write_text(
-        """
+    (auth_pkg / "models.py").write_text("""
 class AuthUser:
     def __init__(self, username: str):
         self.username = username
-"""
-    )
+""")
 
     # Create company-api repo
     api_dir = temp_project_dir / "company-api"
@@ -116,15 +106,13 @@ class AuthUser:
     api_pkg.mkdir(parents=True)
 
     (api_pkg / "__init__.py").write_text("")
-    (api_pkg / "client.py").write_text(
-        """
+    (api_pkg / "client.py").write_text("""
 from company.auth.models import AuthUser
 
 class APIClient:
     def __init__(self, user: AuthUser):
         self.user = user
-"""
-    )
+""")
 
     return {"company": [auth_dir, api_dir]}
 
@@ -190,16 +178,14 @@ def mock_watchdog_observer() -> Mock:
 def sample_config_json(temp_project_dir: Path) -> Path:
     """Create a sample .pyeye.json config file."""
     config_file = temp_project_dir / ".pyeye.json"
-    config_file.write_text(
-        """{
+    config_file.write_text("""{
     "packages": ["../lib1", "../lib2"],
     "namespaces": {
         "company": ["~/repos/company-auth", "~/repos/company-api"]
     },
     "cache_ttl": 600,
     "max_projects": 5
-}"""
-    )
+}""")
     return config_file
 
 
@@ -207,16 +193,14 @@ def sample_config_json(temp_project_dir: Path) -> Path:
 def sample_pyproject_toml(temp_project_dir: Path) -> Path:
     """Create a sample pyproject.toml with pyeye config."""
     config_file = temp_project_dir / "pyproject.toml"
-    config_file.write_text(
-        """
+    config_file.write_text("""
 [tool.pyeye]
 packages = ["../shared", "../common"]
 cache_ttl = 300
 
 [tool.pyeye.namespaces]
 mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
-"""
-    )
+""")
     return config_file
 
 
@@ -243,8 +227,7 @@ def mock_mcp_server() -> Mock:
 def sample_flask_project(temp_project_dir: Path) -> Path:
     """Create a sample Flask project."""
     app_py = temp_project_dir / "app.py"
-    app_py.write_text(
-        """
+    app_py.write_text("""
 from flask import Flask, render_template, request
 
 app = Flask(__name__)
@@ -260,8 +243,7 @@ def users():
 @app.errorhandler(404)
 def not_found(e):
     return 'Not Found', 404
-"""
-    )
+""")
     return temp_project_dir
 
 
@@ -269,8 +251,7 @@ def not_found(e):
 def sample_pydantic_project(temp_project_dir: Path) -> Path:
     """Create a sample project with Pydantic models."""
     models_py = temp_project_dir / "models.py"
-    models_py.write_text(
-        """
+    models_py.write_text("""
 from pydantic import BaseModel, Field, validator
 
 class User(BaseModel):
@@ -288,8 +269,7 @@ class Admin(User):
 
     class Config:
         validate_assignment = True
-"""
-    )
+""")
     return temp_project_dir
 
 

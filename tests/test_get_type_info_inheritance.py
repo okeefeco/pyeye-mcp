@@ -18,14 +18,12 @@ class TestGetTypeInfoInheritance:
     async def test_get_type_info_simple_class(self, analyzer, tmp_path):
         """Test get_type_info for a simple class with no inheritance."""
         test_file = tmp_path / "simple.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class SimpleClass:
     '''A simple class.'''
     def method(self):
         pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 2, 6)
 
@@ -51,8 +49,7 @@ class SimpleClass:
     async def test_get_type_info_single_inheritance(self, analyzer, tmp_path):
         """Test get_type_info for a class with single inheritance."""
         test_file = tmp_path / "single_inherit.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class BaseClass:
     '''Base class.'''
     pass
@@ -60,8 +57,7 @@ class BaseClass:
 class DerivedClass(BaseClass):
     '''Derived class.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 6, 6)
 
@@ -85,8 +81,7 @@ class DerivedClass(BaseClass):
     async def test_get_type_info_multiple_inheritance(self, analyzer, tmp_path):
         """Test get_type_info for a class with multiple inheritance."""
         test_file = tmp_path / "multi_inherit.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class BaseA:
     '''Base class A.'''
     pass
@@ -102,8 +97,7 @@ class MixinC:
 class DerivedClass(BaseA, BaseB, MixinC):
     '''Class with multiple inheritance.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 14, 6)
 
@@ -132,8 +126,7 @@ class DerivedClass(BaseA, BaseB, MixinC):
     async def test_get_type_info_builtin_inheritance(self, analyzer, tmp_path):
         """Test get_type_info for a class inheriting from builtins."""
         test_file = tmp_path / "builtin_inherit.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class MyException(Exception):
     '''Custom exception.'''
     pass
@@ -141,8 +134,7 @@ class MyException(Exception):
 class MyList(list):
     '''Custom list.'''
     pass
-"""
-        )
+""")
 
         # Test Exception subclass
         result = await analyzer.get_type_info(str(test_file), 2, 6)
@@ -168,8 +160,7 @@ class MyList(list):
     async def test_get_type_info_detailed_mode(self, analyzer, tmp_path):
         """Test get_type_info with detailed=True to include methods and attributes."""
         test_file = tmp_path / "detailed.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class DetailedClass:
     '''A class with methods and attributes.'''
 
@@ -190,8 +181,7 @@ class DetailedClass:
     def computed(self):
         '''A computed property.'''
         return self.instance_var * 2
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 2, 6, detailed=True)
 
@@ -217,8 +207,7 @@ class DetailedClass:
     async def test_get_type_info_not_on_class(self, analyzer, tmp_path):
         """Test get_type_info on non-class positions."""
         test_file = tmp_path / "mixed.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 def function():
     '''A function.'''
     pass
@@ -227,8 +216,7 @@ variable = 42
 
 class MyClass:
     pass
-"""
-        )
+""")
 
         # Test on function
         result = await analyzer.get_type_info(str(test_file), 2, 4)
@@ -249,8 +237,7 @@ class MyClass:
     async def test_get_type_info_complex_mro(self, analyzer, tmp_path):
         """Test get_type_info with complex diamond inheritance."""
         test_file = tmp_path / "diamond.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class A:
     pass
 
@@ -263,8 +250,7 @@ class C(A):
 class D(B, C):
     '''Diamond inheritance.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 11, 6)
 
@@ -292,25 +278,21 @@ class D(B, C):
         """Test get_type_info with imported base classes."""
         # Create a module with base class
         base_file = tmp_path / "base_module.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseClass:
     '''Base class in another module.'''
     pass
-"""
-        )
+""")
 
         # Create main file with import
         test_file = tmp_path / "main.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 from base_module import BaseClass
 
 class DerivedClass(BaseClass):
     '''Derived from imported base.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 4, 6)
 
@@ -332,8 +314,7 @@ class DerivedClass(BaseClass):
     async def test_get_type_info_metaclass(self, analyzer, tmp_path):
         """Test get_type_info with metaclass (edge case)."""
         test_file = tmp_path / "metaclass.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Meta(type):
     '''A metaclass.'''
     pass
@@ -341,8 +322,7 @@ class Meta(type):
 class MyClass(metaclass=Meta):
     '''Class with metaclass.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 6, 6)
 
@@ -361,8 +341,7 @@ class MyClass(metaclass=Meta):
     async def test_get_type_info_abstract_base(self, analyzer, tmp_path):
         """Test get_type_info with ABC inheritance."""
         test_file = tmp_path / "abc_test.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 from abc import ABC, abstractmethod
 
 class AbstractBase(ABC):
@@ -373,8 +352,7 @@ class AbstractBase(ABC):
 class ConcreteClass(AbstractBase):
     def do_something(self):
         return "done"
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(test_file), 9, 6)
 
@@ -410,24 +388,20 @@ class ConcreteClass(AbstractBase):
 
         # Create base class in separate module
         base_file = pkg / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseClass:
     '''Base class in mypackage.base module.'''
     pass
-"""
-        )
+""")
 
         # Create derived class WITHOUT importing BaseClass
         # Using fully-qualified name instead
         derived_file = pkg / "derived.py"
-        derived_file.write_text(
-            """
+        derived_file.write_text("""
 class DerivedClass(mypackage.base.BaseClass):
     '''Derived using fully-qualified base name.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(derived_file), 2, 6)
 
@@ -480,23 +454,19 @@ class DerivedClass(mypackage.base.BaseClass):
 
         # Base class at a.b.c.d.base.BaseClass
         base_file = d / "base.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseClass:
     '''Base class deep in package hierarchy.'''
     pass
-"""
-        )
+""")
 
         # Derived class at a/other.py using full path
         derived_file = a / "other.py"
-        derived_file.write_text(
-            """
+        derived_file.write_text("""
 class DerivedClass(a.b.c.d.base.BaseClass):
     '''Derived from deeply nested base.'''
     pass
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(derived_file), 2, 6)
 
@@ -532,14 +502,12 @@ class DerivedClass(a.b.c.d.base.BaseClass):
         (pkg1 / "__init__.py").write_text("")
 
         base_file = pkg1 / "models.py"
-        base_file.write_text(
-            """
+        base_file.write_text("""
 class BaseModel:
     '''Base model in pkg1.'''
     def save(self):
         pass
-"""
-        )
+""")
 
         # Create second package
         pkg2 = tmp_path / "pkg2"
@@ -548,14 +516,12 @@ class BaseModel:
 
         # Derived class references base with full qualified name
         derived_file = pkg2 / "models.py"
-        derived_file.write_text(
-            """
+        derived_file.write_text("""
 class UserModel(pkg1.models.BaseModel):
     '''User model inheriting from pkg1.models.BaseModel.'''
     def __init__(self, username):
         self.username = username
-"""
-        )
+""")
 
         result = await analyzer.get_type_info(str(derived_file), 2, 6)
 
@@ -573,3 +539,281 @@ class UserModel(pkg1.models.BaseModel):
         assert any(
             "BaseModel" in base for base in class_info["base_classes"]
         ), f"BaseModel not in base_classes={class_info['base_classes']}"
+
+
+class TestMROOrdering:
+    """Test that MRO is computed with correct C3 linearization ordering."""
+
+    @pytest.fixture
+    async def analyzer(self, tmp_path):
+        """Create a JediAnalyzer instance with a temp directory."""
+        return JediAnalyzer(str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_mro_diamond_inheritance_ordering(self, analyzer, tmp_path):
+        """Test C3 linearization for diamond inheritance pattern.
+
+        D(B, C) where B(A) and C(A) should produce:
+        D -> B -> C -> A -> object (NOT D -> B -> A -> object -> C)
+        """
+        test_file = tmp_path / "diamond.py"
+        test_file.write_text("""
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+""")
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "D"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        # Verify correct C3 linearization order
+        assert mro_names == ["D", "B", "C", "A", "object"], (
+            f"Diamond MRO ordering incorrect. Expected [D, B, C, A, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_deep_chain_completeness(self, analyzer, tmp_path):
+        """Test that MRO includes all intermediate classes in a deep chain.
+
+        D -> C -> B -> A -> object (none should be skipped)
+        """
+        test_file = tmp_path / "deep_chain.py"
+        test_file.write_text("""
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(B):
+    pass
+
+class D(C):
+    pass
+""")
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "D"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert mro_names == ["D", "C", "B", "A", "object"], (
+            f"Deep chain MRO incomplete. Expected [D, C, B, A, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_with_abc_mixin(self, analyzer, tmp_path):
+        """Test that ABC appears in MRO when used as a base class."""
+        test_file = tmp_path / "abc_mixin.py"
+        test_file.write_text("""
+from abc import ABC
+
+class Base(ABC):
+    pass
+
+class Derived(Base):
+    pass
+""")
+
+        result = await analyzer.get_type_info(str(test_file), 7, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Derived"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert "ABC" in mro_names, f"ABC missing from MRO. Got {mro_names}"
+        # Verify ordering: Derived before Base before ABC before object
+        assert mro_names.index("Derived") < mro_names.index("Base")
+        assert mro_names.index("Base") < mro_names.index("ABC")
+        assert mro_names.index("ABC") < mro_names.index("object")
+
+    @pytest.mark.asyncio
+    async def test_mro_complex_diamond_with_mixin(self, analyzer, tmp_path):
+        """Test C3 linearization with a mixin added to a diamond.
+
+        E(D, Mixin) where D(B, C), B(A), C(A)
+        Should produce: E -> D -> B -> C -> A -> Mixin -> object
+        """
+        test_file = tmp_path / "complex_diamond.py"
+        test_file.write_text("""
+class A:
+    pass
+
+class B(A):
+    pass
+
+class C(A):
+    pass
+
+class D(B, C):
+    pass
+
+class Mixin:
+    pass
+
+class E(D, Mixin):
+    pass
+""")
+
+        result = await analyzer.get_type_info(str(test_file), 17, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "E"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert mro_names == ["E", "D", "B", "C", "A", "Mixin", "object"], (
+            f"Complex diamond MRO incorrect. "
+            f"Expected [E, D, B, C, A, Mixin, object], got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_multiple_independent_bases(self, analyzer, tmp_path):
+        """Test MRO ordering with multiple independent base classes."""
+        test_file = tmp_path / "multi_bases.py"
+        test_file.write_text("""
+class X:
+    pass
+
+class Y:
+    pass
+
+class Z:
+    pass
+
+class Child(X, Y, Z):
+    pass
+""")
+
+        result = await analyzer.get_type_info(str(test_file), 11, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Child"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        # With independent bases, order follows declaration order
+        assert mro_names == ["Child", "X", "Y", "Z", "object"], (
+            f"Multi-base MRO incorrect. Expected [Child, X, Y, Z, object], " f"got {mro_names}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mro_cross_file_inheritance(self, analyzer, tmp_path):  # noqa: ARG002
+        """Test MRO completeness when classes span multiple files."""
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+
+        (pkg / "base.py").write_text("""
+class Base:
+    pass
+""")
+
+        (pkg / "middle.py").write_text("""
+from mypkg.base import Base
+
+class Middle(Base):
+    pass
+""")
+
+        (pkg / "leaf.py").write_text("""
+from mypkg.middle import Middle
+
+class Leaf(Middle):
+    pass
+""")
+
+        # Re-create analyzer with tmp_path as project root
+        cross_analyzer = JediAnalyzer(str(tmp_path))
+        result = await cross_analyzer.get_type_info(str(pkg / "leaf.py"), 4, 6)
+        class_info = result["inferred_types"][0]
+
+        assert class_info["name"] == "Leaf"
+        mro_names = [item.split(".")[-1] for item in class_info["mro"]]
+
+        assert "Middle" in mro_names, f"Middle class missing from cross-file MRO. Got {mro_names}"
+        assert "Base" in mro_names, f"Base class missing from cross-file MRO. Got {mro_names}"
+        # Verify ordering
+        assert mro_names.index("Leaf") < mro_names.index("Middle")
+        assert mro_names.index("Middle") < mro_names.index("Base")
+        assert mro_names.index("Base") < mro_names.index("object")
+
+
+class TestC3Linearize:
+    """Unit tests for the _c3_linearize static method."""
+
+    def test_single_class_no_bases(self):
+        """A class with no bases returns just itself."""
+        result = JediAnalyzer._c3_linearize("A", {"A": []})
+        assert result == ["A"]
+
+    def test_single_class_not_in_map(self):
+        """A class not in the bases map returns just itself."""
+        result = JediAnalyzer._c3_linearize("A", {})
+        assert result == ["A"]
+
+    def test_simple_chain(self):
+        """B(A) -> [B, A]."""
+        bases_map = {"B": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("B", bases_map)
+        assert result == ["B", "A"]
+
+    def test_diamond(self):
+        """D(B, C) where B(A), C(A) -> [D, B, C, A]."""
+        bases_map = {"D": ["B", "C"], "B": ["A"], "C": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("D", bases_map)
+        assert result == ["D", "B", "C", "A"]
+
+    def test_deep_chain(self):
+        """D(C), C(B), B(A) -> [D, C, B, A]."""
+        bases_map = {"D": ["C"], "C": ["B"], "B": ["A"], "A": []}
+        result = JediAnalyzer._c3_linearize("D", bases_map)
+        assert result == ["D", "C", "B", "A"]
+
+    def test_multiple_independent_bases(self):
+        """C(A, B) where A and B are independent -> [C, A, B]."""
+        bases_map = {"C": ["A", "B"], "A": [], "B": []}
+        result = JediAnalyzer._c3_linearize("C", bases_map)
+        assert result == ["C", "A", "B"]
+
+    def test_complex_diamond_with_mixin(self):
+        """E(D, M) where D(B, C), B(A), C(A) -> [E, D, B, C, A, M]."""
+        bases_map = {
+            "E": ["D", "M"],
+            "D": ["B", "C"],
+            "B": ["A"],
+            "C": ["A"],
+            "A": [],
+            "M": [],
+        }
+        result = JediAnalyzer._c3_linearize("E", bases_map)
+        assert result == ["E", "D", "B", "C", "A", "M"]
+
+    def test_matches_python_mro(self):
+        """Verify our C3 matches Python's actual MRO for a known case.
+
+        Python's own example from the C3 linearization documentation.
+        """
+        # O = object
+        # F(O), E(O), D(O), C(D, F), B(D, E), A(B, C)
+        bases_map = {
+            "A": ["B", "C"],
+            "B": ["D", "E"],
+            "C": ["D", "F"],
+            "D": ["O"],
+            "E": ["O"],
+            "F": ["O"],
+            "O": [],
+        }
+        result = JediAnalyzer._c3_linearize("A", bases_map)
+        assert result == ["A", "B", "C", "D", "E", "F", "O"]

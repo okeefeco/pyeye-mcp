@@ -101,7 +101,7 @@ class TestMCPToolIntegration:
         assert asyncio.iscoroutinefunction(find_symbol)
 
         # Call the function
-        result = await find_symbol("TestClass", project_path=".", use_config=False)
+        result = await find_symbol("TestClass", project_path=".", scope="main")
 
         # Should get the actual result, not a coroutine object
         assert isinstance(result, list)

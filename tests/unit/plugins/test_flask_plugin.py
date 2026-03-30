@@ -13,8 +13,7 @@ def test_flask_detection():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a simple Flask app
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask, render_template, request
 
 app = Flask(__name__)
@@ -29,8 +28,7 @@ def get_user(user_id):
 
 if __name__ == '__main__':
     app.run()
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         assert plugin.detect() is True
@@ -43,8 +41,7 @@ async def test_find_routes():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create Flask app with routes
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 
 app = Flask(__name__)
@@ -60,8 +57,7 @@ def users():
 @app.route('/api/users/<int:user_id>', methods=['GET', 'PUT', 'DELETE'])
 def user_detail(user_id):
     return f'User {user_id}'
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         routes = await plugin.find_routes()
@@ -87,8 +83,7 @@ async def test_find_blueprints():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create blueprint file
         auth_py = Path(tmpdir) / "auth.py"
-        auth_py.write_text(
-            """
+        auth_py.write_text("""
 from flask import Blueprint
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
@@ -98,8 +93,7 @@ def login():
     return 'Login'
 
 api_bp = Blueprint('api', __name__, url_prefix='/api/v1')
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         blueprints = await plugin.find_blueprints()
@@ -125,8 +119,7 @@ async def test_find_error_handlers():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with error handlers
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 
 app = Flask(__name__)
@@ -142,8 +135,7 @@ def internal_error(error):
 @app.errorhandler(Exception)
 def handle_exception(error):
     return 'Something went wrong', 500
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         handlers = await plugin.find_error_handlers()
@@ -166,8 +158,7 @@ async def test_find_extensions():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with extensions
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -177,8 +168,7 @@ app = Flask(__name__)
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 CORS(app)
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         extensions = await plugin.find_extensions()
@@ -196,8 +186,7 @@ async def test_find_cli_commands():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with CLI commands
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 import click
 
@@ -212,8 +201,7 @@ def init_db():
 def seed_data():
     '''Seed test data.'''
     pass
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         commands = await plugin.find_cli_commands()
@@ -235,15 +223,13 @@ def test_no_flask_detection():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a non-Flask Python file
         main_py = Path(tmpdir) / "main.py"
-        main_py.write_text(
-            """
+        main_py.write_text("""
 def main():
     print("Hello World")
 
 if __name__ == "__main__":
     main()
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         assert plugin.detect() is False
@@ -265,13 +251,11 @@ def test_flask_detection_pyproject():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Test with pyproject.toml
         pyproject = Path(tmpdir) / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [tool.poetry.dependencies]
 python = "^3.8"
 flask = "^2.3.0"
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         assert plugin.detect() is True
@@ -282,13 +266,11 @@ def test_flask_detection_pipfile():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Test with Pipfile
         pipfile = Path(tmpdir) / "Pipfile"
-        pipfile.write_text(
-            """
+        pipfile.write_text("""
 [packages]
 flask = "*"
 sqlalchemy = "*"
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         assert plugin.detect() is True
@@ -332,8 +314,7 @@ async def test_find_views_method_view():
     """Test finding MethodView classes."""
     with tempfile.TemporaryDirectory() as tmpdir:
         views_py = Path(tmpdir) / "views.py"
-        views_py.write_text(
-            """
+        views_py.write_text("""
 from flask import Flask
 from flask.views import MethodView
 
@@ -350,8 +331,7 @@ class UserAPI(MethodView):
 class ItemAPI(MethodView):
     def get(self):
         return 'list items'
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         views = await plugin.find_views()
@@ -385,8 +365,7 @@ async def test_find_templates():
 
         # Create app with render_template calls
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask, render_template
 
 app = Flask(__name__)
@@ -402,8 +381,7 @@ def user():
 @app.route('/admin')
 def admin():
     return render_template('admin/dashboard.html')
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         result = await plugin.find_templates()
@@ -435,22 +413,18 @@ async def test_find_config():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create config.py
         config_py = Path(tmpdir) / "config.py"
-        config_py.write_text(
-            """
+        config_py.write_text("""
 class Config:
     SECRET_KEY = 'dev'  # pragma: allowlist secret
     DATABASE_URI = 'sqlite:///app.db'
-"""
-        )
+""")
 
         # Create settings.py
         settings_py = Path(tmpdir) / "settings.py"
-        settings_py.write_text(
-            """
+        settings_py.write_text("""
 DEBUG = True
 TESTING = False
-"""
-        )
+""")
 
         # Create nested config
         config_dir = Path(tmpdir) / "app"
@@ -459,8 +433,7 @@ TESTING = False
 
         # Create app with config usage
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask, current_app
 
 app = Flask(__name__)
@@ -474,8 +447,7 @@ def debug():
 @app.route('/settings')
 def settings():
     return str(current_app.config.get('TESTING'))
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         configs = await plugin.find_config()
@@ -498,8 +470,7 @@ async def test_find_extensions_import_variations():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create app with various import styles
         app_py = Path(tmpdir) / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 import flask_migrate
 from flask_wtf import FlaskForm
 from flask_marshmallow import Marshmallow
@@ -508,8 +479,7 @@ import flask_jwt_extended as jwt
 app = Flask(__name__)
 migrate = flask_migrate.Migrate(app)
 ma = Marshmallow(app)
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         extensions = await plugin.find_extensions()
@@ -526,8 +496,7 @@ async def test_find_cli_commands_click_decorator():
     """Test finding CLI commands with click decorators."""
     with tempfile.TemporaryDirectory() as tmpdir:
         app_py = Path(tmpdir) / "cli.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 import click
 
@@ -542,8 +511,7 @@ def custom_command():
 def another_command():
     '''Another CLI command.'''
     pass
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         commands = await plugin.find_cli_commands()
@@ -559,13 +527,11 @@ def test_get_framework_components():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create route files
         routes_py = Path(tmpdir) / "routes.py"
-        routes_py.write_text(
-            """
+        routes_py.write_text("""
 @app.route('/')
 def home():
     return 'Home'
-"""
-        )
+""")
 
         # Create blueprint file
         auth_py = Path(tmpdir) / "auth.py"
@@ -611,25 +577,21 @@ async def test_edge_cases_malformed_code():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create file with syntax error
         bad_py = Path(tmpdir) / "bad.py"
-        bad_py.write_text(
-            """
+        bad_py.write_text("""
 from flask import Flask
 @app.route('/test'
 def test():  # Missing closing parenthesis
     return 'test'
-"""
-        )
+""")
 
         # Create file with partial Flask code
         partial_py = Path(tmpdir) / "partial.py"
-        partial_py.write_text(
-            """
+        partial_py.write_text("""
 # This might be Flask but not valid
 @route('/test')
 def test():
     pass
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
 
@@ -649,8 +611,7 @@ async def test_error_handler_with_num_decorator():
     """Test finding error handlers with ast.Num (older Python compatibility)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         app_py = Path(tmpdir) / "errors.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 
 app = Flask(__name__)
@@ -662,8 +623,7 @@ def forbidden(e):
 @app.errorhandler(ValueError)
 def handle_value_error(e):
     return 'Invalid value', 400
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         handlers = await plugin.find_error_handlers()
@@ -679,31 +639,27 @@ def handle_value_error(e):
         """Test finding routes with namespace scope."""
         # Main project routes
         main_routes = tmpdir / "routes.py"
-        main_routes.write_text(
-            """
+        main_routes.write_text("""
 from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
 def index():
     return 'Main'
-"""
-        )
+""")
 
         # Namespace routes
         ns_path = tmpdir / "api_namespace"
         ns_path.mkdir()
         ns_routes = ns_path / "routes.py"
-        ns_routes.write_text(
-            """
+        ns_routes.write_text("""
 from flask import Blueprint
 api = Blueprint('api', __name__)
 
 @api.route('/users')
 def users():
     return 'Users'
-"""
-        )
+""")
 
         plugin = FlaskPlugin(tmpdir)
         plugin.set_namespace_paths({"api": [str(ns_path)]})

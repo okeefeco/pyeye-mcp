@@ -48,6 +48,7 @@ class JediAnalyzer:
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
         self.source_roots: list[Path] = []  # For src-layout roots (e.g., src/)
+        self._additional_projects: dict[Path, jedi.Project] = {}  # Cached Jedi projects
         self.config = config
 
         # Initialize scope utilities
@@ -135,6 +136,58 @@ class JediAnalyzer:
         logger.info(f"Set {len(paths)} standalone script directories for {self.project_path}")
         # Invalidate cache when standalone paths change
         self.scoped_cache.invalidate_all()
+
+    def _get_project_for_path(self, path: Path) -> jedi.Project:
+        """Get or create a cached Jedi project for an additional path.
+
+        Args:
+            path: Filesystem path to create a Jedi project for
+
+        Returns:
+            A Jedi Project instance for the given path
+        """
+        resolved = path.resolve()
+        if resolved not in self._additional_projects:
+            self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
+        return self._additional_projects[resolved]
+
+    async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
+        """Search for a symbol name across all configured scopes.
+
+        Uses Jedi project.search() on the main project, then searches
+        additional and namespace paths. Deduplicates by (name, file, line).
+
+        Args:
+            name: Symbol name to search for
+            scope: Search scope - "main", "all", "namespace:name", etc.
+                   Defaults to "all" if not specified.
+
+        Returns:
+            List of Jedi Name objects from all matching scopes
+        """
+        effective_scope = scope if scope is not None else "all"
+        search_paths = await self._resolve_scope_to_paths(effective_scope)
+
+        results: list[Any] = []
+        seen: set[tuple[str, str, int]] = set()
+
+        for path in search_paths:
+            is_main = path == self.project_path
+            try:
+                project = self.project if is_main else self._get_project_for_path(path)
+
+                for r in project.search(name, all_scopes=True):
+                    key = (r.name, str(r.module_path), r.line)
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(r)
+            except Exception as e:
+                if is_main:
+                    # Let main project errors propagate for proper error handling
+                    raise
+                logger.debug(f"Could not search {path}: {e}")
+
+        return results
 
     def _update_validator(self) -> None:
         """Update the scope validator with current configuration."""
@@ -485,27 +538,35 @@ class JediAnalyzer:
         return discovered_files
 
     async def find_symbol(
-        self, name: str, fuzzy: bool = False, include_import_paths: bool = True
+        self,
+        name: str,
+        fuzzy: bool = False,
+        include_import_paths: bool = True,
+        scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
-        """Find symbol definitions in the project.
+        """Find symbol definitions across all configured scopes.
+
+        Searches the main project plus any configured additional packages
+        and namespace packages.
 
         Args:
             name: Symbol name to search for (supports compound symbols like "Model.__init__")
             fuzzy: Enable fuzzy matching
             include_import_paths: Include alternative import paths for re-exported symbols
+            scope: Search scope - "main", "all", "namespace:name", etc.
+                   Defaults to "all" (searches everything configured).
 
         Returns:
             List of symbol matches with location and optional import path information
         """
         # Check if this is a compound symbol (e.g., "Model.__init__")
         if is_compound_symbol(name):
-            return await self._find_compound_symbol(name, include_import_paths)
+            return await self._find_compound_symbol(name, include_import_paths, scope)
 
-        # Original implementation for simple symbols
         results = []
 
         try:
-            search_results = self.project.search(name, all_scopes=True)
+            search_results = await self._search_all_scopes(name, scope)
 
             for result in search_results:
                 if not fuzzy and result.name != name:
@@ -530,7 +591,6 @@ class JediAnalyzer:
                 error_str = str(e)
                 # Special handling for exceptions that contain Path objects
                 if hasattr(e, "args") and e.args and any(isinstance(arg, Path) for arg in e.args):
-                    # If the exception has Path objects in args, convert them
                     converted_args = []
                     for arg in e.args:
                         if isinstance(arg, Path):
@@ -549,13 +609,17 @@ class JediAnalyzer:
         return results
 
     async def _find_compound_symbol(
-        self, name: str, include_import_paths: bool = True
+        self,
+        name: str,
+        include_import_paths: bool = True,
+        scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
         """Find compound symbol definitions (e.g., "Model.__init__").
 
         Args:
             name: Compound symbol name (e.g., "Model.__init__", "module.Class.method")
             include_import_paths: Include alternative import paths
+            scope: Search scope - "main", "all", "namespace:name", etc.
 
         Returns:
             List of symbol matches with location information
@@ -570,14 +634,16 @@ class JediAnalyzer:
 
         if len(components) < 2:
             # Not actually a compound symbol
-            return await self.find_symbol(name, include_import_paths=include_import_paths)
+            return await self.find_symbol(
+                name, include_import_paths=include_import_paths, scope=scope
+            )
 
         try:
             # Get parent and member names
             parent_path, member_name = get_parent_and_member(components)
 
-            # First, find the parent symbol (class or module)
-            parent_results = self.project.search(components[-2], all_scopes=True)
+            # First, find the parent symbol (class or module) across all scopes
+            parent_results = await self._search_all_scopes(components[-2], scope)
 
             for parent_result in parent_results:
                 # Check if this parent matches our full parent path
@@ -838,7 +904,12 @@ class JediAnalyzer:
         return results
 
     async def get_type_info(
-        self, file: str, line: int, column: int, detailed: bool = False
+        self,
+        file: str,
+        line: int,
+        column: int,
+        detailed: bool = False,
+        fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Get type information at a specific position.
 
@@ -847,6 +918,9 @@ class JediAnalyzer:
             line: Line number (1-indexed)
             column: Column number (0-indexed)
             detailed: Include additional information like methods and attributes
+            fields: Optional list of top-level fields to include in response.
+                   Valid fields: position, inferred_types, docstring
+                   Example: ["position", "docstring"] returns only those fields
 
         Returns:
             Type information including inferred type, docstring, and for classes:
@@ -915,10 +989,16 @@ class JediAnalyzer:
 
                 result["inferred_types"].append(type_info)
 
+            # Apply field filtering if requested
+            if fields is not None:
+                from ..mcp.server import filter_fields
+
+                result = filter_fields(result, fields)  # type: ignore[assignment]
+
             return result
 
-        except FileAccessError:
-            raise  # Re-raise file access errors
+        except (FileAccessError, ValueError):
+            raise  # Re-raise file access errors and validation errors
         except Exception as e:
             logger.error(f"Error getting type info: {e}")
             raise AnalysisError(
@@ -1173,8 +1253,8 @@ class JediAnalyzer:
         }
 
         try:
-            # First find the function or class definition
-            search_results = self.project.search(function_name, all_scopes=True)
+            # First find the function or class definition across all scopes
+            search_results = await self._search_all_scopes(function_name)
 
             function_def = None
             for res in search_results:
@@ -2551,9 +2631,12 @@ class JediAnalyzer:
     ) -> tuple[list[str], list[str]]:
         """Extract base classes and MRO for a class definition.
 
+        Uses Jedi's internal py__mro__() for accurate C3 linearization MRO,
+        with a fallback to Parso AST parsing for base class extraction.
+
         Args:
             script: The Jedi script instance
-            class_def: The Jedi class definition
+            class_def: The Jedi class definition (Name object)
 
         Returns:
             Tuple of (base_classes, mro) where both are lists of fully qualified names
@@ -2562,213 +2645,281 @@ class JediAnalyzer:
         mro: list[str] = []
 
         try:
-            # Try to get base classes from the class definition
-            # Only process real Jedi objects, not mocks
-            if (
-                hasattr(class_def, "_name")
-                and hasattr(class_def._name, "tree_name")
-                and not isinstance(class_def._name, type(None))
-            ):
-                try:
-                    tree_node = class_def._name.tree_name
-                    classdef = tree_node.parent if hasattr(tree_node, "parent") else None
-                except (AttributeError, TypeError):
-                    # If we can't get tree_node or parent, bail out
-                    return base_classes, mro
+            # Try Jedi's internal MRO first - gives accurate C3 linearization
+            mro = self._get_jedi_mro(class_def)
 
-                # Navigate to find the classdef node with a max depth to prevent infinite loops
-                max_depth = 10
-                depth = 0
-                while (
-                    classdef
-                    and hasattr(classdef, "type")
-                    and classdef.type != "classdef"
-                    and depth < max_depth
-                ):
-                    if hasattr(classdef, "parent"):
-                        classdef = classdef.parent
-                        depth += 1
-                    else:
-                        classdef = None
-                        break
+            # Jedi MRO with only the class itself (no resolved bases) means
+            # Jedi couldn't resolve the inheritance - fall through to Parso
+            if len(mro) > 1:
+                # Extract direct base classes from the MRO
+                # Direct bases are the classes listed in the class definition,
+                # not the full MRO chain. Use Parso to get just the direct bases.
+                base_classes = self._get_direct_bases_from_parso(script, class_def)
 
-                if classdef and hasattr(classdef, "type") and hasattr(classdef, "children"):
-                    # Find base classes - they can be directly as name nodes or in arglist
-                    in_bases = False
-                    try:
-                        children = list(
-                            classdef.children
-                        )  # Convert to list to prevent iterator issues
-                    except (TypeError, AttributeError):
-                        return base_classes, mro
+                # If Parso extraction failed, derive direct bases from MRO
+                # (everything except self and object)
+                if not base_classes and len(mro) > 2:
+                    base_classes = [cls for cls in mro[1:] if cls != "builtins.object"]
 
-                    for _, child in enumerate(children):
-                        # Start collecting after opening parenthesis
-                        if (
-                            hasattr(child, "type")
-                            and child.type == "operator"
-                            and child.value == "("
-                        ):
-                            in_bases = True
-                            continue
-                        # Stop at closing parenthesis
-                        elif (
-                            hasattr(child, "type")
-                            and child.type == "operator"
-                            and child.value == ")"
-                        ):
-                            in_bases = False
-                            continue
+                return base_classes, mro
 
-                        # Collect base class names
-                        if in_bases:
-                            if hasattr(child, "type"):
-                                if child.type == "name":
-                                    # Single base class (simple name)
-                                    try:
-                                        base_line = child.start_pos[0]
-                                        base_column = child.start_pos[1]
-                                        base_inferred = script.infer(base_line, base_column)
+            # Fallback: extract base classes from Parso AST and build simplified MRO
+            base_classes = self._get_direct_bases_from_parso(script, class_def)
 
-                                        # Check if Jedi successfully resolved the base class
-                                        if base_inferred:
-                                            # Jedi found the base class
-                                            for base_inf in base_inferred:
-                                                if base_inf.full_name:
-                                                    base_classes.append(base_inf.full_name)
-                                                    break
-                                        else:
-                                            # Jedi couldn't resolve - use AST fallback
-                                            base_name = self._extract_base_name_from_parso_node(
-                                                child
-                                            )
-                                            if base_name:
-                                                base_classes.append(base_name)
-                                    except Exception:
-                                        # Exception during inference - use AST fallback
-                                        base_name = self._extract_base_name_from_parso_node(child)
-                                        if base_name:
-                                            base_classes.append(base_name)
-
-                                elif child.type in ("power", "atom_expr"):
-                                    # Qualified/dotted base class name (e.g., module.BaseClass)
-                                    # Try Jedi inference first, fall back to AST extraction
-                                    try:
-                                        base_line = child.start_pos[0]
-                                        base_column = child.start_pos[1]
-                                        base_inferred = script.infer(base_line, base_column)
-
-                                        if base_inferred:
-                                            # Jedi resolved it
-                                            for base_inf in base_inferred:
-                                                if base_inf.full_name:
-                                                    base_classes.append(base_inf.full_name)
-                                                    break
-                                        else:
-                                            # Jedi couldn't resolve - extract from AST
-                                            base_name = self._extract_base_name_from_parso_node(
-                                                child
-                                            )
-                                            if base_name:
-                                                base_classes.append(base_name)
-                                    except Exception:
-                                        # Exception during inference - extract from AST
-                                        base_name = self._extract_base_name_from_parso_node(child)
-                                        if base_name:
-                                            base_classes.append(base_name)
-
-                                elif child.type == "arglist":
-                                    # Multiple base classes in arglist
-                                    for arg in child.children:
-                                        if hasattr(arg, "type"):
-                                            if arg.type == "name":
-                                                # Simple name in arglist
-                                                try:
-                                                    base_line = arg.start_pos[0]
-                                                    base_column = arg.start_pos[1]
-                                                    base_inferred = script.infer(
-                                                        base_line, base_column
-                                                    )
-
-                                                    if base_inferred:
-                                                        # Jedi resolved it
-                                                        for base_inf in base_inferred:
-                                                            if base_inf.full_name:
-                                                                base_classes.append(
-                                                                    base_inf.full_name
-                                                                )
-                                                                break
-                                                    else:
-                                                        # Jedi couldn't resolve - use AST fallback
-                                                        base_name = (
-                                                            self._extract_base_name_from_parso_node(
-                                                                arg
-                                                            )
-                                                        )
-                                                        if base_name:
-                                                            base_classes.append(base_name)
-                                                except Exception:
-                                                    # Exception - use AST fallback
-                                                    base_name = (
-                                                        self._extract_base_name_from_parso_node(arg)
-                                                    )
-                                                    if base_name:
-                                                        base_classes.append(base_name)
-
-                                            elif arg.type in ("power", "atom_expr"):
-                                                # Qualified name in arglist
-                                                try:
-                                                    base_line = arg.start_pos[0]
-                                                    base_column = arg.start_pos[1]
-                                                    base_inferred = script.infer(
-                                                        base_line, base_column
-                                                    )
-
-                                                    if base_inferred:
-                                                        # Jedi resolved it
-                                                        for base_inf in base_inferred:
-                                                            if base_inf.full_name:
-                                                                base_classes.append(
-                                                                    base_inf.full_name
-                                                                )
-                                                                break
-                                                    else:
-                                                        # Jedi couldn't resolve - extract from AST
-                                                        base_name = (
-                                                            self._extract_base_name_from_parso_node(
-                                                                arg
-                                                            )
-                                                        )
-                                                        if base_name:
-                                                            base_classes.append(base_name)
-                                                except Exception:
-                                                    # Exception - extract from AST
-                                                    base_name = (
-                                                        self._extract_base_name_from_parso_node(arg)
-                                                    )
-                                                    if base_name:
-                                                        base_classes.append(base_name)
-
-            # Build MRO
+            # Build MRO from base classes
             if base_classes:
-                # Start with the class itself
                 if class_def.full_name:
                     mro.append(class_def.full_name)
-
-                # Add base classes (simplified MRO - in practice Python's MRO is more complex)
                 mro.extend(base_classes)
-
-                # Add object if not already present
                 if "builtins.object" not in mro and "object" not in mro:
                     mro.append("builtins.object")
             else:
-                # Class with no explicit bases inherits from object
                 if class_def.full_name:
                     mro = [class_def.full_name, "builtins.object"]
 
         except Exception as e:
             logger.debug(f"Could not extract inheritance info: {e}")
-            # Return empty lists on error
-            pass
 
         return base_classes, mro
+
+    def _get_jedi_mro(self, class_def: Any) -> list[str]:
+        """Extract full MRO using Jedi's internal class hierarchy with C3 linearization.
+
+        Jedi's py__mro__() doesn't correctly implement C3 linearization for
+        diamond inheritance, so we use Jedi to discover the class hierarchy
+        and compute the MRO ourselves.
+
+        Args:
+            class_def: A Jedi Name object for a class
+
+        Returns:
+            List of fully qualified class names in MRO order, or empty list on failure
+        """
+        try:
+            if not hasattr(class_def, "_name") or not hasattr(class_def._name, "infer"):
+                return []
+
+            values = list(class_def._name.infer())
+            for value in values:
+                if not hasattr(value, "py__mro__"):
+                    continue
+
+                # Use py__mro__() to discover all classes in the hierarchy
+                mro_classes = list(value.py__mro__())
+
+                # Build name->FQN mapping and bases graph from Jedi values
+                name_to_fqn: dict[str, str] = {}
+                bases_map: dict[str, list[str]] = {}
+
+                for cls in mro_classes:
+                    cls_name = cls.py__name__() if hasattr(cls, "py__name__") else None
+                    if not cls_name:
+                        continue
+
+                    # Build FQN
+                    fqn = cls_name
+                    module = cls.get_root_context()
+                    if hasattr(module, "py__name__"):
+                        module_name = module.py__name__()
+                        if module_name:
+                            fqn = f"{module_name}.{cls_name}"
+
+                    name_to_fqn[cls_name] = fqn
+
+                    # Resolve direct bases via py__bases__()
+                    resolved_bases: list[str] = []
+                    if hasattr(cls, "py__bases__"):
+                        for lazy_base in cls.py__bases__():
+                            if hasattr(lazy_base, "infer"):
+                                for base_val in lazy_base.infer():
+                                    if hasattr(base_val, "py__name__"):
+                                        resolved_bases.append(base_val.py__name__())
+                    bases_map[cls_name] = resolved_bases
+
+                if not name_to_fqn:
+                    continue
+
+                # Get the target class name
+                root_cls = mro_classes[0]
+                root_name = root_cls.py__name__() if hasattr(root_cls, "py__name__") else None
+                if not root_name:
+                    continue
+
+                # Compute correct C3 linearization
+                c3_order = self._c3_linearize(root_name, bases_map)
+
+                # Convert to FQNs
+                mro = [name_to_fqn.get(name, name) for name in c3_order]
+
+                if mro:
+                    return mro
+        except Exception as e:
+            logger.debug(f"Could not get Jedi MRO: {e}")
+
+        return []
+
+    @staticmethod
+    def _c3_linearize(cls_name: str, bases_map: dict[str, list[str]]) -> list[str]:
+        """Compute C3 linearization (MRO) for a class hierarchy.
+
+        Implements the same algorithm Python uses for method resolution order.
+
+        Args:
+            cls_name: Name of the class to compute MRO for
+            bases_map: Mapping of class name -> list of direct base class names
+
+        Returns:
+            List of class names in MRO order
+        """
+        if cls_name not in bases_map or not bases_map[cls_name]:
+            return [cls_name]
+
+        bases = bases_map[cls_name]
+        # Recursively get MRO for each base
+        base_mros = [JediAnalyzer._c3_linearize(b, bases_map) for b in bases]
+        # Add the list of direct bases as the final constraint
+        base_mros.append(list(bases))
+
+        result = [cls_name]
+        while base_mros:
+            # Find a candidate: head of some list that doesn't appear in the
+            # tail of any other list
+            candidate = None
+            for mro_list in base_mros:
+                if not mro_list:
+                    continue
+                head = mro_list[0]
+                in_tail = any(head in ml[1:] for ml in base_mros if ml)
+                if not in_tail:
+                    candidate = head
+                    break
+
+            if candidate is None:
+                # Inconsistent hierarchy — append remaining classes
+                for ml in base_mros:
+                    for name in ml:
+                        if name not in result:
+                            result.append(name)
+                break
+
+            result.append(candidate)
+            # Remove candidate from all lists
+            base_mros = [
+                [x for x in ml if x != candidate] if ml and ml[0] == candidate else ml
+                for ml in base_mros
+            ]
+            base_mros = [ml for ml in base_mros if ml]
+
+        return result
+
+    def _get_direct_bases_from_parso(self, script: jedi.Script, class_def: Any) -> list[str]:
+        """Extract direct base class names using Parso AST parsing.
+
+        Args:
+            script: The Jedi script instance (for resolving base class FQNs)
+            class_def: A Jedi Name object for a class
+
+        Returns:
+            List of fully qualified base class names
+        """
+        base_classes: list[str] = []
+
+        try:
+            if (
+                not hasattr(class_def, "_name")
+                or not hasattr(class_def._name, "tree_name")
+                or isinstance(class_def._name, type(None))
+            ):
+                return base_classes
+
+            try:
+                tree_node = class_def._name.tree_name
+                classdef = tree_node.parent if hasattr(tree_node, "parent") else None
+            except (AttributeError, TypeError):
+                return base_classes
+
+            # Navigate to find the classdef node
+            max_depth = 10
+            depth = 0
+            while (
+                classdef
+                and hasattr(classdef, "type")
+                and classdef.type != "classdef"
+                and depth < max_depth
+            ):
+                if hasattr(classdef, "parent"):
+                    classdef = classdef.parent
+                    depth += 1
+                else:
+                    classdef = None
+                    break
+
+            if not (classdef and hasattr(classdef, "type") and hasattr(classdef, "children")):
+                return base_classes
+
+            try:
+                children = list(classdef.children)
+            except (TypeError, AttributeError):
+                return base_classes
+
+            # Collect base class nodes from between parentheses
+            base_nodes: list[Any] = []
+            in_bases = False
+            for child in children:
+                if hasattr(child, "type") and child.type == "operator":
+                    if child.value == "(":
+                        in_bases = True
+                        continue
+                    elif child.value == ")":
+                        break
+
+                if in_bases and hasattr(child, "type"):
+                    if child.type in ("name", "power", "atom_expr"):
+                        base_nodes.append(child)
+                    elif child.type == "arglist":
+                        for arg in child.children:
+                            if hasattr(arg, "type") and arg.type in (
+                                "name",
+                                "power",
+                                "atom_expr",
+                            ):
+                                base_nodes.append(arg)
+
+            # Resolve each base node to a FQN
+            for node in base_nodes:
+                base_name = self._resolve_base_node(script, node)
+                if base_name:
+                    base_classes.append(base_name)
+
+        except Exception as e:
+            logger.debug(f"Could not extract direct bases from Parso: {e}")
+
+        return base_classes
+
+    def _resolve_base_node(self, script: jedi.Script, node: Any) -> str | None:
+        """Resolve a Parso base class node to a fully qualified name.
+
+        Tries Jedi inference first, falls back to AST extraction.
+
+        Args:
+            script: The Jedi script instance
+            node: A Parso AST node for a base class reference
+
+        Returns:
+            Fully qualified name string, or None
+        """
+        try:
+            base_line = node.start_pos[0]
+            base_column = node.start_pos[1]
+            base_inferred = script.infer(base_line, base_column)
+
+            if base_inferred:
+                for base_inf in base_inferred:
+                    if base_inf.full_name:
+                        return str(base_inf.full_name)
+            else:
+                return self._extract_base_name_from_parso_node(node)
+        except Exception:
+            return self._extract_base_name_from_parso_node(node)
+
+        return None

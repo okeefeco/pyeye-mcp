@@ -37,8 +37,7 @@ class TestSrcLayoutSupport:
         pkg_dir.mkdir()
 
         (pkg_dir / "__init__.py").write_text('__version__ = "1.0.0"')
-        (pkg_dir / "module.py").write_text(
-            '''"""Module in src-layout package."""
+        (pkg_dir / "module.py").write_text('''"""Module in src-layout package."""
 
 
 def my_function():
@@ -52,13 +51,11 @@ class MyClass:
     def method(self):
         """A method."""
         return 42
-'''
-        )
+''')
 
         # Create pyproject.toml with setuptools src layout
         pyproject = temp_project_dir / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -69,8 +66,7 @@ version = "1.0.0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-"""
-        )
+""")
 
         return temp_project_dir
 
@@ -133,13 +129,11 @@ where = ["src"]
         """Test that external package paths are not added to Jedi's added_sys_path."""
         # Create config with external path
         config_file = src_layout_project / ".pyeye.json"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 {
     "packages": ["src", "/external/path"]
 }
-"""
-        )
+""")
 
         config = ProjectConfig(str(src_layout_project))
 
@@ -239,8 +233,7 @@ class TestMultipleBuildBackends:
         (pkg_dir / "__init__.py").write_text("")
 
         pyproject = temp_project_dir / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [tool.poetry]
 name = "mypackage"
 version = "1.0.0"
@@ -248,8 +241,7 @@ version = "1.0.0"
 [[tool.poetry.packages]]
 include = "mypackage"
 from = "src"
-"""
-        )
+""")
         return temp_project_dir
 
     @pytest.fixture
@@ -262,12 +254,10 @@ from = "src"
         (pkg_dir / "__init__.py").write_text("")
 
         pyproject = temp_project_dir / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [tool.hatch.build.targets.wheel]
 sources = ["src"]
-"""
-        )
+""")
         return temp_project_dir
 
     def test_poetry_src_layout_passed_to_jedi(self, poetry_src_project: Path):
@@ -328,8 +318,7 @@ class TestSrcLayoutEndToEnd:
         pkg_dir.mkdir()
 
         (pkg_dir / "__init__.py").write_text('"""My Package."""\n\n__version__ = "1.0.0"\n')
-        (pkg_dir / "core.py").write_text(
-            '''"""Core module."""
+        (pkg_dir / "core.py").write_text('''"""Core module."""
 
 
 class MyClass:
@@ -343,13 +332,11 @@ class MyClass:
 def my_function():
     """A function that should be findable via mypackage.core.my_function."""
     return "hello"
-'''
-        )
+''')
 
         # Create pyproject.toml with setuptools src layout
         pyproject = temp_project_dir / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -360,8 +347,7 @@ version = "1.0.0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-"""
-        )
+""")
 
         return temp_project_dir
 
@@ -506,8 +492,7 @@ class TestSrcLayoutFindImports:
         pkg_dir.mkdir()
 
         (pkg_dir / "__init__.py").write_text('"""My Package."""\n')
-        (pkg_dir / "utils.py").write_text(
-            '''"""Utility module."""
+        (pkg_dir / "utils.py").write_text('''"""Utility module."""
 
 
 def helper_function():
@@ -518,10 +503,8 @@ def helper_function():
 class UtilityClass:
     """A utility class."""
     pass
-'''
-        )
-        (pkg_dir / "core.py").write_text(
-            '''"""Core module that imports utils."""
+''')
+        (pkg_dir / "core.py").write_text('''"""Core module that imports utils."""
 
 from mypackage.utils import helper_function, UtilityClass
 from mypackage import utils
@@ -532,13 +515,11 @@ def main():
     result = helper_function()
     obj = UtilityClass()
     return result, obj
-'''
-        )
+''')
 
         # Create pyproject.toml with setuptools src layout
         pyproject = temp_project_dir / "pyproject.toml"
-        pyproject.write_text(
-            """
+        pyproject.write_text("""
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -549,8 +530,7 @@ version = "1.0.0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-"""
-        )
+""")
 
         return temp_project_dir
 

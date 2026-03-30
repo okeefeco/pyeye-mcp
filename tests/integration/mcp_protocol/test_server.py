@@ -8,14 +8,11 @@ from mcp.server.fastmcp import FastMCP
 
 from pyeye.exceptions import AnalysisError, FileAccessError
 from pyeye.mcp.server import (
-    configure_namespace_package,
     configure_packages,
     find_imports,
-    find_in_namespace,
     find_references,
     find_subclasses,
     find_symbol,
-    find_symbol_multi,
     get_call_hierarchy,
     get_type_info,
     goto_definition,
@@ -183,7 +180,7 @@ class TestFindSymbol:
         assert result[0]["name"] == "TestClass"
         assert "test.py" in result[0]["file"]
         mock_analyzer.find_symbol.assert_called_with(
-            "TestClass", fuzzy=False, include_import_paths=True
+            "TestClass", fuzzy=False, include_import_paths=True, scope="all"
         )
 
     @patch("pyeye.mcp.server.get_analyzer")
@@ -210,29 +207,24 @@ class TestFindSymbol:
 
         # With fuzzy=True, it should include partial matches
         assert len(result) == 1
-        mock_analyzer.find_symbol.assert_called_with("test", fuzzy=True, include_import_paths=True)
+        mock_analyzer.find_symbol.assert_called_with(
+            "test", fuzzy=True, include_import_paths=True, scope="all"
+        )
 
-    @patch("pyeye.mcp.server.ProjectConfig")
     @patch("pyeye.mcp.server.get_analyzer")
     @pytest.mark.asyncio
-    async def test_find_symbol_with_config(self, mock_get_analyzer, mock_config_class):
-        """Test symbol finding with configuration."""
-        # Mock configuration
-        mock_config = Mock()
-        mock_config.get_package_paths.return_value = [".", "../lib"]
-        mock_config_class.return_value = mock_config
-
+    async def test_find_symbol_with_scope(self, mock_get_analyzer):
+        """Test symbol finding passes scope to analyzer."""
         mock_analyzer = AsyncMock()
         mock_get_analyzer.return_value = mock_analyzer
         mock_analyzer.find_symbol.return_value = []
 
-        await find_symbol("test", use_config=True)
+        await find_symbol("test", scope="main")
 
-        # Should use configuration (ProjectConfig gets resolved path)
-        mock_config_class.assert_called_once()
         mock_get_analyzer.assert_called()
-        # Check that additional_paths was set
-        assert hasattr(mock_analyzer, "additional_paths")
+        mock_analyzer.find_symbol.assert_called_with(
+            "test", fuzzy=False, include_import_paths=True, scope="main"
+        )
 
     @pytest.mark.asyncio
     async def test_find_symbol_with_reexports(self):
@@ -241,7 +233,7 @@ class TestFindSymbol:
         fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the User symbol in the test fixture
-        results = await find_symbol("User", project_path=fixture_path, use_config=False)
+        results = await find_symbol("User", project_path=fixture_path, scope="main")
 
         # Should find at least one result
         assert len(results) > 0
@@ -267,7 +259,7 @@ class TestFindSymbol:
         fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the Authenticator symbol
-        results = await find_symbol("Authenticator", project_path=fixture_path, use_config=False)
+        results = await find_symbol("Authenticator", project_path=fixture_path, scope="main")
 
         # Should find the Authenticator class
         assert len(results) > 0
@@ -435,7 +427,9 @@ class TestGetTypeInfo:
         assert len(result["inferred_types"]) > 0
         assert result["inferred_types"][0]["name"] == "str"
         assert result["docstring"] == "String type"
-        mock_analyzer.get_type_info.assert_called_with("test.py", 10, 5, detailed=False)
+        mock_analyzer.get_type_info.assert_called_with(
+            "test.py", 10, 5, detailed=False, fields=None
+        )
 
 
 class TestFindImports:
@@ -533,98 +527,6 @@ class TestGetCallHierarchy:
         mock_analyzer.get_call_hierarchy.assert_called_with("func", "test.py")
 
 
-class TestNamespaceTools:
-    """Test namespace-related tools."""
-
-    @patch("pyeye.mcp.server.get_project_manager")
-    def test_configure_namespace_package(self, mock_get_manager):
-        """Test configuring namespace packages."""
-        mock_manager = Mock()
-        mock_resolver = Mock()
-        mock_manager.namespace_resolver = mock_resolver
-        mock_get_manager.return_value = mock_manager
-
-        # Mock namespace discovery
-        mock_resolver.discover_namespaces.return_value = {
-            "company": [Path("/repos/auth"), Path("/repos/api")]
-        }
-        mock_resolver.build_namespace_map.return_value = {}
-
-        result = configure_namespace_package("company", ["/repos/auth", "/repos/api"])
-
-        assert result["namespace"] == "company"
-        assert result["status"] == "configured"
-        mock_resolver.register_namespace.assert_called()
-
-    @patch("pyeye.mcp.server.get_project_manager")
-    def test_find_in_namespace(self, mock_get_manager):
-        """Test finding imports in namespace."""
-        mock_manager = Mock()
-        mock_resolver = Mock()
-        mock_manager.namespace_resolver = mock_resolver
-        mock_get_manager.return_value = mock_manager
-
-        # Mock namespace resolution
-        mock_resolver.discover_namespaces.return_value = {}
-        mock_resolver.resolve_import.return_value = [Path("/repos/auth/models.py")]
-        mock_resolver.build_namespace_map.return_value = {}
-
-        # Mock project search
-        mock_project = Mock()
-        mock_manager.get_project.return_value = mock_project
-
-        mock_search_result = Mock()
-        mock_search_result.module_path = Path("/repos/auth/models.py")
-        mock_search_result.line = 10
-        mock_search_result.type = "class"
-        mock_search_result.description = "class User"
-
-        mock_project.search.return_value = [mock_search_result]
-
-        result = find_in_namespace("company.auth.User", ["/repos/auth", "/repos/api"])
-
-        assert "import_path" in result
-        assert result["import_path"] == "company.auth.User"
-        mock_resolver.resolve_import.assert_called()
-
-
-class TestFindSymbolMulti:
-    """Test the find_symbol_multi tool."""
-
-    @patch("pyeye.mcp.server.get_project_manager")
-    def test_find_symbol_multi(self, mock_get_manager):
-        """Test finding symbols across multiple projects."""
-        mock_manager = Mock()
-        mock_get_manager.return_value = mock_manager
-
-        # Mock project for each path
-        mock_project = Mock()
-
-        # Mock search result
-        mock_result = Mock()
-        mock_result.name = "test"
-        mock_result.module_path = Path("test.py")
-        mock_result.line = 10
-        mock_result.column = 0
-        mock_result.type = "function"
-        mock_result.description = "def test"
-
-        mock_project.search.return_value = [mock_result]
-        mock_manager.get_project.return_value = mock_project
-
-        result = find_symbol_multi("test", ["/proj1", "/proj2"])
-
-        # Check that both projects are in results, handling platform-specific paths
-        result_keys = list(result.keys())
-        assert len(result) == 2
-        # On Windows, paths may be resolved to full paths like "D:\proj1"
-        # Check that keys end with the expected directory names
-        assert any("proj1" in key for key in result_keys)
-        assert any("proj2" in key for key in result_keys)
-        # Should call get_project for each path
-        assert mock_manager.get_project.call_count == 2
-
-
 class TestListProjectStructure:
     """Test the list_project_structure tool."""
 
@@ -680,8 +582,7 @@ class TestFindSubclasses:
         """Test basic find_subclasses functionality."""
         # Create test file with class hierarchy
         test_file = temp_project_dir / "animals.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Animal:
     pass
 
@@ -690,8 +591,7 @@ class Dog(Animal):
 
 class Cat(Animal):
     pass
-"""
-        )
+""")
 
         result = await find_subclasses("Animal", str(temp_project_dir))
 
@@ -705,8 +605,7 @@ class Cat(Animal):
     async def test_find_subclasses_with_params(self, temp_project_dir):
         """Test find_subclasses with include_indirect and show_hierarchy."""
         test_file = temp_project_dir / "hierarchy.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Base:
     pass
 
@@ -715,8 +614,7 @@ class Middle(Base):
 
 class Leaf(Middle):
     pass
-"""
-        )
+""")
 
         # Test with indirect=False
         result = await find_subclasses("Base", str(temp_project_dir), include_indirect=False)

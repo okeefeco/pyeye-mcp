@@ -28,39 +28,33 @@ class TestSmartInvalidationIntegration:
 
             # Create core module
             (project_path / "core" / "__init__.py").write_text("")
-            (project_path / "core" / "models.py").write_text(
-                """
+            (project_path / "core" / "models.py").write_text("""
 class BaseModel:
     pass
 
 class User(BaseModel):
     pass
-"""
-            )
+""")
 
             # Create utils module that imports from core
             (project_path / "utils" / "__init__.py").write_text("")
-            (project_path / "utils" / "helpers.py").write_text(
-                """
+            (project_path / "utils" / "helpers.py").write_text("""
 from core.models import BaseModel
 
 def process_model(model: BaseModel):
     return model
-"""
-            )
+""")
 
             # Create app module that imports from both
             (project_path / "app" / "__init__.py").write_text("")
-            (project_path / "app" / "main.py").write_text(
-                """
+            (project_path / "app" / "main.py").write_text("""
 from core.models import User
 from utils.helpers import process_model
 
 def main():
     user = User()
     return process_model(user)
-"""
-            )
+""")
 
             yield project_path
 
