@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .enums import Status
+
 
 class ServiceConfig:
     """Configuration for a service."""
@@ -51,3 +53,18 @@ class ExtendedManager(ServiceManager):
     def start(self, port: int = 8080) -> bool:
         """Start with extended behaviour."""
         return super().start(port)
+
+
+class StatusTracker:
+    """Tracks service status — uses Status enum from enums module.
+
+    This tests contextual type resolution: the type annotation 'Status'
+    should resolve to enums.Status (the enum), not ambiguous.Status
+    (the rendering class), because this file imports from enums.
+    """
+
+    current: Status = Status.PENDING
+
+    def update(self, new_status: Status) -> None:
+        """Update the current status."""
+        self.current = new_status

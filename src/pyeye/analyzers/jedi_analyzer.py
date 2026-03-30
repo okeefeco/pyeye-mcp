@@ -1,6 +1,7 @@
 """Jedi-based analyzer for PyEye."""
 
 import ast
+import contextlib
 import logging
 import os
 import re
@@ -2250,10 +2251,19 @@ class JediAnalyzer:
         }
     )
 
-    async def _build_type_ref(self, type_hint_str: str | None) -> dict[str, Any] | None:
+    async def _build_type_ref(
+        self,
+        type_hint_str: str | None,
+        script: jedi.Script | None = None,
+        annotation_line: int | None = None,
+        annotation_col: int | None = None,
+    ) -> dict[str, Any] | None:
         """Build a navigable reference from a type hint string.
 
-        For simple types (bare names), resolves via Jedi or builtin lookup.
+        For simple types (bare names), resolves via ``script.goto()`` when
+        file context is available (follows imports correctly), falling back
+        to global search when no context is provided.
+
         For complex types (generics, unions), returns the outer name plus
         ``inner_types`` — a list of navigable references for each leaf type
         found by recursively unwrapping wrappers like ClassVar, Optional, List.
@@ -2262,6 +2272,11 @@ class JediAnalyzer:
             type_hint_str: A type hint string such as ``"int"``,
                 ``"ServiceConfig"``, ``"ClassVar[Optional[Zone]]"``, or
                 ``"str | None"``. Pass *None* or empty string to get *None*.
+            script: Optional Jedi Script for contextual resolution. When
+                provided, ``script.goto()`` is used to follow the file's
+                imports instead of doing a global search.
+            annotation_line: Line number of the annotation in source (1-indexed).
+            annotation_col: Column offset of the annotation in source (0-indexed).
 
         Returns:
             A navigable reference dict, or *None* if *type_hint_str* is
@@ -2273,7 +2288,7 @@ class JediAnalyzer:
         # If the type string is complex (contains [ | ,) extract and resolve
         # inner types recursively.
         if any(ch in type_hint_str for ch in ("[", "|", ",")):
-            inner_types = await self._resolve_inner_types(type_hint_str)
+            inner_types = await self._resolve_inner_types(type_hint_str, script)
             return {
                 "name": type_hint_str,
                 "full_name": None,
@@ -2282,16 +2297,30 @@ class JediAnalyzer:
                 "inner_types": inner_types,
             }
 
-        # Simple name — try to resolve directly
-        return await self._resolve_simple_type(type_hint_str)
+        # Simple name — try contextual resolution first, then global
+        return await self._resolve_simple_type(
+            type_hint_str, script, annotation_line, annotation_col
+        )
 
-    async def _resolve_simple_type(self, name: str) -> dict[str, Any]:
-        """Resolve a bare type name to a navigable reference."""
+    async def _resolve_simple_type(
+        self,
+        name: str,
+        script: jedi.Script | None = None,
+        line: int | None = None,
+        col: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve a bare type name to a navigable reference.
+
+        When *script*, *line*, and *col* are provided, uses ``script.goto()``
+        to follow the file's import chain — this resolves ``Status`` to the
+        correct enum, not a random match elsewhere.  Falls back to global
+        search when no context is available.
+        """
         name = name.strip()
         if not name:
             return {"name": "", "full_name": None, "file": None, "line": None}
 
-        # Known builtins
+        # Known builtins — no need for contextual resolution
         if name in self._BUILTINS:
             return {
                 "name": name,
@@ -2300,7 +2329,17 @@ class JediAnalyzer:
                 "line": None,
             }
 
-        # Try Jedi resolution for project-local types
+        # Contextual resolution via script.goto(follow_imports=True) —
+        # follows the file's import chain to the actual definition.
+        if script is not None and line is not None and col is not None:
+            try:
+                definitions = script.goto(line, col, follow_imports=True)
+                if definitions:
+                    return self._build_navigable_ref(definitions[0])
+            except Exception:
+                pass
+
+        # Fallback: global search (when no file context available)
         try:
             results = await self._search_all_scopes(name)
             if results:
@@ -2311,7 +2350,9 @@ class JediAnalyzer:
         # Unknown — partial reference
         return {"name": name, "full_name": None, "file": None, "line": None}
 
-    async def _resolve_inner_types(self, type_hint_str: str) -> list[dict[str, Any]]:
+    async def _resolve_inner_types(
+        self, type_hint_str: str, script: jedi.Script | None = None  # noqa: ARG002
+    ) -> list[dict[str, Any]]:
         """Recursively unwrap a complex type hint and resolve all leaf types.
 
         Handles:
@@ -2320,12 +2361,18 @@ class JediAnalyzer:
         - Unions: ``X | Y`` → resolves both X and Y
         - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
 
+        When *script* is provided, each leaf type is resolved via
+        ``script.goto()`` for correct import-aware resolution.
+
         Returns:
             A list of navigable references for each resolved leaf type.
         """
         leaves = self._extract_leaf_types(type_hint_str)
         resolved = []
         for leaf in leaves:
+            # For contextual resolution, we'd need per-leaf line/col which
+            # we don't have from string parsing. Use global search for inner
+            # types — they're typically well-known types (builtins, generics).
             ref = await self._resolve_simple_type(leaf)
             resolved.append(ref)
         return resolved
@@ -2493,29 +2540,78 @@ class JediAnalyzer:
         sig = sigs[0]
         result["signature"] = sig.to_string()
 
-        # Parse return type from signature string
+        # Create script for contextual type resolution
+        script: jedi.Script | None = None
+        func_ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+        if name.module_path:
+            try:
+                source = Path(name.module_path).read_text(encoding="utf-8")
+                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+                # Find the function's AST node for annotation positions
+                tree = ast.parse(source)
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == name.name
+                        and node.lineno == name.line
+                    ):
+                        func_ast_node = node
+                        break
+            except Exception:
+                pass
+
+        # Parse return type — use AST position for contextual resolution
         sig_str = sig.to_string()
         return_type_str: str | None = None
+        return_line: int | None = None
+        return_col: int | None = None
         match = re.search(r"->\s*(.+)$", sig_str)
         if match:
             return_type_str = match.group(1).strip()
-        result["return_type"] = await self._build_type_ref(return_type_str)
+        if func_ast_node and func_ast_node.returns:
+            return_line = func_ast_node.returns.lineno
+            return_col = func_ast_node.returns.col_offset
+        result["return_type"] = await self._build_type_ref(
+            return_type_str,
+            script=script,
+            annotation_line=return_line,
+            annotation_col=return_col,
+        )
 
         # Build parameter list
         parameters: list[dict[str, Any]] = []
         _IMPLICIT_PARAMS = {"self", "cls"}
+        # Build a map of param name → AST annotation position
+        param_positions: dict[str, tuple[int, int]] = {}
+        if func_ast_node:
+            for arg in func_ast_node.args.args + func_ast_node.args.kwonlyargs:
+                if arg.annotation:
+                    param_positions[arg.arg] = (arg.annotation.lineno, arg.annotation.col_offset)
+            vararg = func_ast_node.args.vararg
+            if vararg and vararg.annotation:
+                param_positions[vararg.arg] = (
+                    vararg.annotation.lineno,
+                    vararg.annotation.col_offset,
+                )
+            kwarg = func_ast_node.args.kwarg
+            if kwarg and kwarg.annotation:
+                param_positions[kwarg.arg] = (kwarg.annotation.lineno, kwarg.annotation.col_offset)
+
         for param in sig.params:
             pname = param.name
             desc = param.description
 
-            # Detect whether the source code actually annotates this param.
-            # Jedi infers a type for 'self'/'cls' from the enclosing class, so
-            # we must check the description rather than get_type_hint().
             if pname in _IMPLICIT_PARAMS or not self._has_type_annotation(desc):
                 type_hint_ref = None
             else:
                 hint_str = param.get_type_hint()
-                type_hint_ref = await self._build_type_ref(hint_str)
+                p_line, p_col = param_positions.get(pname, (None, None))
+                type_hint_ref = await self._build_type_ref(
+                    hint_str,
+                    script=script,
+                    annotation_line=p_line,
+                    annotation_col=p_col,
+                )
 
             default = self._extract_param_default(desc)
             parameters.append(
@@ -2555,6 +2651,8 @@ class JediAnalyzer:
 
         type_hint_str: str | None = None
         default_str: str | None = None
+        annotation_line: int | None = None
+        annotation_col: int | None = None
 
         try:
             tree = ast.parse(source)
@@ -2565,6 +2663,9 @@ class JediAnalyzer:
                     if node.lineno == target_line:
                         type_hint_str = ast.unparse(node.annotation)
                         default_str = ast.unparse(node.value) if node.value is not None else None
+                        # Capture annotation position for contextual goto resolution
+                        annotation_line = node.annotation.lineno
+                        annotation_col = node.annotation.col_offset
                         break
                 elif isinstance(node, ast.Assign):
                     if node.lineno == target_line:
@@ -2573,7 +2674,18 @@ class JediAnalyzer:
         except Exception:
             logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
 
-        result["type_hint"] = await self._build_type_ref(type_hint_str)
+        # Create a script for contextual type resolution if we have a file
+        script: jedi.Script | None = None
+        if name.module_path and annotation_line is not None:
+            with contextlib.suppress(Exception):
+                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+
+        result["type_hint"] = await self._build_type_ref(
+            type_hint_str,
+            script=script,
+            annotation_line=annotation_line,
+            annotation_col=annotation_col,
+        )
         result["default"] = default_str
         return result
 

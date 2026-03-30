@@ -400,7 +400,7 @@ class TestClassResultShape:
         assert result["name"] == "ServiceManager"
         assert "ServiceManager" in result["full_name"]
         assert result["file"].endswith("models.py")
-        assert result["line"] == 27
+        assert result["line"] == 29
         assert result["column"] is not None
         assert result["docstring"] is not None
         assert "_resolved_via" not in result

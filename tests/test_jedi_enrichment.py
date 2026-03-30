@@ -276,7 +276,7 @@ async def test_enrich_method_typed_params_and_defaults(analyzer: JediAnalyzer) -
     assert result["file"] is not None
     assert result["file"].endswith("models.py")
     assert "\\" not in result["file"], "File must use POSIX path"
-    assert result["line"] == 34
+    assert result["line"] == 36
 
     # Signature should include param with type and default
     assert result["signature"] is not None
