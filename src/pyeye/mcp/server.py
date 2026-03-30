@@ -52,8 +52,7 @@ from ..settings import settings
 from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
