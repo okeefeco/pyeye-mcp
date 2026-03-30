@@ -904,7 +904,12 @@ class JediAnalyzer:
         return results
 
     async def get_type_info(
-        self, file: str, line: int, column: int, detailed: bool = False
+        self,
+        file: str,
+        line: int,
+        column: int,
+        detailed: bool = False,
+        fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Get type information at a specific position.
 
@@ -913,6 +918,9 @@ class JediAnalyzer:
             line: Line number (1-indexed)
             column: Column number (0-indexed)
             detailed: Include additional information like methods and attributes
+            fields: Optional list of top-level fields to include in response.
+                   Valid fields: position, inferred_types, docstring
+                   Example: ["position", "docstring"] returns only those fields
 
         Returns:
             Type information including inferred type, docstring, and for classes:
@@ -981,10 +989,16 @@ class JediAnalyzer:
 
                 result["inferred_types"].append(type_info)
 
+            # Apply field filtering if requested
+            if fields is not None:
+                from ..mcp.server import filter_fields
+
+                result = filter_fields(result, fields)  # type: ignore[assignment]
+
             return result
 
-        except FileAccessError:
-            raise  # Re-raise file access errors
+        except (FileAccessError, ValueError):
+            raise  # Re-raise file access errors and validation errors
         except Exception as e:
             logger.error(f"Error getting type info: {e}")
             raise AnalysisError(

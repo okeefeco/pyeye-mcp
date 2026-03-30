@@ -27,7 +27,8 @@ repos:
         # Ignored vulnerabilities (tracked in GitHub issues):
         # - GHSA-4xh5-x5gv-qwph: pip vulnerability, awaiting pip 25.3
         # - CVE-2025-69872: diskcache pickle deserialization, no fix available (issue #289)
-        entry: uv run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872
+        # - CVE-2026-4539: pygments vulnerability, no fix available yet (latest is 2.19.2)
+        entry: uv run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'

@@ -28,8 +28,8 @@
       "name": "pyeye",
       "repository": "https://github.com/okeefeco/pyeye-mcp",
       "source": {
-        "repo": "okeefeco/pyeye-mcp",
-        "source": "github"
+        "source": "url",
+        "url": "https://github.com/okeefeco/pyeye-mcp.git"
       },
       "version": "1.0.0"
     }
