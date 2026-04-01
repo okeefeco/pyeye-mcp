@@ -817,8 +817,40 @@ async def get_performance_metrics(
     return metrics.get_performance_report()
 
 
+async def get_connection_diagnostics() -> dict[str, Any]:
+    """Get connection lifecycle diagnostics for debugging disconnects.
+
+    Returns:
+        Dictionary with connection diagnostics including:
+        - Connection uptime and idle time
+        - Recent connection events
+        - Error summary and patterns
+        - Signal handler status
+    """
+    from .connection_diagnostics import get_diagnostics
+    from .error_tracker import get_error_tracker
+
+    diagnostics = get_diagnostics()
+    error_tracker = get_error_tracker()
+
+    # Get summaries
+    conn_summary = diagnostics.get_summary()
+    error_summary = error_tracker.get_error_summary()
+
+    # Check for error patterns
+    pattern_warning = error_tracker.check_error_pattern()
+
+    return {
+        "connection": conn_summary,
+        "errors": error_summary,
+        "pattern_warning": pattern_warning,
+        "status": "healthy" if not pattern_warning else "warning",
+    }
+
+
 if settings.enable_performance_metrics:
     mcp.tool()(get_performance_metrics)
+    mcp.tool()(get_connection_diagnostics)
 
 
 # Workflow Resources
@@ -940,10 +972,26 @@ def get_code_review_pr_workflow() -> str:
 if __name__ == "__main__":
     import atexit
 
+    from .connection_diagnostics import (
+        get_diagnostics,
+        log_connection_end,
+        log_connection_start,
+        setup_signal_handlers,
+        start_heartbeat_monitor,
+    )
+    from .error_tracker import get_error_tracker
+
     # Set up logging
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+
+    # Initialize connection diagnostics
+    setup_signal_handlers()
+    log_connection_start()
+
+    # Start heartbeat monitor (logs every 30 seconds)
+    start_heartbeat_monitor(interval_seconds=30)
 
     # Initialize unified metrics session
     ensure_unified_session()
@@ -951,15 +999,45 @@ if __name__ == "__main__":
     # Cleanup on exit
     def cleanup() -> None:
         """Clean up all projects and watchers on exit."""
-        from .unified_metrics import get_unified_collector
+        diagnostics = get_diagnostics()
+        error_tracker = get_error_tracker()
+
+        # Log final diagnostic summary
+        logger.info("=" * 60)
+        logger.info("SHUTDOWN DIAGNOSTICS")
+        logger.info("=" * 60)
+
+        # Connection diagnostics
+        conn_summary = diagnostics.get_summary()
+        logger.info(f"Connection uptime: {conn_summary['uptime_seconds']:.1f} seconds")
+        logger.info(f"Total connection events: {conn_summary['total_events']}")
+        logger.info(f"Final idle time: {conn_summary['idle_seconds']:.1f} seconds")
+
+        # Error diagnostics
+        error_summary = error_tracker.get_error_summary()
+        logger.info(f"Total errors: {error_summary['total_errors']}")
+        logger.info(f"Error types: {error_summary['error_counts_by_type']}")
+
+        # Check for patterns
+        pattern_warning = error_tracker.check_error_pattern()
+        if pattern_warning:
+            logger.warning(f"Error pattern detected: {pattern_warning}")
+
+        logger.info("=" * 60)
 
         # End unified metrics session
+        from .unified_metrics import get_unified_collector
+
         collector = get_unified_collector()
         collector.end_session()
 
+        # Cleanup projects
         manager = get_project_manager()
         manager.cleanup_all()
         logger.info("Cleaned up all projects and watchers")
+
+        # Log connection end
+        log_connection_end("normal_shutdown")
 
     atexit.register(cleanup)
 
@@ -970,4 +1048,12 @@ if __name__ == "__main__":
     logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
 
     # Run the server
-    mcp.run()
+    try:
+        mcp.run()
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt")
+        log_connection_end("keyboard_interrupt")
+    except Exception as e:
+        logger.error(f"Server crashed with error: {e}", exc_info=True)
+        log_connection_end(f"crash: {type(e).__name__}")
+        raise
