@@ -95,23 +95,25 @@ def setup_signal_handlers() -> None:
         """Handle SIGTERM - client requested shutdown."""
         diagnostics.log_event("signal_received", f"SIGTERM (signal {signum})")
         logger.warning("Received SIGTERM - client likely disconnected")
-        # Allow normal cleanup to proceed
-        sys.exit(0)
+        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
+        # The SIGTERM will naturally terminate the process after cleanup
 
     def handle_sigpipe(signum: int, _frame: Any) -> None:
         """Handle SIGPIPE - broken pipe (client disconnected)."""
         diagnostics.log_event("signal_received", f"SIGPIPE (signal {signum})")
         logger.error("Received SIGPIPE - stdio pipe broken, client disconnected unexpectedly")
-        # Log diagnostic summary before exit
+        # Log diagnostic summary
         summary = diagnostics.get_summary()
         logger.error(f"Connection summary at disconnect: {summary}")
-        sys.exit(1)
+        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
+        # The SIGPIPE will naturally terminate the process after cleanup
 
     def handle_sighup(signum: int, _frame: Any) -> None:
         """Handle SIGHUP - hangup (terminal closed)."""
         diagnostics.log_event("signal_received", f"SIGHUP (signal {signum})")
         logger.warning("Received SIGHUP - terminal hangup")
-        sys.exit(0)
+        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
+        # The SIGHUP will naturally terminate the process after cleanup
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, handle_sigterm)

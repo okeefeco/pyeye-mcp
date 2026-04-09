@@ -4,6 +4,7 @@ This module provides automatic metrics collection for all MCP operations
 by hooking into the server's execution flow.
 """
 
+import asyncio
 import functools
 import logging
 import time
@@ -52,7 +53,6 @@ def track_mcp_operation(tool_name: str | None = None) -> Callable[[F], F]:
     """
 
     def decorator(func: F) -> F:
-        import asyncio
 
         # Determine the actual tool name
         actual_tool_name = tool_name or func.__name__
@@ -77,6 +77,18 @@ def track_mcp_operation(tool_name: str | None = None) -> Callable[[F], F]:
                 try:
                     result = await func(*args, **kwargs)
                     return result
+                except asyncio.CancelledError:
+                    # Log cancellation to diagnostics
+                    try:
+                        from pyeye.mcp.connection_diagnostics import get_diagnostics
+
+                        diagnostics = get_diagnostics()
+                        diagnostics.log_event("request_cancelled", actual_tool_name)
+                        logger.info(f"Tool '{actual_tool_name}' was cancelled by client")
+                    except ImportError:
+                        pass
+                    success = False
+                    raise
                 except Exception as e:
                     success = False
                     error = e
