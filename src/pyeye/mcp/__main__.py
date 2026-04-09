@@ -55,7 +55,8 @@ def _configure_logging() -> None:
     logger.info("Log level: %s", log_level_str)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point for the PyEye MCP server."""
     import atexit
 
     _configure_logging()
@@ -147,3 +148,7 @@ if __name__ == "__main__":
         logger.error(f"Server crashed with error: {e}", exc_info=True)
         log_connection_end(f"crash: {type(e).__name__}")
         raise
+
+
+if __name__ == "__main__":
+    main()
