@@ -2,11 +2,12 @@
   "mcpServers": {
     "pyeye": {
       "args": [
-        "--from",
+        "run",
+        "--project",
         "${CLAUDE_PLUGIN_ROOT}",
         "pyeye-mcp"
       ],
-      "command": "uvx"
+      "command": "uv"
     }
   }
 }

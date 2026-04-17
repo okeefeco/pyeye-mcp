@@ -5,6 +5,7 @@
   },
   "description": "Semantic Python code analysis MCP server - find symbols, navigate definitions, trace call hierarchies, and understand code structure",
   "homepage": "https://github.com/okeefeco/pyeye-mcp",
+  "hooks": "./hooks/hooks.json",
   "keywords": [
     "python",
     "code-analysis",
