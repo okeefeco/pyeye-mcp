@@ -1,5 +1,6 @@
 """Main MCP server implementation for PyEye."""
 
+import builtins
 import logging
 from pathlib import Path
 from typing import Any
@@ -49,9 +50,9 @@ from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
+from .lookup import lookup as _lookup_impl
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
@@ -278,7 +279,7 @@ def configure_packages(
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
-        "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
+        "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
 
 
@@ -293,6 +294,9 @@ async def find_symbol(
     scope: str = "all",
 ) -> list[dict[str, Any]]:
     """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fuzzy search and scope filtering for targeted queries.
 
     Searches across the main project plus all configured additional packages
     and namespace packages. Use the scope parameter to control search breadth.
@@ -334,6 +338,8 @@ async def goto_definition(
 ) -> dict[str, Any] | None:
     """Python: Jump to where a symbol is defined from any usage location.
 
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
+
     Args:
         file: Path to the file
         line: Line number (1-indexed)
@@ -349,30 +355,95 @@ async def goto_definition(
 @metrics.measure("find_references")
 @track_mcp_operation("find_references")
 async def find_references(
-    file: str,
-    line: int,
-    column: int,
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
     project_path: str = ".",
     include_definitions: bool = True,
     include_subclasses: bool = False,
     fields: list[str] | None = None,
-) -> list[dict[str, Any]]:
+    symbol_name: str | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fields filtering, include_subclasses, and symbol_name for full reference lists.
+
+    Two calling conventions (coordinates take precedence if both provided):
+    1. Coordinates: file + line + column (precise, unambiguous)
+    2. Symbol name: symbol_name only (convenient; fails if name is ambiguous)
+
+    If symbol_name matches multiple symbols, returns error with a "matches" list
+    so you can pick the right one and retry with coordinates.
+
     Args:
-        file: Path to the file
-        line: Line number (1-indexed)
-        column: Column number (0-indexed)
+        file: Path to the file (required with line and column)
+        line: Line number (1-indexed, required with file and column)
+        column: Column number (0-indexed, required with file and line)
+        symbol_name: Symbol name (alternative to file+line+column)
         project_path: Root path of the project
         include_definitions: Include definitions in results
         include_subclasses: Also find references to all subclasses (polymorphic search)
-        fields: Optional list of fields to include in each reference dict.
-               Valid fields: name, type, line, column, description, full_name, file, is_definition
-               Examples:
-               - fields=["file", "line", "name"] - Only file, line, and name
-               - fields=["file", "line", "column"] - Only location information
-               - fields=None (default) - All fields included
+        fields: Fields to include per reference. Valid: name, type, line, column,
+               description, full_name, file, is_definition. Default: all fields.
     """
+    # Validate input: determine which branch to use
+    all_coords = file is not None and line is not None and column is not None
+    any_coord = file is not None or line is not None or column is not None
+
+    if all_coords:
+        # Branch 1: All coordinates present — use them directly (ignore symbol_name)
+        pass
+    elif any_coord:
+        # Branch 3: Some but not all coordinates provided (checked before symbol_name)
+        return {
+            "error": "Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead"
+        }
+    elif symbol_name is not None:
+        # Branch 2: Symbol name provided (no coordinates) — resolve to coordinates
+        _sym_analyzer = get_analyzer(project_path)
+        symbol_results = await _sym_analyzer.find_symbol(
+            symbol_name, fuzzy=False, include_import_paths=True, scope="all"
+        )
+        # If symbol_name is a full dotted path (contains dots) and multiple results came
+        # back, narrow to exact full_name match before disambiguation.
+        if "." in symbol_name and len(symbol_results) > 1:
+            fqn_matches = [r for r in symbol_results if r.get("full_name") == symbol_name]
+            if fqn_matches:
+                symbol_results = fqn_matches
+
+        if len(symbol_results) == 0:
+            if hasattr(builtins, symbol_name):
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            return {"error": f"No symbol found matching '{symbol_name}'"}
+        elif len(symbol_results) == 1:
+            match = symbol_results[0]
+            if "file" not in match:
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            # Set coordinates and fall through to the existing resolution code
+            file = match["file"]
+            line = match["line"]
+            column = match["column"]
+        else:
+            # Multiple matches — return disambiguation response
+            return {
+                "error": f"Multiple symbols found matching '{symbol_name}'. Specify file, line, and column to disambiguate.",
+                "matches": symbol_results,
+            }
+    else:
+        # Branch 4: Neither coordinates nor symbol_name provided
+        return {"error": "Either symbol_name or file+line+column required"}
+
+    # At this point, all three coordinates are guaranteed non-None
+    # (either provided directly or resolved from symbol_name).
+    assert file is not None
+    assert line is not None
+    assert column is not None
+
     analyzer = get_analyzer(project_path)
     result = await analyzer.find_references(
         file, line, column, include_definitions, include_subclasses
@@ -398,6 +469,9 @@ async def get_type_info(
     fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides detailed mode and fields filtering for targeted queries.
 
     Args:
         file: Path to the file
@@ -436,6 +510,8 @@ async def get_type_info(
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Python: Find all files that import a specific module.
 
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
+
     Args:
         module_name: Name of the module to find imports for
         project_path: Root path of the project
@@ -452,6 +528,9 @@ async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
     """Python: Trace function callers and callees through the codebase.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides full call graph traversal beyond the default limit.
 
     Args:
         function_name: Name of the function
@@ -540,6 +619,9 @@ async def analyze_dependencies(
 ) -> dict[str, Any]:
     """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides circular dependency detection and scope filtering for targeted queries.
+
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
         project_path: Root path of the project
@@ -570,6 +652,8 @@ async def analyze_dependencies(
 @track_mcp_operation("get_module_info")
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Python: Get module exports, classes, functions, and complexity metrics.
+
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -655,6 +739,9 @@ async def find_subclasses(
 ) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides show_hierarchy and indirect inheritance chains for targeted queries.
+
     Args:
         base_class: Name of the base class to find subclasses for
         project_path: Root path of the project
@@ -678,6 +765,32 @@ async def find_subclasses(
             file_path=project_path,
             error=str(e),
         ) from e
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("lookup")
+@track_mcp_operation("lookup")
+async def lookup(
+    identifier: str | None = None,
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
+    project_path: str = ".",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Python: Look up any identifier — name, full dotted path, file path, or coordinates.
+
+    Returns comprehensive structural information about the resolved Python object.
+    """
+    return await _lookup_impl(
+        identifier=identifier,
+        file=file,
+        line=line,
+        column=column,
+        project_path=project_path,
+        limit=limit,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)
@@ -704,8 +817,40 @@ async def get_performance_metrics(
     return metrics.get_performance_report()
 
 
+async def get_connection_diagnostics() -> dict[str, Any]:
+    """Get connection lifecycle diagnostics for debugging disconnects.
+
+    Returns:
+        Dictionary with connection diagnostics including:
+        - Connection uptime and idle time
+        - Recent connection events
+        - Error summary and patterns
+        - Signal handler status
+    """
+    from .connection_diagnostics import get_diagnostics
+    from .error_tracker import get_error_tracker
+
+    diagnostics = get_diagnostics()
+    error_tracker = get_error_tracker()
+
+    # Get summaries
+    conn_summary = diagnostics.get_summary()
+    error_summary = error_tracker.get_error_summary()
+
+    # Check for error patterns
+    pattern_warning = error_tracker.check_error_pattern()
+
+    return {
+        "connection": conn_summary,
+        "errors": error_summary,
+        "pattern_warning": pattern_warning,
+        "status": "healthy" if not pattern_warning else "warning",
+    }
+
+
 if settings.enable_performance_metrics:
     mcp.tool()(get_performance_metrics)
+    mcp.tool()(get_connection_diagnostics)
 
 
 # Workflow Resources
@@ -823,38 +968,13 @@ def get_code_review_pr_workflow() -> str:
     return load_workflow("code_review_pr")
 
 
-# Main entry point
-if __name__ == "__main__":
-    import atexit
+# Export for __main__.py
+def get_unified_collector() -> Any:
+    """Get the unified metrics collector.
 
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    Returns:
+        Unified metrics collector instance
+    """
+    from .unified_metrics import get_unified_collector as _get_collector
 
-    # Initialize unified metrics session
-    ensure_unified_session()
-
-    # Cleanup on exit
-    def cleanup() -> None:
-        """Clean up all projects and watchers on exit."""
-        from .unified_metrics import get_unified_collector
-
-        # End unified metrics session
-        collector = get_unified_collector()
-        collector.end_session()
-
-        manager = get_project_manager()
-        manager.cleanup_all()
-        logger.info("Cleaned up all projects and watchers")
-
-    atexit.register(cleanup)
-
-    # Initialize plugins for current directory
-    initialize_plugins(".")
-
-    logger.info("Starting PyEye Server with file watching")
-    logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
-
-    # Run the server
-    mcp.run()
+    return _get_collector()

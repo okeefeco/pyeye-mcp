@@ -342,7 +342,13 @@ def validate_mcp_inputs(func: Any) -> Any:
                     ) from e
 
             # Module/identifier name validation
-            elif param_name in ["name", "module_name", "function_name", "import_path"]:
+            elif param_name in [
+                "name",
+                "module_name",
+                "function_name",
+                "import_path",
+                "symbol_name",
+            ]:
                 try:
                     # Special handling for find_symbol: allow compound symbols (dots)
                     if param_name == "name" and func_name == "find_symbol":
@@ -353,7 +359,8 @@ def validate_mcp_inputs(func: Any) -> Any:
                     else:
                         # Standard validation for other cases
                         bound.arguments[param_name] = InputValidator.validate_identifier(
-                            value, allow_dots=param_name in ["module_name", "import_path"]
+                            value,
+                            allow_dots=param_name in ["module_name", "import_path", "symbol_name"],
                         )
                 except ValidationError as e:
                     raise ValidationError(

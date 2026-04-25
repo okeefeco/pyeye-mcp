@@ -1,6 +1,7 @@
 """Jedi-based analyzer for PyEye."""
 
 import ast
+import contextlib
 import logging
 import os
 import re
@@ -14,6 +15,7 @@ from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..import_analyzer import ImportAnalyzer
+from ..path_utils import paths_equal
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -33,12 +35,22 @@ Scope = str | list[str]
 class JediAnalyzer:
     """Wrapper around Jedi for semantic Python analysis."""
 
-    def __init__(self, project_path: str = ".", config: ProjectConfig | None = None):
+    def __init__(
+        self,
+        project_path: str = ".",
+        config: ProjectConfig | None = None,
+        namespace_config: dict[str, list[str]] | None = None,
+    ):
         """Initialize the Jedi analyzer.
 
         Args:
             project_path: Root path of the project to analyze
             config: Optional project configuration for smart defaults
+            namespace_config: Optional namespace package mappings
+                (``{"ns_name": ["repo_root_path", ...]}``) to include in
+                the Jedi project's ``added_sys_path`` at init time.  This
+                ensures ``full_name`` values include the namespace prefix
+                from the very first query.
 
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
@@ -64,37 +76,56 @@ class JediAnalyzer:
         if not self.project_path.exists():
             raise ProjectNotFoundError(self.project_path.as_posix())
 
+        # Apply namespace_config immediately so namespace_paths is populated
+        # before the Jedi project is created.
+        if namespace_config:
+            self.namespace_paths = {
+                ns: [Path(p) for p in paths] for ns, paths in namespace_config.items()
+            }
+
         try:
-            # Get additional sys paths from config (e.g., src/ layout detection)
-            added_sys_path: list[str] | None = None
+            # Get additional sys paths from config (e.g., src/ layout, sibling packages)
+            added_sys_path: list[str] = []
             if config:
                 package_paths = config.get_package_paths()
-                # Filter to paths that are subdirectories of the project (like src/)
-                # These need to be added to sys.path for proper module resolution
-                additional = []
-                # Resolve project path for consistent comparison (handles Windows short paths)
                 resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    # Skip the project path itself and external paths
-                    if pkg != resolved_project and self._is_subpath(pkg, resolved_project):
-                        additional.append(pkg.as_posix())
+                    if pkg != resolved_project and pkg.exists():
+                        added_sys_path.append(pkg.as_posix())
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if additional:
-                    added_sys_path = additional
-                    # Store source roots for use in import path computation
-                    self.source_roots = [Path(p) for p in additional]
+                if added_sys_path:
+                    self.source_roots = [
+                        Path(p)
+                        for p in added_sys_path
+                        if self._is_subpath(Path(p), resolved_project)
+                    ]
 
-            # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
-            # Using as_posix() ensures cross-platform compatibility with forward slashes
-            # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
+            # Add namespace repo roots to Jedi's sys_path so full_name values
+            # include the namespace prefix from the first query.
+            for ns_paths in self.namespace_paths.values():
+                for ns_path in ns_paths:
+                    resolved = ns_path.resolve()
+                    if resolved.exists() and resolved.as_posix() not in added_sys_path:
+                        added_sys_path.append(resolved.as_posix())
+                        logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
+
+            # When the project_path IS a Python package (has __init__.py),
+            # Jedi must be rooted at the PARENT so that the package name is
+            # included in full_name values.
+            jedi_root = self.project_path.resolve()
+            self._jedi_root_is_parent = False
+            if (jedi_root / "__init__.py").exists():
+                jedi_root = jedi_root.parent
+                self._jedi_root_is_parent = True
+
             if added_sys_path:
                 self.project = jedi.Project(
-                    path=self.project_path.as_posix(),
+                    path=jedi_root.as_posix(),
                     added_sys_path=added_sys_path,
                 )
             else:
-                self.project = jedi.Project(path=self.project_path.as_posix())
+                self.project = jedi.Project(path=jedi_root.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -117,6 +148,13 @@ class JediAnalyzer:
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
 
+        For namespace packages (no ``__init__.py``), the parent directories of
+        each namespace path must be in Jedi's ``added_sys_path`` so that Jedi
+        resolves ``full_name`` values with the namespace prefix.  For example,
+        if namespace ``aac`` has path ``/repos/aac-catalog/aac/logical/``, then
+        ``/repos/aac-catalog/`` must be in Jedi's sys path so Jedi reports
+        ``aac.logical.patterns.X`` instead of ``logical.patterns.X``.
+
         Args:
             namespaces: Dictionary mapping namespace names to their paths
         """
@@ -125,6 +163,30 @@ class JediAnalyzer:
         self._update_validator()
         # Invalidate lazy loader cache when namespaces change
         self.lazy_loader.invalidate()
+
+        # Add namespace repo roots to Jedi's sys_path so full_name values
+        # include the namespace prefix.  The declared paths in .pyeye.json are
+        # repo roots that CONTAIN the namespace package directory.  E.g., for
+        # "aac": ["../aac-catalog"], the path ../aac-catalog/ contains aac/ as
+        # a subdirectory.  Adding aac-catalog/ to sys_path lets Jedi resolve
+        # "aac.logical.patterns.X" instead of just "logical.patterns.X".
+        ns_sys_paths: set[str] = set()
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                resolved = ns_path.resolve()
+                if resolved.exists():
+                    ns_sys_paths.add(resolved.as_posix())
+
+        if ns_sys_paths:
+            # Merge with existing added_sys_path and recreate the Jedi project
+            existing = list(self.project.added_sys_path or [])
+            merged = list(set(existing) | ns_sys_paths)
+            jedi_root = self.project.path
+            self.project = jedi.Project(
+                path=str(jedi_root),
+                added_sys_path=merged,
+            )
+            logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
         """Set standalone script directories.
@@ -169,15 +231,50 @@ class JediAnalyzer:
         search_paths = await self._resolve_scope_to_paths(effective_scope)
 
         results: list[Any] = []
-        seen: set[tuple[str, str, int]] = set()
+        seen: set[tuple[str, str | None, int]] = set()
+
+        # Map namespace subdirectory paths back to their repo roots.
+        # _resolve_scope_to_paths returns subdirectories (e.g., aac-modules/aac/)
+        # but Jedi projects should be rooted at the repo root (aac-modules/)
+        # so full_name includes the namespace prefix.
+        ns_roots: dict[Path, Path] = {}  # subdirectory → repo root
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                repo_root = ns_path.resolve()
+                for subdir in self._get_namespace_directory_structure(ns_path):
+                    ns_roots[subdir.resolve()] = repo_root
 
         for path in search_paths:
             is_main = path == self.project_path
+            resolved_path = path.resolve()
             try:
-                project = self.project if is_main else self._get_project_for_path(path)
+                # Use the main project for the main project path.
+                # For namespace subdirectories, use a project rooted at the
+                # repo root (not the subdirectory) so Jedi reports full_name
+                # with the namespace prefix.
+                # For other paths, use per-path projects.
+                if is_main:
+                    project = self.project
+                elif resolved_path in ns_roots:
+                    project = self._get_project_for_path(ns_roots[resolved_path])
+                else:
+                    project = self._get_project_for_path(path)
 
                 for r in project.search(name, all_scopes=True):
-                    key = (r.name, str(r.module_path), r.line)
+                    # When the main Jedi root is wider than the project_path
+                    # (e.g., root moved to parent for __init__.py package prefix),
+                    # filter results to files within the actual project path.
+                    if is_main and self._jedi_root_is_parent and r.module_path:
+                        try:
+                            Path(r.module_path).relative_to(resolved_path)
+                        except ValueError:
+                            continue  # Result is outside the main project
+
+                    key = (
+                        r.name,
+                        Path(r.module_path).as_posix() if r.module_path else None,
+                        r.line,
+                    )
                     if key not in seen:
                         seen.add(key)
                         results.append(r)
@@ -1259,7 +1356,8 @@ class JediAnalyzer:
             function_def = None
             for res in search_results:
                 if res.type in ("function", "class") and (
-                    file is None or str(res.module_path) == file
+                    file is None
+                    or (res.module_path is not None and paths_equal(res.module_path, file))
                 ):
                     function_def = res
                     break
@@ -1287,6 +1385,8 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
+                                "name": ref.name,
+                                "full_name": ref.full_name,
                                 "file": (
                                     Path(ref.module_path).as_posix() if ref.module_path else None
                                 ),
@@ -1318,6 +1418,10 @@ class JediAnalyzer:
                         callees_list.append(
                             {
                                 "name": name.name,
+                                "full_name": name.full_name,
+                                "file": (
+                                    Path(name.module_path).as_posix() if name.module_path else None
+                                ),
                                 "line": name.line,
                                 "column": name.column,
                                 "type": name.type,
@@ -2084,6 +2188,531 @@ class JediAnalyzer:
 
         return info
 
+    def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Build a minimal navigable reference dict from a Jedi Name object.
+
+        Args:
+            name: A Jedi Name object from project.search() or similar.
+
+        Returns:
+            Dict with keys: name, full_name, file (POSIX or None), line.
+        """
+        return {
+            "name": name.name,
+            "full_name": name.full_name,
+            "file": Path(name.module_path).as_posix() if name.module_path else None,
+            "line": name.line,
+        }
+
+    _BUILTINS = frozenset(
+        {
+            "int",
+            "str",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "bytes",
+            "None",
+            "type",
+            "object",
+        }
+    )
+
+    # Single-arg wrappers that should be unwrapped to resolve the inner type
+    _TYPE_WRAPPERS = frozenset(
+        {
+            "ClassVar",
+            "Optional",
+            "Final",
+            "List",
+            "Sequence",
+            "Set",
+            "FrozenSet",
+            "Tuple",
+            "Type",
+            "Deque",
+            "Iterator",
+            "Iterable",
+            "AsyncIterator",
+            "AsyncIterable",
+            "Awaitable",
+            "Coroutine",
+            "Generator",
+            "AsyncGenerator",
+            # Lowercase generic forms (Python 3.9+)
+            "list",
+            "set",
+            "frozenset",
+            "tuple",
+            "type",
+        }
+    )
+
+    async def _build_type_ref(
+        self,
+        type_hint_str: str | None,
+        script: jedi.Script | None = None,
+        annotation_line: int | None = None,
+        annotation_col: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Build a navigable reference from a type hint string.
+
+        For simple types (bare names), resolves via ``script.goto()`` when
+        file context is available (follows imports correctly), falling back
+        to global search when no context is provided.
+
+        For complex types (generics, unions), returns the outer name plus
+        ``inner_types`` — a list of navigable references for each leaf type
+        found by recursively unwrapping wrappers like ClassVar, Optional, List.
+
+        Args:
+            type_hint_str: A type hint string such as ``"int"``,
+                ``"ServiceConfig"``, ``"ClassVar[Optional[Zone]]"``, or
+                ``"str | None"``. Pass *None* or empty string to get *None*.
+            script: Optional Jedi Script for contextual resolution. When
+                provided, ``script.goto()`` is used to follow the file's
+                imports instead of doing a global search.
+            annotation_line: Line number of the annotation in source (1-indexed).
+            annotation_col: Column offset of the annotation in source (0-indexed).
+
+        Returns:
+            A navigable reference dict, or *None* if *type_hint_str* is
+            None/empty.  Complex types include an ``inner_types`` list.
+        """
+        if not type_hint_str:
+            return None
+
+        # If the type string is complex (contains [ | ,) extract and resolve
+        # inner types recursively.
+        if any(ch in type_hint_str for ch in ("[", "|", ",")):
+            inner_types = await self._resolve_inner_types(type_hint_str, script)
+            return {
+                "name": type_hint_str,
+                "full_name": None,
+                "file": None,
+                "line": None,
+                "inner_types": inner_types,
+            }
+
+        # Simple name — try contextual resolution first, then global
+        return await self._resolve_simple_type(
+            type_hint_str, script, annotation_line, annotation_col
+        )
+
+    async def _resolve_simple_type(
+        self,
+        name: str,
+        script: jedi.Script | None = None,
+        line: int | None = None,
+        col: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve a bare type name to a navigable reference.
+
+        When *script*, *line*, and *col* are provided, uses ``script.goto()``
+        to follow the file's import chain — this resolves ``Status`` to the
+        correct enum, not a random match elsewhere.  Falls back to global
+        search when no context is available.
+        """
+        name = name.strip()
+        if not name:
+            return {"name": "", "full_name": None, "file": None, "line": None}
+
+        # Known builtins — no need for contextual resolution
+        if name in self._BUILTINS:
+            return {
+                "name": name,
+                "full_name": f"builtins.{name}",
+                "file": None,
+                "line": None,
+            }
+
+        # Contextual resolution via script.goto(follow_imports=True) —
+        # follows the file's import chain to the actual definition.
+        if script is not None and line is not None and col is not None:
+            try:
+                definitions = script.goto(line, col, follow_imports=True)
+                if definitions:
+                    return self._build_navigable_ref(definitions[0])
+            except Exception:
+                pass
+
+        # Fallback: global search (when no file context available)
+        try:
+            results = await self._search_all_scopes(name)
+            if results:
+                return self._build_navigable_ref(results[0])
+        except Exception:
+            pass
+
+        # Unknown — partial reference
+        return {"name": name, "full_name": None, "file": None, "line": None}
+
+    async def _resolve_inner_types(
+        self, type_hint_str: str, script: jedi.Script | None = None  # noqa: ARG002
+    ) -> list[dict[str, Any]]:
+        """Recursively unwrap a complex type hint and resolve all leaf types.
+
+        Handles:
+        - Wrappers: ``ClassVar[X]``, ``Optional[X]``, ``List[X]`` etc.
+        - Multi-arg: ``dict[K, V]`` → resolves both K and V
+        - Unions: ``X | Y`` → resolves both X and Y
+        - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
+
+        When *script* is provided, each leaf type is resolved via
+        ``script.goto()`` for correct import-aware resolution.
+
+        Returns:
+            A list of navigable references for each resolved leaf type.
+        """
+        leaves = self._extract_leaf_types(type_hint_str)
+        resolved = []
+        for leaf in leaves:
+            # For contextual resolution, we'd need per-leaf line/col which
+            # we don't have from string parsing. Use global search for inner
+            # types — they're typically well-known types (builtins, generics).
+            ref = await self._resolve_simple_type(leaf)
+            resolved.append(ref)
+        return resolved
+
+    def _extract_leaf_types(self, type_hint_str: str) -> list[str]:
+        """Extract leaf type names from a potentially nested type expression.
+
+        Recursively unwraps single-arg wrappers and splits multi-arg generics
+        and unions into individual type names.
+
+        Returns:
+            A flat list of bare type name strings (no brackets or pipes).
+        """
+        s = type_hint_str.strip()
+
+        # Handle union syntax: X | Y
+        if "|" in s and "[" not in s:
+            # Simple union without nested generics
+            return [
+                leaf for part in s.split("|") for leaf in self._extract_leaf_types(part.strip())
+            ]
+
+        # Handle union with nested generics — need bracket-aware splitting
+        if "|" in s:
+            parts = self._split_top_level(s, "|")
+            if len(parts) > 1:
+                return [leaf for part in parts for leaf in self._extract_leaf_types(part.strip())]
+
+        # Handle generic: Name[...]
+        if "[" in s:
+            outer, inner = self._split_generic(s)
+            outer = outer.strip()
+
+            if outer in self._TYPE_WRAPPERS:
+                # Single-arg wrapper — unwrap and recurse into inner
+                return self._extract_leaf_types(inner)
+            else:
+                # Multi-arg generic (e.g., dict[K, V]) — resolve each arg
+                args = self._split_top_level(inner, ",")
+                return [leaf for arg in args for leaf in self._extract_leaf_types(arg.strip())]
+
+        # Bare name — this is a leaf
+        return [s] if s else []
+
+    @staticmethod
+    def _split_generic(s: str) -> tuple[str, str]:
+        """Split 'Outer[Inner]' into ('Outer', 'Inner').
+
+        Handles nested brackets correctly.
+        """
+        idx = s.index("[")
+        outer = s[:idx]
+        # Strip the outer brackets
+        inner = s[idx + 1 :]
+        if inner.endswith("]"):
+            inner = inner[:-1]
+        return outer, inner
+
+    @staticmethod
+    def _split_top_level(s: str, delimiter: str) -> list[str]:
+        """Split a string by delimiter, respecting bracket nesting.
+
+        ``"str, dict[str, int], bool"`` split by ``,`` →
+        ``["str", "dict[str, int]", "bool"]``
+        """
+        parts: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for ch in s:
+            if ch == "[":
+                depth += 1
+                current.append(ch)
+            elif ch == "]":
+                depth -= 1
+                current.append(ch)
+            elif ch == delimiter[0] and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        remainder = "".join(current).strip()
+        if remainder:
+            parts.append(remainder)
+        return parts
+
+    @staticmethod
+    def _extract_param_default(description: str) -> str | None:
+        """Extract the default value string from a Jedi param description.
+
+        Jedi param descriptions have the format:
+        - ``param self``                      → no default
+        - ``param port: int=8080``            → default is ``"8080"``
+        - ``param name: str="default"``       → default is ``'"default"'``
+        - ``param y=10``                      → default is ``"10"``
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            The default value as a source-text string, or None if no default.
+        """
+        # Strip leading "param " prefix
+        body = description[len("param ") :].strip()
+        if ":" in body:
+            # Type-annotated: "name: type=default" or "name: type"
+            colon_idx = body.index(":")
+            after_type = body[colon_idx + 1 :].strip()
+            if "=" in after_type:
+                eq_idx = after_type.index("=")
+                return after_type[eq_idx + 1 :].strip()
+        elif "=" in body:
+            # No type annotation: "name=default"
+            eq_idx = body.index("=")
+            return body[eq_idx + 1 :].strip()
+        return None
+
+    @staticmethod
+    def _has_type_annotation(description: str) -> bool:
+        """Return True if the Jedi param description contains a type annotation.
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            True if the description includes a ``:`` annotation marker.
+        """
+        body = description[len("param ") :].strip()
+        return ":" in body
+
+    async def _enrich_method(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Extract full method details including signature, parameters, and return type.
+
+        Takes a Jedi Name object whose ``type`` is ``"function"`` and returns a
+        rich dict with navigable references for the return type and each
+        parameter's type hint.
+
+        Args:
+            name: A Jedi Name object representing a function/method.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the method's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``signature``: the full signature string (e.g. ``"start(self, port: int = 8080) -> bool"``)
+              or None if no signatures are available
+            - ``return_type``: navigable ref dict for the return type, or None
+            - ``parameters``: list of parameter dicts, each with:
+
+              - ``name``: parameter name
+              - ``type_hint``: navigable ref dict or None
+              - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        sigs = name.get_signatures()
+        if not sigs:
+            result["signature"] = None
+            result["return_type"] = None
+            result["parameters"] = []
+            return result
+
+        sig = sigs[0]
+        result["signature"] = sig.to_string()
+
+        # Create script for contextual type resolution
+        script: jedi.Script | None = None
+        func_ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+        if name.module_path:
+            try:
+                source = Path(name.module_path).read_text(encoding="utf-8")
+                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+                # Find the function's AST node for annotation positions
+                tree = ast.parse(source)
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == name.name
+                        and node.lineno == name.line
+                    ):
+                        func_ast_node = node
+                        break
+            except Exception:
+                pass
+
+        # Parse return type — use AST position for contextual resolution
+        sig_str = sig.to_string()
+        return_type_str: str | None = None
+        return_line: int | None = None
+        return_col: int | None = None
+        match = re.search(r"->\s*(.+)$", sig_str)
+        if match:
+            return_type_str = match.group(1).strip()
+        if func_ast_node and func_ast_node.returns:
+            return_line = func_ast_node.returns.lineno
+            return_col = func_ast_node.returns.col_offset
+        result["return_type"] = await self._build_type_ref(
+            return_type_str,
+            script=script,
+            annotation_line=return_line,
+            annotation_col=return_col,
+        )
+
+        # Build parameter list
+        parameters: list[dict[str, Any]] = []
+        _IMPLICIT_PARAMS = {"self", "cls"}
+        # Build a map of param name → AST annotation position
+        param_positions: dict[str, tuple[int, int]] = {}
+        if func_ast_node:
+            for arg in func_ast_node.args.args + func_ast_node.args.kwonlyargs:
+                if arg.annotation:
+                    param_positions[arg.arg] = (arg.annotation.lineno, arg.annotation.col_offset)
+            vararg = func_ast_node.args.vararg
+            if vararg and vararg.annotation:
+                param_positions[vararg.arg] = (
+                    vararg.annotation.lineno,
+                    vararg.annotation.col_offset,
+                )
+            kwarg = func_ast_node.args.kwarg
+            if kwarg and kwarg.annotation:
+                param_positions[kwarg.arg] = (kwarg.annotation.lineno, kwarg.annotation.col_offset)
+
+        for param in sig.params:
+            pname = param.name
+            desc = param.description
+
+            if pname in _IMPLICIT_PARAMS or not self._has_type_annotation(desc):
+                type_hint_ref = None
+            else:
+                hint_str = param.get_type_hint()
+                p_line, p_col = param_positions.get(pname, (None, None))
+                type_hint_ref = await self._build_type_ref(
+                    hint_str,
+                    script=script,
+                    annotation_line=p_line,
+                    annotation_col=p_col,
+                )
+
+            default = self._extract_param_default(desc)
+            parameters.append(
+                {
+                    "name": pname,
+                    "type_hint": type_hint_ref,
+                    "default": default,
+                }
+            )
+
+        result["parameters"] = parameters
+        return result
+
+    async def _enrich_attribute(self, name: jedi.api.classes.Name, source: str) -> dict[str, Any]:
+        """Extract attribute details including type hint and default value.
+
+        Takes a Jedi Name object whose ``type`` is ``"statement"`` or
+        ``"instance"`` (a module-level or class-level attribute) and returns a
+        rich dict by parsing the enclosing source text to extract the annotation
+        and default value.
+
+        Args:
+            name: A Jedi Name object representing an attribute.
+            source: The full source text of the module containing the attribute.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the attribute's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        type_hint_str: str | None = None
+        default_str: str | None = None
+        annotation_line: int | None = None
+        annotation_col: int | None = None
+
+        try:
+            tree = ast.parse(source)
+            target_line = name.line  # 1-based
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign) and node.col_offset >= 0:
+                    if node.lineno == target_line:
+                        type_hint_str = ast.unparse(node.annotation)
+                        default_str = ast.unparse(node.value) if node.value is not None else None
+                        # Capture annotation position for contextual goto resolution
+                        annotation_line = node.annotation.lineno
+                        annotation_col = node.annotation.col_offset
+                        break
+                elif isinstance(node, ast.Assign):
+                    if node.lineno == target_line:
+                        default_str = ast.unparse(node.value)
+                        break
+        except Exception:
+            logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
+
+        # Create a script for contextual type resolution if we have a file
+        script: jedi.Script | None = None
+        if name.module_path and annotation_line is not None:
+            with contextlib.suppress(Exception):
+                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+
+        result["type_hint"] = await self._build_type_ref(
+            type_hint_str,
+            script=script,
+            annotation_line=annotation_line,
+            annotation_col=annotation_col,
+        )
+        result["default"] = default_str
+        return result
+
+    async def _get_module_variables(self, script: jedi.Script, source: str) -> list[dict[str, Any]]:
+        """Extract module-level variable assignments with type hints and defaults.
+
+        Returns enriched dicts for all top-level variable statements in the
+        module, excluding class/function definitions and import statements.
+
+        Args:
+            script: A Jedi Script object for the module to inspect.
+            source: The full source text of the module.
+
+        Returns:
+            A list of dicts, each with keys:
+
+            - ``name``: the variable's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        names = script.get_names(all_scopes=False)
+        variables = [n for n in names if n.type == "statement" and n.is_definition()]
+        return [await self._enrich_attribute(name, source) for name in variables]
+
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
@@ -2277,9 +2906,9 @@ class JediAnalyzer:
             # Single pass: parse each file once, extract all class info
             # Maps class simple name -> list of (node, tree, file) for cross-file lookups
             classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
-            # Maps FQN -> (node, tree, file) for deduplication
+            # Maps full_name -> (node, tree, file) for deduplication
             classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-            # Maps parent name -> set of child FQNs (for indirect traversal)
+            # Maps parent name -> set of child full_names (for indirect traversal)
             parent_to_children: dict[str, set[str]] = {}
 
             for py_file in py_files:
@@ -2639,7 +3268,7 @@ class JediAnalyzer:
             class_def: The Jedi class definition (Name object)
 
         Returns:
-            Tuple of (base_classes, mro) where both are lists of fully qualified names
+            Tuple of (base_classes, mro) where both are lists of full dotted paths
         """
         base_classes: list[str] = []
         mro: list[str] = []
@@ -2707,7 +3336,7 @@ class JediAnalyzer:
                 # Use py__mro__() to discover all classes in the hierarchy
                 mro_classes = list(value.py__mro__())
 
-                # Build name->FQN mapping and bases graph from Jedi values
+                # Build name->full_name mapping and bases graph from Jedi values
                 name_to_fqn: dict[str, str] = {}
                 bases_map: dict[str, list[str]] = {}
 
@@ -2716,7 +3345,7 @@ class JediAnalyzer:
                     if not cls_name:
                         continue
 
-                    # Build FQN
+                    # Build full_name
                     fqn = cls_name
                     module = cls.get_root_context()
                     if hasattr(module, "py__name__"):
@@ -2748,7 +3377,7 @@ class JediAnalyzer:
                 # Compute correct C3 linearization
                 c3_order = self._c3_linearize(root_name, bases_map)
 
-                # Convert to FQNs
+                # Convert to full dotted paths
                 mro = [name_to_fqn.get(name, name) for name in c3_order]
 
                 if mro:
@@ -2816,11 +3445,11 @@ class JediAnalyzer:
         """Extract direct base class names using Parso AST parsing.
 
         Args:
-            script: The Jedi script instance (for resolving base class FQNs)
+            script: The Jedi script instance (for resolving base class full dotted paths)
             class_def: A Jedi Name object for a class
 
         Returns:
-            List of fully qualified base class names
+            List of full dotted base class names
         """
         base_classes: list[str] = []
 
@@ -2885,7 +3514,7 @@ class JediAnalyzer:
                             ):
                                 base_nodes.append(arg)
 
-            # Resolve each base node to a FQN
+            # Resolve each base node to a full dotted path
             for node in base_nodes:
                 base_name = self._resolve_base_node(script, node)
                 if base_name:
@@ -2897,7 +3526,7 @@ class JediAnalyzer:
         return base_classes
 
     def _resolve_base_node(self, script: jedi.Script, node: Any) -> str | None:
-        """Resolve a Parso base class node to a fully qualified name.
+        """Resolve a Parso base class node to a full dotted name.
 
         Tries Jedi inference first, falls back to AST extraction.
 
@@ -2906,7 +3535,7 @@ class JediAnalyzer:
             node: A Parso AST node for a base class reference
 
         Returns:
-            Fully qualified name string, or None
+            Full dotted name string, or None
         """
         try:
             base_line = node.start_pos[0]

@@ -17,5 +17,5 @@
   "mcpServers": "./.mcp.json",
   "name": "pyeye",
   "repository": "https://github.com/okeefeco/pyeye-mcp",
-  "version": "1.0.0"
+  "version": "1.0.2"
 }
