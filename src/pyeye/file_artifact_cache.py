@@ -23,6 +23,18 @@ Key design decisions
   constructed ``jedi.Script`` object (whose setup overhead exceeds the parse
   step alone) and let parso's cache handle the underlying parse tree.  We
   never fight parso's cache; we benefit from it.
+* **AST-biased LRU eviction**: when both the AST store and Script store are
+  non-empty and the combined count cap is exceeded, the implementation evicts
+  from the AST store first.  This is intentional: ``jedi.Script`` objects are
+  more expensive to reconstruct than ASTs because Script setup involves
+  inference-state initialisation, not just a parso parse.  Keeping Scripts
+  warm and re-parsing ASTs via parso's own cache is a better trade-off under
+  memory pressure.  See ``_enforce_ast_cap`` for details.
+* **UTF-8 assumption**: source files are read with ``encoding="utf-8"``.
+  Non-UTF-8 files (e.g. PEP 263 ``# -*- coding: latin-1 -*-``) are not
+  supported.  Modern Python 3 codebases are overwhelmingly UTF-8; adding
+  general encoding detection would add complexity better deferred to a
+  dedicated issue.
 """
 
 from __future__ import annotations
@@ -131,6 +143,14 @@ class FileArtifactCache:
 
         The cache is keyed by ``(resolved_path, mtime_ns)``; a changed mtime
         forces a fresh disk read and updates the cached entry.
+
+        .. note::
+            Files are read with ``encoding="utf-8"``.  Non-UTF-8 source files
+            (PEP 263 ``# -*- coding: latin-1 -*-`` etc.) are not supported and
+            will raise ``UnicodeDecodeError``.  When that error is raised after
+            ``_misses`` has already been incremented, the miss counter has no
+            corresponding cache entry — this is correct because the operation
+            truly was a cache miss that subsequently failed.
 
         Parameters
         ----------
@@ -264,8 +284,14 @@ class FileArtifactCache:
             self._evict_all_for_resolved(resolved)
 
     def invalidate_all(self) -> None:
-        """Clear the entire cache."""
+        """Clear the entire cache.
+
+        ``stats()["evictions"]`` is incremented by the total number of items
+        cleared, matching the per-item semantics of :meth:`invalidate`.
+        """
         with self._lock:
+            cleared = len(self._source_store) + len(self._ast_store) + len(self._script_store)
+            self._evictions += cleared
             self._source_store.clear()
             self._source_bytes.clear()
             self._total_source_bytes = 0
@@ -366,10 +392,15 @@ class FileArtifactCache:
                 del self._script_store[script_lru]
                 self._evictions += 1
             else:
-                # Both have entries; evict from whichever store has an older LRU.
-                # We can't directly compare timestamps, so just evict one per
-                # iteration — alternate between stores to be fair.
-                # In practice for the tests, either strategy is fine.
+                # Both stores have entries.  Evict from the AST store first.
+                #
+                # Rationale: ``jedi.Script`` objects are more expensive to
+                # reconstruct than ASTs because Script setup involves
+                # inference-state initialisation, not just a parso parse call.
+                # parso maintains its own global parse cache keyed by content
+                # hash, so evicted ASTs are cheap to rebuild.  Under cap
+                # pressure it is therefore better to keep Scripts warm and let
+                # ASTs be re-parsed via parso's cache.
                 del self._ast_store[ast_lru]  # type: ignore[arg-type]
                 self._evictions += 1
 

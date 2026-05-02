@@ -524,3 +524,276 @@ class TestExplicitInvalidation:
             pytest.fail(
                 f"invalidate() raised {type(exc).__name__} for a path not in the cache: {exc}"
             )
+
+    def test_invalidate_all_drops_all_three_artifact_types(
+        self, tmp_path: Path, default_cache, jedi_project: jedi.Project
+    ) -> None:
+        """After invalidate(path), all three artifact types (source, AST, Script) must miss."""
+        f = tmp_path / "triple.py"
+        _write_py(f, "X = 1\n")
+
+        default_cache.get_source(f)
+        default_cache.get_ast(f)
+        default_cache.get_script(f, jedi_project)
+
+        default_cache.invalidate(f)
+
+        misses_before = default_cache.stats()["misses"]
+        default_cache.get_source(f)
+        default_cache.get_ast(f)
+        default_cache.get_script(f, jedi_project)
+        misses_after = default_cache.stats()["misses"]
+
+        assert misses_after - misses_before >= 3, (
+            "Expected at least 3 misses after invalidate(path) to cover source, AST, "
+            f"and Script artifacts, got {misses_after - misses_before} misses."
+        )
+
+    def test_invalidate_stale_script_causes_miss(
+        self, tmp_path: Path, default_cache, jedi_project: jedi.Project
+    ) -> None:
+        """After bumping mtime, get_script() must miss (exercises _evict_stale_script)."""
+        f = tmp_path / "stale_script.py"
+        _write_py(f, "Y = 2\n")
+
+        default_cache.get_script(f, jedi_project)  # warm the cache
+
+        _write_py(f, "Y = 99\n")
+        _bump_mtime(f)
+
+        misses_before = default_cache.stats()["misses"]
+        default_cache.get_script(f, jedi_project)
+        misses_after = default_cache.stats()["misses"]
+
+        assert misses_after > misses_before, (
+            "Expected a cache miss for get_script() after the file's mtime advanced, "
+            "but no miss was recorded — _evict_stale_script may not be working."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# (g) Module-level convenience functions — smoke tests against the singleton  #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=False)
+def reset_default_cache():
+    """Reset the module-level _default_cache before and after each test.
+
+    Keeps module-level tests isolated from each other and from class-based
+    tests that use the same process-global singleton.
+    """
+    mod = _import_cache_module()
+    mod.invalidate_all()  # clear any state left by previous tests
+    yield
+    mod.invalidate_all()  # clean up after this test
+
+
+class TestModuleLevelHelpers:
+    """Smoke tests for the module-level convenience functions (production entry points)."""
+
+    def test_get_source_returns_source_text_and_increments_misses(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """Module-level get_source() returns file contents and records a miss."""
+        mod = _import_cache_module()
+        f = tmp_path / "ml_source.py"
+        _write_py(f, "A = 42\n")
+
+        misses_before = mod.stats()["misses"]
+        text = mod.get_source(f)
+        misses_after = mod.stats()["misses"]
+
+        assert "A = 42" in text
+        assert (
+            misses_after > misses_before
+        ), "Expected a miss on the first module-level get_source() call."
+
+    def test_get_source_second_call_is_a_hit(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """A second module-level get_source() call on the same file must hit the cache."""
+        mod = _import_cache_module()
+        f = tmp_path / "ml_hit.py"
+        _write_py(f, "B = 7\n")
+
+        first = mod.get_source(f)
+        hits_before = mod.stats()["hits"]
+        second = mod.get_source(f)
+        hits_after = mod.stats()["hits"]
+
+        assert first is second, "Expected identity-same object on cache hit."
+        assert (
+            hits_after > hits_before
+        ), "Expected a hit on the second module-level get_source() call."
+
+    def test_module_invalidate_causes_miss(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """Module-level invalidate(path) causes the next get_source() to miss."""
+        mod = _import_cache_module()
+        f = tmp_path / "ml_inv.py"
+        _write_py(f, "C = 3\n")
+
+        mod.get_source(f)  # populate
+        mod.invalidate(f)
+
+        misses_before = mod.stats()["misses"]
+        mod.get_source(f)
+        misses_after = mod.stats()["misses"]
+
+        assert (
+            misses_after > misses_before
+        ), "Expected a miss after module-level invalidate(), but the miss counter did not increase."
+
+    def test_module_invalidate_all_clears_cache(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """Module-level invalidate_all() causes subsequent accesses to miss."""
+        mod = _import_cache_module()
+        files = []
+        for i in range(3):
+            f = tmp_path / f"ml_ia{i}.py"
+            _write_py(f, f"D{i} = {i}\n")
+            files.append(f)
+            mod.get_source(f)
+
+        mod.invalidate_all()
+
+        misses_before = mod.stats()["misses"]
+        for f in files:
+            mod.get_source(f)
+        misses_after = mod.stats()["misses"]
+
+        assert misses_after - misses_before == len(files), (
+            f"Expected {len(files)} misses after module-level invalidate_all(), "
+            f"but got {misses_after - misses_before}."
+        )
+
+    def test_module_invalidate_all_increments_evictions(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """invalidate_all() must increment evictions by the count of cleared items."""
+        mod = _import_cache_module()
+        f1 = tmp_path / "ev1.py"
+        f2 = tmp_path / "ev2.py"
+        _write_py(f1, "E1 = 1\n")
+        _write_py(f2, "E2 = 2\n")
+
+        mod.get_source(f1)
+        mod.get_source(f2)
+
+        evictions_before = mod.stats()["evictions"]
+        mod.invalidate_all()
+        evictions_after = mod.stats()["evictions"]
+
+        # At minimum 2 source entries were cleared
+        assert evictions_after - evictions_before >= 2, (
+            f"Expected evictions to increase by at least 2 after invalidate_all() cleared "
+            f"2 source entries, but delta was {evictions_after - evictions_before}."
+        )
+
+    def test_module_get_ast_returns_ast_module(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """Module-level get_ast() returns a parsed AST."""
+        import ast as ast_module
+
+        mod = _import_cache_module()
+        f = tmp_path / "ml_ast.py"
+        _write_py(f, "Z = 99\n")
+
+        tree = mod.get_ast(f)
+        assert isinstance(
+            tree, ast_module.Module
+        ), f"Expected module-level get_ast() to return an ast.Module, got {type(tree)}"
+
+    def test_module_get_script_returns_jedi_script(
+        self, tmp_path: Path, reset_default_cache  # noqa: ARG002
+    ) -> None:
+        """Module-level get_script() returns a jedi.Script."""
+        mod = _import_cache_module()
+        f = tmp_path / "ml_script.py"
+        _write_py(f, "W = 0\n")
+        project = jedi.Project(path=tmp_path)
+
+        script = mod.get_script(f, project)
+        assert isinstance(
+            script, jedi.Script
+        ), f"Expected module-level get_script() to return a jedi.Script, got {type(script)}"
+
+
+# --------------------------------------------------------------------------- #
+# (h) AST-cap eviction branches — script-only and both-stores paths           #
+# --------------------------------------------------------------------------- #
+
+
+class TestAstCapEvictionBranches:
+    """Cover the script-only and both-stores eviction branches in _enforce_ast_cap."""
+
+    def test_script_only_eviction_when_ast_store_empty(
+        self, tmp_path: Path, jedi_project: jedi.Project
+    ) -> None:
+        """When only Script entries exist (no AST entries), LRU eviction evicts a Script."""
+        cls = _get_cache_class()
+        # Cap of 1 script entry so the second load triggers eviction
+        cache = cls(ast_max_entries=1, file_max_bytes=100_000_000)
+
+        f1 = tmp_path / "s1.py"
+        f2 = tmp_path / "s2.py"
+        _write_py(f1, "S1 = 1\n")
+        _write_py(f2, "S2 = 2\n")
+
+        # Populate only script store (not AST store)
+        cache.get_script(f1, jedi_project)  # fills the cap
+        cache.get_script(f2, jedi_project)  # must evict f1's script
+
+        # f1 should have been evicted — accessing it must be a miss
+        misses_before = cache.stats()["misses"]
+        cache.get_script(f1, jedi_project)
+        misses_after = cache.stats()["misses"]
+
+        assert misses_after > misses_before, (
+            "Expected a cache miss for the evicted Script entry when only the Script "
+            "store was populated and the cap was exceeded."
+        )
+        assert cache.stats()["evictions"] >= 1
+
+    def test_both_stores_eviction_prefers_ast(
+        self, tmp_path: Path, jedi_project: jedi.Project
+    ) -> None:
+        """When both AST and Script stores are non-empty, eviction removes from AST store first."""
+        cls = _get_cache_class()
+        # Cap of 2: load 1 AST + 1 Script = at cap; load one more AST to trigger eviction
+        cache = cls(ast_max_entries=2, file_max_bytes=100_000_000)
+
+        f1 = tmp_path / "b1.py"
+        f2 = tmp_path / "b2.py"
+        f3 = tmp_path / "b3.py"
+        _write_py(f1, "B1 = 1\n")
+        _write_py(f2, "B2 = 2\n")
+        _write_py(f3, "B3 = 3\n")
+
+        # Fill: 1 AST + 1 Script = 2 entries (at cap)
+        cache.get_ast(f1)
+        cache.get_script(f2, jedi_project)
+
+        # Add a third entry — both stores are non-empty, should evict AST first
+        cache.get_ast(f3)
+
+        # f1's AST should have been evicted (AST-biased policy)
+        misses_before = cache.stats()["misses"]
+        cache.get_ast(f1)
+        misses_after = cache.stats()["misses"]
+
+        assert misses_after > misses_before, (
+            "Expected f1's AST to be evicted (AST-biased policy) when both stores were "
+            "non-empty and the cap was exceeded."
+        )
+        # The Script entry for f2 should still be cached (hit)
+        hits_before = cache.stats()["hits"]
+        cache.get_script(f2, jedi_project)
+        hits_after = cache.stats()["hits"]
+        assert (
+            hits_after > hits_before
+        ), "Expected f2's Script to remain cached after AST-biased eviction."
