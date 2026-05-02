@@ -738,7 +738,7 @@ class JediAnalyzer:
 
         try:
             # Get parent and member names
-            parent_path, member_name = get_parent_and_member(components)
+            _parent_path, member_name = get_parent_and_member(components)
 
             # First, find the parent symbol (class or module) across all scopes
             parent_results = await self._search_all_scopes(components[-2], scope)
@@ -2360,7 +2360,7 @@ class JediAnalyzer:
         return {"name": name, "full_name": None, "file": None, "line": None}
 
     async def _resolve_inner_types(
-        self, type_hint_str: str, script: jedi.Script | None = None  # noqa: ARG002
+        self, type_hint_str: str, _script: jedi.Script | None = None
     ) -> list[dict[str, Any]]:
         """Recursively unwrap a complex type hint and resolve all leaf types.
 
@@ -2370,8 +2370,10 @@ class JediAnalyzer:
         - Unions: ``X | Y`` → resolves both X and Y
         - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
 
-        When *script* is provided, each leaf type is resolved via
+        When a script is provided, each leaf type is resolved via
         ``script.goto()`` for correct import-aware resolution.
+        (The ``_script`` parameter is reserved for future contextual resolution
+        of inner types; currently leaf resolution uses global search.)
 
         Returns:
             A list of navigable references for each resolved leaf type.
