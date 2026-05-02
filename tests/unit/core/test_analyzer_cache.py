@@ -118,6 +118,25 @@ def test_cleanup_all_evicts_analyzer_cache(manager: ProjectManager, project_dir:
     )
 
 
+def test_invalidate_analyzer_clears_cache(manager: ProjectManager, project_dir: Path) -> None:
+    """invalidate_analyzer must evict the cached instance without touching the project.
+
+    After invalidation the next get_analyzer call returns a fresh instance.
+    The project (jedi.Project / GranularCache / watchers) must NOT be torn down.
+    """
+    path_str = project_dir.as_posix()
+
+    analyzer_before = manager.get_analyzer(path_str)
+    manager.invalidate_analyzer(path_str)
+    analyzer_after = manager.get_analyzer(path_str)
+
+    assert analyzer_before is not analyzer_after, (
+        "Expected a different JediAnalyzer instance after invalidate_analyzer, "
+        f"but got the same object (id={id(analyzer_before)}). "
+        "invalidate_analyzer must drop the cached entry."
+    )
+
+
 def test_scoped_cache_identity_across_calls(manager: ProjectManager, project_dir: Path) -> None:
     """(d) The ScopedCache reference is identical across repeated get_analyzer calls.
 

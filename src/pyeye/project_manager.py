@@ -27,6 +27,7 @@ class ProjectManager:
         self.projects: dict[Path, jedi.Project] = {}
         self.watchers: dict[Path, CodebaseWatcher] = {}
         self.caches: dict[Path, GranularCache] = {}
+        self.analyzers: dict[Path, JediAnalyzer] = {}  # Analyzer instance cache
         self.access_order: list[Path] = []  # LRU tracking
         self.max_projects = (
             max_projects if max_projects is not None else settings.settings.max_projects
@@ -189,6 +190,9 @@ class ProjectManager:
         if project_path in self.caches:
             del self.caches[project_path]
 
+        # Drop cached analyzer
+        self.analyzers.pop(project_path, None)
+
         # Remove project
         if project_path in self.projects:
             del self.projects[project_path]
@@ -248,6 +252,26 @@ class ProjectManager:
     def get_analyzer(self, project_path: str) -> JediAnalyzer:
         """Get a configured JediAnalyzer for the given project.
 
+        Analyzers are cached by resolved project path.  Repeated calls with the
+        same path return the **same** ``JediAnalyzer`` instance, preserving its
+        ``scoped_cache`` and Jedi's internal inference state across lookups.
+
+        Cache invalidation contract
+        ---------------------------
+        When configuration changes after an analyzer has been constructed (for
+        example, a new package path is added via ``configure_packages`` or a new
+        namespace is registered), the caller must call
+        ``invalidate_analyzer(project_path)`` to evict the stale entry.  The
+        next ``get_analyzer`` call will then rebuild a fresh, fully-configured
+        analyzer.
+
+        LRU eviction
+        ------------
+        The analyzer cache is limited to ``max_projects`` entries.  When the
+        limit is exceeded, the least-recently-used entry is evicted via
+        ``_cleanup_project``, which tears down watchers and project state in
+        addition to dropping the analyzer.
+
         This method creates a JediAnalyzer and configures it with:
         - Additional package paths from dependencies
         - Namespace package mappings
@@ -257,13 +281,25 @@ class ProjectManager:
             project_path: Path to the project to analyze
 
         Returns:
-            Configured JediAnalyzer instance
+            Configured JediAnalyzer instance (cached on repeated calls with
+            the same resolved path until explicitly invalidated or evicted).
         """
         # Import here to avoid circular imports
         from .config import ProjectConfig
 
-        config = ProjectConfig(project_path)
         path_key = Path(project_path).resolve()
+
+        # --- Cache hit: return the existing analyzer ---
+        if path_key in self.analyzers:
+            # Update LRU order so this project stays "recently used"
+            if path_key in self.access_order:
+                self.access_order.remove(path_key)
+            self.access_order.append(path_key)
+            logger.debug(f"Analyzer cache hit for {path_key.as_posix()}")
+            return self.analyzers[path_key]
+
+        # --- Cache miss: construct and store ---
+        config = ProjectConfig(project_path)
 
         # Resolve namespace paths from config file AND namespace_resolver.
         # These must be computed BEFORE creating the analyzer so the Jedi
@@ -344,7 +380,36 @@ class ProjectManager:
                 for standalone_path in standalone_paths:
                     self._setup_watcher(standalone_path)
 
+        # Store in cache and update LRU
+        self.analyzers[path_key] = analyzer
+        if path_key in self.access_order:
+            self.access_order.remove(path_key)
+        self.access_order.append(path_key)
+
+        # Evict if over the project limit
+        self._evict_if_needed()
+
         return analyzer
+
+    def invalidate_analyzer(self, project_path: str) -> None:
+        """Evict the cached JediAnalyzer for *project_path* without tearing down the project.
+
+        Call this whenever analyzer-relevant configuration changes after an
+        analyzer has already been constructed — for example after
+        ``configure_packages`` adds new package paths or registers a new
+        namespace.  The next call to ``get_analyzer`` will rebuild a fresh
+        analyzer with the updated configuration.
+
+        Unlike ``_cleanup_project``, this method only removes the analyzer
+        entry; it does **not** stop watchers, clear the GranularCache, or
+        remove the ``jedi.Project`` from ``self.projects``.
+
+        Args:
+            project_path: Path to the project whose analyzer should be evicted.
+        """
+        path_key = Path(project_path).resolve()
+        if self.analyzers.pop(path_key, None) is not None:
+            logger.info(f"Invalidated cached analyzer for {path_key.as_posix()}")
 
     def _setup_watcher(self, path: Path) -> None:
         """Set up a file watcher for the given path.
@@ -385,9 +450,13 @@ class ProjectManager:
         return None
 
     def cleanup_all(self) -> None:
-        """Clean up all projects."""
+        """Clean up all projects and evict the analyzer cache."""
         for project_path in list(self.projects.keys()):
             self._cleanup_project(project_path)
+
+        # Clear any analyzer entries that had no corresponding jedi.Project
+        # (e.g. get_analyzer was called without a prior get_project call).
+        self.analyzers.clear()
 
         self.access_order.clear()
 
