@@ -45,7 +45,12 @@ def project_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def manager() -> ProjectManager:
-    """Fresh ProjectManager — no pooling, no global singleton."""
+    """Fresh ProjectManager — no pooling, no global singleton.
+
+    ``max_projects=10`` is large enough that the LRU eviction policy never
+    interferes with the cache-identity assertions below (each test uses at most
+    two distinct paths), while still being low enough to keep fixture setup fast.
+    """
     return ProjectManager(max_projects=10)
 
 
@@ -59,7 +64,7 @@ def test_same_path_returns_same_instance(manager: ProjectManager, project_dir: P
 
     Fails because current code calls ``JediAnalyzer(...)`` fresh each time.
     """
-    path_str = str(project_dir)
+    path_str = project_dir.as_posix()
 
     analyzer_first = manager.get_analyzer(path_str)
     analyzer_second = manager.get_analyzer(path_str)
@@ -100,7 +105,7 @@ def test_cleanup_all_evicts_analyzer_cache(manager: ProjectManager, project_dir:
     Against current code this passes trivially (every call is already fresh),
     but it is still a meaningful regression guard for Task 1.4.
     """
-    path_str = str(project_dir)
+    path_str = project_dir.as_posix()
 
     analyzer_before = manager.get_analyzer(path_str)
     manager.cleanup_all()
@@ -123,7 +128,7 @@ def test_scoped_cache_identity_across_calls(manager: ProjectManager, project_dir
     Fails because current code constructs a new JediAnalyzer (and therefore a
     new ScopedCache) on every call.
     """
-    path_str = str(project_dir)
+    path_str = project_dir.as_posix()
 
     analyzer_first = manager.get_analyzer(path_str)
     cache_first = analyzer_first.scoped_cache
