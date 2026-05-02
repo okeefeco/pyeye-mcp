@@ -496,30 +496,31 @@ def main():
         assert "Failed to search for symbol 'test'" in str(exc_info.value)
         assert "Error in find_symbol" in caplog.text
 
-    @pytest.mark.skip(reason="_serialize_name method doesn't exist in JediAnalyzer")
-    def test_serialize_name(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_serialize_name(self, temp_project_dir):
         """Test serializing Jedi name objects."""
         with patch("pyeye.analyzers.jedi_analyzer.jedi.Project"):
             analyzer = JediAnalyzer(str(temp_project_dir))
 
-            # Create mock name object
+            # Create mock name object matching the fields _serialize_name reads
             mock_name = Mock()
             mock_name.name = "TestClass"
-            mock_name.module_name = "test_module"
             mock_name.line = 42
             mock_name.column = 8
             mock_name.module_path = Path("/test/module.py")
             mock_name.type = "class"
+            mock_name.description = "class TestClass"
+            mock_name.full_name = "test_module.TestClass"
             mock_name.docstring = Mock(return_value="Test class docstring")
 
-            result = analyzer._serialize_name(mock_name, include_docstring=True)
+            result = await analyzer._serialize_name(mock_name, include_docstring=True)
 
             assert result["name"] == "TestClass"
-            assert result["module"] == "test_module"
             assert result["line"] == 42
             assert result["column"] == 8
             assert result["type"] == "class"
-            assert "docstring" in result
+            assert result["file"] == "/test/module.py"
+            assert result["docstring"] == "Test class docstring"
 
     @pytest.mark.asyncio
     async def test_nonexistent_file_handling(self, temp_project_dir):
