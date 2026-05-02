@@ -2642,6 +2642,11 @@ class JediAnalyzer:
         rich dict by parsing the enclosing source text to extract the annotation
         and default value.
 
+        .. note::
+            The ``source`` parameter is a bridge contract pending reshape to accept
+            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
+            (``lookup_builders.py``).
+
         Args:
             name: A Jedi Name object representing an attribute.
             source: The full source text of the module containing the attribute.
@@ -2705,6 +2710,11 @@ class JediAnalyzer:
 
         Returns enriched dicts for all top-level variable statements in the
         module, excluding class/function definitions and import statements.
+
+        .. note::
+            The ``source`` parameter is a bridge contract pending reshape to accept
+            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
+            (``lookup_builders.py``).
 
         Args:
             script: A Jedi Script object for the module to inspect.

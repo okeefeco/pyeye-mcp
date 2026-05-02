@@ -216,12 +216,12 @@ async def _build_class_result(
         result["bases"] = await _resolve_bases_via_goto(script, tree, target_name, target_line)
 
         # --- Methods and Attributes (plain lists) ---
-        # _enrich_attribute still requires source text (existing analyzer
-        # contract).  This is the only remaining read here; classified bucket
-        # 1 (AST-style annotation extraction) — the analyzer-side call sites
-        # have been migrated to cache.get_ast / cache.get_script in this same
-        # commit; this module-level read is the bridge until _enrich_attribute
-        # is reshaped to take an AST directly (out of scope for #316 Task 1.5).
+        # TODO(api-redesign): 2026-05-02 — _enrich_attribute still requires source text
+        # (existing analyzer contract).  This is the only remaining read here; classified
+        # bucket 4 (bridge read) — the analyzer-side call sites have been migrated to
+        # cache.get_ast / cache.get_script in this same commit; this module-level read is
+        # the bridge until _enrich_attribute is reshaped to take an AST directly (out of
+        # scope for #316 Task 1.5).
         analyzer_source: str | None = None
         try:
             defined = target.defined_names()
@@ -459,11 +459,11 @@ async def _build_module_result(
         result["functions"] = _paginate(func_items, limit)
 
         # --- Variables (relationship list) ---
-        # Bucket 1: _get_module_variables / _enrich_attribute consume source
-        # for AST-based annotation extraction.  The analyzer-side helpers
-        # still take a source string; source is read here as a bridge until
-        # the analyzer-side helpers are reshaped to take a cached AST
-        # directly (out of scope for #316 Task 1.5).
+        # TODO(api-redesign): 2026-05-02 — _get_module_variables / _enrich_attribute
+        # consume source for AST-based annotation extraction; classified bucket 4
+        # (bridge read).  The analyzer-side helpers still take a source string; source
+        # is read here as a bridge until the analyzer-side helpers are reshaped to take
+        # a cached AST directly (out of scope for #316 Task 1.5).
         try:
             module_source = Path(file_path).read_text(encoding="utf-8")
             variables = await analyzer._get_module_variables(script, module_source)

@@ -22,6 +22,7 @@ The assertion is intentionally generous to stay non-flaky on shared CI:
 from __future__ import annotations
 
 import time
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,21 @@ from tests.utils.performance import (
 )
 
 REPEATS = 5
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> Generator[None, None, None]:
+    """Clear the file artifact cache before and after every test in this file.
+
+    The module-level ``_default_cache`` singleton is left warm across tests
+    unless explicitly cleared.  Clearing before + after ensures each test
+    starts from a clean-cache state and does not leak warm entries that can
+    mask cold-path coverage in future cache-aware tests added to this file.
+    """
+    file_artifact_cache.invalidate_all()
+    yield
+    file_artifact_cache.invalidate_all()
+
 
 # Warm-call budget.  Generous because the lookup() pipeline does work
 # beyond the cache (resolving identifiers, building Jedi names, etc.).
