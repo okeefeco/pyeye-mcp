@@ -738,7 +738,7 @@ class JediAnalyzer:
 
         try:
             # Get parent and member names
-            _parent_path, member_name = get_parent_and_member(components)
+            _, member_name = get_parent_and_member(components)
 
             # First, find the parent symbol (class or module) across all scopes
             parent_results = await self._search_all_scopes(components[-2], scope)
@@ -2297,7 +2297,7 @@ class JediAnalyzer:
         # If the type string is complex (contains [ | ,) extract and resolve
         # inner types recursively.
         if any(ch in type_hint_str for ch in ("[", "|", ",")):
-            inner_types = await self._resolve_inner_types(type_hint_str, script)
+            inner_types = await self._resolve_inner_types(type_hint_str)
             return {
                 "name": type_hint_str,
                 "full_name": None,
@@ -2359,9 +2359,7 @@ class JediAnalyzer:
         # Unknown — partial reference
         return {"name": name, "full_name": None, "file": None, "line": None}
 
-    async def _resolve_inner_types(
-        self, type_hint_str: str, _script: jedi.Script | None = None
-    ) -> list[dict[str, Any]]:
+    async def _resolve_inner_types(self, type_hint_str: str) -> list[dict[str, Any]]:
         """Recursively unwrap a complex type hint and resolve all leaf types.
 
         Handles:
@@ -2370,10 +2368,9 @@ class JediAnalyzer:
         - Unions: ``X | Y`` → resolves both X and Y
         - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
 
-        When a script is provided, each leaf type is resolved via
-        ``script.goto()`` for correct import-aware resolution.
-        (The ``_script`` parameter is reserved for future contextual resolution
-        of inner types; currently leaf resolution uses global search.)
+        Leaf types are resolved via global search. Contextual (per-leaf
+        ``script.goto()``) resolution would require per-leaf line/col
+        information that string parsing cannot provide.
 
         Returns:
             A list of navigable references for each resolved leaf type.
@@ -3062,7 +3059,7 @@ class JediAnalyzer:
 
         # Group classes by file to minimize Jedi Script creation
         file_to_classes: dict[str, list[tuple[str, ast.ClassDef]]] = {}
-        for fqn, (node, _tree, py_file) in classes_by_fqn.items():
+        for fqn, (node, _, py_file) in classes_by_fqn.items():
             file_key = py_file.as_posix()
             for base in node.bases:
                 parent_name = self._get_base_name_from_ast(base)
