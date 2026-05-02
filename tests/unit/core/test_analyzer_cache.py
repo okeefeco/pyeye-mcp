@@ -161,3 +161,50 @@ def test_scoped_cache_identity_across_calls(manager: ProjectManager, project_dir
         f"(id={id(cache_first)} vs id={id(cache_second)}). "
         "Task 1.4 memoization must preserve the scoped_cache reference."
     )
+
+
+def test_analyzer_cache_bounded_by_max_projects(tmp_path: Path) -> None:
+    """(e) Analyzer cache is bounded by max_projects even when get_project is not called.
+
+    The standard MCP tool call path goes through get_analyzer() directly,
+    which previously left self.analyzers growing without bound because
+    _evict_if_needed only checked len(self.projects).  After the fix,
+    max(len(projects), len(analyzers)) is used so the analyzer cache is also
+    capped at max_projects.
+    """
+    manager = ProjectManager(max_projects=2)
+
+    # Create 3 distinct project directories
+    paths = []
+    for i in range(3):
+        p = tmp_path / f"project_{i}"
+        p.mkdir()
+        paths.append(p)
+
+    # Call get_analyzer for all 3 paths — without any get_project calls.
+    for p in paths:
+        manager.get_analyzer(p.as_posix())
+
+    assert len(manager.analyzers) <= 2, (
+        f"Expected at most 2 cached analyzers (max_projects=2), "
+        f"but found {len(manager.analyzers)}. "
+        "_evict_if_needed must bound self.analyzers too."
+    )
+
+
+def test_invalidate_analyzer_noop_on_uncached_path(manager: ProjectManager, tmp_path: Path) -> None:
+    """(f) invalidate_analyzer on a path never cached completes silently.
+
+    Calling invalidate_analyzer for a path that was never passed to
+    get_analyzer must not raise any exception and must be a no-op.
+    """
+    never_cached = tmp_path / "never_cached_project"
+    never_cached.mkdir()
+
+    # Should not raise
+    manager.invalidate_analyzer(never_cached.as_posix())
+
+    # Analyzer dict must still be empty
+    assert (
+        len(manager.analyzers) == 0
+    ), "invalidate_analyzer on an uncached path must not modify the analyzer dict"

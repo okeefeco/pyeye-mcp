@@ -1,5 +1,6 @@
 """Multi-project management for PyEye."""
 
+import contextlib
 import logging
 from pathlib import Path
 
@@ -206,8 +207,13 @@ class ProjectManager:
             del self.standalone_dirs[project_path]
 
     def _evict_if_needed(self) -> None:
-        """Evict least recently used projects if over limit."""
-        while len(self.projects) > self.max_projects:
+        """Evict least recently used projects if over limit.
+
+        Checks both ``self.projects`` and ``self.analyzers`` so that the
+        analyzer-only path (``get_analyzer`` called without a prior
+        ``get_project``) is also bounded by ``max_projects``.
+        """
+        while max(len(self.projects), len(self.analyzers)) > self.max_projects:
             # Remove least recently used
             lru_path = self.access_order.pop(0)
             logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
@@ -267,10 +273,12 @@ class ProjectManager:
 
         LRU eviction
         ------------
-        The analyzer cache is limited to ``max_projects`` entries.  When the
-        limit is exceeded, the least-recently-used entry is evicted via
-        ``_cleanup_project``, which tears down watchers and project state in
-        addition to dropping the analyzer.
+        Both the analyzer cache and the project cache are limited to
+        ``max_projects`` entries combined.  When
+        ``max(len(analyzers), len(projects)) > max_projects``, the
+        least-recently-used entry is evicted via ``_cleanup_project``, which
+        tears down watchers and project state in addition to dropping the
+        analyzer.
 
         This method creates a JediAnalyzer and configures it with:
         - Additional package paths from dependencies
@@ -410,6 +418,10 @@ class ProjectManager:
         path_key = Path(project_path).resolve()
         if self.analyzers.pop(path_key, None) is not None:
             logger.info(f"Invalidated cached analyzer for {path_key.as_posix()}")
+        # Keep access_order consistent so _evict_if_needed never tries to pop
+        # a path that is no longer in self.analyzers.
+        with contextlib.suppress(ValueError):
+            self.access_order.remove(path_key)
 
     def _setup_watcher(self, path: Path) -> None:
         """Set up a file watcher for the given path.

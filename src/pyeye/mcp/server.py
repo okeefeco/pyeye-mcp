@@ -275,9 +275,15 @@ def configure_packages(
     for namespace, ns_paths in config.get_namespaces().items():
         manager.namespace_resolver.register_namespace(namespace, ns_paths)
 
-    # Invalidate the cached analyzer so the next get_analyzer call rebuilds
-    # with the updated package paths, namespaces, and standalone directories.
-    manager.invalidate_analyzer(all_paths[0] if all_paths else ".")
+    # Invalidate cached analyzers for all paths so the next get_analyzer call
+    # rebuilds with the updated package paths, namespaces, and standalone
+    # directories.  Multi-project / namespace scenarios can have stale
+    # analyzers for secondary paths too.
+    if all_paths:
+        for path in all_paths:
+            manager.invalidate_analyzer(path)
+    else:
+        manager.invalidate_analyzer(".")
 
     return {
         "packages": config.get_package_paths(),
