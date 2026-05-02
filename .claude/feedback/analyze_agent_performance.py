@@ -15,7 +15,7 @@ from typing import Any
 class AgentPerformanceAnalyzer:
     """Analyzes agent performance from feedback logs."""
 
-    def __init__(self, feedback_dir: Path = None):
+    def __init__(self, feedback_dir: Path | None = None):
         """Initialize the analyzer with the feedback directory."""
         if feedback_dir is None:
             feedback_dir = Path.home() / ".claude" / "feedback"

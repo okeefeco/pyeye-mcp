@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # Import unified_metrics module directly
 unified_metrics_path = Path(__file__).parent.parent / "src" / "pyeye" / "unified_metrics.py"
 spec = importlib.util.spec_from_file_location("unified_metrics", unified_metrics_path)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not load module spec from {unified_metrics_path}")
 unified_metrics_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(unified_metrics_module)
 get_unified_collector = unified_metrics_module.get_unified_collector
@@ -58,7 +60,12 @@ def print_separator(title: str = "") -> None:
 
 
 def command_status(_args: argparse.Namespace) -> None:
-    """Show current status of all sessions."""
+    """Show current status of all sessions.
+
+    The ``_args`` parameter is required by the argparse subcommand dispatcher
+    contract but is not read by this command.
+    """
+    del _args  # required by dispatcher signature; not consumed by this command
     collector = get_unified_collector()
 
     print_separator("📊 UNIFIED METRICS STATUS")
