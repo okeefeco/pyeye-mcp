@@ -10,6 +10,7 @@ from typing import Any
 
 import jedi
 
+from .. import file_artifact_cache
 from ..async_utils import read_file_async, rglob_async, ripgrep_async
 from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
@@ -788,8 +789,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
             definitions = script.goto(line, column)
 
             if definitions:
@@ -846,8 +847,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             # Get references from Jedi (searches main project paths)
             references = script.get_references(line, column, include_builtins=False)
@@ -880,9 +881,9 @@ class JediAnalyzer:
                         continue
 
                     try:
-                        standalone_source = await read_file_async(standalone_file)
-                        standalone_script = jedi.Script(
-                            standalone_source, path=standalone_file, project=self.project
+                        # Bucket 1: analysis input — Script comes from cache.
+                        standalone_script = file_artifact_cache.get_script(
+                            standalone_file, self.project
                         )
 
                         # Get all names in the standalone file
@@ -1028,8 +1029,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             # Get inferred type
             inferred = script.infer(line, column)
@@ -1286,6 +1287,11 @@ class JediAnalyzer:
 
                     # If we found imports, extract line information using the details
                     if matching_details:
+                        # TODO(api-redesign): content-shipping path — flagged 2026-05-02 per layering principle
+                        # Source is read solely to populate ``import_statement``
+                        # with the raw line text.  Pyeye is the semantic layer;
+                        # the agent can Read the file at (file, line) for the
+                        # statement text.  Drop in the upcoming API redesign.
                         source = await read_file_async(py_file)
                         lines = source.splitlines()
 
@@ -1365,17 +1371,8 @@ class JediAnalyzer:
             if not function_def or not function_def.module_path:
                 return {"error": f"Symbol {function_name} not found"}
 
-            # Get the function's source
-            source = await read_file_async(function_def.module_path)
-            script = jedi.Script(
-                source,
-                path=(
-                    function_def.module_path.as_posix()
-                    if isinstance(function_def.module_path, Path)
-                    else function_def.module_path
-                ),
-                project=self.project,
-            )
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(function_def.module_path, self.project)
 
             # Find references (callers)
             refs = script.get_references(function_def.line, function_def.column)
@@ -1392,6 +1389,11 @@ class JediAnalyzer:
                                 ),
                                 "line": ref.line,
                                 "column": ref.column,
+                                # TODO(api-redesign): content-shipping path — flagged 2026-05-02 per layering principle
+                                # ``ref.get_line_code()`` returns raw source text for the
+                                # caller's line.  Pyeye is the semantic layer; line
+                                # content belongs to the agent's Read tool given
+                                # (file, line).  Drop in the upcoming API redesign.
                                 "context": (
                                     ref.get_line_code().strip()
                                     if hasattr(ref, "get_line_code")
@@ -1463,8 +1465,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             for completion in script.complete(line, column):
                 completions.append(
@@ -1492,8 +1494,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 return None
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
             signatures = script.get_signatures(line, column)
 
             if signatures:
@@ -1519,8 +1521,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 return imports
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             names = script.get_names(all_scopes=True, definitions=True, references=False)
 
@@ -1750,12 +1752,15 @@ class JediAnalyzer:
                         continue
 
                 try:
-                    # Read file for analysis
+                    # Bucket 1: AST comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
+                    # Bucket 5: line count as a semantic metric.  Reading
+                    # source for a line count is a tiny secondary read; the
+                    # primary parse path goes through the cache above.  When
+                    # the API redesign drops content-coupled fields, this
+                    # metric likely stays as semantic metadata.
                     source = await read_file_async(py_file)
                     lines = source.count("\n") + 1
-
-                    # Parse with AST to extract structure
-                    tree = ast.parse(source)
 
                     exports = []
                     classes = []
@@ -1865,8 +1870,8 @@ class JediAnalyzer:
                 raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
 
             # Analyze imports in this module
-            source = await read_file_async(module_file)
-            tree = ast.parse(source)
+            # Bucket 1: AST comes from cache.
+            tree = file_artifact_cache.get_ast(module_file)
 
             # Standard library modules (common ones, not exhaustive)
             stdlib_modules = {
@@ -1983,10 +1988,13 @@ class JediAnalyzer:
                     continue
 
                 try:
+                    # Substring pre-filter (avoids AST parse for unrelated
+                    # files).  Source is read but not cached or returned —
+                    # this is a heuristic, not content delivery.
                     source = await read_file_async(py_file)
                     if module_path in source or module_path.replace(".", "/") in source:
-                        # More precise check with AST
-                        tree = ast.parse(source)
+                        # Bucket 1: AST for the precise check comes from cache.
+                        tree = file_artifact_cache.get_ast(py_file)
                         for node in ast.walk(tree):
                             if isinstance(node, ast.Import):
                                 for alias in node.names:
@@ -2088,11 +2096,12 @@ class JediAnalyzer:
 
             info["file"] = module_file.as_posix()
 
-            # Read and parse the module
+            # Bucket 1: AST comes from cache.
+            tree = file_artifact_cache.get_ast(module_file)
+            # Bucket 5: line count as a semantic metric — see list_modules
+            # for rationale.  Tiny secondary read; primary parse is cached.
             source = await read_file_async(module_file)
             info["metrics"]["lines"] = source.count("\n") + 1
-
-            tree = ast.parse(source)
 
             # Get module docstring
             if (
@@ -2541,14 +2550,14 @@ class JediAnalyzer:
         result["signature"] = sig.to_string()
 
         # Create script for contextual type resolution
+        # Bucket 1: analysis input — Script and AST come from cache.
         script: jedi.Script | None = None
         func_ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
         if name.module_path:
             try:
-                source = Path(name.module_path).read_text(encoding="utf-8")
-                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+                script = file_artifact_cache.get_script(name.module_path, self.project)
                 # Find the function's AST node for annotation positions
-                tree = ast.parse(source)
+                tree = file_artifact_cache.get_ast(name.module_path)
                 for node in ast.walk(tree):
                     if (
                         isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -2674,11 +2683,13 @@ class JediAnalyzer:
         except Exception:
             logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
 
-        # Create a script for contextual type resolution if we have a file
+        # Create a script for contextual type resolution if we have a file.
+        # Bucket 1: analysis input — Script comes from cache (source param is
+        # ignored here because the cache reads from the path itself).
         script: jedi.Script | None = None
         if name.module_path and annotation_line is not None:
             with contextlib.suppress(Exception):
-                script = jedi.Script(source, path=str(name.module_path), project=self.project)
+                script = file_artifact_cache.get_script(name.module_path, self.project)
 
         result["type_hint"] = await self._build_type_ref(
             type_hint_str,
@@ -2913,8 +2924,8 @@ class JediAnalyzer:
 
             for py_file in py_files:
                 try:
-                    content = await read_file_async(py_file)
-                    tree = ast.parse(content, filename=py_file.as_posix())
+                    # Bucket 1: AST comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
 
                     for node in ast.walk(tree):
                         if not isinstance(node, ast.ClassDef):
@@ -3050,8 +3061,8 @@ class JediAnalyzer:
         for file_path_str, class_entries in file_to_classes.items():
             try:
                 file_path = Path(file_path_str)
-                content = await read_file_async(file_path)
-                script = jedi.Script(content, path=file_path, project=self.project)
+                # Bucket 1: analysis input — Script comes from cache.
+                script = file_artifact_cache.get_script(file_path, self.project)
 
                 for fqn, node in class_entries:
                     for base in node.bases:

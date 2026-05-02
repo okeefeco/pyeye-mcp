@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .. import file_artifact_cache
 from .lookup_builders import assemble_response
 
 logger = logging.getLogger(__name__)
@@ -110,8 +111,6 @@ async def _resolve_coordinates(
 ) -> dict[str, Any]:
     """Resolve a symbol using file + line + column coordinates."""
     try:
-        import jedi
-
         from .server import get_analyzer
 
         file_path = Path(file)
@@ -130,8 +129,8 @@ async def _resolve_coordinates(
             }
 
         analyzer = get_analyzer(project_path)
-        source = file_path.read_text(encoding="utf-8")
-        script = jedi.Script(source, path=file, project=analyzer.project)
+        # Bucket 1: analysis input — Script comes from cache.
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
 
         try:
             inferred = script.infer(line, column)
@@ -314,11 +313,9 @@ async def _resolve_file_path(identifier: str, project_path: str) -> dict[str, An
 
         if line_num is not None:
             # Resolve symbol at the given line using Jedi
-            import jedi
-
             try:
-                source = file_path.read_text(encoding="utf-8")
-                script = jedi.Script(source, path=file_path.as_posix(), project=analyzer.project)
+                # Bucket 1: analysis input — Script comes from cache.
+                script = file_artifact_cache.get_script(file_path, analyzer.project)
                 # Try infer first, then goto
                 try:
                     names = script.get_names(all_scopes=True, definitions=True)

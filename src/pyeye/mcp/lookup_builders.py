@@ -13,6 +13,8 @@ from typing import Any
 
 import jedi
 
+from .. import file_artifact_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,10 +28,10 @@ def _module_ref_for_file(analyzer: Any, file_path: str) -> dict[str, Any]:
 
     Uses Jedi's project configuration to derive the correct dotted module path.
     """
-    # Use a Jedi script to get the module's full_name directly from Jedi
+    # Use a Jedi script (cached) to get the module's full_name directly from Jedi.
+    # Bucket 1: analysis input — cache returns Script, source never escapes.
     try:
-        source = Path(file_path).read_text(encoding="utf-8")
-        script = jedi.Script(source, path=file_path, project=analyzer.project)
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
         # Module-level names give us the module's context
         context = script.get_context()
         if context and context.full_name:
@@ -59,17 +61,22 @@ def _module_ref_for_file(analyzer: Any, file_path: str) -> dict[str, Any]:
     }
 
 
-def _make_script(analyzer: Any, file_path: str) -> tuple[jedi.Script, str]:
-    """Create a Jedi Script for a file, returning (script, source)."""
-    source = Path(file_path).read_text(encoding="utf-8")
-    script = jedi.Script(source, path=file_path, project=analyzer.project)
-    return script, source
+def _make_script(analyzer: Any, file_path: str) -> jedi.Script:
+    """Return a cached Jedi Script for a file.
+
+    Bucket 1: analysis input.  Source text is read inside the cache and not
+    returned to the caller — pyeye is the semantic layer; raw source belongs
+    to the agent's Read tool.
+    """
+    return file_artifact_cache.get_script(file_path, analyzer.project)
 
 
 def _get_jedi_names(analyzer: Any, file_path: str, *, all_scopes: bool = True) -> list[Any]:
-    """Get Jedi Name objects from a file via ``script.get_names()``."""
-    source = Path(file_path).read_text(encoding="utf-8")
-    script = jedi.Script(source, path=file_path, project=analyzer.project)
+    """Get Jedi Name objects from a file via ``script.get_names()``.
+
+    Bucket 1: analysis input — uses the cached Script.
+    """
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
     result: list[Any] = script.get_names(all_scopes=all_scopes, definitions=True)
     return result
 
@@ -101,18 +108,20 @@ def _nav_ref(name_obj: Any) -> dict[str, Any]:
 
 
 async def _resolve_bases_via_goto(
-    script: jedi.Script, source: str, target_name: str, target_line: int
+    script: jedi.Script, tree: ast.Module, target_name: str, target_line: int
 ) -> list[dict[str, Any]]:
     """Resolve base classes using script.goto() on each base class position.
 
-    Uses AST to find the base class node positions in the class definition,
-    then calls script.goto() on each to follow the actual import chain.
-    This is correct because goto() resolves through imports, unlike a global
-    name search which can match unrelated classes with the same name.
+    Uses the pre-parsed AST to find the base class node positions in the
+    class definition, then calls script.goto() on each to follow the actual
+    import chain.  This is correct because goto() resolves through imports,
+    unlike a global name search which can match unrelated classes with the
+    same name.
+
+    Bucket 1: AST is supplied by the cached ``file_artifact_cache.get_ast``.
     """
     bases: list[dict[str, Any]] = []
     try:
-        tree = ast.parse(source)
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.ClassDef)
@@ -190,7 +199,8 @@ async def _build_class_result(
     }
 
     try:
-        script, source = _make_script(analyzer, file_path)
+        script = _make_script(analyzer, file_path)
+        tree = file_artifact_cache.get_ast(file_path)
         names = script.get_names(all_scopes=True, definitions=True)
         target = _find_name_at(names, target_name, target_line)
 
@@ -202,9 +212,17 @@ async def _build_class_result(
             result["docstring"] = target.docstring() or None
 
         # --- Bases via script.goto() (follows imports correctly) ---
-        result["bases"] = await _resolve_bases_via_goto(script, source, target_name, target_line)
+        # Bucket 1: AST passed in directly from cache; no source text exchanged.
+        result["bases"] = await _resolve_bases_via_goto(script, tree, target_name, target_line)
 
         # --- Methods and Attributes (plain lists) ---
+        # _enrich_attribute still requires source text (existing analyzer
+        # contract).  This is the only remaining read here; classified bucket
+        # 1 (AST-style annotation extraction) — the analyzer-side call sites
+        # have been migrated to cache.get_ast / cache.get_script in this same
+        # commit; this module-level read is the bridge until _enrich_attribute
+        # is reshaped to take an AST directly (out of scope for #316 Task 1.5).
+        analyzer_source: str | None = None
         try:
             defined = target.defined_names()
             for dn in defined:
@@ -212,7 +230,9 @@ async def _build_class_result(
                     enriched = await analyzer._enrich_method(dn)
                     result["methods"].append(enriched)
                 elif dn.type in ("statement", "instance"):
-                    enriched = await analyzer._enrich_attribute(dn, source)
+                    if analyzer_source is None:
+                        analyzer_source = Path(file_path).read_text(encoding="utf-8")
+                    enriched = await analyzer._enrich_attribute(dn, analyzer_source)
                     result["attributes"].append(enriched)
         except Exception:
             logger.debug(f"Could not enumerate members of {target_name}")
@@ -395,18 +415,15 @@ async def _build_module_result(
     }
 
     try:
-        script, source = _make_script(analyzer, file_path)
+        script = _make_script(analyzer, file_path)
 
-        # Docstring (first expression if it's a string)
+        # Docstring (bucket 2 — semantic, bound to the symbol).
+        # Use the cached AST and ast.get_docstring rather than the legacy
+        # "first-statement-is-a-string" check.  ast.get_docstring already
+        # implements PEP-257 correctly.
         try:
-            tree = ast.parse(source)
-            if (
-                tree.body
-                and isinstance(tree.body[0], ast.Expr)
-                and isinstance(tree.body[0].value, ast.Constant)
-                and isinstance(tree.body[0].value.value, str)
-            ):
-                result["docstring"] = tree.body[0].value.value
+            tree = file_artifact_cache.get_ast(file_path)
+            result["docstring"] = ast.get_docstring(tree)
         except Exception:
             pass
 
@@ -442,8 +459,14 @@ async def _build_module_result(
         result["functions"] = _paginate(func_items, limit)
 
         # --- Variables (relationship list) ---
+        # Bucket 1: _get_module_variables / _enrich_attribute consume source
+        # for AST-based annotation extraction.  The analyzer-side helpers
+        # still take a source string; source is read here as a bridge until
+        # the analyzer-side helpers are reshaped to take a cached AST
+        # directly (out of scope for #316 Task 1.5).
         try:
-            variables = await analyzer._get_module_variables(script, source)
+            module_source = Path(file_path).read_text(encoding="utf-8")
+            variables = await analyzer._get_module_variables(script, module_source)
             result["variables"] = _paginate(variables, limit)
         except Exception:
             logger.debug(f"Could not extract variables from {file_path}")

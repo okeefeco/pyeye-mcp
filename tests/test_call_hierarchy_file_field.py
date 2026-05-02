@@ -69,7 +69,10 @@ def outer():
                     "pyeye.analyzers.jedi_analyzer.read_file_async",
                     new=AsyncMock(return_value=module_file.read_text()),
                 ),
-                patch("pyeye.analyzers.jedi_analyzer.jedi.Script", return_value=mock_script),
+                patch(
+                    "pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script",
+                    return_value=mock_script,
+                ),
             ):
                 result = await analyzer.get_call_hierarchy(
                     function_name="outer",
@@ -153,7 +156,10 @@ def outer():
                     "pyeye.analyzers.jedi_analyzer.read_file_async",
                     new=AsyncMock(return_value=module_file.read_text()),
                 ),
-                patch("pyeye.analyzers.jedi_analyzer.jedi.Script", return_value=mock_script),
+                patch(
+                    "pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script",
+                    return_value=mock_script,
+                ),
             ):
                 result = await analyzer.get_call_hierarchy(
                     function_name="outer",
@@ -216,7 +222,10 @@ def outer():
                     "pyeye.analyzers.jedi_analyzer.read_file_async",
                     new=AsyncMock(return_value=module_file.read_text()),
                 ),
-                patch("pyeye.analyzers.jedi_analyzer.jedi.Script", return_value=mock_script),
+                patch(
+                    "pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script",
+                    return_value=mock_script,
+                ),
             ):
                 result = await analyzer.get_call_hierarchy(
                     function_name="outer",

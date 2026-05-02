@@ -1,14 +1,21 @@
-"""File artifact cache for shared source text, AST, and jedi.Script objects.
+"""File artifact cache for shared AST and ``jedi.Script`` objects.
 
 This module provides a process-level cache keyed by ``(resolved_path, mtime_ns)``
 (and additionally by project path for Script objects).  It serves as the
-foundation of the lookup-performance overhaul (Task 1.2).
+foundation of the lookup-performance overhaul (Task 1.2 / 1.5).
+
+Layering principle
+------------------
+Pyeye is the *semantic* layer.  Source text is *content* that the agent reads
+through its dedicated Read tool.  The cache therefore holds **only**
+``ast.Module`` and ``jedi.Script`` objects — never raw source text.  When a
+miss occurs, source is read from disk inline for the parse / Script
+construction step and immediately discarded.  Source bytes never escape the
+cache boundary.
 
 Key design decisions
 --------------------
-* **Two independent eviction policies**: a *byte cap* on source-text entries
-  and an *LRU count cap* on AST/Script entries.  They operate independently
-  on their own ``OrderedDict`` stores.
+* **Single LRU count cap** on AST/Script entries (combined).  Defaults to 500.
 * **mtime-based invalidation**: every ``get_*`` call checks ``os.stat()`` for
   the current mtime and treats a changed mtime as a cache miss.
 * **Thread safety**: a single ``threading.RLock`` guards all mutations, making
@@ -26,11 +33,11 @@ Key design decisions
   from it.
 * **AST-biased LRU eviction**: when both the AST store and Script store are
   non-empty and the combined count cap is exceeded, the implementation evicts
-  from the AST store first.  This is intentional: ``jedi.Script`` objects are
-  more expensive to reconstruct than ASTs because Script setup involves
-  inference-state initialisation, not just a parso parse.  Keeping Scripts
-  warm and re-parsing ASTs via parso's own cache is a better trade-off under
-  memory pressure.  See ``_enforce_ast_cap`` for details.
+  from the AST store first.  ``jedi.Script`` objects are more expensive to
+  reconstruct than ASTs because Script setup involves inference-state
+  initialisation, not just a parso parse.  Keeping Scripts warm and
+  re-parsing ASTs via parso's own cache is a better trade-off under memory
+  pressure.  See ``_enforce_ast_cap`` for details.
 * **UTF-8 assumption**: source files are read with ``encoding="utf-8"``.
   Non-UTF-8 files (e.g. PEP 263 ``# -*- coding: latin-1 -*-``) are not
   supported.  Modern Python 3 codebases are overwhelmingly UTF-8; adding
@@ -56,7 +63,7 @@ logger = logging.getLogger(__name__)
 # Type aliases
 # ---------------------------------------------------------------------------
 
-# Key for the source/AST stores: (resolved_posix_path, mtime_ns)
+# Key for the AST store: (resolved_posix_path, mtime_ns)
 _FileKey = tuple[str, int]
 
 # Key for Script store: (resolved_posix_path, mtime_ns, project_posix_path)
@@ -89,37 +96,29 @@ def _project_key(project: jedi.Project) -> str:
 
 
 class FileArtifactCache:
-    """Process-level cache for file source text, AST, and jedi.Script objects.
+    """Process-level cache for AST and ``jedi.Script`` objects.
 
     Instances are fully independent; tests construct them with custom caps.
     A module-level singleton ``_default_cache`` is provided for production use.
+
+    The cache deliberately does **not** store source text.  Pyeye's role is
+    semantic; raw source belongs to the agent's Read tool.  When a get_*
+    method misses, source is read from disk for the parse / Script
+    construction step and immediately discarded.
 
     Parameters
     ----------
     ast_max_entries:
         Maximum number of AST **and** Script entries combined.  When exceeded,
         the least-recently-used entry is evicted.  Defaults to 500.
-    file_max_bytes:
-        Maximum total byte size of cached source text.  When adding a new
-        source entry would exceed this cap, the least-recently-used source
-        entry is evicted until the total fits.  Defaults to 100 MB.
     """
 
     def __init__(
         self,
         ast_max_entries: int = 500,
-        file_max_bytes: int = 100_000_000,
     ) -> None:
-        """Initialise the cache with the given entry and byte caps."""
+        """Initialise the cache with the given combined entry cap."""
         self._ast_max_entries = ast_max_entries
-        self._file_max_bytes = file_max_bytes
-
-        # Source store: _FileKey -> str
-        # Ordered by LRU (most-recently used at the end).
-        self._source_store: OrderedDict[_FileKey, str] = OrderedDict()
-        # Byte count per source entry for the cap calculation.
-        self._source_bytes: dict[_FileKey, int] = {}
-        self._total_source_bytes: int = 0
 
         # AST store: _FileKey -> ast.Module (LRU, shared count cap with Script)
         self._ast_store: OrderedDict[_FileKey, ast.Module] = OrderedDict()
@@ -139,61 +138,13 @@ class FileArtifactCache:
     # Public API
     # -----------------------------------------------------------------------
 
-    def get_source(self, path: Path | str) -> str:
-        """Return the source text of *path*, reading from disk on cache miss.
-
-        The cache is keyed by ``(resolved_path, mtime_ns)``; a changed mtime
-        forces a fresh disk read and updates the cached entry.
-
-        .. note::
-            Files are read with ``encoding="utf-8"``.  Non-UTF-8 source files
-            (PEP 263 ``# -*- coding: latin-1 -*-`` etc.) are not supported and
-            will raise ``UnicodeDecodeError``.  When that error is raised after
-            ``_misses`` has already been incremented, the miss counter has no
-            corresponding cache entry — this is correct because the operation
-            truly was a cache miss that subsequently failed.
-
-        Parameters
-        ----------
-        path:
-            Path to a Python source file.
-
-        Returns
-        -------
-        str
-            Source text of the file.
-        """
-        resolved = _resolve_posix(path)
-        mtime_ns = _stat_mtime_ns(Path(path))
-        key: _FileKey = (resolved, mtime_ns)
-
-        with self._lock:
-            if key in self._source_store:
-                # Cache hit — move to MRU position
-                self._source_store.move_to_end(key)
-                self._hits += 1
-                return self._source_store[key]
-
-            # Cache miss — evict any stale entry for this path (different mtime)
-            self._evict_stale_source(resolved, key)
-
-            # Read from disk
-            self._misses += 1
-            source = Path(path).read_text(encoding="utf-8")
-
-            # Insert, then enforce byte cap
-            byte_size = len(source.encode("utf-8"))
-            self._source_store[key] = source
-            self._source_bytes[key] = byte_size
-            self._total_source_bytes += byte_size
-            self._enforce_byte_cap()
-
-            return source
-
     def get_ast(self, path: Path | str) -> ast.Module:
         """Return the parsed AST for *path*, rebuilding on cache miss or mtime change.
 
-        Shares the LRU count cap with :meth:`get_script`.
+        On a miss the source is read from disk, parsed, and the source is then
+        discarded — only the resulting :class:`ast.Module` is retained.  This
+        keeps pyeye in its semantic role and leaves source-text handling to
+        the agent's Read tool.
 
         Parameters
         ----------
@@ -219,8 +170,8 @@ class FileArtifactCache:
             self._evict_stale_ast(resolved, key)
 
             self._misses += 1
-            # Obtain source (benefits from or populates the source cache)
-            source = self.get_source(path)
+            # Read source inline for the parse step; do NOT cache the source.
+            source = Path(path).read_text(encoding="utf-8")
 
             tree = ast.parse(source, filename=resolved)
             self._ast_store[key] = tree
@@ -234,6 +185,11 @@ class FileArtifactCache:
         The cache key is ``(resolved_path, mtime_ns, project_root_path)`` so
         two distinct ``jedi.Project`` instances rooted at the same directory
         share a cached entry, while projects at different roots do not.
+
+        On a miss the source is read from disk, passed to the Script
+        constructor, and then discarded — only the resulting ``jedi.Script``
+        is retained.  parso's internal parse cache (mtime-keyed) covers the
+        re-parse cost should the Script be evicted.
 
         Parameters
         ----------
@@ -262,7 +218,8 @@ class FileArtifactCache:
             self._evict_stale_script(resolved, proj_key, key)
 
             self._misses += 1
-            source = self.get_source(path)
+            # Read source inline for the Script constructor; do NOT cache it.
+            source = Path(path).read_text(encoding="utf-8")
 
             script = jedi.Script(code=source, path=Path(path), project=project)
             self._script_store[key] = script
@@ -291,11 +248,8 @@ class FileArtifactCache:
         cleared, matching the per-item semantics of :meth:`invalidate`.
         """
         with self._lock:
-            cleared = len(self._source_store) + len(self._ast_store) + len(self._script_store)
+            cleared = len(self._ast_store) + len(self._script_store)
             self._evictions += cleared
-            self._source_store.clear()
-            self._source_bytes.clear()
-            self._total_source_bytes = 0
             self._ast_store.clear()
             self._script_store.clear()
 
@@ -305,25 +259,18 @@ class FileArtifactCache:
         Returns
         -------
         dict
-            Keys: ``hits``, ``misses``, ``evictions``, ``cached_bytes``.
+            Keys: ``hits``, ``misses``, ``evictions``.
         """
         with self._lock:
             return {
                 "hits": self._hits,
                 "misses": self._misses,
                 "evictions": self._evictions,
-                "cached_bytes": self._total_source_bytes,
             }
 
     # -----------------------------------------------------------------------
     # Internal helpers — must be called with _lock held
     # -----------------------------------------------------------------------
-
-    def _evict_stale_source(self, resolved: str, current_key: _FileKey) -> None:
-        """Remove source entries for *resolved* whose mtime differs from *current_key*."""
-        stale = [k for k in self._source_store if k[0] == resolved and k != current_key]
-        for k in stale:
-            self._remove_source_entry(k)
 
     def _evict_stale_ast(self, resolved: str, current_key: _FileKey) -> None:
         """Remove AST entries for *resolved* whose mtime differs from *current_key*."""
@@ -344,11 +291,7 @@ class FileArtifactCache:
             self._evictions += 1
 
     def _evict_all_for_resolved(self, resolved: str) -> None:
-        """Remove all cached entries (source, AST, Script) for *resolved*."""
-        src_stale = [k for k in self._source_store if k[0] == resolved]
-        for k in src_stale:
-            self._remove_source_entry(k)
-
+        """Remove all cached entries (AST, Script) for *resolved*."""
         ast_stale = [k for k in self._ast_store if k[0] == resolved]
         for k in ast_stale:
             del self._ast_store[k]
@@ -358,20 +301,6 @@ class FileArtifactCache:
         for sk in script_stale:
             del self._script_store[sk]
             self._evictions += 1
-
-    def _remove_source_entry(self, key: _FileKey) -> None:
-        """Remove a single source entry and update byte accounting."""
-        byte_size = self._source_bytes.pop(key, 0)
-        self._total_source_bytes -= byte_size
-        del self._source_store[key]
-        self._evictions += 1
-
-    def _enforce_byte_cap(self) -> None:
-        """Evict LRU source entries until total cached bytes <= _file_max_bytes."""
-        while self._total_source_bytes > self._file_max_bytes and self._source_store:
-            # OrderedDict pops from the front (LRU end)
-            lru_key, _ = next(iter(self._source_store.items()))
-            self._remove_source_entry(lru_key)
 
     def _enforce_ast_cap(self) -> None:
         """Evict LRU AST/Script entries (combined) until total count <= _ast_max_entries.
@@ -415,11 +344,6 @@ class FileArtifactCache:
 # this singleton.  Tests should construct their own ``FileArtifactCache``
 # instances with custom caps.
 _default_cache: FileArtifactCache = FileArtifactCache()
-
-
-def get_source(path: Path | str) -> str:
-    """Return cached source text for *path* using the default cache."""
-    return _default_cache.get_source(path)
 
 
 def get_ast(path: Path | str) -> ast.Module:
