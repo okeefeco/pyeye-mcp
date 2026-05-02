@@ -75,7 +75,7 @@ def py_file(tmp_path: Path) -> Path:
 @pytest.fixture()
 def jedi_project(tmp_path: Path) -> jedi.Project:
     """A real jedi.Project rooted at the temp directory."""
-    return jedi.Project(path=str(tmp_path))
+    return jedi.Project(path=tmp_path)
 
 
 @pytest.fixture()
@@ -149,6 +149,64 @@ class TestCacheHit:
         assert (
             stats["hits"] >= 1
         ), f"Expected at least one cache hit recorded in stats, got: {stats}"
+
+
+# --------------------------------------------------------------------------- #
+# (a2) Multi-project isolation — Script keying must include project_id        #
+# --------------------------------------------------------------------------- #
+
+
+class TestMultiProjectIsolation:
+    """get_script() must key on (path, mtime_ns, project_id), not just (path, mtime_ns).
+
+    Without project isolation a cache hit for project_a could be returned for
+    project_b, producing wrong completions when the same file is analysed
+    under multiple jedi.Project roots (e.g. multi-root workspaces, Task 1.5).
+    """
+
+    def test_different_projects_get_different_script_objects(
+        self, tmp_path: Path, default_cache
+    ) -> None:
+        """Two distinct jedi.Project instances must not share cached Script objects.
+
+        Even when the source file is identical, the Script is project-specific
+        because Jedi resolves imports relative to the project root.  The cache
+        key must therefore include the project identifier so each project gets
+        its own entry.
+        """
+        source_file = tmp_path / "shared.py"
+        _write_py(source_file, "import os\nresult = os.getcwd()\n")
+
+        # Two projects rooted at different paths
+        project_a = jedi.Project(path=tmp_path)
+        project_b_root = tmp_path / "subproject"
+        project_b_root.mkdir()
+        project_b = jedi.Project(path=project_b_root)
+
+        script_a = default_cache.get_script(source_file, project_a)
+        script_b = default_cache.get_script(source_file, project_b)
+
+        assert script_a is not script_b, (
+            "Expected get_script() to return distinct Script objects for different "
+            "jedi.Project instances, but got the same object.  The cache key must "
+            "include the project identifier (e.g. project path or id), not just the "
+            "file path and mtime."
+        )
+
+    def test_same_project_still_hits_cache(self, tmp_path: Path, default_cache) -> None:
+        """Calling get_script() twice with the same project must return the cached object."""
+        source_file = tmp_path / "cached.py"
+        _write_py(source_file, "VALUE = 42\n")
+
+        project = jedi.Project(path=tmp_path)
+
+        first = default_cache.get_script(source_file, project)
+        second = default_cache.get_script(source_file, project)
+
+        assert first is second, (
+            "Expected get_script() to return the identical cached Script on the second "
+            "call with the same project, but got two different objects (cache miss)."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -330,7 +388,7 @@ class TestConcurrentAccess:
         """N concurrent executor tasks calling get_source() must all receive the same content."""
 
         async def _run() -> list[str]:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             futures = [
                 loop.run_in_executor(None, default_cache.get_source, py_file) for _ in range(20)
             ]
@@ -355,7 +413,7 @@ class TestConcurrentAccess:
             files.append(f)
 
         async def _fetch_all() -> list[str]:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             futures = [loop.run_in_executor(None, default_cache.get_source, f) for f in files]
             return await asyncio.gather(*futures)
 
@@ -372,7 +430,7 @@ class TestConcurrentAccess:
         """Mixing get_source, get_ast, and get_script concurrently must not corrupt stats."""
 
         async def _mixed() -> tuple:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             source_fut = loop.run_in_executor(None, default_cache.get_source, py_file)
             ast_fut = loop.run_in_executor(None, default_cache.get_ast, py_file)
             script_fut = loop.run_in_executor(None, default_cache.get_script, py_file, jedi_project)
