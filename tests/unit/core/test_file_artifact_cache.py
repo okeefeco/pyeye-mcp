@@ -1,9 +1,7 @@
-"""Failing tests for the file artifact cache (Task 1.1 TDD).
+"""Tests for the file artifact cache (``pyeye.file_artifact_cache``).
 
-The module under test, ``pyeye.file_artifact_cache``, does not exist yet.
-Every test in this file is expected to fail until Task 1.2 provides the
-implementation.  Each test imports the module at call time so failures appear
-as individual ERRORS rather than a whole-file skip.
+The implementation was introduced in Task 1.2.  All tests in this file are
+expected to pass.
 
 Contracts verified:
   (a) Repeated reads of the same file return the identical cached object (cache hit).
@@ -13,6 +11,10 @@ Contracts verified:
   (e) Concurrent access from multiple asyncio tasks is safe and returns consistent results.
   (f) Explicit invalidation of a path drops the cache entry, causing a fresh load on
       the next access.
+  (g) Module-level helper functions (get_source, get_ast, get_script, invalidate,
+      cache_stats) delegate correctly to the default singleton cache.
+  (h) AST-cap eviction branches behave correctly when only ASTs, only Scripts, or
+      both are present in the stores.
 """
 
 from __future__ import annotations
@@ -525,7 +527,7 @@ class TestExplicitInvalidation:
                 f"invalidate() raised {type(exc).__name__} for a path not in the cache: {exc}"
             )
 
-    def test_invalidate_all_drops_all_three_artifact_types(
+    def test_invalidate_drops_all_three_artifact_types(
         self, tmp_path: Path, default_cache, jedi_project: jedi.Project
     ) -> None:
         """After invalidate(path), all three artifact types (source, AST, Script) must miss."""

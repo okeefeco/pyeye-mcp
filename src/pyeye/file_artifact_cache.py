@@ -18,11 +18,12 @@ Key design decisions
   project_path)`` rather than ``id(project)`` so two distinct
   ``jedi.Project`` instances rooted at the same directory correctly share an
   entry.
-* **Parso composition**: ``jedi.Script`` internally calls parso, which has its
-  own global parse cache keyed by file-content hash.  We cache the already-
-  constructed ``jedi.Script`` object (whose setup overhead exceeds the parse
-  step alone) and let parso's cache handle the underlying parse tree.  We
-  never fight parso's cache; we benefit from it.
+* **Parso composition**: ``jedi.Script`` internally calls parso, which keeps
+  its own in-memory parse cache keyed by file path with mtime-based
+  invalidation.  We cache the already-constructed ``jedi.Script`` object
+  (whose setup overhead exceeds the parse step alone) and let parso's cache
+  handle the underlying parse tree.  We never fight parso's cache; we benefit
+  from it.
 * **AST-biased LRU eviction**: when both the AST store and Script store are
   non-empty and the combined count cap is exceeded, the implementation evicts
   from the AST store first.  This is intentional: ``jedi.Script`` objects are
@@ -397,10 +398,10 @@ class FileArtifactCache:
                 # Rationale: ``jedi.Script`` objects are more expensive to
                 # reconstruct than ASTs because Script setup involves
                 # inference-state initialisation, not just a parso parse call.
-                # parso maintains its own global parse cache keyed by content
-                # hash, so evicted ASTs are cheap to rebuild.  Under cap
-                # pressure it is therefore better to keep Scripts warm and let
-                # ASTs be re-parsed via parso's cache.
+                # parso keeps its own in-memory parse cache keyed by file path
+                # with mtime-based invalidation, so evicted ASTs are cheap to
+                # rebuild.  Under cap pressure it is therefore better to keep
+                # Scripts warm and let ASTs be re-parsed via parso's cache.
                 del self._ast_store[ast_lru]  # type: ignore[arg-type]
                 self._evictions += 1
 
