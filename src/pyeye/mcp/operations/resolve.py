@@ -234,6 +234,10 @@ async def _resolve_at_position(
 
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
+        # follow_imports=True is intentional here: position-based resolution
+        # should land on the definition site, not the use site. Callers that
+        # want the symbol AT the position rather than its definition should
+        # use a name-based form via resolve(identifier).
         definitions = script.goto(line, column, follow_imports=True)
     except Exception as exc:
         logger.debug("_resolve_at_position: goto(%d, %d) failed: %s", line, column, exc)

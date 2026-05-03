@@ -6,6 +6,6 @@ pointing resolve_at at the use site still returns the canonical handle.
 
 from mypackage import Widget
 
-# Use site: pointing at 'Widget' on the line below (line 12) should
+# Use site: pointing at 'Widget' on the line below (line 11) should
 # resolve to the canonical handle mypackage._core.widgets.Widget
 w = Widget()
