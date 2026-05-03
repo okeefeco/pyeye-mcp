@@ -122,9 +122,6 @@ IdentifierForm = dict[str, Any]
 # Regex: <some-path>:<positive-integer>
 _FILE_LINE_RE = re.compile(r"^(.+):(\d+)$")
 
-# Regex: valid Python identifier (for bare-name detection)
-_BARE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 
 def _parse_identifier(identifier: str) -> IdentifierForm:
     r"""Parse an identifier string into a tagged-union form dict.
@@ -189,30 +186,6 @@ def _normalise_kind(jedi_type: str | None) -> str:
     if jedi_type is None:
         return "variable"
     return _JEDI_TYPE_TO_KIND.get(jedi_type, jedi_type)
-
-
-# ---------------------------------------------------------------------------
-# Location builder
-# ---------------------------------------------------------------------------
-
-
-def _make_location(file: str, line: int | None, column: int | None) -> _Location:
-    """Build a _Location dict from Jedi name fields.
-
-    Jedi provides ``name.line`` (1-indexed) and ``name.column`` (0-indexed).
-    When a field is absent (``None``), we fall back to 0/1 respectively.
-    ``line_end`` is set to ``line_start`` when no end-line information is
-    available (single-line symbols).
-    """
-    line_val = line if line is not None else 1
-    col_val = column if column is not None else 0
-    return _Location(
-        file=file,
-        line_start=line_val,
-        line_end=line_val,
-        column_start=col_val,
-        column_end=col_val,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +427,36 @@ async def _build_candidate_from_match(
 # ---------------------------------------------------------------------------
 
 
+async def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
+    """Look up kind by re-deriving from the canonical handle's definition site.
+
+    Used as a fallback when ``find_symbol`` leaf search doesn't return the
+    matching symbol.  Splits the handle into ``<module>.<leaf>``, resolves the
+    module file, then searches ``jedi.Script.get_names`` for the symbol.
+
+    Returns ``"module"`` for a bare module name (no dot), ``"variable"`` when
+    the kind genuinely cannot be determined (safest Python kind — every binding
+    is at minimum a name binding).
+    """
+    from pyeye.canonicalization import _find_module_file
+
+    parts = canonical_handle.rsplit(".", 1)
+    if len(parts) != 2:
+        return "module"  # bare module name
+    module_path, leaf = parts
+    module_file = _find_module_file(module_path, analyzer)
+    if module_file is None:
+        return "variable"  # safer default than "class"
+    script = file_artifact_cache.get_script(module_file, analyzer.project)
+    try:
+        for name_obj in script.get_names(all_scopes=True, definitions=True, references=False):
+            if name_obj.full_name == canonical_handle:
+                return _normalise_kind(name_obj.type) or "variable"
+    except Exception as exc:
+        logger.debug("_kind_for_canonical(%r): get_names failed: %s", canonical_handle, exc)
+    return "variable"
+
+
 async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
     """Resolve a dotted name (FQN or re-exported path) to a canonical handle."""
     handle = await resolve_canonical(name, analyzer)
@@ -470,7 +473,7 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
 
     # Try to find the match whose full_name matches our canonical handle
     file_str = ""
-    kind = "class"  # sensible default for dotted-name resolution
+    kind: str | None = None
     for match in matches:
         if match.get("full_name") == str(handle):
             file_str = match.get("file", "")
@@ -479,6 +482,10 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
     else:
         # Fallback: use the file derived from the handle path
         file_str = _handle_to_file(handle, analyzer) or ""
+
+    if kind is None:
+        # Leaf search missed — recover kind from the canonical handle's definition site
+        kind = await _kind_for_canonical(str(handle), analyzer)
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 

@@ -19,3 +19,10 @@ class Config:
 
     debug: bool = False
     host: str = "localhost"
+
+
+def make_widget(widget_name: str) -> "Widget":
+    """Factory function to verify resolve returns kind='function'."""
+    w = Widget()
+    w.name = widget_name
+    return w

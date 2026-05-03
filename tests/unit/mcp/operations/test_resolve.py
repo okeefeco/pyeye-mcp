@@ -417,3 +417,26 @@ class TestIdentifierFormParser:
         form = _parse_identifier("Config")
         assert form["kind"] == "bare_name"
         assert form["name"] == "Config"
+
+
+# ---------------------------------------------------------------------------
+# Kind recovery for non-class dotted names
+# ---------------------------------------------------------------------------
+
+
+class TestKindRecovery:
+    """Resolving a dotted name for a function must return kind='function', not 'class'."""
+
+    @pytest.mark.asyncio
+    async def test_function_dotted_name_returns_function_kind(self, analyzer: JediAnalyzer) -> None:
+        """mypackage._core.widgets.make_widget is a function — kind must be 'function'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.make_widget"
+        assert (
+            result["kind"] == "function"
+        ), f"Expected kind='function' for a factory function, got: {result['kind']!r}"
