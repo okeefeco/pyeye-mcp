@@ -1,4 +1,4 @@
-"""Single-step definition-site canonicalization for PyEye handles.
+"""Definition-site canonicalization for PyEye handles.
 
 Given any dotted-name identifier that a user or tool might pass in, return the
 *canonical handle* — the definition site — according to the rule:
@@ -6,12 +6,14 @@ Given any dotted-name identifier that a user or tool might pass in, return the
     The canonical handle is where the object is **defined**, not where it is
     imported or re-exported.
 
-For example, given either of::
+For example, given any of::
 
-    "package.Config"               # re-exported via __init__.py
-    "package._impl.config.Config"  # the actual definition file
+    "package.Config"                    # re-exported via __init__.py (1+ hops)
+    "package.subpkg.Config"             # intermediate re-export
+    "package.legacy.LegacyConfig"       # aliased re-export
+    "package._impl.config.Config"       # the actual definition file
 
-both return ``Handle("package._impl.config.Config")``.
+all return ``Handle("package._impl.config.Config")``.
 
 Public API
 ----------
@@ -21,25 +23,55 @@ resolve_canonical(identifier, analyzer) -> Handle | None
 
 collect_re_exports(handle, analyzer) -> list[Handle]
     Given a canonical handle, return all dotted-name paths that bind to the
-    same object via ``__init__.py`` re-exports.  Returns an empty list when
-    no public paths are found.  Never raises.
+    same object via re-exports in any ``__init__.py`` or module file in the
+    package tree.  Returns an empty list when no public paths are found.
+    Never raises.
 
-Design notes
-------------
-Jedi's ``Name.full_name`` already points to the *definition site* even when
-the search finds a re-exported name (e.g. the import line in ``__init__.py``).
-We exploit this property rather than walking import chains ourselves.
+Design notes — Jedi resolution behavior
+-----------------------------------------
+Jedi's ``Name.full_name`` via ``get_names()`` performs exactly ONE step of
+import/alias resolution per call.  It does *not* follow multi-hop chains
+automatically.  For example, ``package/__init__.py`` importing
+``from package.subpkg import Config`` yields ``full_name='package.subpkg.Config'``
+— not the final definition site.
 
-The implementation accesses ``JediAnalyzer``'s private helpers
-``_find_init_file`` and ``_check_symbol_in_init`` because they already contain
-the correct logic for discovering ``__init__.py`` files across source layouts
-(src-layout, direct-layout, namespaces).  Building equivalent logic in this
-module would duplicate those helpers.  We do *not* use the existing
-``find_reexports`` method because it returns import-statement strings like
-``"from package import Config"`` rather than dotted handles.
+**Resolution strategy (multi-hop walk):** ``_resolve_canonical_impl`` calls
+``_get_full_name_from_file`` iteratively, following each ``full_name`` result
+to its own module, until the result stabilises (i.e., ``full_name`` equals the
+input) or the max-depth guard fires.  This is an explicit, verifiable chain walk
+rather than relying on ``follow_imports=True`` in ``goto()`` (which has
+inconsistent behaviour across import styles).
 
-Multi-hop aliasing (``A = B``, ``C = A``, etc.) is explicitly deferred to
-Task 1.3.  This module handles the single-hop re-export case only.
+The chain walk is bounded by ``_MAX_RESOLUTION_DEPTH = 20`` iterations.  In
+practice, real codebases rarely exceed 3–4 hops.  Cycles are detected by the
+stabilisation check (``full_name == current_identifier``) — if Jedi follows a
+cycle, the result will not change between iterations and the loop will exit.
+
+**Re-export collection strategy (BFS scan):** ``_collect_re_exports_impl``
+uses a breadth-first scan of all Python files in the package directory.  For
+each file, Jedi's ``get_names()`` is called; any name whose ``full_name``
+matches the *current* target handle is recorded as a re-export.  The newly
+discovered handles then become targets for the next BFS round.  A ``visited``
+set prevents revisiting handles and guarantees termination even when the
+package contains self-referential re-exports.
+
+Results are sorted lexicographically for deterministic ordering.
+
+**Cycle detection:** The visited set in the BFS loop is the primary cycle
+guard.  Because Jedi resolves ``full_name`` to the *definition* module (not to
+the re-exporting __init__), the __init__.py's own binding appears as ``module.X``
+not as ``package.X``, so the cycle test fires before infinite expansion.
+
+**``__all__`` handling:** Symbols listed in ``__all__`` are "public" by
+convention, but Jedi's ``get_names()`` returns all top-level names regardless.
+Per the spec, re-exports NOT in ``__all__`` are still collected — a future
+implementation may distinguish public vs private re-exports.
+
+**Conditional imports (``if TYPE_CHECKING:``, ``try:/except ImportError:``):**
+Jedi sees these statically and follows them like normal imports.  If a symbol
+is only imported under ``TYPE_CHECKING``, Jedi may or may not include it in
+``get_names()``.  Conservative behavior: return whatever Jedi sees.  See the
+spec's "Edge-case handle resolution" section for details.
 """
 
 from __future__ import annotations
@@ -55,6 +87,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of resolution hops before giving up (cycle / deep-chain guard).
+# Real codebases rarely exceed 3–4 hops; 20 is a generous safety bound.
+_MAX_RESOLUTION_DEPTH: int = 20
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -63,6 +99,9 @@ logger = logging.getLogger(__name__)
 
 async def resolve_canonical(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
     """Resolve a dotted-name identifier to its canonical (definition-site) handle.
+
+    Follows multi-hop import chains iteratively until the result stabilises.
+    See module docstring for the Jedi behavior this relies on.
 
     Args:
         identifier: Any dotted Python name, e.g. ``"package.Config"`` or
@@ -84,8 +123,9 @@ async def resolve_canonical(identifier: str, analyzer: JediAnalyzer) -> Handle |
 async def collect_re_exports(handle: Handle, analyzer: JediAnalyzer) -> list[Handle]:
     """Return all public dotted paths that bind to the same object as *handle*.
 
-    Walks the package hierarchy above the definition site, checking each
-    ``__init__.py`` for a re-export of the symbol.
+    Uses a BFS scan of all Python files in the package hierarchy.  Follows
+    transitive re-exports (e.g., if A re-exports B which re-exports the symbol,
+    both A and B are included).  The canonical handle itself is not included.
 
     Args:
         handle: Canonical handle (definition-site dotted name).
@@ -93,10 +133,9 @@ async def collect_re_exports(handle: Handle, analyzer: JediAnalyzer) -> list[Han
             project that contains the symbol.
 
     Returns:
-        A list of :class:`~pyeye.handle.Handle` objects representing public
-        import paths.  The canonical handle itself is *not* included in the
-        returned list.  Returns an empty list when no re-exports are found.
-        Never raises.
+        A sorted list of :class:`~pyeye.handle.Handle` objects representing
+        public import paths.  The canonical handle itself is *not* included.
+        Returns an empty list when no re-exports are found.  Never raises.
     """
     try:
         return await _collect_re_exports_impl(handle, analyzer)
@@ -111,7 +150,11 @@ async def collect_re_exports(handle: Handle, analyzer: JediAnalyzer) -> list[Han
 
 
 async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
-    """Core resolution logic — may raise; callers catch."""
+    """Core resolution logic — may raise; callers catch.
+
+    Implements an iterative chain walk: resolves the identifier once, then
+    follows the result until it stabilises or the depth guard fires.
+    """
     parts = identifier.split(".")
     if not parts:
         return None
@@ -126,7 +169,7 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
 
     # Convert the module dotted name to a file path, then ask Jedi for the
     # names defined in that file.  Jedi's full_name for each Name already
-    # tracks to the definition site.
+    # tracks to the definition site (one hop at a time).
     module_file = _find_module_file(module_dotted, analyzer) if module_dotted else None
 
     if module_dotted and module_file is None:
@@ -136,6 +179,37 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
     full_name = await _get_full_name_from_file(module_file, symbol_name, analyzer)
     if full_name is None:
         return None
+
+    # Multi-hop walk: follow full_name until it stabilises.
+    # Each iteration resolves one more hop in the import chain.
+    # The loop exits when:
+    #   (a) full_name == current_identifier — we're at the definition site, OR
+    #   (b) depth guard fires (prevents infinite loops / very deep chains).
+    current_identifier = full_name
+    for _ in range(_MAX_RESOLUTION_DEPTH):
+        if full_name == current_identifier and _ > 0:
+            # Stabilised — this IS the definition site.
+            break
+        current_identifier = full_name
+
+        # Parse current_identifier to find its module file
+        hop_parts = current_identifier.split(".")
+        hop_symbol = hop_parts[-1]
+        hop_module = ".".join(hop_parts[:-1])
+
+        if not hop_symbol:
+            break
+
+        hop_file = _find_module_file(hop_module, analyzer) if hop_module else None
+        if hop_file is None:
+            break
+
+        next_full_name = await _get_full_name_from_file(hop_file, hop_symbol, analyzer)
+        if next_full_name is None or next_full_name == current_identifier:
+            # Either not found (already at the definition file) or stabilised
+            break
+
+        full_name = next_full_name
 
     # Validate and wrap as Handle
     try:
@@ -227,49 +301,164 @@ async def _resolve_via_project_search(
 
 
 async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> list[Handle]:
-    """Core collection logic — may raise; callers catch."""
-    parts = str(handle).split(".")
+    """Core collection logic — may raise; callers catch.
+
+    Uses a BFS scan of all Python files in the package tree.
+
+    Algorithm
+    ---------
+    1.  Determine the *package root directory* — the top-level directory of
+        the package that owns the canonical handle.
+    2.  BFS loop: start with a queue = [canonical_handle_str].  For each
+        item, scan all ``.py`` files under the package root using Jedi's
+        ``get_names()``.  Any name whose ``full_name`` matches the current
+        queue item, and whose computed module path differs from the canonical
+        handle, is a re-export.
+    3.  Newly found handles are added to the queue for transitive expansion.
+    4.  The ``visited`` set prevents re-processing and guarantees termination.
+    5.  Results are sorted lexicographically for deterministic ordering.
+
+    Why BFS and not the old parent-walk?
+    -------------------------------------
+    The parent-walk approach only checked ``__init__.py`` files that are
+    direct *ancestors* of the definition site in the module hierarchy.  It
+    cannot discover re-exports in sibling packages (e.g. ``package.subpkg``
+    re-exporting a symbol defined in ``package._impl``), nor aliased re-exports
+    in arbitrary module files (e.g. ``package.legacy``).
+
+    The BFS scan covers all files, so it finds all of these cases.  The cost
+    is higher (multiple Jedi invocations per scan round), but remains bounded
+    by the package size and BFS depth.
+    """
+    handle_str = str(handle)
+    parts = handle_str.split(".")
     if len(parts) < 2:
         # Top-level name — no enclosing package to re-export it
         return []
 
-    symbol_name = parts[-1]
-    # module_parts are everything up to but not including the symbol
-    module_parts = parts[:-1]
+    # Determine the package root directory to scan.
+    # The top-level package name is parts[0]; its directory is found via
+    # _find_module_file with just that package name.
+    top_package = parts[0]
+    top_init = _find_module_file(top_package, analyzer)
+    if top_init is None:
+        return []
 
-    result: list[Handle] = []
+    # The package root is the directory containing the top-level __init__.py
+    package_root = top_init.parent
 
-    # Walk up the package hierarchy: for each prefix of module_parts, check
-    # whether the corresponding __init__.py re-exports this symbol.
-    # E.g. for package._impl.config.Config we check:
-    #   package._impl.__init__.py  — re-exports from .config import Config?
-    #   package.__init__.py        — re-exports from ._impl.config import Config?
-    for i in range(len(module_parts) - 1, 0, -1):
-        parent_module = ".".join(module_parts[:i])
-        init_file = analyzer._find_init_file(parent_module)
+    # BFS expansion
+    visited: set[str] = {handle_str}
+    result: list[str] = []
+    queue: list[str] = [handle_str]
 
-        if init_file is None:
+    while queue:
+        current_target = queue.pop(0)
+        new_handles = await _scan_package_for_handle(current_target, package_root, analyzer)
+        for h in new_handles:
+            if h not in visited:
+                visited.add(h)
+                result.append(h)
+                queue.append(h)
+
+    # Return sorted for deterministic ordering
+    try:
+        return sorted(Handle(h) for h in result)
+    except ValueError as exc:
+        logger.debug("collect_re_exports: invalid handle in results: %s", exc)
+        return [Handle(h) for h in result if _is_valid_handle(h)]
+
+
+async def _scan_package_for_handle(
+    target_full_name: str, package_root: Path, analyzer: JediAnalyzer
+) -> list[str]:
+    """Scan all Python files under *package_root* for names with ``full_name == target_full_name``.
+
+    Returns a list of module-qualified dotted names (``module_path.symbol_name``)
+    for each match, excluding the target itself (the definition site).
+
+    Args:
+        target_full_name: The dotted name to search for in Jedi's ``full_name``.
+        package_root: Root directory of the top-level package to scan.
+        analyzer: The active ``JediAnalyzer`` instance.
+
+    Returns:
+        List of dotted handle strings for re-exporting names found.
+    """
+    import jedi
+
+    results: list[str] = []
+
+    try:
+        py_files = sorted(package_root.rglob("*.py"))
+    except Exception as exc:
+        logger.debug("_scan_package_for_handle: cannot list files under %s: %s", package_root, exc)
+        return results
+
+    # Pre-compute the project root for module path derivation
+    project_path = analyzer.project_path
+    source_roots = list(getattr(analyzer, "source_roots", []))
+    all_roots = source_roots + [project_path]
+
+    for py_file in py_files:
+        try:
+            script = jedi.Script(path=str(py_file), project=analyzer.project)
+            names = script.get_names(all_scopes=False)
+        except Exception as exc:
+            logger.debug("_scan_package_for_handle: jedi error on %s: %s", py_file, exc)
             continue
 
-        # Immediate submodule name relative to the parent
-        submodule = module_parts[i]
+        for name in names:
+            if name.full_name != target_full_name:
+                continue
 
-        # Note: matching success here depends on _check_symbol_in_init's __all__
-        # fallback in jedi_analyzer.py — the primary "from .submodule import X"
-        # check does NOT match the canonicalization_basic fixture's deep absolute
-        # import style ("from package._impl.config import Config"). Task 1.3
-        # fixtures will need to either include __all__ or align with the
-        # relative-import pattern, otherwise tests will silently stop covering
-        # this code path.
-        if await analyzer._check_symbol_in_init(init_file, symbol_name, submodule):
-            re_export_path = f"{parent_module}.{symbol_name}"
-            try:
-                result.append(Handle(re_export_path))
-            except ValueError:
-                logger.debug("Skipping invalid re-export path %r", re_export_path)
-            # Single-hop: stop at the first match encountered (innermost re-export
-            # found while walking from the definition site outward). Task 1.3 removes
-            # this break to collect all public re-export paths.
-            break
+            # Derive the module dotted path for this file
+            mod_path = _file_to_module_path(py_file, all_roots)
+            if mod_path is None:
+                continue
 
-    return result
+            # Build the re-export handle: module_path.symbol_name
+            re_export_handle = f"{mod_path}.{name.name}"
+            if re_export_handle != target_full_name:
+                results.append(re_export_handle)
+
+    return results
+
+
+def _file_to_module_path(py_file: Path, roots: list[Path]) -> str | None:
+    """Derive the dotted module path for *py_file* relative to one of *roots*.
+
+    Returns ``None`` if the file cannot be placed under any root.
+
+    For ``__init__.py`` files, returns the package path (without ``__init__``).
+    For regular ``.py`` files, returns the module path (without ``.py``).
+    """
+    for root in roots:
+        try:
+            rel = py_file.relative_to(root)
+        except ValueError:
+            continue
+
+        parts = list(rel.parts)
+        if not parts:
+            continue
+
+        if parts[-1] == "__init__.py":
+            module_parts = parts[:-1]
+        elif parts[-1].endswith(".py"):
+            module_parts = parts[:-1] + [parts[-1][:-3]]
+        else:
+            continue
+
+        return ".".join(module_parts) if module_parts else None
+
+    return None
+
+
+def _is_valid_handle(value: str) -> bool:
+    """Return True if *value* is a valid dotted Python name (for Handle construction)."""
+    try:
+        Handle(value)
+        return True
+    except ValueError:
+        return False

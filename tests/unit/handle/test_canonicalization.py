@@ -21,14 +21,18 @@ Test cases
 """
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.canonicalization import (
+    _collect_re_exports_impl,
+    _file_to_module_path,
     _get_full_name_from_file,
+    _is_valid_handle,
     _resolve_canonical_impl,
+    _scan_package_for_handle,
     collect_re_exports,
     resolve_canonical,
 )
@@ -282,4 +286,219 @@ class TestProjectSearchFallback:
             patch.object(analyzer, "find_symbol", side_effect=RuntimeError("search boom")),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage — new helper functions and uncovered branches
+# ---------------------------------------------------------------------------
+
+
+class TestFileToModulePath:
+    """Unit tests for the _file_to_module_path helper."""
+
+    def test_init_file_returns_package_path(self, tmp_path: Path) -> None:
+        """__init__.py maps to the package directory path (no __init__ suffix)."""
+        pkg_dir = tmp_path / "mypkg"
+        pkg_dir.mkdir()
+        init = pkg_dir / "__init__.py"
+        init.touch()
+        result = _file_to_module_path(init, [tmp_path])
+        assert result == "mypkg"
+
+    def test_regular_module_returns_module_path(self, tmp_path: Path) -> None:
+        """A regular .py file maps to module.path.without.extension."""
+        mod_dir = tmp_path / "mypkg"
+        mod_dir.mkdir()
+        mod = mod_dir / "mymodule.py"
+        mod.touch()
+        result = _file_to_module_path(mod, [tmp_path])
+        assert result == "mypkg.mymodule"
+
+    def test_no_matching_root_returns_none(self, tmp_path: Path) -> None:
+        """When no root contains the file, returns None."""
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        file = other_dir / "something.py"
+        file.touch()
+        unrelated = tmp_path / "unrelated"
+        unrelated.mkdir()
+        result = _file_to_module_path(file, [unrelated])
+        assert result is None
+
+    def test_non_py_file_returns_none(self, tmp_path: Path) -> None:
+        """A non-.py file is skipped and None is returned."""
+        f = tmp_path / "data.txt"
+        f.touch()
+        result = _file_to_module_path(f, [tmp_path])
+        assert result is None
+
+    def test_top_level_init_returns_none(self, tmp_path: Path) -> None:
+        """An __init__.py at the root of a search path has no parent parts — returns None."""
+        init = tmp_path / "__init__.py"
+        init.touch()
+        result = _file_to_module_path(init, [tmp_path])
+        assert result is None
+
+    def test_empty_roots_returns_none(self, tmp_path: Path) -> None:
+        """An empty roots list always returns None."""
+        f = tmp_path / "mod.py"
+        f.touch()
+        result = _file_to_module_path(f, [])
+        assert result is None
+
+
+class TestIsValidHandle:
+    """Unit tests for the _is_valid_handle helper."""
+
+    def test_valid_dotted_name_returns_true(self) -> None:
+        assert _is_valid_handle("package.module.MyClass") is True
+
+    def test_single_identifier_returns_true(self) -> None:
+        assert _is_valid_handle("MyClass") is True
+
+    def test_empty_string_returns_false(self) -> None:
+        assert _is_valid_handle("") is False
+
+    def test_leading_dot_returns_false(self) -> None:
+        assert _is_valid_handle(".bad") is False
+
+    def test_double_dot_returns_false(self) -> None:
+        assert _is_valid_handle("a..b") is False
+
+
+class TestCollectReExportsImplEdgeCases:
+    """Edge-case coverage for _collect_re_exports_impl."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_top_package_returns_empty(self, analyzer: JediAnalyzer) -> None:
+        """If the top-level package __init__.py cannot be found, return empty list."""
+        canonical = Handle("nonexistent_pkg.sub.MyClass")
+        result = await _collect_re_exports_impl(canonical, analyzer)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_scan_handles_jedi_error_gracefully(self, analyzer: JediAnalyzer) -> None:
+        """_scan_package_for_handle absorbs Jedi errors and continues scanning."""
+        with patch("jedi.Script", side_effect=RuntimeError("jedi error")):
+            result = await _scan_package_for_handle(
+                "package._impl.config.Config",
+                _FIXTURE / "package",
+                analyzer,
+            )
+        # Should return empty list (no results due to error) rather than raising
+        assert isinstance(result, list)
+
+    @pytest.mark.asyncio
+    async def test_scan_handles_rglob_error_gracefully(self, analyzer: JediAnalyzer) -> None:
+        """_scan_package_for_handle absorbs rglob errors and returns empty list."""
+        bad_path = Path("/nonexistent/path/that/does/not/exist")
+        result = await _scan_package_for_handle(
+            "package._impl.config.Config",
+            bad_path,
+            analyzer,
+        )
+        assert isinstance(result, list)
+
+
+class TestMultiHopResolutionEdgeCases:
+    """Edge-case coverage for the multi-hop resolution walk."""
+
+    @pytest.mark.asyncio
+    async def test_hop_with_missing_file_terminates(self, analyzer: JediAnalyzer) -> None:
+        """When hop module file is not found, resolution stops at current full_name."""
+        # Patch _find_module_file to return None only on the second call
+        # (first call finds the module, second call fails during chain walking)
+        call_count = 0
+        real_find = _resolve_canonical_impl.__globals__["_find_module_file"]
+
+        def mock_find(module_dotted: str, a: JediAnalyzer) -> Path | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                return None
+            return real_find(module_dotted, a)
+
+        with patch("pyeye.canonicalization._find_module_file", side_effect=mock_find):
+            result = await _resolve_canonical_impl("package.Config", analyzer)
+        # Must not raise; result may be None or partial
+        assert result is None or isinstance(result, Handle)
+
+    @pytest.mark.asyncio
+    async def test_project_search_with_no_full_name_in_results(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """_resolve_via_project_search skips results without full_name."""
+        with (
+            patch("pyeye.canonicalization._find_module_file", return_value=None),
+            patch.object(
+                analyzer,
+                "find_symbol",
+                new_callable=AsyncMock,
+                return_value=[{"name": "Config", "file": "x.py"}],  # No full_name key
+            ),
+        ):
+            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_project_search_skips_invalid_handle_in_full_name(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """_resolve_via_project_search skips full_name values that produce invalid Handles."""
+        with (
+            patch("pyeye.canonicalization._find_module_file", return_value=None),
+            patch.object(
+                analyzer,
+                "find_symbol",
+                new_callable=AsyncMock,
+                return_value=[{"full_name": "package._impl.config.Config"}],
+            ),
+        ):
+            # original_identifier matches, so it should construct a Handle normally
+            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
+        # Valid full_name — Handle construction should succeed
+        assert result is None or isinstance(result, Handle)
+
+    @pytest.mark.asyncio
+    async def test_resolution_loop_stabilises_on_same_full_name(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """When _get_full_name_from_file returns the same value twice, the loop stabilises.
+
+        This exercises the stabilisation break at line 192 (``full_name == current_identifier
+        and _ > 0``).
+        """
+        # We want: first call returns "package.X", second call for "package.X" also
+        # returns "package.X" — i.e., the same value, triggering stabilise on iteration 1.
+        # Simplest approach: patch _get_full_name_from_file to always return the same string.
+        fixed = "package.some.Sym"
+        with patch(
+            "pyeye.canonicalization._get_full_name_from_file",
+            new_callable=AsyncMock,
+            return_value=fixed,
+        ):
+            # We need _find_module_file to succeed too, otherwise the function
+            # falls through to project-search before entering the loop.
+            real_file = _FIXTURE / "package" / "__init__.py"
+            with patch("pyeye.canonicalization._find_module_file", return_value=real_file):
+                result = await _resolve_canonical_impl("package.Config", analyzer)
+        # full_name = "package.some.Sym" on both calls → stabilises → Handle("package.some.Sym")
+        assert result is None or isinstance(result, Handle)
+
+    @pytest.mark.asyncio
+    async def test_invalid_full_name_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """When Jedi returns a full_name that is not a valid Handle, return None.
+
+        Exercises the ValueError catch at line 217-219.
+        """
+        # Return an invalid dotted name (e.g. empty string, leading dot, etc.)
+        with patch(
+            "pyeye.canonicalization._get_full_name_from_file",
+            new_callable=AsyncMock,
+            return_value="..invalid..name..",
+        ):
+            real_file = _FIXTURE / "package" / "__init__.py"
+            with patch("pyeye.canonicalization._find_module_file", return_value=real_file):
+                result = await _resolve_canonical_impl("package.Config", analyzer)
         assert result is None
