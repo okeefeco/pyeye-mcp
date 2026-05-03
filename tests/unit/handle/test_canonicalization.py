@@ -265,11 +265,11 @@ class TestProjectSearchFallback:
     ) -> None:
         """_resolve_canonical_impl falls back to project search when module file is missing.
 
-        We simulate the missing-file case by patching _find_module_file to
+        We simulate the missing-file case by patching find_module_file to
         return None, then verify that find_symbol is consulted and the
         full_name match yields a Handle.
         """
-        with patch("pyeye.canonicalization._find_module_file", return_value=None):
+        with patch("pyeye.canonicalization.find_module_file", return_value=None):
             # The fixture project has Config; project search should find it.
             # original_identifier must match the full_name Jedi returns.
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
@@ -282,7 +282,7 @@ class TestProjectSearchFallback:
     ) -> None:
         """_resolve_via_project_search absorbs find_symbol exceptions and returns None."""
         with (
-            patch("pyeye.canonicalization._find_module_file", return_value=None),
+            patch("pyeye.canonicalization.find_module_file", return_value=None),
             patch.object(analyzer, "find_symbol", side_effect=RuntimeError("search boom")),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
@@ -407,10 +407,10 @@ class TestMultiHopResolutionEdgeCases:
     @pytest.mark.asyncio
     async def test_hop_with_missing_file_terminates(self, analyzer: JediAnalyzer) -> None:
         """When hop module file is not found, resolution stops at current full_name."""
-        # Patch _find_module_file to return None only on the second call
+        # Patch find_module_file to return None only on the second call
         # (first call finds the module, second call fails during chain walking)
         call_count = 0
-        real_find = _resolve_canonical_impl.__globals__["_find_module_file"]
+        real_find = _resolve_canonical_impl.__globals__["find_module_file"]
 
         def mock_find(module_dotted: str, a: JediAnalyzer) -> Path | None:
             nonlocal call_count
@@ -419,7 +419,7 @@ class TestMultiHopResolutionEdgeCases:
                 return None
             return real_find(module_dotted, a)
 
-        with patch("pyeye.canonicalization._find_module_file", side_effect=mock_find):
+        with patch("pyeye.canonicalization.find_module_file", side_effect=mock_find):
             result = await _resolve_canonical_impl("package.Config", analyzer)
         # Must not raise; result may be None or partial
         assert result is None or isinstance(result, Handle)
@@ -430,7 +430,7 @@ class TestMultiHopResolutionEdgeCases:
     ) -> None:
         """_resolve_via_project_search skips results without full_name."""
         with (
-            patch("pyeye.canonicalization._find_module_file", return_value=None),
+            patch("pyeye.canonicalization.find_module_file", return_value=None),
             patch.object(
                 analyzer,
                 "find_symbol",
@@ -447,7 +447,7 @@ class TestMultiHopResolutionEdgeCases:
     ) -> None:
         """_resolve_via_project_search skips full_name values that produce invalid Handles."""
         with (
-            patch("pyeye.canonicalization._find_module_file", return_value=None),
+            patch("pyeye.canonicalization.find_module_file", return_value=None),
             patch.object(
                 analyzer,
                 "find_symbol",
@@ -478,10 +478,10 @@ class TestMultiHopResolutionEdgeCases:
             new_callable=AsyncMock,
             return_value=fixed,
         ):
-            # We need _find_module_file to succeed too, otherwise the function
+            # We need find_module_file to succeed too, otherwise the function
             # falls through to project-search before entering the loop.
             real_file = _FIXTURE / "package" / "__init__.py"
-            with patch("pyeye.canonicalization._find_module_file", return_value=real_file):
+            with patch("pyeye.canonicalization.find_module_file", return_value=real_file):
                 result = await _resolve_canonical_impl("package.Config", analyzer)
         # full_name = "package.some.Sym" on both calls → stabilises → Handle("package.some.Sym")
         assert result is None or isinstance(result, Handle)
@@ -499,6 +499,6 @@ class TestMultiHopResolutionEdgeCases:
             return_value="..invalid..name..",
         ):
             real_file = _FIXTURE / "package" / "__init__.py"
-            with patch("pyeye.canonicalization._find_module_file", return_value=real_file):
+            with patch("pyeye.canonicalization.find_module_file", return_value=real_file):
                 result = await _resolve_canonical_impl("package.Config", analyzer)
         assert result is None

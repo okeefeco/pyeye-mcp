@@ -27,12 +27,14 @@ Test cases
 """
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
+_RESOLVE_FIXTURE = _FIXTURE  # Alias used in some test helpers
 
 
 @pytest.fixture
@@ -440,3 +442,271 @@ class TestKindRecovery:
         assert (
             result["kind"] == "function"
         ), f"Expected kind='function' for a factory function, got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_kind_recovery_via_canonical_fallback(self, analyzer: JediAnalyzer) -> None:
+        """When find_symbol returns no match, _kind_for_canonical recovers kind
+        by re-deriving from the canonical handle's definition file.
+
+        Forces the fallback path: stub find_symbol to return nothing, so
+        _resolve_dotted_name cannot get kind from the fast path and must
+        call _kind_for_canonical instead.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        # Force the fallback: stub find_symbol to return nothing
+        with patch.object(analyzer, "find_symbol", new=AsyncMock(return_value=[])):
+            result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == "mypackage._core.widgets.make_widget"
+        assert (
+            result["kind"] == "function"
+        ), f"_kind_for_canonical fallback should recover 'function', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_bare_module_returns_module(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A bare module name (no dot in handle) returns kind='module'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical("mypackage", analyzer)
+        assert kind == "module"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_nonexistent_module_returns_variable(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A handle whose module file cannot be found returns kind='variable'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical("nonexistent_pkg.some.Symbol", analyzer)
+        assert kind == "variable"
+
+
+# ---------------------------------------------------------------------------
+# Identifier form parser — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifierFormParserEdgeCases:
+    """Additional edge-case tests for _parse_identifier."""
+
+    def test_dotted_name_with_colon_integer_classifies_as_dotted(self) -> None:
+        """A dotted FQN with a colon-line suffix is NOT a file:line — it's a dotted name.
+
+        The file:line regex matches ``mypackage.Widget:42`` but the path guard
+        rejects it (no ``/``, ``\\``, or ``.py`` ending) so it falls through to
+        dotted_name classification.  A future regex change could silently break this.
+        """
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        result = _parse_identifier("mypackage.Widget:42")
+        assert result["kind"] == "dotted_name"
+        # The full string is preserved as the name (will fail resolution gracefully later)
+        assert result["name"] == "mypackage.Widget:42"
+
+
+# ---------------------------------------------------------------------------
+# Internal helper coverage — error paths and edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestNormaliseKind:
+    """Unit tests for the _normalise_kind helper."""
+
+    def test_none_returns_variable(self) -> None:
+        """None jedi_type maps to 'variable'."""
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind(None) == "variable"
+
+    def test_unknown_type_returns_itself(self) -> None:
+        """An unknown type string is passed through unchanged."""
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("some_new_jedi_type") == "some_new_jedi_type"
+
+    def test_class_maps_correctly(self) -> None:
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("class") == "class"
+
+    def test_statement_maps_to_variable(self) -> None:
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("statement") == "variable"
+
+
+class TestResolveBareNameErrorPaths:
+    """Error-path coverage for _resolve_bare_name."""
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """When find_symbol raises, _resolve_bare_name returns not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(analyzer, "find_symbol", side_effect=RuntimeError("boom")):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
+
+    @pytest.mark.asyncio
+    async def test_matches_without_full_name_returns_not_found(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Matches that lack full_name are filtered out — returns not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(
+            analyzer,
+            "find_symbol",
+            new=AsyncMock(return_value=[{"name": "Config", "file": "x.py"}]),
+        ):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+
+    @pytest.mark.asyncio
+    async def test_empty_matches_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Empty find_symbol results return not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(analyzer, "find_symbol", new=AsyncMock(return_value=[])):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+
+
+class TestHandleToFile:
+    """Unit tests for the _handle_to_file helper."""
+
+    def test_single_component_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A Handle with no dot (bare module) returns None — no module part to look up."""
+        from pyeye.handle import Handle
+        from pyeye.mcp.operations.resolve import _handle_to_file
+
+        result = _handle_to_file(Handle("mypackage"), analyzer)
+        assert result is None
+
+    def test_known_handle_returns_posix_path(self, analyzer: JediAnalyzer) -> None:
+        """A valid handle returns a posix-formatted path string."""
+        from pyeye.handle import Handle
+        from pyeye.mcp.operations.resolve import _handle_to_file
+
+        result = _handle_to_file(Handle("mypackage._core.widgets.Widget"), analyzer)
+        assert result is not None
+        assert "/" in result  # posix path
+        assert not result.startswith("\\")
+
+
+class TestResolveFileLineErrorPaths:
+    """Error-path coverage for _resolve_file_line."""
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_file_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """A file path that does not exist returns file_not_found."""
+        from pyeye.mcp.operations.resolve import _resolve_file_line
+
+        result = await _resolve_file_line(Path("/nonexistent/path/file.py"), 1, analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "file_not_found"
+
+    @pytest.mark.asyncio
+    async def test_goto_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """When script.goto() raises, returns no_symbol_at_position."""
+        import jedi
+
+        from pyeye.mcp.operations.resolve import _resolve_file_line
+
+        widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        with patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")):
+            result = await _resolve_file_line(widgets_path, 7, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+
+class TestResolveFileOnlyErrorPaths:
+    """Error-path coverage for _resolve_file_only."""
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_file_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """A file path that does not exist returns file_not_found."""
+        from pyeye.mcp.operations.resolve import _resolve_file_only
+
+        result = await _resolve_file_only(Path("/nonexistent/file.py"), analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "file_not_found"
+
+    @pytest.mark.asyncio
+    async def test_file_with_no_module_path_returns_not_found(
+        self, analyzer: JediAnalyzer, tmp_path: Path
+    ) -> None:
+        """A file that exists but cannot be mapped to a module returns unresolved."""
+        from pyeye.mcp.operations.resolve import _resolve_file_only
+
+        # File outside project root — _get_import_path_for_file returns None/empty
+        temp_file = tmp_path / "orphan.py"
+        temp_file.write_text("x = 1")
+        result = await _resolve_file_only(temp_file, analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
+
+
+class TestFindSymbolColumnOnLine:
+    """Unit tests for the _find_symbol_column_on_line helper."""
+
+    def test_out_of_range_line_returns_zero(self, tmp_path: Path) -> None:
+        """A line number beyond the file's last line returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n")
+        assert _find_symbol_column_on_line(f, 999) == 0
+
+    def test_zero_line_returns_zero(self, tmp_path: Path) -> None:
+        """Line 0 is out of range (1-indexed), returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n")
+        assert _find_symbol_column_on_line(f, 0) == 0
+
+    def test_empty_line_returns_zero(self, tmp_path: Path) -> None:
+        """A line containing only whitespace returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n   \ny = 2\n")
+        assert _find_symbol_column_on_line(f, 2) == 0
+
+    def test_exception_returns_zero(self) -> None:
+        """An unreadable path returns 0 (exception absorbed)."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        result = _find_symbol_column_on_line(Path("/nonexistent/path.py"), 1)
+        assert result == 0
+
+    def test_class_keyword_skipped(self, tmp_path: Path) -> None:
+        """'class' keyword is skipped to land on the class name."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("class MyClass:\n    pass\n")
+        col = _find_symbol_column_on_line(f, 1)
+        # "class " is 6 chars, so column should be 6
+        assert col == 6
+
+    def test_def_keyword_skipped(self, tmp_path: Path) -> None:
+        """'def' keyword is skipped to land on the function name."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("def my_func():\n    pass\n")
+        col = _find_symbol_column_on_line(f, 1)
+        # "def " is 4 chars
+        assert col == 4

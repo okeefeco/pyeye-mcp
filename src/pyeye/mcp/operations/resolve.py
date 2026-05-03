@@ -53,6 +53,7 @@ Public API
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -233,12 +234,9 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
         return _NotFoundResult(found=False, reason="no_symbol_at_position")
 
     if not definitions:
-        # Try column 0 as a last resort
-        try:
-            script = file_artifact_cache.get_script(file_path, analyzer.project)
+        # Try column 0 as a last resort (reuse the same script object)
+        with contextlib.suppress(Exception):
             definitions = script.goto(line, 0)
-        except Exception:
-            pass
 
     if not definitions:
         return _NotFoundResult(found=False, reason="no_symbol_at_position")
@@ -258,7 +256,7 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
             return _NotFoundResult(found=False, reason="unresolved")
 
     # Determine file for scope classification
-    def_file = str(name.module_path) if name.module_path else str(file_path)
+    def_file = name.module_path.as_posix() if name.module_path else Path(file_path).as_posix()
     scope = classify_scope(def_file, analyzer)
     kind = _normalise_kind(name.type)
 
@@ -427,7 +425,7 @@ async def _build_candidate_from_match(
 # ---------------------------------------------------------------------------
 
 
-async def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
+def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     """Look up kind by re-deriving from the canonical handle's definition site.
 
     Used as a fallback when ``find_symbol`` leaf search doesn't return the
@@ -438,13 +436,13 @@ async def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> 
     the kind genuinely cannot be determined (safest Python kind — every binding
     is at minimum a name binding).
     """
-    from pyeye.canonicalization import _find_module_file
+    from pyeye.canonicalization import find_module_file
 
     parts = canonical_handle.rsplit(".", 1)
     if len(parts) != 2:
         return "module"  # bare module name
     module_path, _ = parts
-    module_file = _find_module_file(module_path, analyzer)
+    module_file = find_module_file(module_path, analyzer)
     if module_file is None:
         return "variable"  # safer default than "class"
     script = file_artifact_cache.get_script(module_file, analyzer.project)
@@ -485,7 +483,7 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
 
     if kind is None:
         # Leaf search missed — recover kind from the canonical handle's definition site
-        kind = await _kind_for_canonical(str(handle), analyzer)
+        kind = _kind_for_canonical(str(handle), analyzer)
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 
@@ -502,9 +500,11 @@ def _handle_to_file(handle: Handle, analyzer: JediAnalyzer) -> str | None:
 
     Used as a fallback when find_symbol doesn't return the exact match.
     Converts the handle's module portion to a file path via the same logic
-    as ``canonicalization._find_module_file``.
+    as ``canonicalization.find_module_file``.
+    # NOTE: relies on JediAnalyzer._get_import_path_for_file (private).
+    # Stable in practice; revisit if jedi_analyzer is refactored.
     """
-    from pyeye.canonicalization import _find_module_file
+    from pyeye.canonicalization import find_module_file
 
     parts = str(handle).split(".")
     if len(parts) < 2:
@@ -512,8 +512,8 @@ def _handle_to_file(handle: Handle, analyzer: JediAnalyzer) -> str | None:
 
     # The module is everything except the last component (the symbol name)
     module_dotted = ".".join(parts[:-1])
-    module_file = _find_module_file(module_dotted, analyzer)
-    return str(module_file) if module_file else None
+    module_file = find_module_file(module_dotted, analyzer)
+    return module_file.as_posix() if module_file else None
 
 
 # ---------------------------------------------------------------------------

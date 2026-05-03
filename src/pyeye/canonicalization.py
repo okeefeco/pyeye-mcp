@@ -27,6 +27,12 @@ collect_re_exports(handle, analyzer) -> list[Handle]
     package tree.  Returns an empty list when no public paths are found.
     Never raises.
 
+find_module_file(module_dotted, analyzer) -> Path | None
+    Convert a dotted module path to its ``__init__.py`` or ``module.py``
+    on disk.  Returns ``None`` if not found.  Exported for use by callers
+    that need file-level access to the module without performing a full
+    resolution walk.
+
 Design notes — Jedi resolution behavior
 -----------------------------------------
 Jedi's ``Name.full_name`` via ``get_names()`` performs exactly ONE step of
@@ -172,7 +178,7 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
     # Convert the module dotted name to a file path, then ask Jedi for the
     # names defined in that file.  Jedi's full_name for each Name already
     # tracks to the definition site (one hop at a time).
-    module_file = _find_module_file(module_dotted, analyzer) if module_dotted else None
+    module_file = find_module_file(module_dotted, analyzer) if module_dotted else None
 
     if module_dotted and module_file is None:
         # Module path not found — try the project search as a fallback
@@ -199,7 +205,7 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
         if not hop_symbol:
             break
 
-        hop_file = _find_module_file(hop_module, analyzer) if hop_module else None
+        hop_file = find_module_file(hop_module, analyzer) if hop_module else None
         if hop_file is None:
             break
 
@@ -219,7 +225,7 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
         return None
 
 
-def _find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
+def find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
     """Convert a dotted module path to its ``__init__.py`` or ``module.py``.
 
     Checks source roots, project path, and any additional configured paths
@@ -335,9 +341,9 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
 
     # Determine the package root directory to scan.
     # The top-level package name is parts[0]; its directory is found via
-    # _find_module_file with just that package name.
+    # find_module_file with just that package name.
     top_package = parts[0]
-    top_init = _find_module_file(top_package, analyzer)
+    top_init = find_module_file(top_package, analyzer)
     if top_init is None:
         return []
 
