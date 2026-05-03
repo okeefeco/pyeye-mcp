@@ -509,20 +509,44 @@ class TestResolveAt:
     # (d) column=0 is valid — must NOT be treated as falsy
     @pytest.mark.asyncio
     async def test_column_zero_is_valid(self, analyzer: JediAnalyzer) -> None:
-        """column=0 is a legitimate column (start of line); implementation must not use 'if column:'."""
+        """column=0 is a legitimate column (start of line); implementation must not use 'if column:'.
+
+        Empirical Jedi behaviour at column=0 on ``class Widget:``
+        ----------------------------------------------------------
+        column=0 lands on the ``c`` of the ``class`` keyword.  Jedi's ``goto()`` at a
+        bare keyword returns no definitions (the keyword has no ``full_name``), so the
+        correct result is ``found=False, reason='no_symbol_at_position'``.
+
+        Why this proves the truthiness-bug contract
+        -------------------------------------------
+        A buggy implementation using ``if column:`` would silently treat ``0`` as falsy
+        and substitute a fallback column (e.g. the heuristic column 6, which is ``W`` of
+        ``Widget``).  Column 6 *does* resolve successfully to Widget.  The two cases are
+        therefore distinguishable:
+
+        - column=0 correctly honoured  → ``found=False`` (keyword, no symbol)
+        - column=0 silently replaced by 6 → ``found=True, handle='…Widget'``
+
+        Asserting ``found is False`` with ``reason='no_symbol_at_position'`` proves that
+        column=0 was passed through unchanged.  If the assertion ever becomes
+        ``found=True``, it is a strong indicator of the truthiness bug (or a Jedi
+        behaviour change that should be re-examined).
+        """
         from pyeye.mcp.operations.resolve import resolve_at
 
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
-        # Line 7: "class Widget:" — column 0 is 'c' of 'class'
-        # Jedi should still find the Widget symbol from the class keyword
+        # Line 7: "class Widget:" — column 0 is 'c' of the 'class' keyword.
+        # Jedi returns no definitions for a bare keyword → correct outcome is not-found.
         result = await resolve_at(widgets_path, 7, 0, analyzer)
 
-        # column is 0 (not None), so it MUST be used as-is (no column heuristic)
-        # The result may be found or not depending on Jedi's behaviour at column 0,
-        # but the function must not crash and must return a valid ResolveResult dict.
-        assert result is not None
-        assert "found" in result
-        # Presence of column verified by the fact we reached here (no TypeError from 'if column:')
+        # Column 0 must be accepted (no TypeError / crash) and treated as-is.
+        # The correct Jedi outcome at the class keyword is no_symbol_at_position —
+        # NOT the Widget class that would appear if column were silently moved to 6.
+        assert result["found"] is False, (
+            f"column=0 on the 'class' keyword should be not-found; "
+            f"if found=True this likely indicates a truthiness bug (column 0 → column 6): {result}"
+        )
+        assert result["reason"] == "no_symbol_at_position"
 
     # (e) Use site (not definition) still returns canonical handle
     @pytest.mark.asyncio
