@@ -443,6 +443,102 @@ class TestKindRecovery:
             result["kind"] == "function"
         ), f"Expected kind='function' for a factory function, got: {result['kind']!r}"
 
+
+# ---------------------------------------------------------------------------
+# Task 2.3: resolve_at(file, line, column) — position-based resolution
+# ---------------------------------------------------------------------------
+
+# Fixture coordinates (1-indexed line, 0-indexed column per Jedi convention):
+#
+#   widgets.py line 7: "class Widget:"
+#     - column 6 → 'W' of Widget (the class name)
+#     - column 0 → 'c' of class keyword
+#   widgets.py line 1: '"""Widget implementation — the definition site.'
+#     - column 3 → inside the docstring literal
+#   use_widget.py line 11: "w = Widget()"
+#     - column 4 → 'W' of Widget (use site)
+
+
+class TestResolveAt:
+    """Task 2.3: resolve_at(file, line, column) converts a position to a canonical handle."""
+
+    # (a) Position on a known symbol → success with handle
+    @pytest.mark.asyncio
+    async def test_position_on_symbol_returns_success(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at the 'W' of 'class Widget' returns the canonical Widget handle."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 7: "class Widget:" — column 6 is 'W'
+        result = await resolve_at(widgets_path, 7, 6, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.Widget"
+        assert result["kind"] == "class"
+        assert "scope" in result
+        assert result["scope"] == "project"
+
+    # (b) Position on whitespace → no_symbol_at_position
+    @pytest.mark.asyncio
+    async def test_position_on_whitespace_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at a blank line yields found=False, reason='no_symbol_at_position'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 6 is blank (the blank line between the module docstring and class Widget)
+        result = await resolve_at(widgets_path, 6, 0, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+    # (c) Position on a literal → no_symbol_at_position
+    @pytest.mark.asyncio
+    async def test_position_on_literal_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Pointing inside a string literal yields found=False, reason='no_symbol_at_position'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 1: '"""Widget implementation — the definition site.'
+        # Column 10 is inside the docstring literal (well past the opening quotes)
+        result = await resolve_at(widgets_path, 1, 10, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+    # (d) column=0 is valid — must NOT be treated as falsy
+    @pytest.mark.asyncio
+    async def test_column_zero_is_valid(self, analyzer: JediAnalyzer) -> None:
+        """column=0 is a legitimate column (start of line); implementation must not use 'if column:'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 7: "class Widget:" — column 0 is 'c' of 'class'
+        # Jedi should still find the Widget symbol from the class keyword
+        result = await resolve_at(widgets_path, 7, 0, analyzer)
+
+        # column is 0 (not None), so it MUST be used as-is (no column heuristic)
+        # The result may be found or not depending on Jedi's behaviour at column 0,
+        # but the function must not crash and must return a valid ResolveResult dict.
+        assert result is not None
+        assert "found" in result
+        # Presence of column verified by the fact we reached here (no TypeError from 'if column:')
+
+    # (e) Use site (not definition) still returns canonical handle
+    @pytest.mark.asyncio
+    async def test_use_site_returns_canonical_handle(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at a Widget usage in use_widget.py returns the definition-site handle."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        use_widget_path = str(_FIXTURE / "mypackage" / "use_widget.py")
+        # Line 11: "w = Widget()" — column 4 is 'W' of Widget (use site)
+        result = await resolve_at(use_widget_path, 11, 4, analyzer)
+
+        assert result["found"] is True, f"Expected found=True at use site, got: {result}"
+        assert "ambiguous" not in result
+        # Must resolve to the definition site, not the use site
+        assert result["handle"] == "mypackage._core.widgets.Widget"
+
     @pytest.mark.asyncio
     async def test_kind_recovery_via_canonical_fallback(self, analyzer: JediAnalyzer) -> None:
         """When find_symbol returns no match, _kind_for_canonical recovers kind

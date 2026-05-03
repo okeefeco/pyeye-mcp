@@ -53,7 +53,6 @@ Public API
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
 from pathlib import Path
@@ -210,33 +209,35 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> ResolveResult:
-    """Resolve a file:line coordinate to a symbol handle.
+async def _resolve_at_position(
+    file_path: Path, line: int, column: int, analyzer: JediAnalyzer
+) -> ResolveResult:
+    """Resolve an exact (file, line, column) position to a symbol handle.
 
-    Strategy:
-    1. Read the target line and find the column of the first non-whitespace
-       character (skipping ``class``/``def`` keywords to land on the name).
-    2. Call ``script.goto()`` at that position.
-    3. Canonicalise the result via ``resolve_canonical``.
-    4. Fall back to column 0 if step 1 yields no goto results.
+    This is the shared core used by both ``_resolve_file_line`` (which computes
+    the column heuristically) and ``resolve_at`` (which receives the column
+    directly from the caller).
+
+    Args:
+        file_path: Absolute path to the source file.
+        line: 1-indexed line number (Jedi convention).
+        column: 0-indexed column number (Jedi convention).  A value of ``0``
+            is valid and must be accepted as-is — callers must NOT pass
+            ``column or <fallback>`` since that would silently drop column 0.
+        analyzer: Configured :class:`~pyeye.analyzers.jedi_analyzer.JediAnalyzer`.
+
+    Returns:
+        A :data:`ResolveResult` on success or a not-found result on failure.
     """
     if not file_path.exists():
         return _NotFoundResult(found=False, reason="file_not_found")
 
-    # Determine a useful column on the target line.
-    column = _find_symbol_column_on_line(file_path, line)
-
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
-        definitions = script.goto(line, column)
+        definitions = script.goto(line, column, follow_imports=True)
     except Exception as exc:
-        logger.debug("_resolve_file_line: goto(%d, %d) failed: %s", line, column, exc)
+        logger.debug("_resolve_at_position: goto(%d, %d) failed: %s", line, column, exc)
         return _NotFoundResult(found=False, reason="no_symbol_at_position")
-
-    if not definitions:
-        # Try column 0 as a last resort (reuse the same script object)
-        with contextlib.suppress(Exception):
-            definitions = script.goto(line, 0)
 
     if not definitions:
         return _NotFoundResult(found=False, reason="no_symbol_at_position")
@@ -244,7 +245,7 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
     name = definitions[0]
     full_name = name.full_name
     if not full_name:
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _NotFoundResult(found=False, reason="no_symbol_at_position")
 
     # Canonicalise (may follow import chain)
     handle = await resolve_canonical(full_name, analyzer)
@@ -256,7 +257,7 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
             return _NotFoundResult(found=False, reason="unresolved")
 
     # Determine file for scope classification
-    def_file = name.module_path.as_posix() if name.module_path else Path(file_path).as_posix()
+    def_file = name.module_path.as_posix() if name.module_path else file_path.as_posix()
     scope = classify_scope(def_file, analyzer)
     kind = _normalise_kind(name.type)
 
@@ -266,6 +267,34 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
         kind=kind,
         scope=scope,
     )
+
+
+async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> ResolveResult:
+    """Resolve a file:line coordinate to a symbol handle.
+
+    Strategy:
+    1. Read the target line and find the column of the first non-whitespace
+       character (skipping ``class``/``def`` keywords to land on the name).
+    2. Delegate to ``_resolve_at_position`` with the computed column.
+    3. Fall back to column 0 if the heuristic column yields no results.
+    """
+    if not file_path.exists():
+        return _NotFoundResult(found=False, reason="file_not_found")
+
+    # Determine a useful column on the target line.
+    heuristic_column = _find_symbol_column_on_line(file_path, line)
+
+    result = await _resolve_at_position(file_path, line, heuristic_column, analyzer)
+    if result["found"] is True:
+        return result
+
+    # Fall back to column 0 as a last resort
+    if heuristic_column != 0:
+        fallback = await _resolve_at_position(file_path, line, 0, analyzer)
+        if fallback["found"] is True:
+            return fallback
+
+    return result
 
 
 def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
@@ -585,3 +614,34 @@ async def resolve(
 
     # bare_name
     return await _resolve_bare_name(form["name"], analyzer)
+
+
+async def resolve_at(
+    file: str,
+    line: int,
+    column: int,
+    analyzer: JediAnalyzer,
+) -> ResolveResult:
+    """Resolve a (file, line, column) position to a canonical handle.
+
+    Used when the agent has coordinates (from a stack trace, error report, or
+    pasted excerpt) rather than a name.  Same return shape as :func:`resolve`.
+
+    Args:
+        file: Absolute or relative path to the source file.
+        line: 1-indexed line number (e.g. line 1 is the first line of the file).
+        column: 0-indexed column number (Jedi convention).  Column ``0`` is the
+            start of the line and is fully valid — the implementation must NOT
+            test ``if column:`` (which would treat ``0`` as falsy).  Always use
+            ``column is not None`` when a guard is needed.
+        analyzer: A configured :class:`~pyeye.analyzers.jedi_analyzer.JediAnalyzer`
+            instance pointing at the project to analyse.
+
+    Returns:
+        A :data:`ResolveResult` dict.  On success, contains ``found=True``,
+        a ``handle``, ``kind``, and ``scope``.  On failure, contains
+        ``found=False`` and a ``reason`` string (e.g. ``"no_symbol_at_position"``
+        or ``"file_not_found"``).
+    """
+    file_path = Path(file)
+    return await _resolve_at_position(file_path, line, column, analyzer)
