@@ -66,9 +66,12 @@ class Handle(str):
 
         Raises:
             KeyError: If ``"handle"`` is absent.
-            ValueError: If the value is not a valid dotted name.
+            ValueError: If the value is not a str or is not a valid dotted name.
         """
-        return cls(data["handle"])
+        raw = data["handle"]
+        if not isinstance(raw, str):
+            raise ValueError(f"'handle' value must be a str, got {type(raw).__name__!r}")
+        return cls(raw)
 
     # ------------------------------------------------------------------
     # Factory from path components

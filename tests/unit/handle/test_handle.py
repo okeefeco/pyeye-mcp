@@ -141,9 +141,20 @@ class TestHandleSerialization:
         reconstructed = Handle.from_dict(original.to_dict())
         assert original == reconstructed
 
-    def test_from_dict_invalid_raises(self) -> None:
-        with pytest.raises((ValueError, KeyError)):
+    def test_from_dict_invalid_value_raises_value_error(self) -> None:
+        """Invalid dotted name raises ValueError, not KeyError."""
+        with pytest.raises(ValueError):
             Handle.from_dict({"handle": "bad..handle"})
+
+    def test_from_dict_missing_key_raises_key_error(self) -> None:
+        """Absent 'handle' key raises KeyError."""
+        with pytest.raises(KeyError):
+            Handle.from_dict({})
+
+    def test_from_dict_non_string_raises_value_error(self) -> None:
+        """Non-str 'handle' value raises ValueError before delegation."""
+        with pytest.raises(ValueError, match="must be a str"):
+            Handle.from_dict({"handle": 42})
 
 
 # ---------------------------------------------------------------------------
