@@ -167,10 +167,9 @@ def _find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None
             return pkg_init
 
         # Module file: base/a/b.py  (last part is a .py, rest are directories)
-        if len(path_parts) >= 1:
-            mod_file: Path = base.joinpath(*path_parts[:-1], path_parts[-1] + ".py")
-            if mod_file.exists():
-                return mod_file
+        mod_file: Path = base.joinpath(*path_parts[:-1], path_parts[-1] + ".py")
+        if mod_file.exists():
+            return mod_file
 
     return None
 
@@ -255,14 +254,22 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
         # Immediate submodule name relative to the parent
         submodule = module_parts[i]
 
+        # Note: matching success here depends on _check_symbol_in_init's __all__
+        # fallback in jedi_analyzer.py — the primary "from .submodule import X"
+        # check does NOT match the canonicalization_basic fixture's deep absolute
+        # import style ("from package._impl.config import Config"). Task 1.3
+        # fixtures will need to either include __all__ or align with the
+        # relative-import pattern, otherwise tests will silently stop covering
+        # this code path.
         if await analyzer._check_symbol_in_init(init_file, symbol_name, submodule):
             re_export_path = f"{parent_module}.{symbol_name}"
             try:
                 result.append(Handle(re_export_path))
             except ValueError:
                 logger.debug("Skipping invalid re-export path %r", re_export_path)
-            # Single-hop: stop at the first (outermost) re-export found.
-            # Multi-hop chains are Task 1.3 territory.
+            # Single-hop: stop at the first match encountered (innermost re-export
+            # found while walking from the definition site outward). Task 1.3 removes
+            # this break to collect all public re-export paths.
             break
 
     return result

@@ -125,14 +125,12 @@ class TestCollectReExports:
 
     @pytest.mark.asyncio
     async def test_collect_empty_for_private_symbol(self, analyzer: JediAnalyzer) -> None:
-        """A symbol with no __init__.py re-exports returns an empty list."""
-        # _impl.config.Config is the definition site; if there were NO __init__.py
-        # re-exporting it, this would be empty.  For this fixture, we assert we
-        # get at least 0 items without raising.
-        canonical = Handle("package._impl.config.Config")
+        """A symbol that is not re-exported anywhere returns an empty list."""
+        # _PrivateConfig is defined in package/_impl/config.py but is NOT
+        # mentioned in any __init__.py and is NOT in __all__ — so no re-exports.
+        canonical = Handle("package._impl.config._PrivateConfig")
         re_exports = await collect_re_exports(canonical, analyzer)
-        # Must be a list (even if empty) — never raises
-        assert isinstance(re_exports, list)
+        assert re_exports == []
 
     @pytest.mark.asyncio
     async def test_collect_single_component_handle_returns_empty(
