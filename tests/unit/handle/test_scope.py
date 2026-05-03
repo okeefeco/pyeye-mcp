@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.scope import classify_scope
+from pyeye.scope import _has_build_artifact_segment, classify_scope
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "canonicalization_basic"
 
@@ -245,3 +245,118 @@ class TestDefaultFallback:
         path = Path("/tmp/some_random_script.py")
         result = classify_scope(path, analyzer)
         assert result == "external"
+
+
+# ---------------------------------------------------------------------------
+# Issue V: dist/build top-level restriction
+# ---------------------------------------------------------------------------
+
+
+class TestTopLevelDistBuild:
+    """build/ and dist/ are build artifacts only when at the project top level."""
+
+    def test_toplevel_dist_is_external(self, analyzer: JediAnalyzer) -> None:
+        """dist/ at the project root is a build artifact → external."""
+        path = _FIXTURE / "dist" / "mypackage-1.0.whl" / "mypackage" / "core.py"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_toplevel_build_is_external(self, analyzer: JediAnalyzer) -> None:
+        """build/ at the project root is a build artifact → external."""
+        path = _FIXTURE / "build" / "lib" / "mypackage" / "core.py"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_nested_dist_is_project(self, analyzer: JediAnalyzer) -> None:
+        """A dist/ sub-directory that is NOT the immediate project child → project.
+
+        For example: project/src/my_ns/dist/helper.py — the 'dist' segment is
+        deep inside the project tree, not at the top level.  Such a file is a
+        legitimate project source file.
+        """
+        path = _FIXTURE / "src" / "my_ns" / "dist" / "helper.py"
+        result = classify_scope(path, analyzer)
+        assert result == "project"
+
+    def test_dist_utils_segment_is_project(self, analyzer: JediAnalyzer) -> None:
+        """A segment named 'dist_utils' (not 'dist') is never a build artifact."""
+        path = _FIXTURE / "dist_utils" / "foo.py"
+        result = classify_scope(path, analyzer)
+        assert result == "project"
+
+    def test_deeply_nested_pycache_is_external(self, analyzer: JediAnalyzer) -> None:
+        """__pycache__ matches anywhere in the path, not just the top level."""
+        path = _FIXTURE / "deeply" / "nested" / "__pycache__" / "foo.cpython-312.pyc"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_build_artifact_segment_helper_without_root(self) -> None:
+        """_has_build_artifact_segment falls back to anywhere-matching without project_root."""
+        # When no project_root is supplied, top-level names match anywhere —
+        # this preserves backward-compatible behaviour for other callers.
+        path = Path("/some/random/dist/package/module.py")
+        assert _has_build_artifact_segment(path) is True
+
+    def test_build_artifact_segment_helper_with_root_not_toplevel(self) -> None:
+        """_has_build_artifact_segment returns False when dist is nested under project root."""
+        project_root = Path("/project")
+        path = Path("/project/src/my_ns/dist/helper.py")
+        assert _has_build_artifact_segment(path, project_root) is False
+
+    def test_build_artifact_segment_helper_with_root_toplevel(self) -> None:
+        """_has_build_artifact_segment returns True when dist is immediate child of root."""
+        project_root = Path("/project")
+        path = Path("/project/dist/wheel.whl")
+        assert _has_build_artifact_segment(path, project_root) is True
+
+
+# ---------------------------------------------------------------------------
+# Issue VI: case-insensitive matching for build artifacts and site-packages
+# ---------------------------------------------------------------------------
+
+
+class TestCaseFolding:
+    """Build artifact and site-packages segment matches are case-insensitive."""
+
+    def test_capitalised_build_is_external(self, analyzer: JediAnalyzer) -> None:
+        """Build/ (capital B) at the project root is treated as a build artifact."""
+        path = _FIXTURE / "Build" / "lib" / "mypackage" / "core.py"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_uppercase_dist_is_external(self, analyzer: JediAnalyzer) -> None:
+        """DIST/ (all caps) at the project root is treated as a build artifact."""
+        path = _FIXTURE / "DIST" / "mypackage-1.0.whl"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_mixed_case_pycache_is_external(self, analyzer: JediAnalyzer) -> None:
+        """__PYCACHE__ (upper) anywhere in path is treated as a build artifact."""
+        path = _FIXTURE / "package" / "__PYCACHE__" / "config.cpython-312.pyc"
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+    def test_uppercase_site_packages_is_external(self, analyzer: JediAnalyzer) -> None:
+        """SITE-PACKAGES (upper) in path is treated as a site-packages variant."""
+        path = Path("/home/user/.venv/lib/python3.12/SITE-PACKAGES/flask/__init__.py")
+        result = classify_scope(path, analyzer)
+        assert result == "external"
+
+
+# ---------------------------------------------------------------------------
+# Issue VIII: non-existent / hypothetical stdlib path
+# ---------------------------------------------------------------------------
+
+
+class TestHypotheticalStdlib:
+    """Non-existent paths under the stdlib root still classify as external."""
+
+    def test_hypothetical_stdlib_path_is_external(self, analyzer: JediAnalyzer) -> None:
+        """Non-existent paths under stdlib root still classify as external.
+
+        Documents Path.resolve() handling: a non-existent leaf under an existing
+        parent resolves correctly, and the prefix check still matches stdlib_root.
+        """
+        stdlib_root = Path(sysconfig.get_paths()["stdlib"])
+        hypothetical = stdlib_root / "hypothetical_future_module.py"
+        assert classify_scope(hypothetical, analyzer) == "external"
