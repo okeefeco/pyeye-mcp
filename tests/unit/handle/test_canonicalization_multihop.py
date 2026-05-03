@@ -274,14 +274,14 @@ class TestCollectReExportsMultihop:
         ), f"Re-export list is not deterministic:\n  call 1: {result_a}\n  call 2: {result_b}"
 
     @pytest.mark.asyncio
-    async def test_collect_no_re_exports_for_private_symbol(self, analyzer: JediAnalyzer) -> None:
-        """A symbol not re-exported anywhere returns an empty list."""
-        # _impl.__init__.py is empty, so nothing re-exports a private _impl symbol
-        # We just need something that exists but has no re-exports
-        # Use a function that's defined but never imported elsewhere
+    async def test_collect_finds_both_alias_re_exports(self, analyzer: JediAnalyzer) -> None:
+        """collect_re_exports finds both sibling-alias re-export paths for a definition.
+
+        alias_pkg.source_mod.definitions.foo is defined in definitions.py;
+        sibling.py re-exports it under two names (foo and f).  Both must appear
+        in the re-export list.
+        """
         canonical = Handle("alias_pkg.source_mod.definitions.foo")
-        # The definition is in definitions.py; sibling.py re-exports it
-        # So we're checking that we DO find those
         re_exports = await collect_re_exports(canonical, analyzer)
         assert isinstance(re_exports, list)
         # Both alias_pkg.sibling.foo and alias_pkg.sibling.f should appear

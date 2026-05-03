@@ -240,7 +240,7 @@ class TestExceptionGuards:
             / "package"
             / "__init__.py"
         )
-        with patch("jedi.Script", side_effect=RuntimeError("jedi boom")):
+        with patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi boom")):
             result = await _get_full_name_from_file(real_file, "Config", analyzer)
         assert result is None
 
@@ -380,7 +380,7 @@ class TestCollectReExportsImplEdgeCases:
     @pytest.mark.asyncio
     async def test_scan_handles_jedi_error_gracefully(self, analyzer: JediAnalyzer) -> None:
         """_scan_package_for_handle absorbs Jedi errors and continues scanning."""
-        with patch("jedi.Script", side_effect=RuntimeError("jedi error")):
+        with patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi error")):
             result = await _scan_package_for_handle(
                 "package._impl.config.Config",
                 _FIXTURE / "package",

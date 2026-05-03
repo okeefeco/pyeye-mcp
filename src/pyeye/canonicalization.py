@@ -77,9 +77,11 @@ spec's "Edge-case handle resolution" section for details.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pyeye import file_artifact_cache
 from pyeye.handle import Handle
 
 if TYPE_CHECKING:
@@ -187,9 +189,6 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
     #   (b) depth guard fires (prevents infinite loops / very deep chains).
     current_identifier = full_name
     for _ in range(_MAX_RESOLUTION_DEPTH):
-        if full_name == current_identifier and _ > 0:
-            # Stabilised — this IS the definition site.
-            break
         current_identifier = full_name
 
         # Parse current_identifier to find its module file
@@ -206,7 +205,8 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
 
         next_full_name = await _get_full_name_from_file(hop_file, hop_symbol, analyzer)
         if next_full_name is None or next_full_name == current_identifier:
-            # Either not found (already at the definition file) or stabilised
+            # Stabilised (or definition not found in this file) — exit chain walk.
+            # This is the sole stabilisation guard; no duplicate check needed.
             break
 
         full_name = next_full_name
@@ -259,10 +259,7 @@ async def _get_full_name_from_file(
         return None
 
     try:
-        # Import jedi here to keep the public surface free of top-level Jedi dep
-        import jedi
-
-        script = jedi.Script(path=str(module_file), project=analyzer.project)
+        script = file_artifact_cache.get_script(module_file, analyzer.project)
         names = script.get_names(all_scopes=False)
         for name in names:
             if name.name == symbol_name and name.full_name:
@@ -350,10 +347,10 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
     # BFS expansion
     visited: set[str] = {handle_str}
     result: list[str] = []
-    queue: list[str] = [handle_str]
+    queue: deque[str] = deque([handle_str])
 
     while queue:
-        current_target = queue.pop(0)
+        current_target = queue.popleft()
         new_handles = await _scan_package_for_handle(current_target, package_root, analyzer)
         for h in new_handles:
             if h not in visited:
@@ -385,8 +382,6 @@ async def _scan_package_for_handle(
     Returns:
         List of dotted handle strings for re-exporting names found.
     """
-    import jedi
-
     results: list[str] = []
 
     try:
@@ -402,7 +397,7 @@ async def _scan_package_for_handle(
 
     for py_file in py_files:
         try:
-            script = jedi.Script(path=str(py_file), project=analyzer.project)
+            script = file_artifact_cache.get_script(py_file, analyzer.project)
             names = script.get_names(all_scopes=False)
         except Exception as exc:
             logger.debug("_scan_package_for_handle: jedi error on %s: %s", py_file, exc)
