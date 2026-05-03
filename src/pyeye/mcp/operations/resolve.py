@@ -443,7 +443,7 @@ async def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> 
     parts = canonical_handle.rsplit(".", 1)
     if len(parts) != 2:
         return "module"  # bare module name
-    module_path, leaf = parts
+    module_path, _ = parts
     module_file = _find_module_file(module_path, analyzer)
     if module_file is None:
         return "variable"  # safer default than "class"
