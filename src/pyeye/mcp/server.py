@@ -362,6 +362,72 @@ async def goto_definition(
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("resolve")
+@track_mcp_operation("resolve")
+async def resolve(
+    identifier: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Resolve any identifier form to a canonical Handle.
+
+    Accepts bare names, FQN dotted paths, re-exported public paths,
+    file:line coordinates, or file paths. Returns the definition-site
+    canonical handle along with kind and scope ("project" or "external").
+
+    Args:
+        identifier: The identifier to resolve. Forms supported:
+            - Bare name: "Config"
+            - FQN: "a.b.c.Config"
+            - Re-exported: "package.Config" (collapses to definition site)
+            - File:line: "src/foo.py:42"
+            - File only: "src/foo.py"
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict — one of:
+        - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
+        - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
+        - Not found: {"found": False, "reason": str}
+    """
+    from pyeye.mcp.operations.resolve import resolve as _resolve
+
+    analyzer = get_analyzer(project_path)
+    return dict(await _resolve(identifier, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("resolve_at")
+@track_mcp_operation("resolve_at")
+async def resolve_at(
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Resolve a (file, line, column) position to a canonical Handle.
+
+    Used when you have coordinates (from a stack trace, error report, or
+    pasted excerpt) rather than a name. Returns the same shape as resolve().
+
+    Args:
+        file: Absolute or project-relative path to the source file.
+        line: 1-indexed line number.
+        column: 0-indexed column number. Pass 0 for the start of the line —
+            this is valid; do not coerce to a default.
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict (see resolve() for shape).
+    """
+    from pyeye.mcp.operations.resolve import resolve_at as _resolve_at
+
+    analyzer = get_analyzer(project_path)
+    return dict(await _resolve_at(file, line, column, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
 @metrics.measure("find_references")
 @track_mcp_operation("find_references")
 async def find_references(
