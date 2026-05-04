@@ -1,0 +1,686 @@
+"""Tests for JediAnalyzer._build_navigable_ref, _build_type_ref, and _enrich_method helpers."""
+
+from pathlib import Path
+
+import jedi
+import pytest
+
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "lookup_project"
+
+
+@pytest.fixture
+def analyzer() -> JediAnalyzer:
+    """Return a JediAnalyzer pointed at the lookup_project fixture."""
+    return JediAnalyzer(str(FIXTURE_PATH))
+
+
+# ---------------------------------------------------------------------------
+# _build_navigable_ref
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_navigable_ref_with_normal_jedi_name(analyzer: JediAnalyzer) -> None:
+    """_build_navigable_ref returns expected fields for a real Jedi Name."""
+    results = await analyzer._search_all_scopes("ServiceManager")
+    assert results, "Expected at least one result for ServiceManager"
+
+    name_obj = results[0]
+    ref = analyzer._build_navigable_ref(name_obj)
+
+    assert ref["name"] == "ServiceManager"
+    assert ref["full_name"] is not None
+    assert "ServiceManager" in ref["full_name"]
+    assert ref["file"] is not None
+    assert ref["file"].endswith("models.py")
+    assert ref["line"] is not None
+    assert isinstance(ref["line"], int)
+
+
+@pytest.mark.asyncio
+async def test_build_navigable_ref_posix_path(analyzer: JediAnalyzer) -> None:
+    """_build_navigable_ref always returns POSIX paths (no backslashes)."""
+    results = await analyzer._search_all_scopes("ServiceManager")
+    assert results
+
+    ref = analyzer._build_navigable_ref(results[0])
+
+    assert ref["file"] is not None
+    assert "\\" not in ref["file"], "File path must use forward slashes (POSIX)"
+
+
+# ---------------------------------------------------------------------------
+# _build_type_ref
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_project_local_class(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref resolves a project-local class to its definition."""
+    ref = await analyzer._build_type_ref("ServiceConfig")
+
+    assert ref is not None
+    assert ref["name"] == "ServiceConfig"
+    assert ref["full_name"] is not None
+    assert "ServiceConfig" in ref["full_name"]
+    assert ref["file"] is not None
+    assert ref["file"].endswith("models.py")
+    assert ref["line"] is not None
+    assert isinstance(ref["line"], int)
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_builtin(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref returns builtins.X full_name with no file for builtins."""
+    ref = await analyzer._build_type_ref("int")
+
+    assert ref is not None
+    assert ref["name"] == "int"
+    assert ref["full_name"] == "builtins.int"
+    assert ref["file"] is None
+    assert ref["line"] is None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_generic(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref returns ref with inner_types for generic types like list[str]."""
+    ref = await analyzer._build_type_ref("list[str]")
+
+    assert ref is not None
+    assert ref["name"] == "list[str]"
+    assert ref["full_name"] is None
+    assert ref["file"] is None
+    assert ref["line"] is None
+    # Should now have inner_types with resolved str
+    assert ref.get("inner_types") is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_union(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref returns ref with inner_types for union types like str | None."""
+    ref = await analyzer._build_type_ref("str | None")
+
+    assert ref is not None
+    assert ref["name"] == "str | None"
+    assert ref["full_name"] is None
+    assert ref["file"] is None
+    assert ref["line"] is None
+    # Should now have inner_types
+    assert ref.get("inner_types") is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_none_input(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref returns None when given None."""
+    result = await analyzer._build_type_ref(None)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_empty_string(analyzer: JediAnalyzer) -> None:
+    """_build_type_ref returns None when given an empty string."""
+    result = await analyzer._build_type_ref("")
+    assert result is None
+
+
+# -- ClassVar / generic unwrapping tests -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_classvar_resolves_inner(analyzer: JediAnalyzer) -> None:
+    """ClassVar[ServiceConfig] should resolve ServiceConfig, not return partial."""
+    ref = await analyzer._build_type_ref("ClassVar[ServiceConfig]")
+    assert ref is not None
+    assert ref["name"] == "ClassVar[ServiceConfig]"
+    # The inner type should be resolved
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 1
+    assert inner[0]["name"] == "ServiceConfig"
+    assert inner[0]["file"] is not None
+    assert inner[0]["line"] is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_optional_resolves_inner(analyzer: JediAnalyzer) -> None:
+    """Optional[ServiceConfig] should resolve ServiceConfig as inner type."""
+    ref = await analyzer._build_type_ref("Optional[ServiceConfig]")
+    assert ref is not None
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 1
+    assert inner[0]["name"] == "ServiceConfig"
+    assert inner[0]["file"] is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_classvar_optional_nested(analyzer: JediAnalyzer) -> None:
+    """ClassVar[Optional[ServiceConfig]] should unwrap recursively to ServiceConfig."""
+    ref = await analyzer._build_type_ref("ClassVar[Optional[ServiceConfig]]")
+    assert ref is not None
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 1
+    assert inner[0]["name"] == "ServiceConfig"
+    assert inner[0]["file"] is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_classvar_optional_list_nested(analyzer: JediAnalyzer) -> None:
+    """ClassVar[Optional[List[ServiceConfig]]] should unwrap to ServiceConfig."""
+    ref = await analyzer._build_type_ref("ClassVar[Optional[List[ServiceConfig]]]")
+    assert ref is not None
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 1
+    assert inner[0]["name"] == "ServiceConfig"
+    assert inner[0]["file"] is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_dict_multi_arg(analyzer: JediAnalyzer) -> None:
+    """dict[str, ServiceConfig] should resolve both inner types."""
+    ref = await analyzer._build_type_ref("dict[str, ServiceConfig]")
+    assert ref is not None
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 2
+    # str is a builtin
+    assert inner[0]["name"] == "str"
+    assert inner[0]["full_name"] == "builtins.str"
+    # ServiceConfig is project-local
+    assert inner[1]["name"] == "ServiceConfig"
+    assert inner[1]["file"] is not None
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_list_builtin_inner(analyzer: JediAnalyzer) -> None:
+    """list[str] should resolve str as inner type (builtin)."""
+    ref = await analyzer._build_type_ref("list[str]")
+    assert ref is not None
+    assert ref["name"] == "list[str]"
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 1
+    assert inner[0]["name"] == "str"
+    assert inner[0]["full_name"] == "builtins.str"
+
+
+@pytest.mark.asyncio
+async def test_build_type_ref_union_with_resolvable(analyzer: JediAnalyzer) -> None:
+    """ServiceConfig | None should resolve ServiceConfig as inner type."""
+    ref = await analyzer._build_type_ref("ServiceConfig | None")
+    assert ref is not None
+    assert ref.get("inner_types") is not None
+    inner = ref["inner_types"]
+    assert len(inner) == 2
+    # One should be ServiceConfig (resolved)
+    sc = [i for i in inner if i["name"] == "ServiceConfig"]
+    assert len(sc) == 1
+    assert sc[0]["file"] is not None
+    # Other should be None (builtin)
+    none_ref = [i for i in inner if i["name"] == "None"]
+    assert len(none_ref) == 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers for _enrich_method tests
+# ---------------------------------------------------------------------------
+
+
+async def _get_method_name(
+    analyzer: JediAnalyzer, method: str, full_name_fragment: str | None = None
+) -> jedi.api.classes.Name:
+    """Search for a method Name object via _search_all_scopes and filter by full_name."""
+    results = await analyzer._search_all_scopes(method)
+    if full_name_fragment is not None:
+        results = [r for r in results if full_name_fragment in (r.full_name or "")]
+    assert results, f"No results for method {method!r} (fragment={full_name_fragment!r})"
+    return results[0]
+
+
+def _get_init_from_script(
+    analyzer: JediAnalyzer, file_path: Path, full_name_fragment: str
+) -> jedi.api.classes.Name:
+    """Return a __init__ Name object from a Jedi Script, filtered by full_name."""
+    source = file_path.read_text()
+    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+    names = script.get_names(all_scopes=True)
+    matching = [
+        n
+        for n in names
+        if n.name == "__init__"
+        and n.type == "function"
+        and full_name_fragment in (n.full_name or "")
+    ]
+    assert matching, f"No __init__ found with fragment {full_name_fragment!r}"
+    return matching[0]
+
+
+# ---------------------------------------------------------------------------
+# _enrich_method
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enrich_method_typed_params_and_defaults(analyzer: JediAnalyzer) -> None:
+    """_enrich_method for ServiceManager.start returns correct signature, return type, and params."""
+    name_obj = await _get_method_name(analyzer, "start", "ServiceManager.start")
+    result = await analyzer._enrich_method(name_obj)
+
+    assert result["name"] == "start"
+    assert result["full_name"] is not None
+    assert "ServiceManager.start" in result["full_name"]
+    assert result["file"] is not None
+    assert result["file"].endswith("models.py")
+    assert "\\" not in result["file"], "File must use POSIX path"
+    assert result["line"] == 36
+
+    # Signature should include param with type and default
+    assert result["signature"] is not None
+    assert "port: int" in result["signature"]
+    assert "8080" in result["signature"]
+    assert "-> bool" in result["signature"]
+
+    # Return type: bool (builtin)
+    rt = result["return_type"]
+    assert rt is not None
+    assert rt["name"] == "bool"
+    assert rt["full_name"] == "builtins.bool"
+    assert rt["file"] is None
+    assert rt["line"] is None
+
+    # Parameters: self (no type_hint, no default), port (typed, with default)
+    params = result["parameters"]
+    assert len(params) == 2
+
+    self_param = params[0]
+    assert self_param["name"] == "self"
+    assert self_param["type_hint"] is None
+    assert self_param["default"] is None
+
+    port_param = params[1]
+    assert port_param["name"] == "port"
+    assert port_param["type_hint"] is not None
+    assert port_param["type_hint"]["name"] == "int"
+    assert port_param["type_hint"]["full_name"] == "builtins.int"
+    assert port_param["default"] == "8080"
+
+
+@pytest.mark.asyncio
+async def test_enrich_method_no_annotations(analyzer: JediAnalyzer) -> None:
+    """_enrich_method for helper() returns null type_hints, correct defaults."""
+    name_obj = await _get_method_name(analyzer, "helper")
+    result = await analyzer._enrich_method(name_obj)
+
+    assert result["name"] == "helper"
+    assert result["file"] is not None
+    assert result["file"].endswith("utils.py")
+
+    # No return type annotation → no return type
+    assert result["return_type"] is None
+
+    params = result["parameters"]
+    assert len(params) == 2
+
+    x_param = params[0]
+    assert x_param["name"] == "x"
+    assert x_param["type_hint"] is None
+    assert x_param["default"] is None
+
+    y_param = params[1]
+    assert y_param["name"] == "y"
+    assert y_param["type_hint"] is None, "y has no source annotation — type_hint must be null"
+    assert y_param["default"] == "10"
+
+
+@pytest.mark.asyncio
+async def test_enrich_method_return_type_project_local_class(analyzer: JediAnalyzer) -> None:
+    """_enrich_method for get_config resolves return type to ServiceConfig with file+line."""
+    name_obj = await _get_method_name(analyzer, "get_config", "ServiceManager.get_config")
+    result = await analyzer._enrich_method(name_obj)
+
+    assert result["name"] == "get_config"
+
+    rt = result["return_type"]
+    assert rt is not None
+    assert rt["name"] == "ServiceConfig"
+    assert rt["full_name"] is not None
+    assert "ServiceConfig" in rt["full_name"]
+    assert rt["file"] is not None
+    assert rt["file"].endswith("models.py")
+    assert "\\" not in rt["file"]
+    assert isinstance(rt["line"], int)
+
+
+@pytest.mark.asyncio
+async def test_enrich_method_init_self_and_typed_params(analyzer: JediAnalyzer) -> None:
+    """_enrich_method for ServiceManager.__init__ handles self, ServiceConfig param, str param."""
+    name_obj = _get_init_from_script(
+        analyzer,
+        FIXTURE_PATH / "models.py",
+        "ServiceManager.__init__",
+    )
+    result = await analyzer._enrich_method(name_obj)
+
+    assert result["name"] == "__init__"
+    assert result["file"] is not None
+    assert result["file"].endswith("models.py")
+
+    params = result["parameters"]
+    assert len(params) == 3
+
+    # self: no type hint, no default
+    self_param = params[0]
+    assert self_param["name"] == "self"
+    assert self_param["type_hint"] is None
+    assert self_param["default"] is None
+
+    # config: typed as ServiceConfig (project-local), no default
+    config_param = params[1]
+    assert config_param["name"] == "config"
+    assert config_param["type_hint"] is not None
+    assert config_param["type_hint"]["name"] == "ServiceConfig"
+    assert config_param["type_hint"]["file"] is not None
+    assert config_param["type_hint"]["file"].endswith("models.py")
+    assert isinstance(config_param["type_hint"]["line"], int)
+    assert config_param["default"] is None
+
+    # name: typed as str, default "default"
+    name_param = params[2]
+    assert name_param["name"] == "name"
+    assert name_param["type_hint"] is not None
+    assert name_param["type_hint"]["name"] == "str"
+    assert name_param["type_hint"]["full_name"] == "builtins.str"
+    assert name_param["default"] == '"default"'
+
+
+# ---------------------------------------------------------------------------
+# Helpers for _enrich_attribute tests
+# ---------------------------------------------------------------------------
+
+
+def _get_attribute_name(
+    analyzer: JediAnalyzer, file_path: Path, attr_name: str, full_name_fragment: str | None = None
+) -> jedi.api.classes.Name:
+    """Return a statement/instance Name object from a Jedi Script for an attribute."""
+    source = file_path.read_text()
+    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+    names = script.get_names(all_scopes=True)
+    matching = [
+        n
+        for n in names
+        if n.name == attr_name
+        and n.type in ("statement", "instance")
+        and (full_name_fragment is None or full_name_fragment in (n.full_name or ""))
+    ]
+    assert matching, (
+        f"No statement/instance Name found for {attr_name!r} "
+        f"(fragment={full_name_fragment!r}) in {file_path}"
+    )
+    return matching[0]
+
+
+# ---------------------------------------------------------------------------
+# _enrich_attribute
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_annotated_with_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for ServiceConfig.host returns str type_hint and 'localhost' default."""
+    file_path = FIXTURE_PATH / "models.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "host", "ServiceConfig.host")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "host"
+    assert result["full_name"] is not None
+    assert "host" in result["full_name"]
+    assert result["file"] is not None
+    assert result["file"].endswith("models.py")
+    assert "\\" not in result["file"], "File must use POSIX path"
+    assert isinstance(result["line"], int)
+
+    # type_hint: str (builtin)
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "str"
+    assert th["full_name"] == "builtins.str"
+    assert th["file"] is None
+    assert th["line"] is None
+
+    # default: "localhost" (as a quoted string)
+    assert result["default"] == "'localhost'"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_unannotated_with_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for DEFAULT_TIMEOUT has no type_hint and default '30'."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "DEFAULT_TIMEOUT")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "DEFAULT_TIMEOUT"
+    assert result["file"] is not None
+    assert result["file"].endswith("utils.py")
+
+    # No annotation → type_hint must be None
+    assert result["type_hint"] is None
+
+    # default is the literal 30
+    assert result["default"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_annotated_no_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for API_BASE (str | None = None) returns union type_hint and 'None' default."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "API_BASE")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "API_BASE"
+
+    # str | None is a union — returns partial ref (no full_name/file/line)
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "str | None"
+    assert th["full_name"] is None
+
+    # The value is "None" (the literal)
+    assert result["default"] == "None"
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_complex_default(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for COMPLEX_DEFAULT captures constructor call as default text."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "COMPLEX_DEFAULT")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "COMPLEX_DEFAULT"
+
+    # No annotation → type_hint must be None
+    assert result["type_hint"] is None
+
+    # default is the expression text
+    assert result["default"] is not None
+    assert "ServiceConfig" in result["default"]
+    assert "prod.example.com" in result["default"]
+
+
+@pytest.mark.asyncio
+async def test_enrich_attribute_generic_type_hint(analyzer: JediAnalyzer) -> None:
+    """_enrich_attribute for ServiceConfig.tags returns list[str] partial ref and '[]' default."""
+    file_path = FIXTURE_PATH / "models.py"
+    source = file_path.read_text()
+    name_obj = _get_attribute_name(analyzer, file_path, "tags", "ServiceConfig.tags")
+    result = await analyzer._enrich_attribute(name_obj, source)
+
+    assert result["name"] == "tags"
+
+    # list[str] is generic — returns partial ref
+    th = result["type_hint"]
+    assert th is not None
+    assert th["name"] == "list[str]"
+    assert th["full_name"] is None
+    assert th["file"] is None
+    assert th["line"] is None
+
+    # default: empty list
+    assert result["default"] == "[]"
+
+
+# ---------------------------------------------------------------------------
+# _get_module_variables
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def utils_script_and_source(analyzer: JediAnalyzer):
+    """Return (script, source) for the utils.py fixture."""
+    file_path = FIXTURE_PATH / "utils.py"
+    source = file_path.read_text()
+    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
+    return script, source, analyzer
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_typed_and_untyped(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables returns MAX_RETRIES with type_hint int and DEFAULT_TIMEOUT with none."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = {v["name"]: v for v in variables}
+
+    assert "MAX_RETRIES" in names, "Expected MAX_RETRIES in module variables"
+    max_retries = names["MAX_RETRIES"]
+    assert max_retries["type_hint"] is not None
+    assert max_retries["type_hint"]["name"] == "int"
+    assert max_retries["default"] == "3"
+
+    assert "DEFAULT_TIMEOUT" in names, "Expected DEFAULT_TIMEOUT in module variables"
+    default_timeout = names["DEFAULT_TIMEOUT"]
+    assert default_timeout["type_hint"] is None
+    assert default_timeout["default"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_no_class_or_function_contamination(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables does NOT include functions or classes."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = [v["name"] for v in variables]
+
+    assert "create_manager" not in names, "create_manager (function) must not appear"
+    assert "helper" not in names, "helper (function) must not appear"
+    assert "ServiceConfig" not in names, "ServiceConfig (import) must not appear"
+
+
+@pytest.mark.asyncio
+async def test_get_module_variables_complex_default(
+    utils_script_and_source: tuple,
+) -> None:
+    """_get_module_variables captures COMPLEX_DEFAULT as a constructor call expression."""
+    script, source, analyzer = utils_script_and_source
+    variables = await analyzer._get_module_variables(script, source)
+
+    names = {v["name"]: v for v in variables}
+
+    assert "COMPLEX_DEFAULT" in names, "Expected COMPLEX_DEFAULT in module variables"
+    complex_default = names["COMPLEX_DEFAULT"]
+    assert complex_default["type_hint"] is None
+    assert complex_default["default"] is not None
+    assert "ServiceConfig" in complex_default["default"]
+    assert "prod.example.com" in complex_default["default"]
+
+
+# ---------------------------------------------------------------------------
+# get_call_hierarchy: callers have name/full_name, callees have full_name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_callers_have_navigable_ref_fields(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Callers returned by get_call_hierarchy have name, full_name, file, and line fields."""
+    # create_manager is called by build_client — should have at least one caller
+    result = await analyzer.get_call_hierarchy("create_manager")
+
+    assert "callers" in result, f"Expected 'callers' key: {result}"
+    callers = result["callers"]
+    assert isinstance(callers, list)
+    assert len(callers) > 0, "Expected at least one caller for create_manager"
+
+    for caller in callers:
+        assert "name" in caller, f"Caller missing 'name': {caller}"
+        assert "full_name" in caller, f"Caller missing 'full_name': {caller}"
+        assert "file" in caller, f"Caller missing 'file': {caller}"
+        assert "line" in caller, f"Caller missing 'line': {caller}"
+        # name must be a string
+        assert isinstance(
+            caller["name"], str
+        ), f"Caller 'name' should be str, got {type(caller['name'])}: {caller}"
+        # file must be a POSIX path string
+        if caller["file"] is not None:
+            assert (
+                "\\" not in caller["file"]
+            ), f"Caller 'file' must use POSIX separators: {caller['file']}"
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_callees_have_full_name(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Callees returned by get_call_hierarchy include a full_name field."""
+    # build_client is a top-level function that calls create_manager and ServiceConfig
+    result = await analyzer.get_call_hierarchy("build_client")
+
+    assert "callees" in result, f"Expected 'callees' key: {result}"
+    callees = result["callees"]
+    assert isinstance(callees, list)
+    # The heuristic may or may not find callees depending on the source range,
+    # so only assert field presence when callees are returned.
+    for callee in callees:
+        assert "name" in callee, f"Callee missing 'name': {callee}"
+        assert "full_name" in callee, f"Callee missing 'full_name': {callee}"
+        assert "file" in callee, f"Callee missing 'file': {callee}"
+        assert "line" in callee, f"Callee missing 'line': {callee}"
+        assert isinstance(
+            callee["name"], str
+        ), f"Callee 'name' should be str, got {type(callee['name'])}: {callee}"
+        if callee["file"] is not None:
+            assert (
+                "\\" not in callee["file"]
+            ), f"Callee 'file' must use POSIX separators: {callee['file']}"
+
+
+@pytest.mark.asyncio
+async def test_call_hierarchy_caller_full_name_is_string_or_none(
+    analyzer: JediAnalyzer,
+) -> None:
+    """Caller full_name must be a string or None — never a non-serializable type."""
+    import json
+
+    result = await analyzer.get_call_hierarchy("create_manager")
+    callers = result.get("callers", [])
+    assert len(callers) > 0, "Expected callers for create_manager"
+
+    for caller in callers:
+        fn = caller.get("full_name")
+        assert fn is None or isinstance(
+            fn, str
+        ), f"full_name must be str or None, got {type(fn)}: {fn}"
+        # Entire caller dict must be JSON-serializable
+        json.dumps(caller)

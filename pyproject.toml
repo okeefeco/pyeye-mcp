@@ -57,6 +57,9 @@ dev = [
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
 
+[project.scripts]
+pyeye-mcp = "pyeye.mcp.__main__:main"
+
 [project.urls]
 Homepage = "https://github.com/okeefeco/pyeye-mcp"
 Repository = "https://github.com/okeefeco/pyeye-mcp"

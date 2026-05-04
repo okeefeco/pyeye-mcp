@@ -11,7 +11,7 @@ from pathlib import Path
 class MCPAnalytics:
     """Analyze MCP usage patterns from Claude Code hook data."""
 
-    def __init__(self, monitoring_dir: Path = None):
+    def __init__(self, monitoring_dir: Path | None = None):
         """Initialize analytics with monitoring directory."""
         self.monitoring_dir = monitoring_dir or (Path.home() / ".claude" / "mcp_monitoring")
 
@@ -173,7 +173,7 @@ class MCPAnalytics:
 
         return "\n".join(report)
 
-    def export_metrics(self, output_file: Path = None) -> None:
+    def export_metrics(self, output_file: Path | None = None) -> None:
         """Export metrics to JSON file."""
         metrics = {
             "timestamp": datetime.now().isoformat(),

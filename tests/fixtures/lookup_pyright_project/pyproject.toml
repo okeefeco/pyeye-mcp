@@ -1,0 +1,7 @@
+[project]
+name = "pyright-test-project"
+
+[tool.pyright]
+executionEnvironments = [
+    { root = ".", extraPaths = ["../lookup_namespace_sibling"] }
+]
