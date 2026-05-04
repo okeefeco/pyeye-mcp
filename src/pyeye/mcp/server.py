@@ -51,6 +51,10 @@ from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
+from .operations.resolve import (
+    resolve as _resolve_impl,
+    resolve_at as _resolve_at_impl,
+)
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -389,10 +393,11 @@ async def resolve(
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
         - Not found: {"found": False, "reason": str}
     """
-    from pyeye.mcp.operations.resolve import resolve as _resolve
-
     analyzer = get_analyzer(project_path)
-    return dict(await _resolve(identifier, analyzer))
+    # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
+    # to match this wrapper's declared return type. TypedDict instances are
+    # already dicts at runtime; this is a mypy-compliance shallow copy.
+    return dict(await _resolve_impl(identifier, analyzer))
 
 
 @mcp.tool()
@@ -420,10 +425,9 @@ async def resolve_at(
     Returns:
         ResolveResult dict (see resolve() for shape).
     """
-    from pyeye.mcp.operations.resolve import resolve_at as _resolve_at
-
     analyzer = get_analyzer(project_path)
-    return dict(await _resolve_at(file, line, column, analyzer))
+    # See note on resolve() above re: dict() widening.
+    return dict(await _resolve_at_impl(file, line, column, analyzer))
 
 
 @mcp.tool()
