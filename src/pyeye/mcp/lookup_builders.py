@@ -1,5 +1,8 @@
 """Response assembly builders for the unified lookup tool.
 
+**Deprecated:** Module is deprecated alongside the legacy lookup MCP tool.
+Use resolve/resolve_at/inspect from pyeye.mcp.operations instead.
+
 Each builder takes a temporary resolution dict (with ``_resolved_via`` marker)
 and produces the full spec-compliant response shape by calling enrichment
 methods on the Jedi analyzer.

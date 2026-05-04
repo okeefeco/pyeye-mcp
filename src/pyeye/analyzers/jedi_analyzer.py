@@ -214,8 +214,17 @@ class JediAnalyzer:
             self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
         return self._additional_projects[resolved]
 
+    # DEPRECATED: internal helper for legacy methods; will be removed alongside them.
     async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
         """Search for a symbol name across all configured scopes.
+
+        **Deprecated:** Internal helper for legacy methods that are being
+        superseded by the resolve/resolve_at/inspect API. Will be removed
+        alongside the legacy methods it supports (get_call_hierarchy,
+        find_imports, analyze_dependencies, get_module_info, find_subclasses).
+        See docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Uses Jedi project.search() on the main project, then searches
         additional and namespace paths. Deduplicates by (name, file, line).
@@ -1125,8 +1134,15 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
+    # DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
     async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_name: Name of the module to find imports for
@@ -1353,10 +1369,18 @@ class JediAnalyzer:
 
         return results
 
+    # DEPRECATED: replaced by inspect(handle).edge_counts.callers (count) and future expand(handle, edge="callers") + expand(handle, edge="callees") (lists). Will be removed in the legacy-tool cleanup phase.
     async def get_call_hierarchy(
         self, function_name: str, file: str | None = None
     ) -> dict[str, Any]:
         """Get the call hierarchy for a function or class.
+
+        **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` (count)
+        and future ``expand(handle, edge="callers")`` + ``expand(handle, edge="callees")``
+        (lists) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         For functions, finds callers (who calls it) and callees (what it calls).
         For classes, finds instantiation sites (callers) and what __init__ calls (callees).
@@ -1841,10 +1865,17 @@ class JediAnalyzer:
 
         return modules
 
+    # DEPRECATED: replaced by future expand(handle, edge="imports") and trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
     async def analyze_dependencies(
         self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
         """Analyze import dependencies for a module.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imports")`` and
+        ``trace(handle, follow=["imports"])`` in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_path: The module to analyze dependencies for
@@ -2072,8 +2103,16 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle) for module-kind handles. Will be removed in the legacy-tool cleanup phase.
     async def get_module_info(self, module_path: str) -> dict[str, Any]:
-        """Get detailed information about a specific module."""
+        """Get detailed information about a specific module.
+
+        **Deprecated:** Replaced by ``inspect(handle)`` for module-kind handles
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+        """
         info: dict[str, Any] = {
             "module": module_path,
             "file": None,
@@ -2793,10 +2832,17 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle).re_exports (Phase 6 of resolve+inspect plan). Will be removed in the legacy-tool cleanup phase.
     async def find_reexports(
         self, symbol_name: str, original_module: str, file_path: str | None = None
     ) -> list[str]:
         """Find re-export paths for a symbol.
+
+        **Deprecated:** Replaced by ``inspect(handle).re_exports`` (Phase 6 of
+        the resolve+inspect plan) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             symbol_name: Name of the symbol to find re-exports for
@@ -2907,6 +2953,7 @@ class JediAnalyzer:
 
         return False
 
+    # DEPRECATED: replaced by inspect(handle).edge_counts.subclasses (count) and future expand(handle, edge="subclasses") (list). Will be removed in the legacy-tool cleanup phase.
     async def find_subclasses(
         self,
         base_class: str,
@@ -2915,6 +2962,19 @@ class JediAnalyzer:
         show_hierarchy: bool = False,
     ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
+
+        **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses``
+        (count) and future ``expand(handle, edge="subclasses")`` (list) in the
+        redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+
+        Note: The ambiguity-aware discriminated-union return shape
+        (``{"ambiguous": False, "subclasses": [...]}`` vs
+        ``{"ambiguous": True, "candidates": [...]}``) was introduced just before
+        this deprecation to fix a name-conflation bug; the method is still being
+        deprecated as a whole in favour of the inspect/expand API.
 
         Uses a hybrid Jedi + AST approach for performance:
         1. Single-pass AST parsing of scoped files (no double-read)
