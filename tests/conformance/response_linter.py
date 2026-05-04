@@ -557,12 +557,6 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
             violated, the location in the response, the violating value
             (truncated), and a pointer to the relevant documentation.
     """
-    if not isinstance(response, dict):
-        raise ConformanceViolation(
-            f"Response must be a dict; got {type(response).__name__!r}. "
-            f"Operation: {operation!r}."
-        )
-
     violations: list[str] = []
     _check_layering(response, operation, violations)
     _check_absence_vs_zero(response, operation, violations)

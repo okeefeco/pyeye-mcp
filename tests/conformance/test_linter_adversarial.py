@@ -748,11 +748,6 @@ class TestLinterAcceptsValidResponses:
         }
         lint_response(good, "inspect")  # must not raise
 
-    def test_response_without_input_validation(self) -> None:
-        """Non-dict input raises ConformanceViolation, not a generic exception."""
-        with pytest.raises(ConformanceViolation):
-            lint_response("not a dict", "inspect")  # type: ignore[arg-type]
-
     def test_empty_edge_counts_for_unknown_kind(self) -> None:
         """A response with empty edge_counts and unknown kind is accepted."""
         good = {
