@@ -74,6 +74,22 @@ class TestBareNameSingleMatch:
         assert "kind" in result
         assert result["kind"] == "class"
 
+    @pytest.mark.asyncio
+    async def test_single_match_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """Single bare-name match must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+        assert isinstance(loc["line_end"], int)
+
 
 # ---------------------------------------------------------------------------
 # (b) FQN dotted path → success
@@ -105,6 +121,21 @@ class TestFQNDottedPath:
         assert "scope" in result
         assert result["scope"] in ("project", "external")
 
+    @pytest.mark.asyncio
+    async def test_fqn_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """FQN result must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+
 
 # ---------------------------------------------------------------------------
 # (c) Re-exported path collapses to canonical definition site
@@ -134,6 +165,20 @@ class TestReExportedPathCollapses:
 
         assert result["found"] is True
         assert "scope" in result
+
+    @pytest.mark.asyncio
+    async def test_reexport_result_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """Re-export result must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +214,22 @@ class TestFilePathWithLine:
         assert result["found"] is True
         assert "scope" in result
 
+    @pytest.mark.asyncio
+    async def test_file_with_line_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """File:line result must include a location dict pointing at the definition."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+
 
 # ---------------------------------------------------------------------------
 # (e) File path without line → module handle
@@ -200,6 +261,24 @@ class TestFilePathWithoutLine:
 
         assert result["found"] is True
         assert result["kind"] == "module"
+
+    @pytest.mark.asyncio
+    async def test_file_path_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """File-only result must include a location dict (lenient about line_end)."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert loc["file"] == widgets_path
+        assert "line_start" in loc
+        assert "line_end" in loc
+        # line_start must be 1 for file-only resolution
+        assert loc["line_start"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +356,78 @@ class TestSuccessVariantsIncludeScope:
 
         assert result["found"] is True
         assert result["scope"] == "project"
+
+
+# ---------------------------------------------------------------------------
+# (g2) Every success variant includes location
+# ---------------------------------------------------------------------------
+
+
+class TestSuccessVariantsIncludeLocation:
+    """All success paths must include a location field with file/line_start/line_end."""
+
+    def _assert_location(self, result: dict) -> None:  # type: ignore[type-arg]
+        """Helper: assert a valid location dict is present in result."""
+        assert "location" in result, f"Missing 'location' in success result: {result}"
+        loc = result["location"]
+        assert "file" in loc, f"Missing 'file' in location: {loc}"
+        assert "line_start" in loc, f"Missing 'line_start' in location: {loc}"
+        assert "line_end" in loc, f"Missing 'line_end' in location: {loc}"
+        assert isinstance(loc["line_start"], int), f"line_start not int: {loc}"
+        assert isinstance(loc["line_end"], int), f"line_end not int: {loc}"
+        assert loc["line_start"] >= 1, f"line_start < 1: {loc}"
+
+    @pytest.mark.asyncio
+    async def test_bare_name_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 1 (bare name): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_fqn_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 2 (FQN dotted): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_reexported_path_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 3 (re-exported path): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_file_with_line_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 4 (file:line): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_file_only_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 5 (file-only): success result must include location.
+
+        line_end may be 1 (no cheap way to get last line for modules).
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+        # file-only always resolves to line_start == 1
+        assert result["location"]["line_start"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +629,11 @@ class TestResolveAt:
         assert result["kind"] == "class"
         assert "scope" in result
         assert result["scope"] == "project"
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert isinstance(loc["line_start"], int)
 
     # (b) Position on whitespace → no_symbol_at_position
     @pytest.mark.asyncio

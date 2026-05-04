@@ -183,7 +183,7 @@ Convert a name to a handle.
 resolve(identifier: str) → ResolveResult
 
 type ResolveResult =
-  | { found: true, handle: Handle, kind: Kind, scope: "project" | "external" }
+  | { found: true, handle: Handle, kind: Kind, scope: "project" | "external", location: Location }
   | { found: true, ambiguous: true, candidates: { handle: Handle, kind: Kind, scope: "project" | "external", location: Location }[] }
   | { found: false, reason: string }
 ```
@@ -193,6 +193,8 @@ type ResolveResult =
 When ambiguous (bare name matching multiple symbols), returns candidates with enough context for the agent to pick. Plugin-registered identifier forms (e.g., `users.yaml#user_model`) are tried in registration order before falling through to Python resolution.
 
 `scope` is included on every success result (and on every candidate) so the agent can decide whether to drill in (project — full-graph data) or treat the symbol as a leaf (external — project-scoped operations only) without a follow-up `inspect` call. Computing scope at resolution is cheap.
+
+`location` is also included on every success result and every candidate. The data is already at hand when resolution succeeds — Jedi exposes `module_path`, `line`, and `column` on the resolved `Name` — and "where is this symbol defined?" is the single most common follow-up to "what is its handle?". Surfacing location on the success variant eliminates a near-mandatory second `inspect` call for the most common case.
 
 ### `resolve_at(file, line, column) → Handle`
 

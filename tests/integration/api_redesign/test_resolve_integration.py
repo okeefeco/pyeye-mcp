@@ -74,7 +74,7 @@ class TestResolveEndToEnd:
 
     @pytest.mark.asyncio
     async def test_resolve_returns_canonical_handle_for_dotted_name(self) -> None:
-        """resolve() with a FQN returns the canonical handle, kind, scope."""
+        """resolve() with a FQN returns the canonical handle, kind, scope, location."""
         from pyeye.mcp.server import resolve
 
         project_path = str(_FIXTURE)
@@ -88,6 +88,9 @@ class TestResolveEndToEnd:
         assert result["handle"] == "mypackage._core.widgets.Widget"
         assert result["kind"] == "class"
         assert result["scope"] == "project"
+        assert "location" in result
+        assert "file" in result["location"]
+        assert "line_start" in result["location"]
 
     @pytest.mark.asyncio
     async def test_resolve_reexport_collapses_to_definition_site(self) -> None:
@@ -234,3 +237,46 @@ class TestResolveAtEndToEnd:
         assert isinstance(result, dict), "result must be a plain dict"
         assert result["found"] is False
         assert result["reason"] == "file_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Location inclusion end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestResolveIncludesLocationEndToEnd:
+    """Verify that location flows correctly through the MCP wrapper layer."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_includes_location_end_to_end(self) -> None:
+        """resolve() success result carries location through the full wrapper stack.
+
+        Verifies:
+        - location dict is present in the result
+        - file matches the expected fixture path (posix)
+        - line_start is a positive int pointing at the symbol definition
+        """
+        from pyeye.mcp.server import resolve
+
+        project_path = str(_FIXTURE)
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+
+        result = await resolve(
+            identifier="mypackage._core.widgets.Config",
+            project_path=project_path,
+        )
+
+        assert isinstance(result, dict), "result must be a plain dict"
+        assert result["found"] is True
+        assert "location" in result, f"'location' missing from success result: {result}"
+
+        loc = result["location"]
+        assert "file" in loc, f"'file' missing from location: {loc}"
+        assert "line_start" in loc, f"'line_start' missing from location: {loc}"
+        assert "line_end" in loc, f"'line_end' missing from location: {loc}"
+        assert isinstance(loc["line_start"], int), f"line_start not int: {loc}"
+        assert loc["line_start"] >= 1, f"line_start < 1: {loc}"
+        # The file must point into the fixture project
+        assert widgets_path in loc["file"] or loc["file"].endswith(
+            "widgets.py"
+        ), f"location file {loc['file']!r} doesn't match expected {widgets_path!r}"

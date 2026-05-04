@@ -93,6 +93,7 @@ class _SuccessResult(TypedDict):
     handle: str
     kind: str
     scope: Literal["project", "external"]
+    location: _Location
 
 
 class _AmbiguousResult(TypedDict):
@@ -204,6 +205,35 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
     )
 
 
+def _make_location(file_str: str, line: int | None, column: int | None) -> _Location:
+    """Build a :class:`_Location` from raw file/line/column values.
+
+    Uses sensible defaults when values are absent:
+    - ``line`` defaults to 1 (start of file).
+    - ``column`` defaults to 0 (start of line).
+
+    Args:
+        file_str: Posix-format file path string.  Empty string produces an
+            ``"<unknown>"`` file entry.
+        line: 1-indexed line number, or ``None`` if unavailable.
+        column: 0-indexed column number, or ``None`` if unavailable.
+
+    Returns:
+        A :class:`_Location` TypedDict with ``file``, ``line_start``,
+        ``line_end``, ``column_start``, and ``column_end``.
+    """
+    resolved_file = file_str if file_str else "<unknown>"
+    resolved_line = line if line is not None else 1
+    resolved_col = column if column is not None else 0
+    return _Location(
+        file=resolved_file,
+        line_start=resolved_line,
+        line_end=resolved_line,
+        column_start=resolved_col,
+        column_end=resolved_col,
+    )
+
+
 # ---------------------------------------------------------------------------
 # File:line resolution helper
 # ---------------------------------------------------------------------------
@@ -270,6 +300,7 @@ async def _resolve_at_position(
         handle=str(handle),
         kind=kind,
         scope=scope,
+        location=_make_location(def_file, name.line, name.column),
     )
 
 
@@ -378,6 +409,7 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
             handle=c["handle"],
             kind=c["kind"],
             scope=c["scope"],
+            location=c["location"],
         )
 
     # Sort candidates deterministically: (scope, file, line_start)
@@ -405,12 +437,15 @@ async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyze
             return _NotFoundResult(found=False, reason="unresolved")
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
+    file_posix = Path(file_str).as_posix() if file_str else ""
+    location = _make_location(file_posix, match.get("line"), match.get("column"))
 
     return _SuccessResult(
         found=True,
         handle=str(handle),
         kind=kind,
         scope=scope,
+        location=location,
     )
 
 
@@ -505,10 +540,14 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
     # Try to find the match whose full_name matches our canonical handle
     file_str = ""
     kind: str | None = None
+    match_line: int | None = None
+    match_column: int | None = None
     for match in matches:
         if match.get("full_name") == str(handle):
             file_str = match.get("file", "")
             kind = _normalise_kind(match.get("type"))
+            match_line = match.get("line")
+            match_column = match.get("column")
             break
     else:
         # Fallback: use the file derived from the handle path
@@ -519,12 +558,15 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
         kind = _kind_for_canonical(str(handle), analyzer)
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
+    file_posix = Path(file_str).as_posix() if file_str else ""
+    location = _make_location(file_posix, match_line, match_column)
 
     return _SuccessResult(
         found=True,
         handle=str(handle),
         kind=kind,
         scope=scope,
+        location=location,
     )
 
 
@@ -575,6 +617,7 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> Resolve
         handle=str(handle),
         kind="module",
         scope=scope,
+        location=_make_location(file_path.as_posix(), 1, None),
     )
 
 
@@ -600,8 +643,9 @@ async def resolve(
 
     Returns:
         A :data:`ResolveResult` dict.  On success, contains ``found=True``,
-        a ``handle``, ``kind``, and ``scope``.  On ambiguity, contains
-        ``found=True``, ``ambiguous=True``, and a sorted ``candidates`` list.
+        a ``handle``, ``kind``, ``scope``, and ``location``.  On ambiguity,
+        contains ``found=True``, ``ambiguous=True``, and a sorted
+        ``candidates`` list (each candidate also carries ``location``).
         On failure, contains ``found=False`` and a ``reason`` string.
     """
     form = _parse_identifier(identifier)
