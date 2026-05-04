@@ -147,6 +147,19 @@ git branch --show-current
 git remote -v
 ```
 
+**MANDATORY: Inspect untracked files before pushing.** `git status --short` shows files in the working tree that are NOT in any commit. Files created by prior subagent dispatches via Write/Edit are NOT auto-staged — only files explicitly `git add`-ed land in commits.
+
+Flag any untracked files that:
+
+- Live under `tests/fixtures/`, `tests/`, or `src/` (likely fixtures or modules co-created with the change)
+- Are new `__init__.py` package markers
+- Are documentation files referenced by code or tests
+- Have names referenced in already-committed test files (`grep -rn "<filename>" tests/ src/`)
+
+If found, **stage them and create a follow-up commit before pushing**. Suggested message: `fix(fixtures): stage <X> referenced by committed tests`. Do not push a branch where committed tests reference unstaged files — local tests will pass while a fresh clone fails.
+
+If untracked files genuinely don't belong (modified `.mcp.json`, scratch plan files, npm artifacts), report them as "ignored — pre-existing/unrelated" and proceed with the push.
+
 ### 2. Push Logic
 
 ```bash

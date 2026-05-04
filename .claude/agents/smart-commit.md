@@ -102,6 +102,25 @@ pytest --tb=short -q 2>&1 | grep -E "(FAILED|ERROR|passed|failed|warnings)" | ta
 git status --porcelain | wc -l | xargs -I {} echo "{} files modified by hooks"
 ```
 
+### 5. Post-commit Verification (MANDATORY — catches stranded fixtures)
+
+After `git commit` succeeds, run `git status` and inspect for **untracked files** that are likely part of the work but were never staged. Files created by Write/Edit are NOT auto-staged — only files explicitly `git add`-ed land in the commit.
+
+```bash
+git status --short
+```
+
+Flag any untracked files that:
+
+- Live under `tests/fixtures/`, `tests/`, or `src/` (likely fixtures or modules co-created with the main change)
+- Are new `__init__.py` package markers (often forgotten)
+- Are documentation files referenced by code or tests (`docs/`, README sections)
+- Have names referenced in committed test files (cross-check with `grep -rn "<filename>" tests/ src/`)
+
+If any are found, **stage them and commit immediately** with a follow-up commit message like `fix(fixtures): stage <X> referenced by committed tests`. Don't report DONE until `git status` shows only files that genuinely don't belong to this work (modified `.mcp.json`, untracked plan/scratch files, npm artifacts unrelated to the task, etc.).
+
+**Why this matters:** local tests pass because the unstaged files exist in the working tree. A fresh clone fails. The gap is silent until the user pushes and someone else (or CI on a fresh checkout) hits the broken state. Confirmed instance 2026-05-04: two fixture files referenced by committed tests sat untracked across multiple commits before being caught.
+
 ## Output Format Standards
 
 ### Success Case (Minimal Output)
