@@ -155,10 +155,10 @@ class TestResolveAtEndToEnd:
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
         project_path = str(_FIXTURE)
 
-        # Line 7: "class Widget:" — column 6 is the 'W' of Widget
+        # Line 21: "class Widget:" — column 6 is the 'W' of Widget
         result = await resolve_at(
             file=widgets_path,
-            line=7,
+            line=21,
             column=6,
             project_path=project_path,
         )
@@ -204,10 +204,10 @@ class TestResolveAtEndToEnd:
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
         project_path = str(_FIXTURE)
 
-        # Line 7: "class Widget:" — column 0 is the 'c' of the 'class' keyword
+        # Line 21: "class Widget:" — column 0 is the 'c' of the 'class' keyword
         result = await resolve_at(
             file=widgets_path,
-            line=7,
+            line=21,
             column=0,
             project_path=project_path,
         )
