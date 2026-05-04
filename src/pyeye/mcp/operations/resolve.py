@@ -662,6 +662,12 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> Resolve
     if not file_path.exists():
         return _NotFoundResult(found=False, reason="file_not_found")
 
+    # _get_import_path_for_file matches via relative_to() against absolute
+    # source_roots and project_path; a relative input would silently miss
+    # those and fall through to either an unresolved result or a wrongly
+    # path-prefixed handle (e.g. "src.pkg.mod" instead of "pkg.mod").
+    file_path = file_path.resolve()
+
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:
         return _NotFoundResult(found=False, reason="unresolved")

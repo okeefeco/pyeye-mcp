@@ -280,6 +280,30 @@ class TestFilePathWithoutLine:
         # line_start must be 1 for file-only resolution
         assert loc["line_start"] == 1
 
+    @pytest.mark.asyncio
+    async def test_relative_file_path_resolves_to_module(
+        self, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A relative file path (resolvable via CWD) must produce the correct module handle.
+
+        Regression: ``_resolve_file_only`` previously passed the raw Path to
+        ``_get_import_path_for_file`` without resolving to absolute first.  When
+        the input was relative, ``relative_to(absolute_root)`` raised ValueError
+        and resolution either failed (absolute project_path) or produced a
+        wrongly-prefixed handle like ``src.foo.bar`` instead of ``foo.bar``
+        (relative project_path).  The fix is to resolve to absolute before
+        looking up the import path.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        monkeypatch.chdir(_FIXTURE)
+        result = await resolve("mypackage/_core/widgets.py", analyzer)
+
+        assert result["found"] is True, f"Expected success, got {result!r}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets"
+        assert result["kind"] == "module"
+
 
 # ---------------------------------------------------------------------------
 # (f) Unresolved identifier → {found: false, reason: ...}
