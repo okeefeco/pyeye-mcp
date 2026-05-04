@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Awaitable
@@ -636,6 +637,26 @@ class _ModuleSentinel:
 # ---------------------------------------------------------------------------
 
 
+@functools.lru_cache(maxsize=256)
+def _read_file_lines(file_str: str) -> tuple[str, ...]:
+    """Read a file's lines; cached to avoid re-reading per reference site.
+
+    Keyed by POSIX file path string.  LRU-evicts at 256 entries to bound
+    memory.  Returns an empty tuple on any I/O or encoding error.
+
+    Args:
+        file_str: POSIX file path string.
+
+    Returns:
+        A tuple of line strings (no trailing newlines).
+    """
+    try:
+        with open(file_str, encoding="utf-8", errors="replace") as f:
+            return tuple(f.read().splitlines())
+    except (OSError, UnicodeDecodeError):
+        return ()
+
+
 def _is_call_site(file_str: str, line: int, col: int, name: str) -> bool:
     """Return True if the symbol reference at (file, line, col) is a call site.
 
@@ -643,6 +664,9 @@ def _is_call_site(file_str: str, line: int, col: int, name: str) -> bool:
     ``col`` is an opening parenthesis ``(``.  This is a source-level heuristic
     that works reliably for simple call patterns (``f()``, ``obj.method()``,
     ``pkg.func(*args)``).
+
+    File lines are read via ``_read_file_lines`` which is LRU-cached, so a
+    file with N reference sites is read from disk only once per inspect call.
 
     Args:
         file_str: POSIX file path string.
@@ -654,7 +678,7 @@ def _is_call_site(file_str: str, line: int, col: int, name: str) -> bool:
         ``True`` when the character at ``col + len(name)`` is ``(``.
     """
     try:
-        lines = Path(file_str).read_text(encoding="utf-8", errors="replace").splitlines()
+        lines = _read_file_lines(file_str)
         if 0 <= line - 1 < len(lines):
             src_line = lines[line - 1]
             check_pos = col + len(name)
@@ -943,6 +967,59 @@ async def _count_callers_only(
         return 0
 
 
+async def _measure_callers_and_refs_with_budget(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+    budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
+) -> tuple[int, int] | None:
+    """Run ``_count_callers_and_refs`` under a single shared time budget.
+
+    Uses ONE ``find_references`` call to derive both ``callers`` and
+    ``references`` counts.  A timeout or error on the shared query omits
+    BOTH edges — this is correct: if we couldn't finish the query, neither
+    count is reliable.
+
+    Note: Jedi's API is synchronous internally, so the ``asyncio.wait_for``
+    wrapper provides clean budget enforcement but does not provide true
+    concurrency with other async tasks.
+
+    Args:
+        handle: Canonical dotted-name string (for logging).
+        jedi_name: Jedi ``Name`` for the function/method.
+        analyzer: Active analyzer.
+        budget_seconds: Maximum wall-clock time for the combined measurement.
+
+    Returns:
+        ``(callers, references)`` tuple on success, or ``None`` on
+        timeout/error (both edges are absent when ``None`` is returned).
+    """
+    start = time.perf_counter()
+    try:
+        result = await asyncio.wait_for(
+            _count_callers_and_refs(handle, jedi_name, analyzer),
+            timeout=budget_seconds,
+        )
+        return result
+    except asyncio.TimeoutError:
+        elapsed = time.perf_counter() - start
+        logger.warning(
+            "inspect.edge_counts: callers+references timeout after %.2fs (handle=%r)",
+            elapsed,
+            handle,
+        )
+        return None
+    except Exception as exc:
+        elapsed = time.perf_counter() - start
+        logger.warning(
+            "inspect.edge_counts: callers+references failed after %.2fs (handle=%r): %s",
+            elapsed,
+            handle,
+            exc,
+        )
+        return None
+
+
 async def _build_edge_counts(
     handle: str,
     kind: str,
@@ -956,12 +1033,20 @@ async def _build_edge_counts(
     time out or error are OMITTED from the returned dict (absence-vs-zero
     invariant).  Edges that succeed are included even when the count is 0.
 
+    For function/method handles, ``callers`` and ``references`` share ONE
+    ``find_references`` call via ``_measure_callers_and_refs_with_budget``.
+    A timeout on that shared query omits BOTH edges — if the underlying query
+    didn't complete, neither derived count is reliable.
+
     Phase 4 measures exactly 5 edge types:
     - ``members``: count of direct members (class and module handles)
     - ``superclasses``: count of direct superclasses (class handles)
     - ``subclasses``: count of project-internal subclasses (class handles)
     - ``callers``: count of call sites (function/method handles; also class)
     - ``references``: non-call usages aggregate (all kinds)
+
+    Note: Jedi's API is synchronous internally, so ``asyncio.gather`` provides
+    clean concurrent-looking code but execution is effectively serialized.
 
     Args:
         handle: Canonical dotted-name string.
@@ -973,8 +1058,21 @@ async def _build_edge_counts(
     Returns:
         A dict containing the successfully measured edges.
     """
-    # Build the coroutines per kind
-    # Each value is a coroutine that returns int.
+    counts: dict[str, int] = {}
+
+    if kind in ("function", "method"):
+        # ONE find_references call shared between callers and references.
+        # A timeout omits BOTH — we couldn't measure either reliably.
+        pair = await _measure_callers_and_refs_with_budget(
+            handle, jedi_name, analyzer, budget_seconds
+        )
+        if pair is not None:
+            callers, references = pair
+            counts["callers"] = callers
+            counts["references"] = references
+        return counts
+
+    # For all other kinds, build a dict of independent single-int coroutines.
     coros: dict[str, Awaitable[int]] = {}
 
     if kind == "class":
@@ -983,14 +1081,6 @@ async def _build_edge_counts(
         coros["subclasses"] = _count_subclasses(handle, analyzer)
         coros["callers"] = _count_callers_only(handle, jedi_name, analyzer)
         coros["references"] = _count_references_only(handle, jedi_name, analyzer)
-
-    elif kind in ("function", "method"):
-        # callers and references are measured together to share one find_references call,
-        # then split. We wrap in a helper that returns both and route the results.
-        # Since _measure_with_budget expects a single-int coroutine, we use
-        # _count_callers_and_refs for callers and references independently.
-        coros["callers"] = _count_callers_and_refs_caller(handle, jedi_name, analyzer)
-        coros["references"] = _count_callers_and_refs_refs(handle, jedi_name, analyzer)
 
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
@@ -1002,65 +1092,20 @@ async def _build_edge_counts(
     # else: kind not handled → no measurements; counts stays empty
 
     if not coros:
-        return {}
+        return counts
 
-    # Run all measurements concurrently under per-edge budgets
+    # Run all measurements via asyncio.gather, each under a per-edge budget.
     edge_names = list(coros.keys())
     budgeted = [
         _measure_with_budget(name, coro, handle, budget_seconds) for name, coro in coros.items()
     ]
     results = await asyncio.gather(*budgeted, return_exceptions=False)
 
-    counts: dict[str, int] = {}
     for edge_name, result in zip(edge_names, results, strict=False):
         if result is not None:  # CRITICAL: is not None — 0 is a valid measured result
             counts[edge_name] = result
 
     return counts
-
-
-async def _count_callers_and_refs_caller(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-) -> int:
-    """Return the callers count from ``_count_callers_and_refs``.
-
-    Separated into its own coroutine so it can be independently wrapped in
-    ``_measure_with_budget``.
-
-    Args:
-        handle: Canonical dotted-name string.
-        jedi_name: Jedi ``Name`` for the function/method.
-        analyzer: Active analyzer.
-
-    Returns:
-        Count of call sites.
-    """
-    callers, _ = await _count_callers_and_refs(handle, jedi_name, analyzer)
-    return callers
-
-
-async def _count_callers_and_refs_refs(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-) -> int:
-    """Return the references count from ``_count_callers_and_refs``.
-
-    Separated into its own coroutine so it can be independently wrapped in
-    ``_measure_with_budget``.
-
-    Args:
-        handle: Canonical dotted-name string.
-        jedi_name: Jedi ``Name`` for the function/method.
-        analyzer: Active analyzer.
-
-    Returns:
-        Count of non-call references.
-    """
-    _, refs = await _count_callers_and_refs(handle, jedi_name, analyzer)
-    return refs
 
 
 # ---------------------------------------------------------------------------
@@ -1076,7 +1121,9 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     returns source content — signatures are single-line strings; ``location``
     is a pointer dict only; ``default`` fields are simple literals only.
 
-    Always includes ``edge_counts: {}`` (wired with measurements in Phase 4).
+    Always includes ``edge_counts`` (Phase 4 measures: members, superclasses,
+    subclasses, callers, references — for relevant kinds).  Edges that exceed
+    their per-measurement budget are OMITTED, not zero.
     Never includes ``re_exports``, ``highlights``, ``tags``, or ``properties``
     (those are wired in later phases).
 
@@ -1086,7 +1133,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 
     Returns:
         A Node dict with universal fields + kind-dependent fields +
-        ``edge_counts: {}``.  Returns the dict even on partial/missing data;
+        ``edge_counts``.  Returns the dict even on partial/missing data;
         never raises.  If the handle cannot be resolved, returns a minimal node
         with kind ``"variable"`` as the safest default.
     """
