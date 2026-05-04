@@ -31,6 +31,7 @@ roughly 0.03× the wire cost.
 | 6 | `re_exports` wired into `inspect` | Done |
 | 7.1 | Conformance linter + pre-commit hook | Done |
 | 7.2–7.5 | Spec acceptance tests (closeout) | Done |
+| 8 | TypeRef recursive trees on type-bearing fields | Done |
 
 `expand()` and `trace()` are future operations, not yet planned.
 
@@ -172,9 +173,9 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 |-------|-------|-------------|
 | `signature` | function, method, class | Single-line call/class signature |
 | `superclasses` | class | List of canonical handles for base classes |
-| `parameters` | function, method | Typed parameter list |
-| `return_type` | function, method | Return type annotation string |
-| `attributes` | class | Public attributes with types and defaults |
+| `parameters` | function, method | Typed parameter list — each entry's `type` is a recursive `TypeRef` tree (see below), not a string |
+| `return_type` | function, method | Recursive `TypeRef` tree for the return annotation (see below), not a string |
+| `attributes` | class | Public attributes with types — each `type` is a recursive `TypeRef` tree (see below) |
 | `re_exports` | non-module | Re-export aliases (see below) |
 
 ### Location shape
@@ -296,6 +297,179 @@ Both `resolve("mypackage.Config")` and
 `resolve("mypackage._impl.config.Config")` return the same canonical handle.
 The re-export list on the canonical handle is the inverse mapping — all
 public paths that route to this definition.
+
+---
+
+## Type fields are `TypeRef` trees, not strings
+
+Every type-bearing field on an `inspect` response — `parameters[].type`,
+`return_type`, and the `type` field on `attributes`, properties, and
+variables — is a recursive `TypeRef` tree, not a flat string. This
+preserves navigability through compound types (generics, unions,
+parameterized forms) without forcing the agent to client-side-parse type
+expressions.
+
+### Shape
+
+```jsonc
+type TypeRef = {
+  raw: string,        // annotation as written for THIS subtree slice (always present)
+  handle?: string,    // canonical handle when the head has exactly one referent
+  args?: TypeRef[]    // recursive children for parameterized types
+}
+```
+
+Three fields, no discriminator. Agents that don't navigate types can read
+`raw` and ignore the rest.
+
+### Worked example
+
+`inspect()` on a function declared as
+`def process(x: Dict[str, List[CustomModel]]) -> List[CustomModel]`
+(with `from typing import Dict, List` and a project-local `CustomModel`)
+returns:
+
+```jsonc
+{
+  "handle": "service_typing_aliases.process",
+  "kind": "function",
+  "scope": "project",
+  "signature": "process(x: Dict[str, List[CustomModel]]) -> List[CustomModel]",
+  "parameters": [
+    {
+      "name": "x",
+      "kind": "positional_or_keyword",
+      "type": {
+        "raw": "Dict[str, List[CustomModel]]",
+        "handle": "typing.Dict",
+        "args": [
+          { "raw": "str", "handle": "builtins.str" },
+          {
+            "raw": "List[CustomModel]",
+            "handle": "typing.List",
+            "args": [
+              { "raw": "CustomModel", "handle": "models.CustomModel" }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "return_type": {
+    "raw": "List[CustomModel]",
+    "handle": "typing.List",
+    "args": [
+      { "raw": "CustomModel", "handle": "models.CustomModel" }
+    ]
+  },
+  "edge_counts": { "callers": 0, "references": 0 },
+  "re_exports": []
+}
+```
+
+The `handle` on each subtree is composable: an agent that wants to drill
+into `models.CustomModel` calls `inspect("models.CustomModel")` directly —
+no string parsing, no `resolve` round-trip.
+
+### Head-canonicalisation: `typing.Dict` vs `builtins.dict`
+
+The same shape written with PEP 585 builtins
+(`def process(x: dict[str, list[CustomModel]])` — no `typing` import)
+yields **distinct** root handles:
+
+```jsonc
+"type": {
+  "raw": "dict[str, list[CustomModel]]",
+  "handle": "builtins.dict",
+  "args": [
+    { "raw": "str", "handle": "builtins.str" },
+    {
+      "raw": "list[CustomModel]",
+      "handle": "builtins.list",
+      "args": [
+        { "raw": "CustomModel", "handle": "models.CustomModel" }
+      ]
+    }
+  ]
+}
+```
+
+The implementation MUST NOT silently rewrite `typing.Dict` → `builtins.dict`
+or vice-versa. Modern Python treats `typing.Dict` as a deprecated alias for
+`builtins.dict`, but that's metadata on the symbol itself —
+discoverable via `inspect("typing.Dict")` — not a transformation pyeye
+applies in the wire format. Preserving what the source actually wrote keeps
+the response honest.
+
+### Absence-vs-zero applies per node
+
+The same invariant from `edge_counts` applies inside a single TypeRef:
+
+- `handle` absent on a node = "no single canonical referent for the head,
+  OR we couldn't resolve it confidently."
+- `args` absent on a node = "this is a bare name (not parameterized)."
+- Both absent on a leaf = "we have the raw text only."
+
+Per-leaf degradation does not poison the rest of the tree —
+`Dict[str, UnknownThirdParty]` legitimately yields `handle: "typing.Dict"`
+at the root, `handle: "builtins.str"` on the first arg, and
+`{ "raw": "UnknownThirdParty" }` (no handle) on the second.
+
+### No-guess discipline
+
+`handle` is populated **only** when Jedi `goto` (with file/line context for
+the annotation site) returns exactly one definition. Best-effort global
+bare-name search is non-conforming — the field's value is its certainty,
+and a wrong handle is worse than an absent one. (Reference: a lookup-style
+resolver was previously observed silently mapping the parameter type
+`Path` to an unrelated module-local variable named `path`; that failure
+mode must not recur.)
+
+### Known v1 limitations (graceful degradation)
+
+These constructs preserve `raw` but may omit `handle` and/or `args`. The
+response stays conformant; future passes will tighten coverage:
+
+- **`Callable[[A, B], C]`** — uneven bracket structure
+  (`[args_list, return_type]`) doesn't fit uniform recursion. The `raw`
+  carries the full expression; `args` may be absent. Example response from
+  `def register(callback: Callable[[int, str], bool]) -> None`:
+
+  ```jsonc
+  "type": { "raw": "Callable[[int, str], bool]", "handle": "typing.Callable" }
+  ```
+
+- **`Literal[1, 2, "x"]`, `Annotated[X, metadata]`, `ParamSpec`,
+  `TypeVarTuple`, PEP 695 type aliases** — type-system-specific argument
+  semantics that don't fit uniform `TypeRef` recursion. Same rule:
+  preserve `raw`, omit `args`.
+- **Forward-reference strings** — resolve only when the referenced symbol
+  exists at inspect time; otherwise `handle` is absent. A forward ref to
+  a non-existent symbol degrades to `{ "raw": "DoesNotExist" }`.
+
+### Telemetry
+
+The implementation tracks degraded-path categories via an in-process
+counter so future passes can be prioritised empirically rather than by
+guess. See `degraded_counts` and `get_and_reset_degraded_counts()` in
+`src/pyeye/mcp/operations/typeref.py`.
+
+### Caching
+
+TypeRef builds are cached per `(file_path, mtime_ns, raw)` in a
+per-process dict. When a file is edited, its `mtime_ns` changes and the
+old key is unreachable, so the next `inspect` call rebuilds. This keeps
+repeated `inspect` calls on heavily-typed modules cheap.
+
+### Spec cross-reference
+
+Full normative discussion lives in
+`docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`
+under "Type fields as `TypeRef` trees" (lines ~395–475). Acceptance
+fixtures are under
+`tests/integration/api_redesign/fixtures/typeref_compound/` and the
+end-to-end conformance tests are in
+`tests/integration/api_redesign/test_conformance.py::TestCriterion14TypeRefConformance`.
 
 ---
 
