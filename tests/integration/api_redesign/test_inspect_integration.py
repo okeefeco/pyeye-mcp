@@ -77,8 +77,8 @@ class TestInspectUniversalFields:
         assert "edge_counts" in result
 
     @pytest.mark.asyncio
-    async def test_edge_counts_always_empty_dict(self) -> None:
-        """edge_counts is always present and always {} in Phase 3."""
+    async def test_edge_counts_always_present_as_dict(self) -> None:
+        """edge_counts is always present and is a dict (Phase 4: populated with measured edges)."""
         from pyeye.mcp.server import inspect
 
         result = await inspect(
@@ -86,9 +86,16 @@ class TestInspectUniversalFields:
             project_path=str(_FIXTURE),
         )
 
-        assert (
-            result["edge_counts"] == {}
-        ), f"edge_counts must be {{}} in Phase 3; got {result['edge_counts']!r}"
+        assert isinstance(
+            result["edge_counts"], dict
+        ), f"edge_counts must be a dict; got {type(result['edge_counts'])!r}"
+        # Phase 4: edge_counts is populated with measured edges for class handles.
+        # All 5 measured edge types must be present for Widget (a class).
+        for edge in ("members", "superclasses", "subclasses", "callers", "references"):
+            assert edge in result["edge_counts"], (
+                f"Phase 4 must populate edge_counts[{edge!r}] for class Widget; "
+                f"got edge_counts={result['edge_counts']!r}"
+            )
 
     @pytest.mark.asyncio
     async def test_absence_invariants_no_re_exports(self) -> None:

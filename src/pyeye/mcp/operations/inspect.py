@@ -2,31 +2,39 @@
 
 The canonical "what is this?" operation.  Returns kind, signature, location,
 docstring, plus kind-dependent fields.  No source content.  No edge expansions
-(Phase 4 wires edge_counts; Phase 5 wires highlights; Phase 6 wires re_exports).
+beyond the 5 Phase 4 edge types in edge_counts.
 
 Public API
 ----------
 .. code-block:: python
 
     node = await inspect("pyeye.cache.GranularCache", analyzer)
-    # → {handle, kind, scope, location, docstring, edge_counts: {}, ...}
+    # → {handle, kind, scope, location, docstring, edge_counts: {...}, ...}
 
 Design notes
 ------------
-- ``edge_counts`` is ALWAYS present, always ``{}`` in Phase 3.
-- ``re_exports``, ``highlights``, ``tags``, ``properties`` are ABSENT in Phase 3.
+- ``edge_counts`` is ALWAYS present.  Phase 4 populates 5 edge types:
+  ``members`` (class/module), ``superclasses`` (class), ``subclasses`` (class,
+  project-scoped), ``callers`` (function/method), ``references`` (all kinds,
+  excludes call sites).  Unmeasured edge types are ABSENT (not 0).
+- ``re_exports``, ``highlights``, ``tags``, ``properties`` are ABSENT in Phase 4.
 - ``Param.kind`` values: lowercase 5-value enum
   (``"positional"``, ``"positional_or_keyword"``, ``"keyword_only"``,
   ``"var_positional"``, ``"var_keyword"``).
 - ``default`` on params/attributes: simple literals only; complex expressions
   are omitted entirely (gated by ``ast.literal_eval``).
 - No source content anywhere — ``location`` is a pointer-only dict.
+- Per-measurement time budget (default 2 s): edges that exceed the budget are
+  OMITTED from edge_counts — consistent with the absence-vs-zero invariant.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import logging
+import time
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +47,12 @@ if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Per-measurement time budget
+# ---------------------------------------------------------------------------
+
+_DEFAULT_EDGE_BUDGET_SECONDS: float = 2.0
 
 # ---------------------------------------------------------------------------
 # Node-type constants
@@ -618,6 +632,438 @@ class _ModuleSentinel:
 
 
 # ---------------------------------------------------------------------------
+# Edge-count helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_call_site(file_str: str, line: int, col: int, name: str) -> bool:
+    """Return True if the symbol reference at (file, line, col) is a call site.
+
+    Checks whether the character immediately after the symbol name at column
+    ``col`` is an opening parenthesis ``(``.  This is a source-level heuristic
+    that works reliably for simple call patterns (``f()``, ``obj.method()``,
+    ``pkg.func(*args)``).
+
+    Args:
+        file_str: POSIX file path string.
+        line: 1-indexed line number.
+        col: 0-indexed column of the name start.
+        name: The symbol name (to compute the end column).
+
+    Returns:
+        ``True`` when the character at ``col + len(name)`` is ``(``.
+    """
+    try:
+        lines = Path(file_str).read_text(encoding="utf-8", errors="replace").splitlines()
+        if 0 <= line - 1 < len(lines):
+            src_line = lines[line - 1]
+            check_pos = col + len(name)
+            if check_pos < len(src_line):
+                return src_line[check_pos] == "("
+    except Exception:
+        pass
+    return False
+
+
+async def _measure_with_budget(
+    edge_name: str,
+    measurement_coro: Awaitable[int],
+    handle: str,
+    budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
+) -> int | None:
+    """Run a measurement coroutine under a time budget.
+
+    Returns the count, or ``None`` if the budget was exceeded or an error
+    occurred.  The caller MUST use ``is not None`` (not truthiness) to decide
+    whether the edge should be included — a count of 0 is a valid result.
+
+    Args:
+        edge_name: Name of the edge being measured (for logging).
+        measurement_coro: The coroutine to run.
+        handle: Canonical handle string (for logging context).
+        budget_seconds: Maximum wall-clock time allowed.
+
+    Returns:
+        An integer count on success, or ``None`` on timeout/error.
+    """
+    start = time.perf_counter()
+    try:
+        return await asyncio.wait_for(measurement_coro, timeout=budget_seconds)
+    except asyncio.TimeoutError:
+        elapsed = time.perf_counter() - start
+        logger.warning(
+            "inspect.edge_counts: %s timeout after %.2fs (handle=%r)",
+            edge_name,
+            elapsed,
+            handle,
+        )
+        return None
+    except Exception as exc:
+        elapsed = time.perf_counter() - start
+        logger.warning(
+            "inspect.edge_counts: %s failed after %.2fs (handle=%r): %s",
+            edge_name,
+            elapsed,
+            handle,
+            exc,
+        )
+        return None
+
+
+async def _count_class_members(handle: str, jedi_name: Any, analyzer: JediAnalyzer) -> int:
+    """Count direct class members for a class handle.
+
+    Walks the class definition's file via Jedi and counts names whose
+    ``full_name`` has exactly one more dotted component than the class handle.
+
+    Args:
+        handle: The class's canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the class.
+        analyzer: Active analyzer (unused here, but consistent with API).
+
+    Returns:
+        Count of direct class members.
+    """
+    _ = analyzer
+    file_path: Path | None = jedi_name.module_path
+    if file_path is None:
+        return 0
+    try:
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+        names = script.get_names(all_scopes=True, definitions=True, references=False)
+        prefix = handle + "."
+        handle_depth = len(handle.split("."))
+        count = 0
+        for n in names:
+            fn = n.full_name or ""
+            if fn.startswith(prefix) and len(fn.split(".")) == handle_depth + 1:
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
+    """Count top-level definitions in a module.
+
+    Uses Jedi's ``get_names(all_scopes=False)`` on the module file to find all
+    top-level definitions.
+
+    Args:
+        jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of top-level module members.
+    """
+    file_path: Path | None = jedi_name.module_path
+    if file_path is None:
+        return 0
+    try:
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+        names = script.get_names(all_scopes=False, definitions=True, references=False)
+        return len(names)
+    except Exception:
+        return 0
+
+
+async def _count_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> int:
+    """Count direct superclasses of a class.
+
+    Re-uses ``_get_superclasses`` (the AST + Jedi goto approach already
+    implemented for the ``superclasses`` kind-dependent field) and returns
+    the count of the resolved list.
+
+    Args:
+        jedi_name: Jedi ``Name`` for the class.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of direct superclasses.
+    """
+    return len(_get_superclasses(jedi_name, analyzer))
+
+
+async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
+    """Count project-internal subclasses of a class.
+
+    Delegates to ``analyzer.find_subclasses`` with ``scope="main"`` so only
+    project files are searched.  External subclasses (stdlib, third-party)
+    are excluded.
+
+    Args:
+        handle: The class's canonical dotted-name string.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of project-internal subclasses (direct + indirect).
+    """
+    # Simple name is the last component of the dotted handle
+    simple_name = handle.split(".")[-1]
+    try:
+        subclasses = await analyzer.find_subclasses(
+            simple_name,
+            scope="main",
+            include_indirect=True,
+            show_hierarchy=False,
+        )
+        return len(subclasses)
+    except Exception:
+        return 0
+
+
+async def _count_callers_and_refs(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+) -> tuple[int, int]:
+    """Count callers and non-call references for a function/method.
+
+    Uses Jedi ``get_references`` (excluding definitions) then partitions
+    results into call sites vs non-call references using a source-level
+    heuristic (character immediately after the name is ``(``) .
+
+    Args:
+        handle: Canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the function/method.
+        analyzer: Active analyzer.
+
+    Returns:
+        ``(callers, references)`` tuple where ``callers`` is the count of
+        call sites and ``references`` is the count of non-call usages.
+    """
+    file_path: Path | None = jedi_name.module_path
+    if file_path is None:
+        return 0, 0
+    try:
+        file_str = file_path.as_posix()
+        line = jedi_name.line
+        col = jedi_name.column
+        if not line:
+            return 0, 0
+        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
+        name = handle.split(".")[-1]
+        callers = 0
+        references = 0
+        for ref in refs:
+            ref_file = ref.get("file", "")
+            ref_line = ref.get("line", 0)
+            ref_col = ref.get("column", 0)
+            if ref_file and _is_call_site(ref_file, ref_line, ref_col, name):
+                callers += 1
+            else:
+                references += 1
+        return callers, references
+    except Exception:
+        return 0, 0
+
+
+async def _count_references_only(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+) -> int:
+    """Count non-call references for a non-callable symbol (attr/variable/module/class).
+
+    For non-callable kinds (attributes, variables, modules, and classes when
+    accessed as a reference), all non-definition uses count as references.
+    There is no separate callers count.
+
+    Args:
+        handle: Canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the symbol.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of non-definition, non-call references.
+    """
+    file_path: Path | None = jedi_name.module_path
+    if file_path is None:
+        return 0
+    try:
+        file_str = file_path.as_posix()
+        line = jedi_name.line
+        col = jedi_name.column
+        if not line:
+            return 0
+        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
+        name = handle.split(".")[-1]
+        # For non-callable kinds, exclude call sites from references count
+        # (a class used as a constructor call is a caller, not a reference)
+        count = 0
+        for ref in refs:
+            ref_file = ref.get("file", "")
+            ref_line = ref.get("line", 0)
+            ref_col = ref.get("column", 0)
+            if ref_file and not _is_call_site(ref_file, ref_line, ref_col, name):
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+async def _count_callers_only(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+) -> int:
+    """Count call sites for a class handle (instantiation calls).
+
+    For classes, we measure callers as the number of times the class is
+    instantiated (called with ``()``).
+
+    Args:
+        handle: Canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the class.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of call sites (instantiation/call usages).
+    """
+    file_path: Path | None = jedi_name.module_path
+    if file_path is None:
+        return 0
+    try:
+        file_str = file_path.as_posix()
+        line = jedi_name.line
+        col = jedi_name.column
+        if not line:
+            return 0
+        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
+        name = handle.split(".")[-1]
+        count = 0
+        for ref in refs:
+            ref_file = ref.get("file", "")
+            ref_line = ref.get("line", 0)
+            ref_col = ref.get("column", 0)
+            if ref_file and _is_call_site(ref_file, ref_line, ref_col, name):
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+async def _build_edge_counts(
+    handle: str,
+    kind: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+    budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
+) -> dict[str, int]:
+    """Build the edge_counts dict per Phase 4 contract.
+
+    Each edge measurement runs under an independent time budget.  Edges that
+    time out or error are OMITTED from the returned dict (absence-vs-zero
+    invariant).  Edges that succeed are included even when the count is 0.
+
+    Phase 4 measures exactly 5 edge types:
+    - ``members``: count of direct members (class and module handles)
+    - ``superclasses``: count of direct superclasses (class handles)
+    - ``subclasses``: count of project-internal subclasses (class handles)
+    - ``callers``: count of call sites (function/method handles; also class)
+    - ``references``: non-call usages aggregate (all kinds)
+
+    Args:
+        handle: Canonical dotted-name string.
+        kind: Normalised kind string (``"class"``, ``"function"``, etc.).
+        jedi_name: Jedi ``Name`` (or ``_ModuleSentinel``) for the symbol.
+        analyzer: Active analyzer.
+        budget_seconds: Per-edge time budget in seconds.
+
+    Returns:
+        A dict containing the successfully measured edges.
+    """
+    # Build the coroutines per kind
+    # Each value is a coroutine that returns int.
+    coros: dict[str, Awaitable[int]] = {}
+
+    if kind == "class":
+        coros["members"] = _count_class_members(handle, jedi_name, analyzer)
+        coros["superclasses"] = _count_superclasses(jedi_name, analyzer)
+        coros["subclasses"] = _count_subclasses(handle, analyzer)
+        coros["callers"] = _count_callers_only(handle, jedi_name, analyzer)
+        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
+
+    elif kind in ("function", "method"):
+        # callers and references are measured together to share one find_references call,
+        # then split. We wrap in a helper that returns both and route the results.
+        # Since _measure_with_budget expects a single-int coroutine, we use
+        # _count_callers_and_refs for callers and references independently.
+        coros["callers"] = _count_callers_and_refs_caller(handle, jedi_name, analyzer)
+        coros["references"] = _count_callers_and_refs_refs(handle, jedi_name, analyzer)
+
+    elif kind == "module":
+        coros["members"] = _count_module_members(jedi_name, analyzer)
+        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
+
+    elif kind in ("attribute", "property", "variable", "statement"):
+        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
+
+    # else: kind not handled → no measurements; counts stays empty
+
+    if not coros:
+        return {}
+
+    # Run all measurements concurrently under per-edge budgets
+    edge_names = list(coros.keys())
+    budgeted = [
+        _measure_with_budget(name, coro, handle, budget_seconds) for name, coro in coros.items()
+    ]
+    results = await asyncio.gather(*budgeted, return_exceptions=False)
+
+    counts: dict[str, int] = {}
+    for edge_name, result in zip(edge_names, results, strict=False):
+        if result is not None:  # CRITICAL: is not None — 0 is a valid measured result
+            counts[edge_name] = result
+
+    return counts
+
+
+async def _count_callers_and_refs_caller(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+) -> int:
+    """Return the callers count from ``_count_callers_and_refs``.
+
+    Separated into its own coroutine so it can be independently wrapped in
+    ``_measure_with_budget``.
+
+    Args:
+        handle: Canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the function/method.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of call sites.
+    """
+    callers, _ = await _count_callers_and_refs(handle, jedi_name, analyzer)
+    return callers
+
+
+async def _count_callers_and_refs_refs(
+    handle: str,
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+) -> int:
+    """Return the references count from ``_count_callers_and_refs``.
+
+    Separated into its own coroutine so it can be independently wrapped in
+    ``_measure_with_budget``.
+
+    Args:
+        handle: Canonical dotted-name string.
+        jedi_name: Jedi ``Name`` for the function/method.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of non-call references.
+    """
+    _, refs = await _count_callers_and_refs(handle, jedi_name, analyzer)
+    return refs
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -725,8 +1171,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         "docstring": docstring,
     }
     node.update(kind_fields)
-    # Phase 3: edge_counts always present, always empty
-    node["edge_counts"] = {}
+    # Phase 4: edge_counts populated with per-measurement budgeted counts
+    node["edge_counts"] = await _build_edge_counts(handle, kind, jedi_name, analyzer)
 
     return node
 
