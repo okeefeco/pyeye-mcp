@@ -464,6 +464,32 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
     return superclasses
 
 
+def _attr_target_position(base_node: ast.expr) -> tuple[int, int]:
+    """Return (line, col) of the rightmost identifier in a base-class expression.
+
+    For ``ast.Name`` (e.g. ``Widget``): the position of the name itself.
+    For ``ast.Attribute`` (e.g. ``pkg.sub.Widget``): the position of the
+    rightmost attribute name (``Widget``), not the leftmost receiver (``pkg``).
+
+    Using the rightmost position ensures ``jedi.Script.goto()`` resolves the
+    actual class, not the package/module that acts as the receiver.
+
+    Args:
+        base_node: AST node representing the base class expression.
+
+    Returns:
+        ``(line, col)`` tuple suitable for passing to ``jedi.Script.goto()``.
+    """
+    if isinstance(base_node, ast.Attribute):
+        # ast.Attribute stores end_lineno/end_col_offset for the entire chain.
+        # The rightmost attr name ends there and starts len(attr) characters before.
+        end_line = base_node.end_lineno or base_node.lineno
+        end_col = base_node.end_col_offset or 0
+        return end_line, max(0, end_col - len(base_node.attr))
+    # ast.Name or any other node type — use the node's own start position.
+    return base_node.lineno, base_node.col_offset
+
+
 def _resolve_base_class_via_jedi(
     file_str: str,
     base_node: ast.expr,
@@ -472,8 +498,13 @@ def _resolve_base_class_via_jedi(
 ) -> str:
     """Attempt to resolve a base class AST node to a full dotted name via Jedi.
 
-    Uses ``jedi.Script.goto()`` at the base class's position to navigate to its
-    definition.  Falls back to the raw ``ast.unparse`` representation on failure.
+    Uses ``jedi.Script.goto()`` at the rightmost identifier in the base class
+    expression to navigate to its definition.  Falls back to the raw
+    ``ast.unparse`` representation on failure.
+
+    For attribute-chain bases (e.g. ``pkg.sub.Widget``), positions goto at
+    ``Widget`` rather than ``pkg`` to avoid resolving to the package instead of
+    the class.  Results are filtered to prefer ``class``-kind definitions.
 
     Args:
         file_str: POSIX path to the file containing the class definition.
@@ -485,14 +516,17 @@ def _resolve_base_class_via_jedi(
         The resolved full dotted name, or *base_str* as fallback.
     """
     try:
-        base_line = base_node.lineno
-        base_col = base_node.col_offset
+        base_line, base_col = _attr_target_position(base_node)
         file_path = Path(file_str)
         script = file_artifact_cache.get_script(file_path, analyzer.project)
         defs = script.goto(base_line, base_col, follow_imports=True)
-        for d in defs:
-            if d.full_name:
-                return str(d.full_name)
+        # Part B: prefer class-kind results; fall back to any named result.
+        class_defs = [d for d in defs if d.type == "class" and d.full_name]
+        if class_defs:
+            return str(class_defs[0].full_name)
+        named_defs = [d for d in defs if d.full_name]
+        if named_defs:
+            return str(named_defs[0].full_name)
     except Exception:
         pass
     return base_str

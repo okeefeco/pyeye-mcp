@@ -1281,6 +1281,43 @@ class TestInspectHelperUnits:
         assert "column_start" not in loc
         assert "column_end" not in loc
 
+    def test_attr_target_position_name_node(self) -> None:
+        """_attr_target_position returns start position for a plain ast.Name node."""
+        import ast
+
+        from pyeye.mcp.operations.inspect import _attr_target_position
+
+        # Parse 'class X(Widget): pass' and extract the Name base node
+        tree = ast.parse("class X(Widget): pass")
+        cls_node = tree.body[0]
+        assert isinstance(cls_node, ast.ClassDef)
+        base = cls_node.bases[0]
+        assert isinstance(base, ast.Name)
+
+        line, col = _attr_target_position(base)
+        assert line == base.lineno
+        assert col == base.col_offset
+
+    def test_attr_target_position_attribute_node(self) -> None:
+        """_attr_target_position returns position of the rightmost attr for ast.Attribute."""
+        import ast
+
+        from pyeye.mcp.operations.inspect import _attr_target_position
+
+        # Parse 'class X(pkg.sub.Widget): pass' — base is an ast.Attribute chain
+        tree = ast.parse("class X(pkg.sub.Widget): pass")
+        cls_node = tree.body[0]
+        assert isinstance(cls_node, ast.ClassDef)
+        base = cls_node.bases[0]
+        assert isinstance(base, ast.Attribute)
+
+        line, col = _attr_target_position(base)
+        # 'Widget' is the rightmost attr; its start = end_col_offset - len('Widget')
+        expected_line = base.end_lineno or base.lineno
+        expected_col = max(0, (base.end_col_offset or 0) - len(base.attr))
+        assert line == expected_line
+        assert col == expected_col
+
 
 class TestFindJediNameForHandleFallbacks:
     """Tests for the uncovered branches in _find_jedi_name_for_handle."""
@@ -1573,3 +1610,50 @@ class TestMeasureCallersAndRefsWithBudget:
         assert (
             result == {}
         ), f"Unmeasured kind 'keyword' must produce empty edge_counts; got {result!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectSuperclassResolution — regression tests for attribute-chain bases
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSuperclassResolution:
+    """Regression tests for _resolve_base_class_via_jedi attribute-chain fix.
+
+    Before the fix, ``class X(pkg.sub.Widget):`` would resolve to the package
+    (e.g. ``mypackage._core``) instead of the class (``mypackage._core.widgets.Widget``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_superclass_via_attribute_chain_resolves_to_class(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A base class accessed via attribute chain (pkg.sub.Class) must resolve
+        to the class handle, not to the package.
+
+        Regression: inspect() previously returned the leftmost package in the
+        attribute chain instead of walking through to the actual class.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("mypackage.inheritance_via_attr.ViaAttr", analyzer)
+        assert result["superclasses"] == ["mypackage._core.widgets.Widget"], (
+            f"Expected ViaAttr's superclass to resolve to the Widget class, "
+            f"got: {result['superclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_superclass_same_file_simple_name_still_works(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Same-file inheritance with a bare base class name (ast.Name) still resolves correctly.
+
+        Guard against regressions in the existing simple-name path after the
+        attribute-chain fix.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+        assert result["superclasses"] == ["mypackage._core.widgets.Widget"], (
+            f"Expected Premium's superclass to resolve to Widget, " f"got: {result['superclasses']}"
+        )
