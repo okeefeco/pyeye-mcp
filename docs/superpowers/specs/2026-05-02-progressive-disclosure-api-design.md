@@ -378,18 +378,91 @@ The same rule applies to:
 | Kind | Additional fields |
 |---|---|
 | `class` | `signature?` (constructor), `superclasses: Handle[]` |
-| `function` / `method` | `signature: string`, `parameters: Param[]`, `return_type?: string`, `is_async: boolean`, `is_classmethod: boolean`, `is_staticmethod: boolean` |
+| `function` / `method` | `signature: string`, `parameters: Param[]`, `return_type?: TypeRef`, `is_async: boolean`, `is_classmethod: boolean`, `is_staticmethod: boolean` |
 | `module` | `package: Handle?`, `is_package: boolean` |
-| `attribute` / `property` / `variable` | `type?: string`, `default?: string` (for simple literals only) |
+| `attribute` / `property` / `variable` | `type?: TypeRef`, `default?: string` (for simple literals only) |
 
 ```typescript
 type Param = {
   name: string
-  type?: string
+  type?: TypeRef
   default?: string         // simple literals only; complex defaults represented by source range pointer
   kind: "positional" | "positional_or_keyword" | "keyword_only" | "var_positional" | "var_keyword"
 }
+
+type TypeRef = {
+  raw: string              // the annotation as written, this subtree's slice (always present)
+  handle?: Handle          // canonical handle when the head of this expression has one canonical referent
+  args?: TypeRef[]         // recursive children for parameterized types (List[X], Dict[K,V], etc.)
+}
 ```
+
+### Type fields as `TypeRef` trees
+
+`return_type` and the `type` field on parameters / attributes / properties / variables are recursive `TypeRef` structures, not flat strings. This preserves navigability through compound types (generics, unions, parameterized forms) without forcing the agent to client-side-parse type expressions.
+
+The shape is deliberately minimal — three fields, no discriminator, no kind enum:
+
+- **`raw` is always present.** It carries the annotation as written for this subtree slice (e.g. `"Dict[str, List[Path]]"` at the root, `"List[Path]"` for a child, `"Path"` for a leaf). Agents that don't navigate types can read `raw` and ignore the rest.
+- **`handle` is present when the head of this expression has exactly one canonical referent.** For `Path`, `handle = "pathlib.Path"`. For `Dict[K, V]`, `handle = "builtins.dict"`. For PEP 604 unions like `str | None` and other expressions where there is no single canonical head symbol, `handle` is absent — the agent infers the union shape from `args` and `raw`.
+- **`args` is present for parameterized types.** Each entry is itself a `TypeRef`, recursively. Bare names omit `args`.
+
+Worked examples:
+
+```jsonc
+// Bare name → handle resolved
+{ "raw": "Path", "handle": "pathlib.Path" }
+
+// Generic → head + recursive args
+{
+  "raw": "Dict[str, List[Optional[Path]]]",
+  "handle": "builtins.dict",
+  "args": [
+    { "raw": "str", "handle": "builtins.str" },
+    {
+      "raw": "List[Optional[Path]]",
+      "handle": "builtins.list",
+      "args": [
+        {
+          "raw": "Optional[Path]",
+          "handle": "typing.Optional",
+          "args": [{ "raw": "Path", "handle": "pathlib.Path" }]
+        }
+      ]
+    }
+  ]
+}
+
+// PEP 604 union → no single head, args carry the alternatives
+{
+  "raw": "str | None",
+  "args": [
+    { "raw": "str", "handle": "builtins.str" },
+    { "raw": "None", "handle": "builtins.None" }
+  ]
+}
+
+// Forward ref / unresolvable → graceful degradation, raw preserved
+{ "raw": "SomeFutureType" }
+```
+
+**Resolution must not guess.** Implementations populate `handle` only when Jedi `goto` (with file/line context for the annotation site) returns exactly one definition. Best-effort global bare-name search is non-conforming — the field's value is its certainty, and a wrong handle is worse than an absent one. (Reference: a lookup-style resolver was observed silently mapping the parameter type `Path` to a random module-local variable named `path`; that failure mode must not recur here.)
+
+**Absence-vs-zero applies per node.** Within a single TypeRef:
+
+- `handle` absent = "no single canonical referent for the head, OR we couldn't resolve it confidently."
+- `args` absent = "this is a bare name (not parameterized)."
+- Both absent on a leaf = "we have the raw text only."
+
+Implementations may degrade per-leaf without poisoning the rest of the tree — `Dict[str, UnknownThirdParty]` legitimately yields `handle: "builtins.dict"` at the root, `handle: "builtins.str"` on the first arg, and `{raw: "UnknownThirdParty"}` (no handle) on the second. The agent gets as much navigability as resolution allowed.
+
+**Composability.** When `handle` is present, the agent can call `inspect(typeref.handle)` directly — no string parsing, no `resolve` round-trip. This is the same composition pattern used elsewhere in the API.
+
+**Known limitations (deferred to later passes):**
+
+- `Callable[[A, B], C]` has an uneven bracket structure (`[args_list, return_type]` rather than uniform args). Until a future spec revision adds proper Callable shape, implementations preserve the full expression in `raw` and may decline to populate `args` for Callable. Conformant — degrades gracefully.
+- `Literal[1, 2, "x"]`, `Annotated[X, metadata]`, PEP 612 `ParamSpec`, PEP 646 `TypeVarTuple`, PEP 695 type aliases — these have type-system-specific argument semantics that don't fit the uniform `TypeRef` recursion. Same rule: preserve `raw`, omit `args`, conformant.
+- Forward-reference strings inside annotations resolve only when the referenced symbol exists at inspect time; otherwise `handle` absent.
 
 **Notably absent (by design):**
 
@@ -841,6 +914,7 @@ The redesign is complete when:
 11. The layering principle is enforceable in CI: a linter check rejects any new tool returning fields that contain source content.
 12. Plugin author API is documented; an example third-party plugin demonstrates the extension model.
 13. Migration documentation describes the deprecation path for current tools.
+14. `TypeRef` shape conformance verified: a fixture with a known compound annotation (e.g. a function with parameter `x: Dict[str, List[CustomModel]]` where `CustomModel` is a project class) confirms `inspect(function_handle).parameters[0].type` returns a recursive TypeRef where (a) the root has `handle == "builtins.dict"` (or the project's chosen canonicalisation of `Dict`); (b) `args[0]` has `handle == "builtins.str"`; (c) `args[1]` has `handle == "builtins.list"` with `args[1].args[0].handle == "<project>.CustomModel"`; (d) every node carries a non-empty `raw`; (e) a deliberately-unresolvable forward-ref leaf is conforming with `handle` absent (per absence-vs-zero); (f) `inspect(function_handle).return_type` follows the same shape when annotated. The resolver MUST NOT populate `handle` with a heuristic best-effort match — only with results from Jedi `goto` at the annotation site that return exactly one definition.
 
 ## Cross-References
 
