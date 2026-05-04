@@ -90,7 +90,10 @@ repos:
         args: ['--fix=lf']
       - id: name-tests-test
         args: ['--pytest-test-first']
-        exclude: '^tests/(fixtures|utils)/|response_linter\.py$'
+        # Exclude any 'fixtures/' or 'utils/' directory under tests/, at any
+        # nesting depth. Fixture .py files are intentionally NOT named
+        # 'test_*' — they are sample code under analysis, not pytest cases.
+        exclude: '^tests/.*(fixtures|utils)/|response_linter\.py$'
 
   # Project-specific checks
   # Cross-platform path checker - useful for periodic audits but has false positives
