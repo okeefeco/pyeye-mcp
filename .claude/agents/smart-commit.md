@@ -27,12 +27,26 @@ cd "$CLAUDE_WORKING_DIR" && git commit
 
 ### Complete Commit Workflow
 
-1. **Stage Changes**: Add files intelligently (modified, new, deleted)
-2. **Attempt Commit**: Run `git commit` (triggers pre-commit hooks)
-3. **Handle Failures**: When hooks fail, efficiently fix issues
-4. **Auto-fix & Retry**: Stage hook-modified files and retry commit
-5. **Iterate Smart**: May take 2-3 cycles (format → type fix → commit)
-6. **Validate Success**: Ensure commit created and tests pass
+1. **Stage Changes**: Add files intelligently (modified, new, deleted) — see Staging Strategy below; never `git add -A` or `git add .`
+2. **Capture Initial Stage Set**: Record `git diff --cached --name-only` BEFORE the first commit attempt — this is the authoritative list of "files in this commit"
+3. **Attempt Commit**: Run `git commit` (triggers pre-commit hooks)
+4. **Handle Failures**: When hooks fail, efficiently fix issues
+5. **Auto-fix & Retry**: Re-stage ONLY files in the initial stage set that hooks modified; never blanket-stage
+6. **Iterate Smart**: May take 2-3 cycles (format → type fix → commit)
+7. **Validate Success**: Ensure commit created and coverage gate met
+
+### Staging Strategy (MANDATORY)
+
+**NEVER use `git add -A` or `git add .`** — these sweep in:
+
+- Sensitive files (.env, credentials, debug configs)
+- Pre-existing WIP in unrelated files the user wasn't ready to commit
+- Files modified by background tools or other concurrent work
+- Stale debugging changes from other branches/sessions
+
+**DO stage explicitly by name.** When the user says "commit these changes," stage only the files relevant to the change being committed. If unclear, run `git status` first and confirm the file list with the user.
+
+After hooks auto-fix, only re-stage files in the **initial stage set** (captured at step 2 of the workflow). Anything else dirty in the working tree is NOT yours to stage — it was either the user's WIP or got modified by something outside this commit's scope. Surface those as a warning, don't silently include them.
 
 ### Context Efficiency Principles
 
@@ -70,30 +84,49 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 ### 1. Initial Pre-commit Run
 
+Use the **exit code** as the source of truth — NOT keyword regex. A regex like `grep -E "(FAILED|ERROR)"` silently misses any error category that doesn't match (`panic`, `abort`, `cannot`, future hook output). The exit code can't drift.
+
 ```bash
-# Single efficient command for initial validation
-echo "🔍 Running pre-commit validation..." && \
-pre-commit run --all-files --show-diff-on-failure 2>&1 | \
-grep -E "(FAILED|ERROR|WARNING|✓|✗)" || echo "All hooks passed"
+# Run hooks; capture full output and the exit code
+echo "🔍 Running pre-commit validation..."
+PRECOMMIT_OUTPUT=$(pre-commit run --all-files --show-diff-on-failure 2>&1)
+PRECOMMIT_EXIT=$?
+if [ $PRECOMMIT_EXIT -ne 0 ]; then
+    echo "❌ Pre-commit failed (exit $PRECOMMIT_EXIT)"
+    echo "$PRECOMMIT_OUTPUT" | tail -40   # show the relevant trailing context
+else
+    echo "✅ All hooks passed"
+fi
 ```
 
 ### 2. Auto-fix and Re-validate Cycle
 
-```bash
-# Handle the auto-fix cycle efficiently
-echo "🔧 Auto-fixing issues..." && \
-pre-commit run --all-files 2>&1 >/dev/null && \
-echo "✅ All hooks now passing" || \
-echo "❌ Manual intervention required"
-```
-
-### 3. Test Validation
+Same exit-code discipline. Don't trust string matching on output to detect success.
 
 ```bash
-# Quick test validation
-echo "🧪 Running tests..." && \
-pytest --tb=short -q 2>&1 | grep -E "(FAILED|ERROR|passed|failed|warnings)" | tail -5
+echo "🔧 Auto-fixing issues..."
+pre-commit run --all-files >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "✅ All hooks now passing"
+else
+    echo "❌ Manual intervention required"
+fi
 ```
+
+### 3. Test Validation (MANDATORY: enforce coverage gate)
+
+Per `.claude/instructions/07-validation.md`, the project's verification gate is **`--cov-fail-under=85`**. Bare `pytest -q` passes when coverage drops to 80% — agent reports success, CI then fails.
+
+```bash
+echo "🧪 Running tests with coverage gate..."
+uv run pytest --cov=src/pyeye --cov-fail-under=85 --tb=short -q 2>&1 | tail -10
+PYTEST_EXIT=$?
+if [ $PYTEST_EXIT -ne 0 ]; then
+    echo "❌ Test or coverage gate failed (exit $PYTEST_EXIT)"
+fi
+```
+
+If coverage falls below 85%, surface as a BLOCKER, not a success. Do not declare "Ready to commit" when the project's CI gate is unmet.
 
 ### 4. Git Status Check
 
@@ -166,21 +199,37 @@ If any are found, **stage them and commit immediately** with a follow-up commit 
 ```bash
 # User: "commit the changes"
 
+# 0. Capture the initial stage set BEFORE the first commit attempt.
+#    This is the authoritative "files in this commit" list — never re-stage
+#    anything outside it.
+INITIAL_STAGED=$(git diff --cached --name-only)
+# (e.g. "src/module.py tests/test_module.py")
+
 # 1. First commit attempt (triggers hooks)
 git commit -m "feat: add new feature"
 # → Hooks run automatically
-# → Black reformats 3 files
+# → Black reformats src/module.py
 # → Commit fails: "Files were modified by hooks"
 
-# 2. Stage hook changes and retry
-git add -A && git commit -m "feat: add new feature"
+# 2. Re-stage ONLY files that are (a) in the initial stage set AND
+#    (b) modified by the hooks. Never blanket -A.
+HOOK_MODIFIED=$(git diff --name-only)
+for f in $HOOK_MODIFIED; do
+    if echo "$INITIAL_STAGED" | grep -qx "$f"; then
+        git add "$f"
+    else
+        echo "⚠️ $f modified by hooks but not in initial stage set; NOT staging"
+    fi
+done
+git commit -m "feat: add new feature"
 # → Hooks run again
 # → Mypy finds 2 type errors
 # → Commit fails: "mypy found issues"
 
-# 3. Fix type errors, stage, and retry
+# 3. Fix type errors, stage explicitly (the SAME files in the initial set)
 # [Agent fixes the 2 type errors]
-git add src/module.py && git commit -m "feat: add new feature"
+git add src/module.py
+git commit -m "feat: add new feature"
 # → Hooks pass
 # → Commit succeeds!
 
