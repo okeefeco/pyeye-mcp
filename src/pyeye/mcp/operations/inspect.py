@@ -606,7 +606,8 @@ class _ModuleSentinel:
         except Exception:
             pass
 
-    def docstring(self, **_kwargs: object) -> str:
+    def docstring(self, **kwargs: object) -> str:
+        _ = kwargs  # accepted-and-ignored for Jedi Name.docstring() signature compat
         return self.docstring_text
 
     def get_signatures(self) -> list:
