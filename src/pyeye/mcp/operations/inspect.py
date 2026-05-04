@@ -44,6 +44,7 @@ from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
+from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -227,60 +228,147 @@ def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, 
     return False, False, False
 
 
-def _build_parameters(jedi_name: Any) -> list[dict[str, Any]]:
+def _find_function_def_at_line(
+    file_path: Path, line: int
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """Return the FunctionDef / AsyncFunctionDef whose ``lineno`` equals *line*.
+
+    Uses the cached file AST. Returns ``None`` when no match is found or any
+    error occurs (file missing, parse error, etc.).
+    """
+    try:
+        tree = file_artifact_cache.get_ast(file_path)
+    except Exception:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == line:
+            return node
+    return None
+
+
+def _build_param_kind_for_arg(fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> str:
+    """Determine the API ``Param.kind`` for an ``ast.arg`` based on its position.
+
+    Mirrors the 5-value lowercase enum used elsewhere:
+
+    - ``positional``: in ``fn.args.posonlyargs``
+    - ``positional_or_keyword``: in ``fn.args.args``
+    - ``keyword_only``: in ``fn.args.kwonlyargs``
+    - ``var_positional``: ``fn.args.vararg`` (``*args``)
+    - ``var_keyword``: ``fn.args.kwarg`` (``**kwargs``)
+    """
+    args = fn.args
+    if arg in args.posonlyargs:
+        return "positional"
+    if arg in args.args:
+        return "positional_or_keyword"
+    if arg in args.kwonlyargs:
+        return "keyword_only"
+    if args.vararg is arg:
+        return "var_positional"
+    if args.kwarg is arg:
+        return "var_keyword"
+    return "positional_or_keyword"
+
+
+def _iter_function_args(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.arg]:
+    """Return all ``ast.arg`` entries in canonical signature order.
+
+    Order mirrors how parameters appear in source: positional-only,
+    positional-or-keyword, ``*args``, keyword-only, ``**kwargs``.
+    """
+    out: list[ast.arg] = []
+    out.extend(fn.args.posonlyargs)
+    out.extend(fn.args.args)
+    if fn.args.vararg is not None:
+        out.append(fn.args.vararg)
+    out.extend(fn.args.kwonlyargs)
+    if fn.args.kwarg is not None:
+        out.append(fn.args.kwarg)
+    return out
+
+
+def _ast_arg_defaults(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[str, ast.expr]:
+    """Return a mapping ``arg_name → default_expr`` for params with defaults.
+
+    Positional-or-keyword defaults align right-to-left with ``args.args``;
+    keyword-only defaults align positionally with ``kwonlyargs`` (with
+    ``None`` slots indicating "no default").
+    """
+    out: dict[str, ast.expr] = {}
+    pos_args = fn.args.posonlyargs + fn.args.args
+    pos_defaults = fn.args.defaults
+    if pos_defaults:
+        # defaults align with the LAST N entries of pos_args
+        offset = len(pos_args) - len(pos_defaults)
+        for i, default in enumerate(pos_defaults):
+            out[pos_args[offset + i].arg] = default
+    for kw_arg, kw_default in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=False):
+        if kw_default is not None:
+            out[kw_arg.arg] = kw_default
+    return out
+
+
+async def _build_parameters(
+    jedi_name: Any, file_path: Path | None, analyzer: JediAnalyzer
+) -> list[dict[str, Any]]:
     """Build the ``parameters`` list for a function/method node.
 
-    Extracts parameter information from Jedi's signature API.  Each parameter
-    dict contains ``name``, ``kind``, and optionally ``type`` (from the
-    annotation string) and ``default`` (simple literals only).
+    For each parameter, populates ``name``, ``kind``, optional ``type``
+    (recursive ``TypeRef``), and optional ``default`` (simple literals only).
 
-    Implicit parameters (``self``, ``cls``) are included since they form part
-    of the structural signature.
+    The implementation walks the source AST to extract annotations
+    (rather than using Jedi's signature API), because Jedi's
+    ``get_type_hint()`` normalises type strings — e.g. it rewrites
+    ``dict[str, list[X]]`` to ``Dict[str, List[X]]`` and collapses
+    ``Callable[[int], bool]`` to ``object``. The annotation site in the
+    source AST is the source of truth for the recursive ``TypeRef`` shape.
+
+    Implicit parameters (``self``, ``cls``) are included since they form
+    part of the structural signature.
 
     Args:
         jedi_name: A Jedi ``Name`` object for a function/method.
+        file_path: Absolute path to the source file containing the function.
+        analyzer: Active analyzer for Jedi-based annotation resolution.
 
     Returns:
-        A list of parameter dicts.
+        A list of parameter dicts. Returns ``[]`` if the function definition
+        cannot be located in the source AST.
     """
-    try:
-        sigs = jedi_name.get_signatures()
-        if not sigs:
-            return []
-        sig = sigs[0]
-        params: list[dict[str, Any]] = []
-        for p in sig.params:
-            pname = p.name
-            param_dict: dict[str, Any] = {
-                "name": pname,
-                "kind": _normalise_param_kind(p.kind),
-            }
-            # Type annotation — from Jedi's description string
-            desc = p.description  # e.g. "param name: str='anon'"
-            # Extract type hint from description if present
-            try:
-                type_hint = p.get_type_hint()
-                if type_hint:
-                    param_dict["type"] = type_hint
-            except Exception:
-                pass
-
-            # Default value — only simple literals
-            try:
-                # desc format: "param name: type=default" or "param name=default"
-                if "=" in desc:
-                    default_part = desc.split("=", 1)[1].strip()
-                    # Remove trailing ) or other noise
-                    default_part = default_part.rstrip(")")
-                    if default_part and _is_simple_literal(default_part):
-                        param_dict["default"] = default_part
-            except Exception:
-                pass
-
-            params.append(param_dict)
-        return params
-    except Exception:
+    if file_path is None or not file_path.exists():
         return []
+    line = getattr(jedi_name, "line", None) or 0
+    if not line:
+        return []
+    fn_node = _find_function_def_at_line(file_path, line)
+    if fn_node is None:
+        return []
+
+    defaults = _ast_arg_defaults(fn_node)
+
+    params: list[dict[str, Any]] = []
+    for arg in _iter_function_args(fn_node):
+        param_dict: dict[str, Any] = {
+            "name": arg.arg,
+            "kind": _build_param_kind_for_arg(fn_node, arg),
+        }
+        if arg.annotation is not None:
+            param_dict["type"] = await build_typeref(arg.annotation, file_path, analyzer)
+        default_expr = defaults.get(arg.arg)
+        if default_expr is not None:
+            try:
+                raw_default = ast.unparse(default_expr)
+            except Exception:
+                raw_default = None
+            if raw_default and _is_simple_literal(raw_default):
+                param_dict["default"] = raw_default
+        params.append(param_dict)
+    return params
 
 
 def _build_signature(jedi_name: Any) -> str | None:
@@ -309,70 +397,89 @@ def _build_signature(jedi_name: Any) -> str | None:
     return None
 
 
-def _extract_return_type(jedi_name: Any) -> str | None:
-    """Extract the return type annotation string from a Jedi Name's signature.
+async def _extract_return_type(
+    jedi_name: Any, file_path: Path | None, analyzer: JediAnalyzer
+) -> dict[str, Any] | None:
+    """Extract the return-type ``TypeRef`` for a function/method.
 
-    Parses the ``->`` portion of the signature string.  Returns ``None`` when
-    no return type is annotated.
+    Walks the source AST (rather than using Jedi's signature string), because
+    Jedi normalises return-type strings the same way it normalises parameter
+    types (PEP 585 → typing forms, Callable → ``object``). The annotation
+    in the source AST is the source of truth for the recursive ``TypeRef``
+    shape.
 
     Args:
         jedi_name: A Jedi ``Name`` object for a function/method.
+        file_path: Absolute path to the source file containing the function.
+        analyzer: Active analyzer for Jedi-based annotation resolution.
 
     Returns:
-        The return type string, or ``None``.
+        The return type as a ``TypeRef`` dict, or ``None`` when the function
+        is unannotated or cannot be located in the source AST.
     """
-    try:
-        sigs = jedi_name.get_signatures()
-        if not sigs:
-            return None
-        sig_str = sigs[0].to_string()
-        arrow_idx = sig_str.rfind("->")
-        if arrow_idx != -1:
-            return_type = sig_str[arrow_idx + 2 :].strip().strip("\"'")
-            return return_type if return_type else None
-    except Exception:
-        pass
-    return None
+    if file_path is None or not file_path.exists():
+        return None
+    line = getattr(jedi_name, "line", None) or 0
+    if not line:
+        return None
+    fn_node = _find_function_def_at_line(file_path, line)
+    if fn_node is None or fn_node.returns is None:
+        return None
+    return await build_typeref(fn_node.returns, file_path, analyzer)
 
 
-def _extract_attribute_info(file_path: Path, line: int) -> tuple[str | None, str | None]:
-    """Extract type annotation and default value for an attribute/variable at *line*.
+async def _extract_attribute_info(
+    file_path: Path, line: int, analyzer: JediAnalyzer
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Extract the ``TypeRef`` annotation and default value for an attribute / variable.
 
-    Parses the AST of *file_path* to find an annotated assignment or plain
-    assignment at *line*.  Returns the annotation string and default value
-    string (only when the default is a simple literal).
+    Walks the file AST for an annotated or plain assignment at *line*. The
+    annotation (when present) is converted to a recursive ``TypeRef``; the
+    default value (when present) is included only when it parses as a simple
+    literal via ``ast.literal_eval``.
 
     Args:
         file_path: Absolute path to the source file.
         line: 1-indexed line number of the attribute definition.
+        analyzer: Active analyzer for Jedi-based annotation resolution.
 
     Returns:
-        A 2-tuple ``(type_annotation_str, default_str)`` where either element
-        may be ``None`` if not found or not a simple literal.
+        A 2-tuple ``(type_typeref, default_str)`` where either element may
+        be ``None``.
     """
-    type_annotation: str | None = None
+    type_typeref: dict[str, Any] | None = None
     default_str: str | None = None
+    annotation_node: ast.expr | None = None
 
     try:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.AnnAssign) and node.lineno == line:
-                type_annotation = ast.unparse(node.annotation)
-                if node.value is not None:
-                    raw_default = ast.unparse(node.value)
-                    if _is_simple_literal(raw_default):
-                        default_str = raw_default
-                break
-            elif isinstance(node, ast.Assign) and node.lineno == line:
-                raw_default = ast.unparse(node.value)
-                if _is_simple_literal(raw_default):
-                    default_str = raw_default
-                break
+        tree = file_artifact_cache.get_ast(file_path)
     except Exception:
-        pass
+        return None, None
 
-    return type_annotation, default_str
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and node.lineno == line:
+            annotation_node = node.annotation
+            if node.value is not None:
+                try:
+                    raw_default = ast.unparse(node.value)
+                except Exception:
+                    raw_default = ""
+                if raw_default and _is_simple_literal(raw_default):
+                    default_str = raw_default
+            break
+        elif isinstance(node, ast.Assign) and node.lineno == line:
+            try:
+                raw_default = ast.unparse(node.value)
+            except Exception:
+                raw_default = ""
+            if raw_default and _is_simple_literal(raw_default):
+                default_str = raw_default
+            break
+
+    if annotation_node is not None:
+        type_typeref = await build_typeref(annotation_node, file_path, analyzer)
+
+    return type_typeref, default_str
 
 
 def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
@@ -1189,13 +1296,13 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         kind_fields.update(_build_class_fields(jedi_name, analyzer))
 
     elif kind in ("function", "method"):
-        kind_fields.update(_build_function_fields(jedi_name, file_path))
+        kind_fields.update(await _build_function_fields(jedi_name, file_path, analyzer))
 
     elif kind == "module":
         kind_fields.update(_build_module_fields(jedi_name, handle))
 
     elif kind in ("attribute", "property", "variable"):
-        kind_fields.update(_build_attribute_fields(jedi_name, kind, file_path))
+        kind_fields.update(await _build_attribute_fields(jedi_name, kind, file_path, analyzer))
 
     # ------------------------------------------------------------------
     # Step 4 — Assemble node
@@ -1271,15 +1378,18 @@ def _build_class_fields(jedi_name: Any, analyzer: JediAnalyzer) -> dict[str, Any
     return fields
 
 
-def _build_function_fields(jedi_name: Any, file_path: Path | None) -> dict[str, Any]:
+async def _build_function_fields(
+    jedi_name: Any, file_path: Path | None, analyzer: JediAnalyzer
+) -> dict[str, Any]:
     """Build kind-dependent fields for a function or method node.
 
-    Extracts signature, parameters, return type, and async/classmethod/
-    staticmethod flags.
+    Extracts signature, parameters (with recursive ``TypeRef`` types), return
+    type (recursive ``TypeRef``), and async/classmethod/staticmethod flags.
 
     Args:
         jedi_name: Jedi Name for the function/method.
-        file_path: Absolute path to the source file (for AST-based flag detection).
+        file_path: Absolute path to the source file (for AST-based extraction).
+        analyzer: Active analyzer (for ``TypeRef`` head resolution).
 
     Returns:
         A dict with ``signature``, ``parameters``, ``return_type``,
@@ -1290,8 +1400,8 @@ def _build_function_fields(jedi_name: Any, file_path: Path | None) -> dict[str, 
     sig = _build_signature(jedi_name)
     fields["signature"] = sig or ""
 
-    fields["parameters"] = _build_parameters(jedi_name)
-    fields["return_type"] = _extract_return_type(jedi_name)
+    fields["parameters"] = await _build_parameters(jedi_name, file_path, analyzer)
+    fields["return_type"] = await _extract_return_type(jedi_name, file_path, analyzer)
 
     # Async / decorator flags from AST
     if file_path is not None and file_path.exists():
@@ -1337,20 +1447,23 @@ def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
     return fields
 
 
-def _build_attribute_fields(jedi_name: Any, kind: str, file_path: Path | None) -> dict[str, Any]:
+async def _build_attribute_fields(
+    jedi_name: Any, kind: str, file_path: Path | None, analyzer: JediAnalyzer
+) -> dict[str, Any]:
     """Build kind-dependent fields for an attribute, property, or variable node.
 
-    Extracts type annotation and default value (simple literals only) from
-    the source AST.  For ``property`` kind, only the return type annotation
-    is extracted (no ``default``).
+    Extracts the recursive ``TypeRef`` annotation and default value (simple
+    literals only) from the source AST. For ``property`` kind, only the
+    return-type annotation is extracted (no ``default``).
 
     Args:
         jedi_name: Jedi Name for the attribute/property/variable.
         kind: ``"attribute"``, ``"property"``, or ``"variable"``.
         file_path: Absolute path to the source file (for AST-based extraction).
+        analyzer: Active analyzer (for ``TypeRef`` head resolution).
 
     Returns:
-        A dict with optional ``type: str`` and optional ``default: str``.
+        A dict with optional ``type: TypeRef`` and optional ``default: str``.
     """
     fields: dict[str, Any] = {}
 
@@ -1362,24 +1475,17 @@ def _build_attribute_fields(jedi_name: Any, kind: str, file_path: Path | None) -
         return fields
 
     if kind == "property":
-        # For properties, extract the return type from the function signature
-        try:
-            source = file_path.read_text(encoding="utf-8", errors="replace")
-            tree = ast.parse(source)
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and node.lineno == line
-                ):
-                    if node.returns is not None:
-                        fields["type"] = ast.unparse(node.returns)
-                    break
-        except Exception:
-            pass
+        # For properties, the return-type annotation is treated as the
+        # property's type. Locate the FunctionDef and run it through the
+        # TypeRef builder for a uniform shape with parameter / variable
+        # types.
+        fn_node = _find_function_def_at_line(file_path, line)
+        if fn_node is not None and fn_node.returns is not None:
+            fields["type"] = await build_typeref(fn_node.returns, file_path, analyzer)
     else:
-        type_annotation, default_str = _extract_attribute_info(file_path, line)
-        if type_annotation is not None:
-            fields["type"] = type_annotation
+        type_typeref, default_str = await _extract_attribute_info(file_path, line, analyzer)
+        if type_typeref is not None:
+            fields["type"] = type_typeref
         if default_str is not None:
             fields["default"] = default_str
 

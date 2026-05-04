@@ -294,7 +294,11 @@ class TestInspectFunction:
 
     @pytest.mark.asyncio
     async def test_function_parameter_type_annotation(self, analyzer: JediAnalyzer) -> None:
-        """Parameter type annotation is captured when present."""
+        """Parameter type annotation is captured as a TypeRef when present.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef
+        dict ``{raw, handle?, args?}``.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
@@ -304,7 +308,14 @@ class TestInspectFunction:
         assert widget_name_param is not None, "widget_name parameter not found"
         # make_widget(widget_name: str) has a type annotation
         if "type" in widget_name_param:
-            assert isinstance(widget_name_param["type"], str)
+            type_node = widget_name_param["type"]
+            assert isinstance(type_node, dict), (
+                f"Phase 8: parameter 'type' must be a TypeRef dict; "
+                f"got {type(type_node).__name__}"
+            )
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -447,14 +458,24 @@ class TestInspectAttribute:
 
     @pytest.mark.asyncio
     async def test_attribute_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
-        """Kind-dependent fields for attribute: optional type and default."""
+        """Kind-dependent fields for attribute: optional type (TypeRef) and default.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef
+        dict ``{raw, handle?, args?}``; ``default`` remains a string literal.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_COLOR_HANDLE, analyzer)
 
-        # type and default are optional but if present must be strings
-        if "type" in result:
-            assert result["type"] is None or isinstance(result["type"], str)
+        # type is optional; when present it is a TypeRef dict with non-empty raw
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
         if "default" in result:
             # default must be a simple literal string when present
             assert result["default"] is None or isinstance(result["default"], str)
@@ -489,13 +510,22 @@ class TestInspectProperty:
 
     @pytest.mark.asyncio
     async def test_property_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
-        """Kind-dependent fields for a property: type is optional."""
+        """Kind-dependent fields for a property: type is optional TypeRef.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_DISPLAY_NAME_HANDLE, analyzer)
 
-        if "type" in result:
-            assert result["type"] is None or isinstance(result["type"], str)
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -520,14 +550,23 @@ class TestInspectVariable:
 
     @pytest.mark.asyncio
     async def test_variable_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
-        """Kind-dependent fields for a variable: optional type and default."""
+        """Kind-dependent fields for a variable: optional TypeRef type and default.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
 
         # DEFAULT_NAME: str = "widget" — type annotation present
-        if "type" in result:
-            assert result["type"] is None or isinstance(result["type"], str)
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
 
         # default may be "widget" (the literal value)
         if "default" in result and result["default"] is not None:
@@ -1590,12 +1629,18 @@ class TestInspectNotFoundFallback:
 
 
 class TestBuildAttributeFieldsPropertyBranch:
-    """Tests for the 'property' branch in _build_attribute_fields (lines 1351-1363)."""
+    """Tests for the 'property' branch in _build_attribute_fields.
 
-    def test_property_kind_extracts_return_type(self) -> None:
+    Phase 8 makes ``_build_attribute_fields`` async and replaces the
+    flat-string ``type`` field with a recursive ``TypeRef`` dict.
+    """
+
+    @pytest.mark.asyncio
+    async def test_property_kind_extracts_return_type(self, analyzer: JediAnalyzer) -> None:
         """_build_attribute_fields with kind='property' extracts return type annotation.
 
-        Exercises the AST-based return-type extraction at lines 1351-1363.
+        Exercises the AST-based return-type extraction. The result is a
+        ``TypeRef`` dict whose ``raw`` is the annotation as written.
         """
         from unittest.mock import MagicMock
 
@@ -1603,28 +1648,34 @@ class TestBuildAttributeFieldsPropertyBranch:
 
         fixture_file = _FIXTURE / "mypackage" / "_core" / "widgets.py"
 
-        # display_name is a @property defined at line 46 in widgets.py
+        # display_name is a @property in widgets.py
         # Verify by reading the fixture
         source = fixture_file.read_text()
         lines = source.splitlines()
-        # Find the line with 'def display_name'
         property_line = next(i + 1 for i, ln in enumerate(lines) if "def display_name" in ln)
 
         mock_name = MagicMock()
         mock_name.line = property_line
 
-        fields = _build_attribute_fields(mock_name, "property", fixture_file)
+        fields = await _build_attribute_fields(mock_name, "property", fixture_file, analyzer)
 
         # The property has return type -> str annotation
         assert "type" in fields, (
             f"_build_attribute_fields with kind='property' should extract return type; "
             f"fields={fields!r}, property_line={property_line}"
         )
+        type_node = fields["type"]
+        assert isinstance(
+            type_node, dict
+        ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
         assert (
-            fields["type"] == "str"
-        ), f"Expected type='str' for display_name -> str; got {fields['type']!r}"
+            type_node.get("raw") == "str"
+        ), f"Expected raw='str' for display_name -> str; got {type_node.get('raw')!r}"
 
-    def test_property_kind_no_return_annotation_returns_empty(self) -> None:
+    @pytest.mark.asyncio
+    async def test_property_kind_no_return_annotation_returns_empty(
+        self, analyzer: JediAnalyzer
+    ) -> None:
         """_build_attribute_fields with kind='property' and no annotation returns empty dict."""
         import tempfile
         from pathlib import Path
@@ -1644,7 +1695,7 @@ class TestBuildAttributeFieldsPropertyBranch:
             mock_name = MagicMock()
             mock_name.line = 3  # 'def val' is on line 3
 
-            fields = _build_attribute_fields(mock_name, "property", tmp_path)
+            fields = await _build_attribute_fields(mock_name, "property", tmp_path, analyzer)
             # No return annotation — 'type' should not be present
             assert "type" not in fields or fields.get("type") is None
         finally:
