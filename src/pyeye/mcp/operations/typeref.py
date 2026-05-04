@@ -63,8 +63,13 @@ Telemetry
 ---------
 The spec asks implementations to track which annotation shapes hit the
 degraded path so that future passes (proper ``Callable`` shape, etc.) can be
-prioritised empirically. v1 emits ``logger.debug("typeref_degraded:
-<category>")``; wiring into :mod:`pyeye.metrics` is left as a follow-up.
+prioritised empirically. v1 maintains a module-level ``degraded_counts``
+dict (category -> int), bumped at each degraded-path site, plus a
+``logger.debug("typeref_degraded:<category>")`` for live debugging. Operators
+read the snapshot via :func:`get_and_reset_degraded_counts`. Debug-level
+logs are silenced in production by default, so the counter is the
+authoritative source of empirical category data; wiring into
+:mod:`pyeye.metrics` is left as a follow-up.
 """
 
 from __future__ import annotations
@@ -112,6 +117,42 @@ HeadResolver = Callable[[ast.expr], Awaitable["Handle | None"]]
 
 _TypeRefKey = tuple[str, int, str]
 _typeref_cache: dict[_TypeRefKey, dict[str, Any]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Telemetry
+# ---------------------------------------------------------------------------
+#
+# Per-process counter of degraded-path categories (e.g. ``"Callable"``,
+# ``"Literal"``, ``"Annotated"``, AST node-type names). Incremented at every
+# degraded-path site alongside the ``logger.debug`` line. Operators / future
+# passes call :func:`get_and_reset_degraded_counts` to snapshot and reset.
+# Using a module-level dict (rather than fixed module-level integers) keeps
+# the category set open-ended without needing to enumerate kinds upfront.
+degraded_counts: dict[str, int] = {}
+
+
+def _bump_degraded(kind: str) -> None:
+    """Increment the degraded-path counter for *kind*."""
+    degraded_counts[kind] = degraded_counts.get(kind, 0) + 1
+
+
+def get_and_reset_degraded_counts() -> dict[str, int]:
+    """Return current degraded-path counts and reset the counter.
+
+    Used by operators / future passes to count which annotation shapes fall
+    into the degraded-resolution path (``Callable``, ``Literal``,
+    ``Annotated``, etc.) and prioritise where to invest proper recursion.
+    Debug-level logs are silenced in production by default, so the counter is
+    the authoritative empirical source.
+
+    Returns:
+        A snapshot of the counter as a fresh dict. The internal counter is
+        cleared, so subsequent calls report only newly-recorded categories.
+    """
+    snapshot = dict(degraded_counts)
+    degraded_counts.clear()
+    return snapshot
 
 
 def _cache_key(file_path: Path | None, raw: str) -> _TypeRefKey | None:
@@ -256,6 +297,7 @@ async def _build_with_resolver(
         # the args.
         if _is_callable_shape(head_handle, slice_node):
             logger.debug("typeref_degraded:Callable raw=%r", raw)
+            _bump_degraded("Callable")
             node: dict[str, Any] = {"raw": raw}
             if head_handle is not None:
                 node["handle"] = str(head_handle)
@@ -267,6 +309,7 @@ async def _build_with_resolver(
         degraded_kind = _degraded_head_kind(head_handle)
         if degraded_kind is not None:
             logger.debug("typeref_degraded:%s raw=%r", degraded_kind, raw)
+            _bump_degraded(degraded_kind)
             node = {"raw": raw}
             if head_handle is not None:
                 node["handle"] = str(head_handle)
@@ -293,7 +336,9 @@ async def _build_with_resolver(
         return node
 
     # ----- Anything else: degraded path, raw only -----
-    logger.debug("typeref_degraded:%s raw=%r", type(annotation).__name__, raw)
+    kind = type(annotation).__name__
+    logger.debug("typeref_degraded:%s raw=%r", kind, raw)
+    _bump_degraded(kind)
     return {"raw": raw}
 
 
@@ -313,6 +358,14 @@ def _attribute_target_position(node: ast.expr) -> tuple[int, int]:
     For ``ast.Attribute`` (e.g. ``typing.Dict``): the position of the rightmost
     attribute name, so that ``goto`` lands on ``Dict`` rather than the
     ``typing`` module receiver.
+
+    The returned ``(line, col)`` is **file-AST-absolute** — only meaningful
+    for nodes parsed from the source file (the file-scope head resolver,
+    :func:`_resolve_head_via_jedi`, feeds these positions to ``script.goto``).
+    The forward-ref re-parse path (:func:`_resolve_head_via_canonical`)
+    deliberately ignores this output: re-parsed AST positions live inside the
+    forward-ref string, not the source file, so ``script.goto`` would land
+    nowhere useful.
 
     Mirrors the strategy used by ``inspect._attr_target_position`` for base
     classes.

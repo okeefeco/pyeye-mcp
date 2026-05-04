@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,8 @@ from pyeye.mcp.operations.typeref import (
     _is_callable_shape,
     _typeref_cache,
     build_typeref,
+    degraded_counts,
+    get_and_reset_degraded_counts,
 )
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "typeref_basic"
@@ -39,11 +42,19 @@ def analyzer() -> JediAnalyzer:
 
 
 @pytest.fixture(autouse=True)
-def _clear_typeref_cache() -> None:
+def _clear_typeref_cache() -> Iterator[None]:
     """Drop the per-process TypeRef cache between tests."""
     _typeref_cache.clear()
     yield
     _typeref_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clear_degraded_counts() -> Iterator[None]:
+    """Reset the degraded-path telemetry counter between tests."""
+    degraded_counts.clear()
+    yield
+    degraded_counts.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +415,70 @@ class TestDegradedPath:
         assert result["raw"] == "foo()"
         assert "handle" not in result
         assert "args" not in result
+
+
+# ---------------------------------------------------------------------------
+# Degraded-path telemetry counter
+# ---------------------------------------------------------------------------
+
+
+class TestDegradedCounts:
+    """The module-level counter records degraded-path categories.
+
+    Operators rely on :func:`get_and_reset_degraded_counts` for empirical
+    prioritisation since debug-level logs are silenced in production by
+    default.
+    """
+
+    @pytest.mark.asyncio
+    async def test_literal_annotation_increments_counter(self, tmp_path: Path) -> None:
+        """A ``Literal`` annotation bumps the ``"Literal"`` category."""
+        f = tmp_path / "lit.py"
+        f.write_text("from typing import Literal\n\ndef g(x: Literal[1, 'x']) -> None: ...\n")
+        tree = ast.parse(f.read_text())
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
+        ann = fn.args.args[0].annotation
+        assert ann is not None
+        local_analyzer = JediAnalyzer(str(tmp_path))
+        await build_typeref(ann, f, local_analyzer)
+        # Counter snapshot must include the Literal category
+        assert degraded_counts.get("Literal") == 1
+
+    @pytest.mark.asyncio
+    async def test_unsupported_node_kind_increments_counter(
+        self, analyzer: JediAnalyzer, tmp_path: Path
+    ) -> None:
+        """A degraded leaf bumps a counter keyed by the AST node-type name."""
+        f = tmp_path / "weird.py"
+        f.write_text("# placeholder\n")
+        # Build a Call node: ``foo()`` — falls through to the catch-all
+        call = ast.parse("foo()", mode="eval").body
+        await build_typeref(call, f, analyzer)
+        assert degraded_counts.get("Call") == 1
+
+    @pytest.mark.asyncio
+    async def test_get_and_reset_returns_snapshot_and_clears(self, tmp_path: Path) -> None:
+        """``get_and_reset_degraded_counts`` returns a snapshot, then resets."""
+        f = tmp_path / "lit.py"
+        f.write_text("from typing import Literal\n\ndef g(x: Literal[1, 'x']) -> None: ...\n")
+        tree = ast.parse(f.read_text())
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef))
+        ann = fn.args.args[0].annotation
+        assert ann is not None
+        local_analyzer = JediAnalyzer(str(tmp_path))
+        await build_typeref(ann, f, local_analyzer)
+
+        snapshot = get_and_reset_degraded_counts()
+        assert snapshot.get("Literal") == 1
+        # After reset the underlying counter must be empty
+        assert degraded_counts == {}
+        # Snapshot is a fresh dict — mutating it doesn't disturb the counter
+        snapshot["spurious"] = 99
+        assert "spurious" not in degraded_counts
+
+    def test_get_and_reset_on_empty_counter_returns_empty(self) -> None:
+        """Calling the accessor with no recorded categories returns an empty dict."""
+        assert get_and_reset_degraded_counts() == {}
 
 
 # ---------------------------------------------------------------------------
