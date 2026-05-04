@@ -51,6 +51,7 @@ from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
+from .operations.inspect import inspect as _inspect_impl
 from .operations.resolve import (
     resolve as _resolve_impl,
     resolve_at as _resolve_at_impl,
@@ -428,6 +429,38 @@ async def resolve_at(
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
     return dict(await _resolve_at_impl(file, line, column, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("inspect")
+@track_mcp_operation("inspect")
+async def inspect(
+    handle: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Inspect a canonical handle and return a structural Node.
+
+    The "what is this?" operation. Returns the symbol's kind, location,
+    signature, docstring, and kind-dependent fields. Cheap by default —
+    no source content, no exhaustive enumerations. Edge counts and
+    highlights come in later phases.
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/resolve_at).
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        Node dict with universal fields (handle, kind, scope, location,
+        docstring, edge_counts={}) plus kind-dependent fields:
+        - class: signature (constructor), superclasses (list of Handle strings)
+        - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
+        - module: is_package, package?
+        - attribute/property/variable: type?, default? (simple literals only)
+    """
+    analyzer = get_analyzer(project_path)
+    # See note on resolve() above re: dict() widening.
+    return dict(await _inspect_impl(handle, analyzer))
 
 
 @mcp.tool()
