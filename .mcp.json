@@ -2,11 +2,19 @@
   "mcpServers": {
     "pyeye": {
       "args": [
-        "--from",
+        "run",
+        "--project",
         "${CLAUDE_PLUGIN_ROOT}",
-        "pyeye-mcp"
+        "--no-sync",
+        "--frozen",
+        "python",
+        "-m",
+        "pyeye.mcp"
       ],
-      "command": "uvx"
+      "command": "uv",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv"
+      }
     }
   }
 }
