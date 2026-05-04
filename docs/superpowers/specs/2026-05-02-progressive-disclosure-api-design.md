@@ -404,7 +404,7 @@ type TypeRef = {
 The shape is deliberately minimal — three fields, no discriminator, no kind enum:
 
 - **`raw` is always present.** It carries the annotation as written for this subtree slice (e.g. `"Dict[str, List[Path]]"` at the root, `"List[Path]"` for a child, `"Path"` for a leaf). Agents that don't navigate types can read `raw` and ignore the rest.
-- **`handle` is present when the head of this expression has exactly one canonical referent.** For `Path`, `handle = "pathlib.Path"`. For `Dict[K, V]`, `handle = "builtins.dict"`. For PEP 604 unions like `str | None` and other expressions where there is no single canonical head symbol, `handle` is absent — the agent infers the union shape from `args` and `raw`.
+- **`handle` is present when the head of this expression has exactly one canonical referent.** For `Path`, `handle = "pathlib.Path"`. For `dict[K, V]` written with the lowercase builtin, `handle = "builtins.dict"`. For PEP 604 unions like `str | None` and other expressions where there is no single canonical head symbol, `handle` is absent — the agent infers the union shape from `args` and `raw`. **The handle follows the same canonicalisation rules as elsewhere in the spec: definition site, deduplicating across re-exports, applied per-leaf within the recursive tree.**
 - **`args` is present for parameterized types.** Each entry is itself a `TypeRef`, recursively. Bare names omit `args`.
 
 Worked examples:
@@ -448,6 +448,8 @@ Worked examples:
 
 **Resolution must not guess.** Implementations populate `handle` only when Jedi `goto` (with file/line context for the annotation site) returns exactly one definition. Best-effort global bare-name search is non-conforming — the field's value is its certainty, and a wrong handle is worse than an absent one. (Reference: a lookup-style resolver was observed silently mapping the parameter type `Path` to a random module-local variable named `path`; that failure mode must not recur here.)
 
+**Handle is what Jedi resolves at the annotation site — not a normalized canonical form.** Annotations involving `typing` aliases like `Dict`, `List`, `Optional`, `Union` resolve to the `typing.*` symbol if that's what was imported at the call site. An annotation `Dict[K, V]` written with `from typing import Dict` produces `handle = "typing.Dict"`; the same shape written with `dict[K, V]` produces `handle = "builtins.dict"`. The implementation MUST NOT silently rewrite one to the other. Modern Python (3.9+) treats `typing.Dict` as a deprecated alias for `builtins.dict`, but that's metadata on the symbol itself — discoverable by the agent via `inspect("typing.Dict")` — not a transformation pyeye applies in the wire format. Preserving what the source actually wrote keeps the response honest and lets the agent see the deprecation context if it cares.
+
 **Absence-vs-zero applies per node.** Within a single TypeRef:
 
 - `handle` absent = "no single canonical referent for the head, OR we couldn't resolve it confidently."
@@ -458,11 +460,15 @@ Implementations may degrade per-leaf without poisoning the rest of the tree — 
 
 **Composability.** When `handle` is present, the agent can call `inspect(typeref.handle)` directly — no string parsing, no `resolve` round-trip. This is the same composition pattern used elsewhere in the API.
 
-**Known limitations (deferred to later passes):**
+**Known limitations (graceful degradation in v1; not fringe).**
 
-- `Callable[[A, B], C]` has an uneven bracket structure (`[args_list, return_type]` rather than uniform args). Until a future spec revision adds proper Callable shape, implementations preserve the full expression in `raw` and may decline to populate `args` for Callable. Conformant — degrades gracefully.
-- `Literal[1, 2, "x"]`, `Annotated[X, metadata]`, PEP 612 `ParamSpec`, PEP 646 `TypeVarTuple`, PEP 695 type aliases — these have type-system-specific argument semantics that don't fit the uniform `TypeRef` recursion. Same rule: preserve `raw`, omit `args`, conformant.
+The expressions below are common in real typed codebases — Callable in particular shows up everywhere callbacks, handlers, factory parameters, and dependency-injection wiring exist. Calling these "deferred to later passes" should not be read as "rare edge cases"; in some codebases the proportion of annotations falling into the degraded path is non-trivial. The v1 design accepts this — implementations preserve `raw`, omit `args`, and the response stays conformant — but future passes are real work, not paperwork.
+
+- `Callable[[A, B], C]` has an uneven bracket structure (`[args_list, return_type]` rather than uniform args). Until a future spec revision adds proper Callable shape (likely a discriminated TypeRef variant, or a flat representation where the last `args` entry is the return type signaled by convention), implementations preserve the full expression in `raw` and may decline to populate `args` for Callable.
+- `Literal[1, 2, "x"]`, `Annotated[X, metadata]`, PEP 612 `ParamSpec`, PEP 646 `TypeVarTuple`, PEP 695 type aliases — these have type-system-specific argument semantics that don't fit the uniform `TypeRef` recursion. Same rule: preserve `raw`, omit `args`.
 - Forward-reference strings inside annotations resolve only when the referenced symbol exists at inspect time; otherwise `handle` absent.
+
+**Implementations should track which annotation shapes hit the degraded path** (count and sample by category — Callable, Literal, Annotated, etc.) using the existing metrics infrastructure. This makes prioritization of future passes empirical rather than guess-based: if Callable accounts for 60% of degraded annotations in real usage, that drives the next pass; if it's 5%, something else does.
 
 **Notably absent (by design):**
 
@@ -914,7 +920,11 @@ The redesign is complete when:
 11. The layering principle is enforceable in CI: a linter check rejects any new tool returning fields that contain source content.
 12. Plugin author API is documented; an example third-party plugin demonstrates the extension model.
 13. Migration documentation describes the deprecation path for current tools.
-14. `TypeRef` shape conformance verified: a fixture with a known compound annotation (e.g. a function with parameter `x: Dict[str, List[CustomModel]]` where `CustomModel` is a project class) confirms `inspect(function_handle).parameters[0].type` returns a recursive TypeRef where (a) the root has `handle == "builtins.dict"` (or the project's chosen canonicalisation of `Dict`); (b) `args[0]` has `handle == "builtins.str"`; (c) `args[1]` has `handle == "builtins.list"` with `args[1].args[0].handle == "<project>.CustomModel"`; (d) every node carries a non-empty `raw`; (e) a deliberately-unresolvable forward-ref leaf is conforming with `handle` absent (per absence-vs-zero); (f) `inspect(function_handle).return_type` follows the same shape when annotated. The resolver MUST NOT populate `handle` with a heuristic best-effort match — only with results from Jedi `goto` at the annotation site that return exactly one definition.
+14. `TypeRef` shape conformance verified across two fixtures that pin both halves of the head-canonicalisation rule:
+    - **Fixture A — typing aliases**: a function written with `from typing import Dict, List` and parameter `x: Dict[str, List[CustomModel]]` (where `CustomModel` is a project class) confirms `inspect(function_handle).parameters[0].type` returns a recursive TypeRef where (a) root `handle == "typing.Dict"`; (b) `args[0].handle == "builtins.str"`; (c) `args[1].handle == "typing.List"` with `args[1].args[0].handle == "<project>.CustomModel"`; (d) every node carries a non-empty `raw`.
+    - **Fixture B — builtin generics (PEP 585)**: the same shape written as `dict[str, list[CustomModel]]` confirms (a) root `handle == "builtins.dict"`; (b) `args[1].handle == "builtins.list"`. The implementation MUST NOT silently rewrite `typing.Dict` to `builtins.dict` or vice versa.
+    - **Cross-fixture invariants**: (e) a deliberately-unresolvable forward-ref leaf is conforming with `handle` absent (per absence-vs-zero); (f) `inspect(function_handle).return_type` follows the same shape when annotated; (g) a `Callable[...]` parameter type returns a TypeRef with non-empty `raw` and `handle`/`args` may be absent — degraded path is conformant.
+    - **Resolver discipline**: across both fixtures, the resolver MUST NOT populate `handle` with a heuristic best-effort match — only with results from Jedi `goto` at the annotation site that return exactly one definition.
 
 ## Cross-References
 
