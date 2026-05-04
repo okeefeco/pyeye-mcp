@@ -59,20 +59,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_EDGE_BUDGET_SECONDS: float = 2.0
 
 # ---------------------------------------------------------------------------
-# Param.kind mapping  (enum .name → API lowercase 5-value enum)
-# Jedi's .kind is a Python inspect.Parameter.ParameterKind enum; we key on
-# its .name string which is stable and avoids int-cast ambiguity.
-# ---------------------------------------------------------------------------
-
-_PARAM_KIND_MAP: dict[str, str] = {
-    "POSITIONAL_ONLY": "positional",
-    "POSITIONAL_OR_KEYWORD": "positional_or_keyword",
-    "KEYWORD_ONLY": "keyword_only",
-    "VAR_POSITIONAL": "var_positional",
-    "VAR_KEYWORD": "var_keyword",
-}
-
-# ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
 
@@ -95,25 +81,6 @@ def _is_simple_literal(value_str: str) -> bool:
         return True
     except (ValueError, SyntaxError):
         return False
-
-
-def _normalise_param_kind(jedi_param_kind: Any) -> str:
-    """Map Jedi's param .kind enum to the API lowercase 5-value string.
-
-    Jedi returns a ``jedi.api.classes.Parameter`` whose ``.kind`` attribute is
-    a Python ``inspect.Parameter.ParameterKind`` enum value.  We map via its
-    ``.name`` string, which is stable across Python versions.  Falls back to
-    ``"positional_or_keyword"`` if unrecognised.
-
-    Args:
-        jedi_param_kind: The ``.kind`` attribute from a Jedi parameter object.
-
-    Returns:
-        One of the 5 lowercase kind strings.
-    """
-    return _PARAM_KIND_MAP.get(
-        getattr(jedi_param_kind, "name", None) or "", "positional_or_keyword"
-    )
 
 
 def _make_location(
