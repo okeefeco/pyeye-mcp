@@ -849,7 +849,7 @@ async def find_subclasses(
     project_path: str = ".",
     include_indirect: bool = True,
     show_hierarchy: bool = False,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
     For general use, prefer lookup() which accepts any identifier form.
@@ -864,11 +864,20 @@ async def find_subclasses(
     try:
         analyzer = get_analyzer(project_path)
 
-        return await analyzer.find_subclasses(
+        result = await analyzer.find_subclasses(
             base_class=base_class,
             include_indirect=include_indirect,
             show_hierarchy=show_hierarchy,
         )
+
+        # Discriminated-union unwrap:
+        #   - Unambiguous: return the flat list (backward-compat for MCP callers)
+        #   - Ambiguous: return the full dict so agents can disambiguate
+        if result.get("ambiguous", False):
+            ambiguous_result: dict[str, Any] = result
+            return ambiguous_result
+        subclasses: list[dict[str, Any]] = result.get("subclasses", [])
+        return subclasses
     except ProjectNotFoundError:
         raise
     except Exception as e:

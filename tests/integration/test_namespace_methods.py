@@ -113,7 +113,8 @@ class TestFindSubclassesNamespaceSupport:
         )
 
         # Look for subclasses of MainModel in main scope only
-        results = await analyzer.find_subclasses("MainModel", scope="main")
+        raw = await analyzer.find_subclasses("MainModel", scope="main")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
 
         # Should find UserModel from main project only
         result_names = {r["name"] for r in results}
@@ -134,7 +135,8 @@ class TestFindSubclassesNamespaceSupport:
         )
 
         # Look for subclasses of Validator across all scopes
-        results = await analyzer.find_subclasses("Validator", scope="all")
+        raw = await analyzer.find_subclasses("Validator", scope="all")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
 
         # Should find EmailValidator from namespace package
         result_names = {r["name"] for r in results}
@@ -153,7 +155,8 @@ class TestFindSubclassesNamespaceSupport:
         )
 
         # Look for subclasses in company.auth namespace only
-        results = await analyzer.find_subclasses("BaseAuthModel", scope="namespace:company")
+        raw = await analyzer.find_subclasses("BaseAuthModel", scope="namespace:company")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
 
         # Should find AuthUser from auth namespace
         result_names = {r["name"] for r in results}
@@ -452,7 +455,8 @@ class TestScopeParameterDefaults:
         )
 
         # Call without scope parameter - should default to "all"
-        results = await analyzer.find_subclasses("Validator")
+        raw = await analyzer.find_subclasses("Validator")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
 
         # Should find subclasses across all namespaces
         result_names = {r["name"] for r in results}
@@ -552,9 +556,8 @@ class TestMultipleScopeSupport:
         )
 
         # Use multiple scopes
-        results = await analyzer.find_subclasses(
-            "BaseAuthModel", scope=["main", "namespace:company"]
-        )
+        raw = await analyzer.find_subclasses("BaseAuthModel", scope=["main", "namespace:company"])
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
 
         # Should search in both main and company namespace
         assert isinstance(results, list)
@@ -586,7 +589,8 @@ class TestErrorHandling:
         analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
 
         # Test with invalid scope - should not crash
-        results = await analyzer.find_subclasses("SomeClass", scope="invalid:scope")
+        raw = await analyzer.find_subclasses("SomeClass", scope="invalid:scope")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
         assert isinstance(results, list)
 
         results = await analyzer.find_imports("some.module", scope="invalid:scope")
@@ -607,7 +611,8 @@ class TestErrorHandling:
         analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
 
         # Test with nonexistent namespace
-        results = await analyzer.find_subclasses("SomeClass", scope="namespace:nonexistent")
+        raw = await analyzer.find_subclasses("SomeClass", scope="namespace:nonexistent")
+        results = raw["subclasses"] if not raw.get("ambiguous") else []
         assert results == []
 
         results = await analyzer.find_imports("some.module", scope="namespace:nonexistent")

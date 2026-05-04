@@ -927,10 +927,29 @@ class JediAnalyzer:
                     )
 
                     try:
-                        # Find all subclasses (including indirect)
-                        subclasses = await self.find_subclasses(
-                            class_name, include_indirect=True, show_hierarchy=False
+                        # Find all subclasses (including indirect).
+                        # Prefer the inferred FQN when available so we get FQN-strict
+                        # resolution and avoid the ambiguous-name variant.
+                        # Use Jedi's full_name directly — it's already FQN-qualified.
+                        inferred_fqn: str | None = None
+                        if inferred:
+                            first = inferred[0]
+                            if first.full_name:
+                                inferred_fqn = first.full_name
+                        lookup_name = inferred_fqn if inferred_fqn else class_name
+                        raw_subclasses = await self.find_subclasses(
+                            lookup_name, include_indirect=True, show_hierarchy=False
                         )
+
+                        # Handle discriminated-union result
+                        if raw_subclasses.get("ambiguous", False):
+                            logger.warning(
+                                f"Polymorphic search: ambiguous class name {class_name!r}; "
+                                "skipping subclass expansion"
+                            )
+                            subclasses: list[dict[str, Any]] = []
+                        else:
+                            subclasses = raw_subclasses.get("subclasses", [])
 
                         if subclasses:
                             logger.info(f"Found {len(subclasses)} subclasses of {class_name}")
@@ -2894,7 +2913,7 @@ class JediAnalyzer:
         scope: Scope | None = None,
         include_indirect: bool = True,
         show_hierarchy: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
 
         Uses a hybrid Jedi + AST approach for performance:
@@ -2914,10 +2933,19 @@ class JediAnalyzer:
             show_hierarchy: Show the full inheritance chain
 
         Returns:
-            List of subclasses with their locations and inheritance details
+            Discriminated-union dict:
+              {"ambiguous": False, "subclasses": [...]}  — unambiguous result
+              {"ambiguous": True, "candidates": [...]}   — multiple classes share
+                                                           the simple name; caller
+                                                           must disambiguate with FQN
         """
-        subclasses = []
+        subclasses: list[dict[str, Any]] = []
         processed_classes: set[str] = set()
+
+        # Determine if the caller supplied a FQN (has a dot) or a bare simple name.
+        is_fqn_input = "." in base_class
+        # For FQN input the simple leaf name used to match dotted base expressions.
+        leaf_name = base_class.split(".")[-1] if is_fqn_input else base_class
 
         try:
             # Get all Python files in scope (cached by get_project_files)
@@ -2958,23 +2986,129 @@ class JediAnalyzer:
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
 
-            # Find all direct subclasses by name match
+            # -------------------------------------------------------------------
+            # Ambiguity check: when caller passes a bare simple name and multiple
+            # distinct FQN-keyed classes share that leaf name, return the
+            # ambiguous variant so the caller can re-call with a FQN.
+            # -------------------------------------------------------------------
+            if not is_fqn_input:
+                matching_fqns_for_name = [
+                    fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
+                ]
+                if len(matching_fqns_for_name) > 1:
+                    # Build candidate descriptors
+                    candidates: list[dict[str, Any]] = []
+                    for fqn in sorted(matching_fqns_for_name):
+                        node, _, py_file = classes_by_fqn[fqn]
+                        candidates.append(
+                            {
+                                "handle": fqn,
+                                "kind": "class",
+                                "location": {
+                                    "file": py_file.as_posix(),
+                                    "line_start": node.lineno,
+                                    "line_end": node.lineno,
+                                },
+                            }
+                        )
+                    return {"ambiguous": True, "candidates": candidates}
+
+            # -------------------------------------------------------------------
+            # Find all direct subclasses.
+            # -------------------------------------------------------------------
             direct_fqns: set[str] = set()
 
-            # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
-            if base_class in parent_to_children:
-                direct_fqns.update(parent_to_children[base_class])
+            if is_fqn_input:
+                # FQN-strict path: only include children whose canonicalized parent
+                # matches the requested FQN exactly.  We use Jedi goto() to resolve
+                # each child's base expression to its definition, then check the FQN.
+                #
+                # For children that declare their base as a simple name or short dotted
+                # name matching leaf_name, we resolve via goto(); for those that declare
+                # with a dotted path ending in leaf_name we also attempt resolution.
+                candidate_child_fqns: set[str] = set()
 
-            # Check dotted name matches (e.g., class Foo(module.Animal))
-            for parent_name, children in parent_to_children.items():
-                if parent_name != base_class and parent_name.endswith(f".{base_class}"):
-                    direct_fqns.update(children)
+                # Gather candidate children: declared base simple name == leaf_name
+                # OR declared base dotted name ends with ".{leaf_name}"
+                if leaf_name in parent_to_children:
+                    candidate_child_fqns.update(parent_to_children[leaf_name])
+                for parent_name, children in parent_to_children.items():
+                    if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
+                        candidate_child_fqns.update(children)
 
-            # Try Jedi-based resolution for aliased imports
-            # e.g., "from module import Animal as A" -> class Foo(A)
-            direct_fqns.update(
-                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
-            )
+                # Resolve each candidate via Jedi goto() to confirm the parent FQN
+                resolved_cache: dict[tuple[str, int, int], str | None] = {}
+
+                for child_fqn in candidate_child_fqns:
+                    if child_fqn not in classes_by_fqn:
+                        continue
+                    child_node, _, child_file = classes_by_fqn[child_fqn]
+                    try:
+                        script = file_artifact_cache.get_script(child_file, self.project)
+                    except Exception:
+                        continue
+
+                    for base in child_node.bases:
+                        parent_name = self._get_base_name_from_ast(base)
+                        if not parent_name:
+                            continue
+                        simple_part = parent_name.split(".")[-1]
+                        if simple_part != leaf_name:
+                            continue
+
+                        # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
+                        # col_offset points to the first name component, not the
+                        # leaf name.  Use the leaf's position so goto() resolves
+                        # to the class, not the package/module.
+                        goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
+                        cache_key = (child_file.as_posix(), goto_line, goto_col)
+                        if cache_key not in resolved_cache:
+                            try:
+                                goto_results = script.goto(goto_line, goto_col, follow_imports=True)
+                                resolved_fqn: str | None = None
+                                for gr in goto_results:
+                                    if gr.name == leaf_name:
+                                        # Prefer full_name from Jedi — it's already FQN-qualified
+                                        # and works regardless of whether gr.module_path is
+                                        # absolute or relative to our project root.
+                                        if gr.full_name:
+                                            resolved_fqn = gr.full_name
+                                        break
+                                resolved_cache[cache_key] = resolved_fqn
+                            except Exception:
+                                resolved_cache[cache_key] = None
+
+                        resolved = resolved_cache[cache_key]
+                        if resolved == base_class:
+                            direct_fqns.add(child_fqn)
+                            break
+
+                # Also resolve aliased imports for FQN path
+                # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
+                direct_fqns.update(
+                    await self._resolve_aliased_bases(
+                        leaf_name, classes_by_fqn, parent_to_children, target_fqn=base_class
+                    )
+                )
+
+            else:
+                # Simple name path (unambiguous — ambiguity was checked above).
+                # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
+                if base_class in parent_to_children:
+                    direct_fqns.update(parent_to_children[base_class])
+
+                # Check dotted name matches (e.g., class Foo(module.Animal))
+                for parent_name, children in parent_to_children.items():
+                    if parent_name != base_class and parent_name.endswith(f".{base_class}"):
+                        direct_fqns.update(children)
+
+                # Try Jedi-based resolution for aliased imports
+                # e.g., "from module import Animal as A" -> class Foo(A)
+                direct_fqns.update(
+                    await self._resolve_aliased_bases(
+                        base_class, classes_by_fqn, parent_to_children
+                    )
+                )
 
             # Collect indirect subclasses via graph traversal
             if include_indirect:
@@ -3005,7 +3139,7 @@ class JediAnalyzer:
                 is_direct = fqn in direct_fqns
 
                 # Determine direct parent name
-                direct_parent = self._find_direct_parent_name(node, base_class, is_direct)
+                direct_parent = self._find_direct_parent_name(node, leaf_name, is_direct)
 
                 subclass_info: dict[str, Any] = {
                     "name": node.name,
@@ -3031,18 +3165,28 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-        return subclasses
+        return {"ambiguous": False, "subclasses": subclasses}
 
     async def _resolve_aliased_bases(
         self,
         base_class: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
+        target_fqn: str | None = None,
     ) -> set[str]:
         """Use Jedi goto() to resolve aliased base class references.
 
         Handles cases like 'from module import Animal as A; class Foo(A):'
         where AST name matching alone would miss the relationship.
+
+        Args:
+            base_class: The simple name (leaf) of the base class to match.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: parent name -> set of child FQNs.
+            target_fqn: When set (FQN-strict mode), only include children
+                        whose resolved parent FQN equals this value.
+                        When None (simple-name mode), any class named base_class
+                        is accepted.
         """
         resolved_fqns: set[str] = set()
 
@@ -3086,7 +3230,14 @@ class JediAnalyzer:
                             )
                             for result in goto_results:
                                 if result.name == base_class:
-                                    resolved_fqns.add(fqn)
+                                    if target_fqn is not None:
+                                        # FQN-strict: compare using Jedi's full_name
+                                        # which is already FQN-qualified and doesn't
+                                        # depend on project-relative path resolution.
+                                        if result.full_name == target_fqn:
+                                            resolved_fqns.add(fqn)
+                                    else:
+                                        resolved_fqns.add(fqn)
                                     break
                         except Exception:
                             pass
@@ -3111,6 +3262,24 @@ class JediAnalyzer:
             if parent_name:
                 return parent_name
         return "unknown"
+
+    @staticmethod
+    def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:
+        """Get the source position of the leaf name in a base class AST node.
+
+        For a simple ``ast.Name`` node the col_offset already points at the name.
+        For an ``ast.Attribute`` chain like ``_core.widgets.Widget`` the node's
+        col_offset points at the first component (``_core``), while Jedi needs
+        to be positioned at ``Widget`` to follow imports to the class definition.
+
+        Uses ``end_col_offset`` (present in Python 3.8+) to compute where the
+        final attribute name starts.
+        """
+        if isinstance(base, ast.Attribute) and base.attr == leaf_name:
+            end_col = getattr(base, "end_col_offset", None)
+            if end_col is not None:
+                return base.lineno, end_col - len(leaf_name)
+        return base.lineno, base.col_offset
 
     @staticmethod
     def _get_base_name_from_ast(base: Any) -> str | None:

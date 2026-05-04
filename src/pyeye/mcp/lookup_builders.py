@@ -239,18 +239,26 @@ async def _build_class_result(
 
         # --- Subclasses (relationship list) ---
         try:
-            subclasses_raw = await analyzer.find_subclasses(target_name)
+            subclasses_result = await analyzer.find_subclasses(target_name)
             sub_items = []
-            for sc in subclasses_raw:
-                sub_items.append(
-                    {
-                        "name": sc.get("name"),
-                        "full_name": sc.get("full_name"),
-                        "file": sc.get("file"),
-                        "line": sc.get("line"),
-                    }
+            if subclasses_result.get("ambiguous", False):
+                # Ambiguous simple name — cannot surface a meaningful list here;
+                # log and leave subclasses absent from the result.
+                logger.warning(
+                    f"find_subclasses for {target_name!r} returned ambiguous result; "
+                    "subclasses omitted from lookup output"
                 )
-            result["subclasses"] = _paginate(sub_items, limit)
+            else:
+                for sc in subclasses_result.get("subclasses", []):
+                    sub_items.append(
+                        {
+                            "name": sc.get("name"),
+                            "full_name": sc.get("full_name"),
+                            "file": sc.get("file"),
+                            "line": sc.get("line"),
+                        }
+                    )
+                result["subclasses"] = _paginate(sub_items, limit)
         except Exception:
             logger.debug(f"Could not find subclasses of {target_name}")
 

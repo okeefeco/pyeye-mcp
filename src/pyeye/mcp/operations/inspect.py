@@ -813,16 +813,18 @@ async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
     Returns:
         Count of project-internal subclasses (direct + indirect).
     """
-    # Simple name is the last component of the dotted handle
-    simple_name = handle.split(".")[-1]
     try:
-        subclasses = await analyzer.find_subclasses(
-            simple_name,
+        result = await analyzer.find_subclasses(
+            handle,  # Pass the full FQN for unambiguous, FQN-strict resolution
             scope="main",
             include_indirect=True,
             show_hierarchy=False,
         )
-        return len(subclasses)
+        # Unambiguous path (FQN input never triggers ambiguous variant)
+        assert not result.get(
+            "ambiguous", False
+        ), f"FQN input to find_subclasses returned ambiguous variant: {handle!r}"
+        return len(result.get("subclasses", []))
     except Exception:
         return 0
 
