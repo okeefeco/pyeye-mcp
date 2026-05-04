@@ -146,16 +146,16 @@ class TestFilePathWithLine:
 
     @pytest.mark.asyncio
     async def test_file_with_line_resolves_to_symbol(self, analyzer: JediAnalyzer) -> None:
-        """mypackage/_core/widgets.py:7 is 'class Widget' — should resolve to Widget."""
+        """mypackage/_core/widgets.py:21 is 'class Widget' — should resolve to Widget."""
         from pyeye.mcp.operations.resolve import resolve
 
         widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
-        result = await resolve(f"{widgets_path}:7", analyzer)
+        result = await resolve(f"{widgets_path}:21", analyzer)
 
         assert result["found"] is True
         assert "ambiguous" not in result
         assert "handle" in result
-        # The resolved symbol at line 7 (class Widget)
+        # The resolved symbol at line 21 (class Widget)
         assert "Widget" in result["handle"]
 
     @pytest.mark.asyncio
@@ -164,7 +164,7 @@ class TestFilePathWithLine:
         from pyeye.mcp.operations.resolve import resolve
 
         widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
-        result = await resolve(f"{widgets_path}:7", analyzer)
+        result = await resolve(f"{widgets_path}:21", analyzer)
 
         assert result["found"] is True
         assert "scope" in result
@@ -450,7 +450,7 @@ class TestKindRecovery:
 
 # Fixture coordinates (1-indexed line, 0-indexed column per Jedi convention):
 #
-#   widgets.py line 7: "class Widget:"
+#   widgets.py line 21: "class Widget:"
 #     - column 6 → 'W' of Widget (the class name)
 #     - column 0 → 'c' of class keyword
 #   widgets.py line 1: '"""Widget implementation — the definition site.'
@@ -469,8 +469,8 @@ class TestResolveAt:
         from pyeye.mcp.operations.resolve import resolve_at
 
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
-        # Line 7: "class Widget:" — column 6 is 'W'
-        result = await resolve_at(widgets_path, 7, 6, analyzer)
+        # Line 21: "class Widget:" — column 6 is 'W'
+        result = await resolve_at(widgets_path, 21, 6, analyzer)
 
         assert result["found"] is True, f"Expected found=True, got: {result}"
         assert "ambiguous" not in result
@@ -486,8 +486,8 @@ class TestResolveAt:
         from pyeye.mcp.operations.resolve import resolve_at
 
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
-        # Line 6 is blank (the blank line between the module docstring and class Widget)
-        result = await resolve_at(widgets_path, 6, 0, analyzer)
+        # Line 20 is blank (the blank line between the import and class Widget)
+        result = await resolve_at(widgets_path, 20, 0, analyzer)
 
         assert result["found"] is False
         assert result["reason"] == "no_symbol_at_position"
@@ -535,9 +535,9 @@ class TestResolveAt:
         from pyeye.mcp.operations.resolve import resolve_at
 
         widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
-        # Line 7: "class Widget:" — column 0 is 'c' of the 'class' keyword.
+        # Line 21: "class Widget:" — column 0 is 'c' of the 'class' keyword.
         # Jedi returns no definitions for a bare keyword → correct outcome is not-found.
-        result = await resolve_at(widgets_path, 7, 0, analyzer)
+        result = await resolve_at(widgets_path, 21, 0, analyzer)
 
         # Column 0 must be accepted (no TypeError / crash) and treated as-is.
         # The correct Jedi outcome at the class keyword is no_symbol_at_position —
@@ -744,7 +744,7 @@ class TestResolveFileLineErrorPaths:
         widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
 
         with patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")):
-            result = await _resolve_file_line(widgets_path, 7, analyzer)
+            result = await _resolve_file_line(widgets_path, 21, analyzer)
 
         assert result["found"] is False
         assert result["reason"] == "no_symbol_at_position"
