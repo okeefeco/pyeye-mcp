@@ -1,8 +1,9 @@
-"""Tests for the inspect(handle) operation — Tasks 3.1 and 4.1.
+"""Tests for the inspect(handle) operation — Tasks 3.1, 4.1, and 6.2.
 
 Task 3.1 (Phase 3) pins down the universal + kind-dependent return shape.
 Task 4.1 (Phase 4) pins down the edge_counts contract with the critical
 absence-vs-zero invariant.
+Task 6.2 (Phase 6) pins down the re_exports contract.
 
 Fixture layout
 --------------
@@ -15,6 +16,19 @@ tests/fixtures/resolve_project/
       widgets.py          # Widget class (line 21), make_widget function (line 71),
                           # DEFAULT_NAME variable (line 18), Config class (line 61),
                           # Premium(Widget) and Deluxe(Widget) at end of file
+
+tests/fixtures/canonicalization_basic/
+  package/
+    __init__.py           # re-exports Config from _impl.config
+    _impl/
+      config.py           # defines Config (canonical), _PrivateConfig (not re-exported)
+
+tests/fixtures/canonicalization_multihop/
+  package/
+    __init__.py           # re-exports Config via subpkg (hop 2)
+    subpkg/__init__.py    # re-exports Config from _impl.config (hop 1)
+    legacy.py             # re-exports Config as LegacyConfig
+    _impl/config.py       # defines Config (canonical)
 
 All tests are ``@pytest.mark.asyncio`` to match the async signature of ``inspect``.
 
@@ -64,6 +78,16 @@ The absence-vs-zero invariant (load-bearing):
   - ``read_by``, ``written_by``, ``passed_by``, ``decorated_by``, ``decorates``,
     ``imports``, ``imported_by``, ``enclosing_scope``, ``callees``,
     ``overrides``, ``overridden_by`` MUST NOT appear in Phase 4 edge_counts
+
+Contract tested — Phase 6 (Task 6.2)
+--------------------------------------
+re_exports absence-vs-zero invariant (spec-driven):
+  - PRESENT (possibly []) for class/function/method/property/variable/attribute
+  - ABSENT for module kind (not computed for modules)
+  - Populated with all public re-export paths when the symbol is re-exported
+  - Empty list ([]) when no re-exports found (measured-and-empty, not absent)
+  - Values are plain str (handle-shaped dotted names), NOT Handle objects
+  - Values are sorted lexicographically (deterministic ordering)
 """
 
 from pathlib import Path
@@ -73,6 +97,10 @@ import pytest
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
+_FIXTURE_BASIC = Path(__file__).parent.parent.parent.parent / "fixtures" / "canonicalization_basic"
+_FIXTURE_MULTIHOP = (
+    Path(__file__).parent.parent.parent.parent / "fixtures" / "canonicalization_multihop"
+)
 
 # Known canonical handles from the fixture
 _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
@@ -589,17 +617,51 @@ class TestInspectUniversalContract:
             # The absence-vs-zero invariant is enforced by TestInspectEdgeCounts.
 
     @pytest.mark.asyncio
-    async def test_re_exports_is_absent(self, analyzer: JediAnalyzer) -> None:
-        """re_exports must be ABSENT in Phase 3 responses (not [], not None)."""
+    async def test_re_exports_present_as_list_for_non_module_kinds(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports is PRESENT (possibly []) for class, function, and other non-module kinds.
+
+        Phase 6 wires re_exports for all kinds except module.
+        Per the absence-vs-zero invariant:
+          - PRESENT [] means 'measured and found no re-exports'
+          - ABSENT means 'we don't compute re-exports for this kind (module)'
+        This test checks that the field IS present for class and function handles.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
-        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE):
             result = await inspect(handle, analyzer)
-            assert "re_exports" not in result, (
-                f"re_exports must be ABSENT (Phase 3) for handle={handle!r}; "
-                f"got re_exports={result.get('re_exports')!r}. "
-                "Absence means 'not measured yet'; [] would mean 'measured, empty'."
+            assert "re_exports" in result, (
+                f"re_exports must be PRESENT (Phase 6) for handle={handle!r}; "
+                f"re_exports is absent. Phase 6 returns [] when no re-exports are found."
             )
+            assert isinstance(result["re_exports"], list), (
+                f"re_exports must be a list for handle={handle!r}; "
+                f"got {type(result['re_exports'])!r}"
+            )
+            for path in result["re_exports"]:
+                assert isinstance(
+                    path, str
+                ), f"re_exports elements must be plain str, got {type(path)!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_for_module_kind(self, analyzer: JediAnalyzer) -> None:
+        """re_exports is ABSENT for module-kind handles.
+
+        Per spec: absent means 'we don't compute re_exports for this kind'.
+        Modules CAN be re-exported but the BFS-based collect_re_exports walks
+        __init__.py for symbol names — walking module re-exports would require
+        a different strategy. For Phase 6, module handles skip re_exports.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT for module-kind handles; "
+            f"got re_exports={result.get('re_exports')!r}. "
+            "Module kind is not measured in Phase 6."
+        )
 
     @pytest.mark.asyncio
     async def test_highlights_is_absent(self, analyzer: JediAnalyzer) -> None:
@@ -1729,4 +1791,207 @@ class TestInspectSuperclassResolution:
         result = await inspect(_PREMIUM_HANDLE, analyzer)
         assert result["superclasses"] == ["mypackage._core.widgets.Widget"], (
             f"Expected Premium's superclass to resolve to Widget, " f"got: {result['superclasses']}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectReExports — Phase 6 contract (Task 6.2)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectReExports:
+    """Phase 6 contract: re_exports field populated for symbols that are re-exported.
+
+    Per the absence-vs-zero invariant (from the spec):
+    - PRESENT (possibly []) = "we walked re-exports for this symbol and found these"
+    - ABSENT = "we don't compute re-exports for this kind/implementation"
+
+    Phase 6 computes re_exports for class/function/method/property/variable/attribute.
+    Phase 6 does NOT compute re_exports for module kind (field is absent).
+    """
+
+    @pytest.fixture
+    def basic_analyzer(self) -> JediAnalyzer:
+        """JediAnalyzer pointed at the canonicalization_basic fixture."""
+        return JediAnalyzer(str(_FIXTURE_BASIC))
+
+    @pytest.fixture
+    def multihop_analyzer(self) -> JediAnalyzer:
+        """JediAnalyzer pointed at the canonicalization_multihop fixture."""
+        return JediAnalyzer(str(_FIXTURE_MULTIHOP))
+
+    @pytest.mark.asyncio
+    async def test_re_exports_populated_for_re_exported_class(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """inspect on a re-exported class returns re_exports with all public paths.
+
+        package._impl.config.Config is re-exported via package/__init__.py as package.Config.
+        inspect("package._impl.config.Config") should return re_exports=["package.Config"].
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        assert "re_exports" in result, (
+            "re_exports must be present for a class handle (Phase 6 wires it). "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        assert isinstance(
+            result["re_exports"], list
+        ), f"re_exports must be a list; got {type(result['re_exports'])!r}"
+        assert "package.Config" in result["re_exports"], (
+            f"package.Config must be in re_exports for package._impl.config.Config; "
+            f"got re_exports={result['re_exports']!r}"
+        )
+        # All elements must be plain str (not Handle objects or other types)
+        for path in result["re_exports"]:
+            assert isinstance(
+                path, str
+            ), f"re_exports elements must be plain str; got {type(path)!r}: {path!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_empty_for_non_re_exported_class(self, analyzer: JediAnalyzer) -> None:
+        """inspect on a class that is NOT re-exported returns re_exports=[].
+
+        mypackage._core.widgets.Premium is not re-exported from mypackage/__init__.py
+        (only Widget is re-exported). So inspect(Premium) should return re_exports=[].
+
+        This tests the measured-and-empty case: re_exports is PRESENT with value [],
+        not absent. Absent would mean 'we didn't compute it'; [] means 'we computed
+        and found no re-exports'.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert "re_exports" in result, (
+            f"re_exports must be PRESENT (possibly []) for {_PREMIUM_HANDLE!r}; "
+            "Phase 6 returns [] when measured-and-empty, not absent. "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        assert result["re_exports"] == [], (
+            f"Premium is not re-exported; expected re_exports=[]; "
+            f"got re_exports={result['re_exports']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_multiple_paths(self, multihop_analyzer: JediAnalyzer) -> None:
+        """inspect returns all three re-export paths for a multi-hop fixture.
+
+        package._impl.config.Config is re-exported via:
+          - package.subpkg.Config (hop 1)
+          - package.Config (hop 2, via subpkg)
+          - package.legacy.LegacyConfig (aliased re-export)
+
+        All three paths must appear in re_exports.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", multihop_analyzer)
+
+        assert "re_exports" in result, (
+            "re_exports must be present for a class handle (Phase 6 wires it). "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        re_exports = result["re_exports"]
+        assert isinstance(re_exports, list), f"re_exports must be a list; got {type(re_exports)!r}"
+
+        expected_paths = {"package.Config", "package.subpkg.Config", "package.legacy.LegacyConfig"}
+        missing = expected_paths - set(re_exports)
+        assert not missing, (
+            f"Missing re-export paths: {sorted(missing)!r}. "
+            f"Got re_exports={re_exports!r}. "
+            "All three public paths (package.Config, package.subpkg.Config, "
+            "package.legacy.LegacyConfig) must be present."
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_deterministic_ordering(self, basic_analyzer: JediAnalyzer) -> None:
+        """re_exports returns the same sorted list on repeated calls.
+
+        collect_re_exports sorts lexicographically for determinism.
+        Two consecutive inspect calls on the same handle must return identical lists.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result1 = await inspect("package._impl.config.Config", basic_analyzer)
+        result2 = await inspect("package._impl.config.Config", basic_analyzer)
+
+        assert result1["re_exports"] == result2["re_exports"], (
+            "re_exports must be deterministic across calls; "
+            f"got {result1['re_exports']!r} then {result2['re_exports']!r}"
+        )
+        # Verify the list is actually sorted
+        re_exports = result1["re_exports"]
+        assert re_exports == sorted(
+            re_exports
+        ), f"re_exports must be sorted lexicographically; got {re_exports!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_for_module_kind_basic_fixture(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports is ABSENT for module-kind handles (Phase 6 decision).
+
+        Phase 6 skips re_exports for modules — the BFS-based collect_re_exports
+        walks __init__.py for symbol names, not module re-exports. Modules can
+        be re-exported but this is not computed in Phase 6.
+        Per the spec: absent means 'we don't compute re_exports for this kind'.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl", basic_analyzer)
+
+        # Module kind must not have re_exports (not computed in Phase 6)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT for module-kind handles in Phase 6; "
+            f"got re_exports={result.get('re_exports')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_values_are_plain_str_not_handle_objects(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports elements are plain str, not Handle objects or other subtypes.
+
+        The MCP serialization path requires primitive types. Handle is a str subclass,
+        but we explicitly convert to str for wire format.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        for path in result.get("re_exports", []):
+            # isinstance(Handle("x"), str) is True, so check type exactly
+            assert type(path) is str, (  # noqa: E721
+                f"re_exports elements must be plain str (not Handle subclass); "
+                f"got type={type(path).__name__!r} for {path!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_when_collection_raises(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """When collect_re_exports raises, re_exports is ABSENT (not []).
+
+        Per absence-vs-zero: if collection raises unexpectedly, the field is absent
+        (we couldn't measure) rather than present-as-empty (measured and found none).
+        This exercises the except handler in the Phase 6 wiring code.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        async def always_raises(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("simulated Jedi analysis failure")
+
+        with patch("pyeye.mcp.operations.inspect.collect_re_exports", side_effect=always_raises):
+            result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        # re_exports must be absent (exception during collection → couldn't measure)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT when collection raises; "
+            f"got re_exports={result.get('re_exports')!r}. "
+            "An exception means 'couldn't measure', not 'measured empty'."
         )

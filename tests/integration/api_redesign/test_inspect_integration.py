@@ -8,7 +8,8 @@ project.  They verify:
 2. Delegation to the underlying operation works correctly.
 3. Universal fields are always present (handle, kind, scope, location, edge_counts).
 4. Kind-dependent fields are present for class/function/module/variable.
-5. Absence-vs-zero invariants hold (re_exports/highlights/tags absent, edge_counts={}).
+5. Absence-vs-zero invariants hold: re_exports present (possibly []) for non-module
+   kinds; highlights/tags absent; edge_counts populated per Phase 4 contract.
 6. External-scope handles (e.g. pathlib.Path) are handled gracefully.
 7. The result is a plain dict (serialisation-safe).
 
@@ -98,8 +99,15 @@ class TestInspectUniversalFields:
             )
 
     @pytest.mark.asyncio
-    async def test_absence_invariants_no_re_exports(self) -> None:
-        """re_exports, highlights, tags are absent (Phase 3 contract)."""
+    async def test_absence_invariants_phase6(self) -> None:
+        """Phase 6: re_exports PRESENT (possibly []) for non-module kinds; highlights/tags ABSENT.
+
+        Widget is a class handle. Per Phase 6 spec:
+          - re_exports: PRESENT, list[str] (Widget is re-exported via mypackage/__init__.py)
+          - highlights: ABSENT (Phase 5, not yet wired)
+          - tags: ABSENT (plugin kinds only)
+          - properties: ABSENT (plugin kinds only)
+        """
         from pyeye.mcp.server import inspect
 
         result = await inspect(
@@ -107,10 +115,48 @@ class TestInspectUniversalFields:
             project_path=str(_FIXTURE),
         )
 
-        assert "re_exports" not in result, "re_exports must be absent in Phase 3"
-        assert "highlights" not in result, "highlights must be absent in Phase 3"
-        assert "tags" not in result, "tags must be absent in Phase 3"
-        assert "properties" not in result, "properties must be absent in Phase 3"
+        # Phase 6: re_exports is now PRESENT for class handles (possibly [])
+        assert "re_exports" in result, (
+            "re_exports must be PRESENT (Phase 6) for class handles; got absent. "
+            "[] means measured-and-empty; absent means not measured for this kind."
+        )
+        assert isinstance(
+            result["re_exports"], list
+        ), f"re_exports must be a list; got {type(result['re_exports'])!r}"
+        # Widget is re-exported via mypackage/__init__.py → expect ["mypackage.Widget"]
+        assert "mypackage.Widget" in result["re_exports"], (
+            f"Widget is re-exported via mypackage/__init__.py; "
+            f"expected 'mypackage.Widget' in re_exports; got {result['re_exports']!r}"
+        )
+
+        # These remain absent in Phase 6
+        assert "highlights" not in result, "highlights must be absent (Phase 5 wires it)"
+        assert "tags" not in result, "tags must be absent for Python kinds"
+        assert "properties" not in result, "properties must be absent for Python kinds"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_end_to_end_widget(self) -> None:
+        """End-to-end: re_exports for a re-exported class flows through MCP wrapper.
+
+        Widget is defined in mypackage._core.widgets and re-exported in mypackage/__init__.py.
+        inspect("mypackage._core.widgets.Widget") must return re_exports=["mypackage.Widget"].
+        """
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="mypackage._core.widgets.Widget",
+            project_path=str(_FIXTURE),
+        )
+
+        assert "re_exports" in result
+        assert isinstance(result["re_exports"], list)
+        assert (
+            "mypackage.Widget" in result["re_exports"]
+        ), f"Widget is re-exported as mypackage.Widget; got re_exports={result['re_exports']!r}"
+        # Wire-format check: all elements must be plain str (JSON-serialisable)
+        import json
+
+        json.dumps(result["re_exports"])  # must not raise
 
 
 # ---------------------------------------------------------------------------

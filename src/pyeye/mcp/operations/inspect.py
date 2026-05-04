@@ -41,7 +41,8 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
-from pyeye.canonicalization import find_module_file
+from pyeye.canonicalization import collect_re_exports, find_module_file
+from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
 from pyeye.scope import classify_scope
 
@@ -1117,8 +1118,11 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     Always includes ``edge_counts`` (Phase 4 measures: members, superclasses,
     subclasses, callers, references — for relevant kinds).  Edges that exceed
     their per-measurement budget are OMITTED, not zero.
-    Never includes ``re_exports``, ``highlights``, ``tags``, or ``properties``
-    (those are wired in later phases).
+    Phase 6 adds ``re_exports`` for non-module kinds (class, function, method,
+    property, variable, attribute).  For module kind, ``re_exports`` is ABSENT
+    (not computed in Phase 6 — per the absence-vs-zero spec invariant: absent
+    means "we don't compute re_exports for this kind").
+    ``highlights``, ``tags``, and ``properties`` remain absent (later phases).
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at).
@@ -1194,7 +1198,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         kind_fields.update(_build_attribute_fields(jedi_name, kind, file_path))
 
     # ------------------------------------------------------------------
-    # Step 4 — Assemble node (no re_exports, highlights, tags, properties)
+    # Step 4 — Assemble node
     # ------------------------------------------------------------------
     node: dict[str, Any] = {
         "handle": handle,
@@ -1206,6 +1210,31 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     node.update(kind_fields)
     # Phase 4: edge_counts populated with per-measurement budgeted counts
     node["edge_counts"] = await _build_edge_counts(handle, kind, jedi_name, analyzer)
+
+    # Phase 6: re_exports — always present (possibly []) for non-module kinds.
+    # Per the absence-vs-zero invariant (spec):
+    #   - PRESENT [] means "measured and found no re-exports"
+    #   - ABSENT means "we don't compute re_exports for this kind"
+    # Module kind is ABSENT — the BFS-based collect_re_exports walks __init__.py for
+    # symbol names; traversing module re-exports requires a different strategy and is
+    # deferred to a future phase.
+    # No new cache is added here: collect_re_exports calls file_artifact_cache.get_script
+    # per file, so each source file is loaded at most once across all calls. The BFS
+    # walk is O(package_files) per inspect call and typically completes in single-digit ms.
+    # If profiling reveals a bottleneck, a per-handle cache on JediAnalyzer can be wired
+    # in a later phase (see TODO below).
+    # TODO(perf): if repeated inspect calls on the same handle become a bottleneck,
+    # add a dict[str, list[str]] on JediAnalyzer, lazily populated and invalidated
+    # by the existing file watcher on source changes.
+    if kind != "module":
+        try:
+            raw_re_exports = await collect_re_exports(Handle(handle), analyzer)
+            node["re_exports"] = [str(h) for h in raw_re_exports]
+        except Exception as exc:
+            # Per absence-vs-zero: if collection raises unexpectedly (malformed handle,
+            # Jedi error), leave re_exports absent rather than falsely claiming [].
+            # [] would mean "measured and empty"; an exception means "couldn't measure".
+            logger.warning("inspect.re_exports: collection failed for %r: %s", handle, exc)
 
     return node
 
