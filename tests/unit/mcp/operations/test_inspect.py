@@ -1232,3 +1232,344 @@ class TestInspectEdgeTimeout:
             f"All edges timed out — edge_counts must be empty; got {edge_counts!r}. "
             "All absent means all timed out (none measured)."
         )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectCoverageLift — targeted tests for previously-uncovered branches
+# ---------------------------------------------------------------------------
+
+
+class TestInspectHelperUnits:
+    """Direct unit tests for helper functions with uncovered branches."""
+
+    def test_is_simple_literal_invalid_raises_false(self) -> None:
+        """_is_simple_literal returns False for non-literal expressions."""
+        from pyeye.mcp.operations.inspect import _is_simple_literal
+
+        # These are NOT simple literals — should return False
+        assert _is_simple_literal("Widget()") is False
+        assert _is_simple_literal("{key: value}") is False
+        assert _is_simple_literal("1 + 2") is False
+
+    def test_is_simple_literal_valid_returns_true(self) -> None:
+        """_is_simple_literal returns True for actual literals."""
+        from pyeye.mcp.operations.inspect import _is_simple_literal
+
+        assert _is_simple_literal('"hello"') is True
+        assert _is_simple_literal("42") is True
+        assert _is_simple_literal("3.14") is True
+        assert _is_simple_literal("True") is True
+
+    def test_make_location_with_column_end(self) -> None:
+        """_make_location includes column_end when provided."""
+        from pyeye.mcp.operations.inspect import _make_location
+
+        loc = _make_location("myfile.py", 10, 20, column_start=4, column_end=12)
+
+        assert loc["file"] == "myfile.py"
+        assert loc["line_start"] == 10
+        assert loc["line_end"] == 20
+        assert loc["column_start"] == 4
+        assert loc["column_end"] == 12  # exercises the column_end branch (line 154)
+
+    def test_make_location_without_optional_columns(self) -> None:
+        """_make_location omits column_start / column_end when not provided."""
+        from pyeye.mcp.operations.inspect import _make_location
+
+        loc = _make_location("f.py", 1, 5)
+
+        assert "column_start" not in loc
+        assert "column_end" not in loc
+
+
+class TestFindJediNameForHandleFallbacks:
+    """Tests for the uncovered branches in _find_jedi_name_for_handle."""
+
+    def test_bare_name_with_no_module_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A single-component handle that is not a module file returns None (line 547)."""
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        # "nonexistent" is one component — len(parts) < 2 returns None
+        result = _find_jedi_name_for_handle("nonexistent_bare_name_xyz", analyzer)
+        assert result is None
+
+    def test_project_search_match_found_in_case3(self, analyzer: JediAnalyzer) -> None:
+        """Case 3: project.search returns a result with a matching full_name (lines 568-569).
+
+        This covers the ``if r.full_name == handle: return r`` branch that is
+        skipped when project.search returns an empty list.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        # Build a fake Jedi Name-like object that matches the handle
+        handle = "mypackage._core.widgets.Widget"
+        fake_name = MagicMock()
+        fake_name.full_name = handle
+
+        # Patch find_module_file to always return None (skip Cases 1 & 2)
+        # Patch project.search to return our fake name
+        with (
+            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([fake_name])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # The fake name should be returned (Case 3 match)
+        assert result is fake_name
+
+    def test_synthetic_import_fallback_for_external_symbol(self, analyzer: JediAnalyzer) -> None:
+        """Synthetic-import fallback resolves pathlib.Path when earlier cases fail.
+
+        Forces Cases 1, 2, and 3 to fail, then verifies that the synthetic-import
+        block (lines 576-590) resolves the external symbol correctly.
+        This is the load-bearing path for stdlib resolution and covers Goal 2.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "pathlib.Path"
+
+        # Force Cases 1 & 2 (find_module_file) to return None
+        # Force Case 3 (project.search) to return an empty iterator
+        with (
+            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # Synthetic-import fallback should resolve pathlib.Path
+        assert result is not None, (
+            "Synthetic-import fallback must resolve 'pathlib.Path'; got None. "
+            "This path is load-bearing for stdlib external resolution."
+        )
+        assert (
+            result.full_name == handle
+        ), f"Resolved name must have full_name='pathlib.Path'; got {result.full_name!r}"
+
+    def test_synthetic_import_fallback_returns_none_for_bogus_handle(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Synthetic-import fallback returns None when the handle doesn't exist.
+
+        Verifies the function returns None (not raises) when no code path resolves
+        the handle — covering the final ``return None`` after all fallbacks fail.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "totally.bogus.DoesNotExistAnywhere9999"
+
+        with (
+            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        assert result is None
+
+    def test_synthetic_import_exception_handler_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """When jedi.Script raises inside the synthetic-import fallback, returns None.
+
+        Exercises the ``except Exception: pass`` handler at the end of the
+        synthetic-import block (lines 587-588).
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "pathlib.Path"
+
+        with (
+            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+            # Force jedi.Script constructor to raise inside the synthetic-import try block
+            patch("jedi.Script", side_effect=RuntimeError("simulated jedi failure")),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # Exception was caught; function returns None gracefully
+        assert result is None
+
+
+class TestInspectNotFoundFallback:
+    """Tests for the minimal-node fallback when a handle cannot be resolved."""
+
+    @pytest.mark.asyncio
+    async def test_unresolved_handle_returns_minimal_node(self, analyzer: JediAnalyzer) -> None:
+        """inspect returns a valid minimal node for an unresolvable handle (lines 1147-1148).
+
+        The minimal node must have all universal fields with safe defaults,
+        following the contract that inspect never raises.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("totally.bogus.handle.DoesNotExist999", analyzer)
+
+        # Must not raise; must return the minimal fallback dict
+        assert result["handle"] == "totally.bogus.handle.DoesNotExist999"
+        assert result["kind"] == "variable"  # safe default
+        assert result["scope"] == "external"  # safe default
+        assert "location" in result
+        assert isinstance(result["edge_counts"], dict)
+
+
+class TestBuildAttributeFieldsPropertyBranch:
+    """Tests for the 'property' branch in _build_attribute_fields (lines 1351-1363)."""
+
+    def test_property_kind_extracts_return_type(self) -> None:
+        """_build_attribute_fields with kind='property' extracts return type annotation.
+
+        Exercises the AST-based return-type extraction at lines 1351-1363.
+        """
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_attribute_fields
+
+        fixture_file = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        # display_name is a @property defined at line 46 in widgets.py
+        # Verify by reading the fixture
+        source = fixture_file.read_text()
+        lines = source.splitlines()
+        # Find the line with 'def display_name'
+        property_line = next(i + 1 for i, ln in enumerate(lines) if "def display_name" in ln)
+
+        mock_name = MagicMock()
+        mock_name.line = property_line
+
+        fields = _build_attribute_fields(mock_name, "property", fixture_file)
+
+        # The property has return type -> str annotation
+        assert "type" in fields, (
+            f"_build_attribute_fields with kind='property' should extract return type; "
+            f"fields={fields!r}, property_line={property_line}"
+        )
+        assert (
+            fields["type"] == "str"
+        ), f"Expected type='str' for display_name -> str; got {fields['type']!r}"
+
+    def test_property_kind_no_return_annotation_returns_empty(self) -> None:
+        """_build_attribute_fields with kind='property' and no annotation returns empty dict."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_attribute_fields
+
+        # Write a temporary file with a property lacking a return annotation
+        source = "class Foo:\n    @property\n    def val(self):\n        return 42\n"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(source)
+            tmp_path = Path(f.name)
+
+        try:
+            mock_name = MagicMock()
+            mock_name.line = 3  # 'def val' is on line 3
+
+            fields = _build_attribute_fields(mock_name, "property", tmp_path)
+            # No return annotation — 'type' should not be present
+            assert "type" not in fields or fields.get("type") is None
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+class TestMeasureCallersAndRefsWithBudget:
+    """Tests for _measure_callers_and_refs_with_budget timeout/exception paths (lines 1004-1020)."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_omits_both_callers_and_references(self, analyzer: JediAnalyzer) -> None:
+        """When _count_callers_and_refs times out, the budget function returns None.
+
+        This exercises the asyncio.TimeoutError handler at lines 1004-1011.
+        The caller (_build_edge_counts) then omits both callers and references.
+        """
+        import asyncio
+        from unittest.mock import MagicMock, patch
+
+        from pyeye.mcp.operations.inspect import _measure_callers_and_refs_with_budget
+
+        mock_name = MagicMock()
+        mock_name.module_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        async def slow_count(*_args: object, **_kwargs: object) -> tuple[int, int]:
+            await asyncio.sleep(10)
+            return 0, 0  # pragma: no cover
+
+        with patch(
+            "pyeye.mcp.operations.inspect._count_callers_and_refs",
+            side_effect=slow_count,
+        ):
+            result = await _measure_callers_and_refs_with_budget(
+                _MAKE_WIDGET_HANDLE,
+                mock_name,
+                analyzer,
+                budget_seconds=0.01,  # tiny budget so sleep definitely times out
+            )
+
+        assert result is None, (
+            f"Timed-out budget function must return None; got {result!r}. "
+            "None means 'both callers and references are absent'."
+        )
+
+    @pytest.mark.asyncio
+    async def test_exception_in_count_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """When _count_callers_and_refs raises a generic Exception, the budget returns None.
+
+        This exercises the generic except handler at lines 1012-1020.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from pyeye.mcp.operations.inspect import _measure_callers_and_refs_with_budget
+
+        mock_name = MagicMock()
+        mock_name.module_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        async def boom(*_args: object, **_kwargs: object) -> tuple[int, int]:
+            raise RuntimeError("simulated Jedi analysis failure")
+
+        with patch(
+            "pyeye.mcp.operations.inspect._count_callers_and_refs",
+            side_effect=boom,
+        ):
+            result = await _measure_callers_and_refs_with_budget(
+                _MAKE_WIDGET_HANDLE,
+                mock_name,
+                analyzer,
+                budget_seconds=5.0,
+            )
+
+        assert result is None, f"Exception in budget function must return None; got {result!r}."
+
+    @pytest.mark.asyncio
+    async def test_build_edge_counts_unknown_kind_returns_empty(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """_build_edge_counts returns {} for a kind with no registered measurements (line 1095).
+
+        When kind is not 'function', 'method', 'class', 'module', or an
+        attribute kind, no coroutines are added and the function returns early.
+        """
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_edge_counts
+
+        mock_name = MagicMock()
+        mock_name.module_path = None
+
+        # Use a kind that has no registered measurements
+        result = await _build_edge_counts(
+            "some.handle",
+            "keyword",  # not a measured kind
+            mock_name,
+            analyzer,
+        )
+
+        assert (
+            result == {}
+        ), f"Unmeasured kind 'keyword' must produce empty edge_counts; got {result!r}"

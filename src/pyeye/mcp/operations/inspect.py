@@ -572,20 +572,20 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
 
     # Final fallback: synthetic-import inference for stdlib/third-party symbols
     # (e.g. pathlib.Path) where project.search returns nothing.
-    # TODO: add a dedicated unit test that exercises this path, then drop pragma.
-    try:  # pragma: no cover
-        import jedi  # pragma: no cover
+    # Tested by TestFindJediNameForHandleFallbacks.test_synthetic_import_fallback_for_external_symbol.
+    try:
+        import jedi
 
-        module_dotted = ".".join(parts[:-1])  # pragma: no cover
-        leaf_sym = parts[-1]  # pragma: no cover
-        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf_sym}"  # pragma: no cover
-        script = jedi.Script(code=fake_code, project=analyzer.project)  # pragma: no cover
-        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf_sym))  # pragma: no cover
-        for n in inferred:  # pragma: no cover
-            if n.full_name == handle:  # pragma: no cover
-                return n  # pragma: no cover
-    except Exception:  # pragma: no cover
-        pass  # pragma: no cover
+        module_dotted = ".".join(parts[:-1])
+        leaf_sym = parts[-1]
+        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf_sym}"
+        script = jedi.Script(code=fake_code, project=analyzer.project)
+        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf_sym))
+        for n in inferred:
+            if n.full_name == handle:
+                return n
+    except Exception:
+        pass
 
     return None
 
