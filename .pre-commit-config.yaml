@@ -90,7 +90,7 @@ repos:
         args: ['--fix=lf']
       - id: name-tests-test
         args: ['--pytest-test-first']
-        exclude: '^tests/(fixtures|utils)/'
+        exclude: '^tests/(fixtures|utils)/|response_linter\.py$'
 
   # Project-specific checks
   # Cross-platform path checker - useful for periodic audits but has false positives
@@ -119,6 +119,19 @@ repos:
     hooks:
       - id: commitizen
         stages: [commit-msg]
+
+  # Conformance linter — layering + absence-vs-zero invariant
+  # Runs the adversarial + existing-response tests to catch content-layer
+  # violations and incorrect edge_counts semantics before each commit.
+  # Intentionally fast: only tests/conformance/ is executed (< 5 seconds).
+  - repo: local
+    hooks:
+      - id: conformance-linter
+        name: PyEye conformance linter (layering + absence-vs-zero)
+        entry: uv run pytest tests/conformance/ -q --no-header --no-cov
+        language: system
+        pass_filenames: false
+        always_run: true
 
   # Markdown
   - repo: https://github.com/igorshubovych/markdownlint-cli
