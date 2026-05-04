@@ -578,10 +578,76 @@ def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     return "variable"
 
 
+async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _SuccessResult | None:
+    """Resolve an external (stdlib/site-packages) dotted name via synthetic import.
+
+    Used when project-scoped resolution misses. Writes a tiny in-memory script
+    that imports the parent module and references the leaf symbol, then asks
+    Jedi to infer the symbol — Jedi follows into stdlib/site-packages on demand.
+
+    Mirrors the synthetic-import fallback in
+    :func:`pyeye.mcp.operations.inspect._find_jedi_name_for_handle`.
+
+    Returns ``None`` when Jedi cannot infer the symbol (bogus name, module not
+    installed, etc.). Caller (``_resolve_dotted_name``) guarantees the input
+    contains at least one dot.
+    """
+    parts = name.split(".")
+    module_dotted = ".".join(parts[:-1])
+    leaf = parts[-1]
+
+    try:
+        import jedi
+
+        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf}"
+        script = jedi.Script(code=fake_code, project=analyzer.project)
+        # Line 2 (1-indexed), column at the leaf identifier
+        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf))
+    except Exception as exc:
+        logger.debug("_resolve_external_dotted_name(%r): infer failed: %s", name, exc)
+        return None
+
+    for jedi_name in inferred:
+        full_name = jedi_name.full_name
+        if not full_name:
+            continue
+        try:
+            handle = Handle(full_name)
+        except ValueError:
+            continue
+
+        def_file = jedi_name.module_path.as_posix() if jedi_name.module_path else ""
+        scope = classify_scope(def_file, analyzer) if def_file else "external"
+        kind = _normalise_kind(jedi_name.type)
+
+        if def_file:
+            location = cast(_Location, location_from_name(def_file, jedi_name))
+        else:
+            location = _make_location("", jedi_name.line, jedi_name.column)
+
+        return _SuccessResult(
+            found=True,
+            handle=str(handle),
+            kind=kind,
+            scope=scope,
+            location=location,
+        )
+
+    return None
+
+
 async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
     """Resolve a dotted name (FQN or re-exported path) to a canonical handle."""
     handle = await resolve_canonical(name, analyzer)
     if handle is None:
+        # Project-scoped resolution missed. Per the API design spec
+        # (docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        # lines 138-152), external symbols (stdlib, site-packages) are reachable
+        # as handles with scope='external'; pyeye lazily resolves them via
+        # Jedi's import-following.
+        external = await _resolve_external_dotted_name(name, analyzer)
+        if external is not None:
+            return external
         return _NotFoundResult(found=False, reason="unresolved")
 
     # Find the definition file to classify scope and get kind.

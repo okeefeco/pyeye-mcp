@@ -182,6 +182,100 @@ class TestReExportedPathCollapses:
 
 
 # ---------------------------------------------------------------------------
+# (c2) External dotted name (stdlib / site-packages) → external success
+# ---------------------------------------------------------------------------
+
+
+class TestExternalDottedName:
+    """A fully-qualified dotted name pointing at a stdlib/external symbol must
+    resolve with scope='external'.
+
+    Per ``docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md``
+    lines 138-148, 191, 195: external symbols are reachable as handles, scope is
+    ``"external"``, and pyeye lazily resolves them via Jedi's import-following.
+    Bug surfaced when ``resolve("pathlib.Path")`` returned ``unresolved`` while
+    ``resolve_at`` and ``inspect`` both succeeded for the same symbol.
+    """
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_resolves_to_canonical_handle(self, analyzer: JediAnalyzer) -> None:
+        """resolve('pathlib.Path') must return found=True with the FQN as handle."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert (
+            result["found"] is True
+        ), f"resolve('pathlib.Path') must succeed (stdlib symbol); got {result!r}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "pathlib.Path"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_classified_as_external(self, analyzer: JediAnalyzer) -> None:
+        """External-scope FQN must carry scope='external'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        assert (
+            result["scope"] == "external"
+        ), f"pathlib.Path is stdlib; expected scope='external', got {result['scope']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_kind_is_class(self, analyzer: JediAnalyzer) -> None:
+        """pathlib.Path is a class — kind must reflect that, not fall back to 'variable'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        assert (
+            result["kind"] == "class"
+        ), f"pathlib.Path is a class; expected kind='class', got {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_location_points_to_real_definition(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Location must point to the actual stdlib definition, not a degenerate stub."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        assert (
+            loc["file"] != "<unknown>"
+        ), f"location.file must point at stdlib pathlib; got {loc['file']!r}"
+        assert (
+            "pathlib" in loc["file"]
+        ), f"location.file must contain 'pathlib'; got {loc['file']!r}"
+        assert (
+            loc["line_start"] > 1
+        ), f"location.line_start must point at real definition (>1); got {loc['line_start']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_unresolvable_returns_not_found(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A dotted name that Jedi cannot infer must fall through to not-found.
+
+        Exercises the negative branch of the synthetic-import fallback: when
+        ``script.infer`` returns no results, resolve must return
+        ``{found: False, reason: "unresolved"}`` (not raise, not return a
+        spurious external success).
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        # Module exists in stdlib but the leaf does not.
+        result = await resolve("pathlib.NotARealClassXYZ", analyzer)
+
+        assert result["found"] is False
+        assert "reason" in result
+
+
+# ---------------------------------------------------------------------------
 # (d) File path with line → symbol at that position
 # ---------------------------------------------------------------------------
 
