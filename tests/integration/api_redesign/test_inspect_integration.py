@@ -18,7 +18,7 @@ These integration tests verify only the MCP wrapper layer delegation.
 
 from __future__ import annotations
 
-import asyncio
+import inspect as _inspect_stdlib
 from pathlib import Path
 
 import pytest
@@ -47,7 +47,7 @@ class TestInspectToolRegistered:
         """inspect is an async function (or wrapped to behave as one)."""
         from pyeye.mcp.server import inspect
 
-        assert asyncio.iscoroutinefunction(inspect)
+        assert _inspect_stdlib.iscoroutinefunction(inspect)
 
 
 # ---------------------------------------------------------------------------
