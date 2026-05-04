@@ -986,3 +986,81 @@ class TestFindSymbolColumnOnLine:
         col = _find_symbol_column_on_line(f, 1)
         # "def " is 4 chars
         assert col == 4
+
+
+# ---------------------------------------------------------------------------
+# Span location tests — column_end and line_end correctness
+# ---------------------------------------------------------------------------
+
+
+class TestSpanLocationSemantics:
+    """Verify that Location spans name identifiers and full definition bodies."""
+
+    @pytest.mark.asyncio
+    async def test_class_location_spans_full_definition(self) -> None:
+        """A class location spans from the class name through the end of the body.
+
+        Widget is defined at line 21 in widgets.py.
+        'Widget' is 6 characters, so column_end - column_start == 6.
+        Widget has methods and attributes, so line_end > line_start.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.Widget", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        # Name span: "Widget" is 6 characters
+        assert loc["column_end"] - loc["column_start"] == 6, (
+            f"'Widget' is 6 chars; expected column span of 6, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Body span: Widget has multiple methods — line_end must exceed line_start
+        assert loc["line_end"] > loc["line_start"], (
+            f"Widget class body should span multiple lines; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_function_location_spans_body(self) -> None:
+        """A function location spans from the function name through the end of the body.
+
+        make_widget is defined in widgets.py.
+        'make_widget' is 11 characters, so column_end - column_start == 11.
+        make_widget has a body, so line_end >= line_start.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        # Name span: "make_widget" is 11 characters
+        assert loc["column_end"] - loc["column_start"] == 11, (
+            f"'make_widget' is 11 chars; expected column span of 11, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Function body spans at least the def line plus its body
+        assert loc["line_end"] >= loc["line_start"], (
+            f"line_end must be >= line_start; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_column_end_greater_than_column_start_for_any_name(self) -> None:
+        """column_end > column_start for any non-empty symbol name."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present"
+        assert "column_end" in loc, "column_end must be present"
+        assert loc["column_end"] > loc["column_start"], (
+            f"column_end must be > column_start for a named symbol; "
+            f"got column_start={loc['column_start']}, column_end={loc['column_end']}"
+        )

@@ -1408,6 +1408,79 @@ class TestFindJediNameForHandleFallbacks:
 
         assert result is None
 
+
+# ---------------------------------------------------------------------------
+# TestInspectSpanLocation — column_end and line_end correctness
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSpanLocation:
+    """Verify that inspect Location spans name identifiers and full definition bodies."""
+
+    @pytest.mark.asyncio
+    async def test_class_location_spans_full_definition(self, analyzer: JediAnalyzer) -> None:
+        """A class location spans from the class name through the end of the body.
+
+        Widget is defined at line 21 in widgets.py.
+        'Widget' is 6 characters, so column_end - column_start == 6.
+        Widget has methods and attributes, so line_end > line_start.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present in location"
+        assert "column_end" in loc, "column_end must be present in location"
+        # Name span: "Widget" is 6 characters
+        assert loc["column_end"] - loc["column_start"] == 6, (
+            f"'Widget' is 6 chars; expected column span of 6, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Body span: Widget has multiple methods — line_end must exceed line_start
+        assert loc["line_end"] > loc["line_start"], (
+            f"Widget class body should span multiple lines; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_function_location_column_span(self, analyzer: JediAnalyzer) -> None:
+        """A function location has column_end = column_start + len('make_widget').
+
+        'make_widget' is 11 characters.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present"
+        assert "column_end" in loc, "column_end must be present"
+        assert loc["column_end"] - loc["column_start"] == len("make_widget"), (
+            f"'make_widget' is 11 chars; expected column span of 11, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_column_end_always_gte_column_start(self, analyzer: JediAnalyzer) -> None:
+        """column_end >= column_start for all inspect handles."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (
+            _WIDGET_HANDLE,
+            _MAKE_WIDGET_HANDLE,
+            _GREET_HANDLE,
+            _MODULE_HANDLE,
+            _DEFAULT_NAME_HANDLE,
+        ):
+            result = await inspect(handle, analyzer)
+            loc = result["location"]
+            if "column_start" in loc and "column_end" in loc:
+                assert loc["column_end"] >= loc["column_start"], (
+                    f"column_end must be >= column_start for handle={handle!r}; "
+                    f"got column_start={loc['column_start']}, column_end={loc['column_end']}"
+                )
+
     def test_synthetic_import_exception_handler_returns_none(self, analyzer: JediAnalyzer) -> None:
         """When jedi.Script raises inside the synthetic-import fallback, returns None.
 

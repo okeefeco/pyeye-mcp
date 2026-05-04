@@ -56,9 +56,10 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
+from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
 from pyeye.scope import classify_scope
@@ -300,7 +301,7 @@ async def _resolve_at_position(
         handle=str(handle),
         kind=kind,
         scope=scope,
-        location=_make_location(def_file, name.line, name.column),
+        location=cast(_Location, location_from_name(def_file, name)),
     )
 
 
@@ -363,6 +364,43 @@ def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
 # ---------------------------------------------------------------------------
 # Bare-name enumeration helper
 # ---------------------------------------------------------------------------
+
+
+def _get_jedi_name_from_match(
+    file_posix: str,
+    line: int | None,
+    column: int | None,
+    analyzer: JediAnalyzer,
+) -> Any | None:
+    """Return the Jedi Name object at (file, line, column), or None on failure.
+
+    Used to upgrade a match-dict location to a full span via
+    :func:`~pyeye._jedi_location.location_from_name`.  The lookup is best-effort;
+    callers fall back to the degenerate point-location when ``None`` is returned.
+
+    Args:
+        file_posix: POSIX path string of the source file.
+        line: 1-indexed line number (may be None if unavailable).
+        column: 0-indexed column (may be None if unavailable).
+        analyzer: Active analyzer for file-level Jedi access.
+
+    Returns:
+        A Jedi ``Name`` object on success, or ``None`` on any failure.
+    """
+    if not file_posix or line is None:
+        return None
+    try:
+        file_path = Path(file_posix)
+        if not file_path.exists():
+            return None
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+        resolved_col = column if column is not None else 0
+        defs = script.goto(line, resolved_col, follow_imports=False)
+        if defs:
+            return defs[0]
+    except Exception:
+        pass
+    return None
 
 
 async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
@@ -438,7 +476,16 @@ async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyze
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
     file_posix = Path(file_str).as_posix() if file_str else ""
-    location = _make_location(file_posix, match.get("line"), match.get("column"))
+    match_line = match.get("line")
+    match_col = match.get("column")
+
+    # Attempt to get a real Jedi Name for the span (column_end + line_end).
+    # Falls back to the degenerate _make_location shape when lookup fails.
+    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
+    if jedi_name is not None:
+        location = cast(_Location, location_from_name(file_posix, jedi_name))
+    else:
+        location = _make_location(file_posix, match_line, match_col)
 
     return _SuccessResult(
         found=True,
@@ -470,21 +517,29 @@ async def _build_candidate_from_match(
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 
-    line = match.get("line") or 1
-    column = match.get("column") or 0
+    match_line = match.get("line") or 1
+    match_col = match.get("column") or 0
     file_posix = Path(file_str).as_posix() if file_str else ""
+
+    # Attempt to get a real Jedi Name for the span (column_end + line_end).
+    # Falls back to the degenerate point shape when lookup fails.
+    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
+    if jedi_name is not None:
+        loc = cast(_Location, location_from_name(file_posix, jedi_name))
+    else:
+        loc = _Location(
+            file=file_posix,
+            line_start=match_line,
+            line_end=match_line,
+            column_start=match_col,
+            column_end=match_col,
+        )
 
     return _Candidate(
         handle=str(handle),
         kind=kind,
         scope=scope,
-        location=_Location(
-            file=file_posix,
-            line_start=line,
-            line_end=line,
-            column_start=column,
-            column_end=column,
-        ),
+        location=loc,
     )
 
 
@@ -559,7 +614,13 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
     file_posix = Path(file_str).as_posix() if file_str else ""
-    location = _make_location(file_posix, match_line, match_column)
+
+    # Attempt span location via Jedi Name; fall back to degenerate point location.
+    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_column, analyzer)
+    if jedi_name is not None:
+        location = cast(_Location, location_from_name(file_posix, jedi_name))
+    else:
+        location = _make_location(file_posix, match_line, match_column)
 
     return _SuccessResult(
         found=True,

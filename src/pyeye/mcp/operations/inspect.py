@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
+from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import find_module_file
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
 from pyeye.scope import classify_scope
@@ -54,14 +55,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_EDGE_BUDGET_SECONDS: float = 2.0
-
-# ---------------------------------------------------------------------------
-# Node-type constants
-# ---------------------------------------------------------------------------
-
-_DEFINITION_TYPES: frozenset[str] = frozenset(
-    ("funcdef", "classdef", "async_funcdef", "async_stmt", "decorated")
-)
 
 # ---------------------------------------------------------------------------
 # Param.kind mapping  (enum .name → API lowercase 5-value enum)
@@ -153,42 +146,6 @@ def _make_location(
     if column_end is not None:
         loc["column_end"] = column_end
     return loc
-
-
-def _get_end_line(jedi_name: Any) -> int:
-    """Extract the end line from a Jedi Name object by walking its internal tree.
-
-    Walks the internal ``tree_name`` hierarchy to find the enclosing function/
-    class definition node, then reads its ``end_pos`` attribute.  Falls back to
-    the start line if the end cannot be determined.
-
-    Args:
-        jedi_name: A Jedi ``Name`` object.
-
-    Returns:
-        The 1-indexed end line number.
-    """
-    start_line: int = jedi_name.line or 1
-    try:
-        internal = getattr(jedi_name, "_name", None)
-        if internal is None:
-            return start_line
-        tree_name = getattr(internal, "tree_name", None)
-        if tree_name is None:
-            return start_line
-
-        # Walk up to the nearest definition node with end_pos
-        node = tree_name.parent
-        while node is not None:
-            if getattr(node, "type", None) in _DEFINITION_TYPES:
-                end_pos = getattr(node, "end_pos", None)
-                if end_pos is not None:
-                    return int(end_pos[0])
-                break
-            node = getattr(node, "parent", None)
-    except Exception:
-        pass
-    return start_line
 
 
 def _is_method(handle: str, jedi_type: str, analyzer: JediAnalyzer) -> bool:
@@ -1204,14 +1161,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     else:
         kind = raw_kind
 
-    line_start: int = jedi_name.line or 1
-    line_end: int = _get_end_line(jedi_name)
-    if line_end < line_start:
-        line_end = line_start
-
-    col_start: int | None = jedi_name.column
-
-    location = _make_location(file_str, line_start, line_end, col_start)
+    location = location_from_name(file_str, jedi_name)
 
     # Docstring — raw text (no HTML, no markdown rendering)
     docstring: str | None = None

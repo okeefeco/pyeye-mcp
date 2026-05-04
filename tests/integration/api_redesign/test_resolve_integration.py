@@ -280,3 +280,44 @@ class TestResolveIncludesLocationEndToEnd:
         assert widgets_path in loc["file"] or loc["file"].endswith(
             "widgets.py"
         ), f"location file {loc['file']!r} doesn't match expected {widgets_path!r}"
+
+
+# ---------------------------------------------------------------------------
+# Span location end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSpanLocationEndToEnd:
+    """Verify that Location spans flow correctly through the full wrapper stack."""
+
+    @pytest.mark.asyncio
+    async def test_class_location_spans_name_and_body_end_to_end(self) -> None:
+        """resolve() for a class returns a Location with name span + body span.
+
+        Widget at line 21 in widgets.py:
+        - 'Widget' is 6 characters → column_end - column_start == 6
+        - Widget has a multi-line body → line_end > line_start
+        """
+        from pyeye.mcp.server import resolve
+
+        result = await resolve(
+            identifier="mypackage._core.widgets.Widget",
+            project_path=str(_FIXTURE),
+        )
+
+        assert isinstance(result, dict)
+        assert result["found"] is True
+        loc = result["location"]
+
+        assert "column_start" in loc, f"column_start missing from location: {loc}"
+        assert "column_end" in loc, f"column_end missing from location: {loc}"
+        # Name span: "Widget" is 6 characters
+        assert loc["column_end"] - loc["column_start"] == 6, (
+            f"'Widget' is 6 chars; expected column span of 6 end-to-end, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Body span: Widget body is multi-line
+        assert loc["line_end"] > loc["line_start"], (
+            f"Widget body is multi-line; expected line_end > line_start end-to-end; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
