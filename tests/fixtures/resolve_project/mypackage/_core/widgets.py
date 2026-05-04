@@ -73,3 +73,30 @@ def make_widget(widget_name: str) -> "Widget":
     w = Widget()
     w.name = widget_name
     return w
+
+
+# ---------------------------------------------------------------------------
+# Subclasses added for Phase 4 edge_counts tests (Task 4.1)
+# Added at END to avoid shifting line numbers of existing symbols.
+# Widget is at line 21, make_widget at line 71 — both unchanged.
+# ---------------------------------------------------------------------------
+
+
+class Premium(Widget):
+    """Premium widget — extends Widget explicitly.
+
+    Used by TestInspectEdgeCounts to verify:
+    - superclasses count > 0 (Widget is an explicit base)
+    - Widget.subclasses count > 0 (Premium and Deluxe are project subclasses)
+    """
+
+    tier: str = "premium"
+
+
+class Deluxe(Widget):
+    """Deluxe widget — second explicit subclass of Widget.
+
+    Used together with Premium to give Widget a subclasses count of >= 2.
+    """
+
+    tier: str = "deluxe"

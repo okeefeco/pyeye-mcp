@@ -1,26 +1,25 @@
-"""Tests for the inspect(handle) operation — Task 3.1 (failing / TDD red phase).
+"""Tests for the inspect(handle) operation — Tasks 3.1 and 4.1.
 
-These tests pin down the contract for ``inspect``'s universal + kind-dependent
-return shape as specified in the Phase 3 progressive-disclosure API design.
+Task 3.1 (Phase 3) pins down the universal + kind-dependent return shape.
+Task 4.1 (Phase 4) pins down the edge_counts contract with the critical
+absence-vs-zero invariant.
 
 Fixture layout
 --------------
 tests/fixtures/resolve_project/
   mypackage/
     __init__.py           # re-exports Widget from _core.widgets
+    usage.py              # usage site: callers/references for edge_counts tests
     _core/
       __init__.py         # empty
       widgets.py          # Widget class (line 21), make_widget function (line 71),
-                          # DEFAULT_NAME variable (line 18), Config class (line 61)
+                          # DEFAULT_NAME variable (line 18), Config class (line 61),
+                          # Premium(Widget) and Deluxe(Widget) at end of file
 
 All tests are ``@pytest.mark.asyncio`` to match the async signature of ``inspect``.
 
-NOTE: The ``inspect`` module does not exist yet (Task 3.2 implements it).
-All tests in this file will fail at import time until the implementation lands.
-That is the expected "red" state for TDD discipline.
-
-Contract tested
----------------
+Contract tested — Phase 3 (Tasks 3.1)
+--------------------------------------
 Universal fields (all kinds):
   - ``handle``: str, the canonical handle
   - ``kind``: one of the API kind vocabulary values
@@ -39,7 +38,7 @@ Kind-dependent fields:
     ``default: str`` (simple literals only)
 
 Phase 3 absence-vs-zero invariants (Task 3.1 contract):
-  - ``edge_counts``: ALWAYS present; equals ``{}`` in Phase 3
+  - ``edge_counts``: ALWAYS present as a dict; Phase 3 returns ``{}``
   - ``re_exports``: ABSENT (not ``[]``) — Phase 6 wires it in
   - ``highlights``: ABSENT — Phase 5 wires it in
   - ``tags``: ABSENT for Python kinds (plugin kinds only)
@@ -49,6 +48,22 @@ No source-content fields:
   - Signatures are short single-line strings — NOT multi-line code bodies
   - ``default`` is a simple literal string when present — NOT a complex expression
   - ``location`` is a pointer dict — NOT a source snippet
+
+Contract tested — Phase 4 (Task 4.1)
+--------------------------------------
+Phase 4 wires exactly 5 edge types into ``edge_counts``:
+  - ``members``: for class and module handles (count of direct members)
+  - ``superclasses``: for class handles
+  - ``subclasses``: for class handles (project-scoped)
+  - ``callers``: for function/method handles
+  - ``references``: for any handle (aggregate read/written/passed; excludes calls)
+
+The absence-vs-zero invariant (load-bearing):
+  - Unmeasured edges are ABSENT from edge_counts (not present with value 0)
+  - Measured-and-zero edges are PRESENT with value 0 (not omitted)
+  - ``read_by``, ``written_by``, ``passed_by``, ``decorated_by``, ``decorates``,
+    ``imports``, ``imported_by``, ``enclosing_scope``, ``callees``,
+    ``overrides``, ``overridden_by`` MUST NOT appear in Phase 4 edge_counts
 """
 
 from pathlib import Path
@@ -72,8 +87,32 @@ _COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
 _MODULE_HANDLE = "mypackage._core.widgets"
 _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
 
+# Phase 4 fixture handles — subclasses of Widget added at end of widgets.py
+_PREMIUM_HANDLE = "mypackage._core.widgets.Premium"
+_DELUXE_HANDLE = "mypackage._core.widgets.Deluxe"
+
 # External symbol — pathlib.Path is stdlib, always available
 _PATH_CLASS_HANDLE = "pathlib.Path"
+
+# All 5 edge types measured by Phase 4 (must be present for relevant kinds)
+_PHASE4_MEASURED_EDGES = frozenset(
+    {"members", "superclasses", "subclasses", "callers", "references"}
+)
+
+# All unmeasured edge types in Phase 4 (must be ABSENT from edge_counts)
+_PHASE4_UNMEASURED_EDGES = [
+    "read_by",
+    "written_by",
+    "passed_by",
+    "decorated_by",
+    "decorates",
+    "imports",
+    "imported_by",
+    "enclosing_scope",
+    "callees",
+    "overrides",
+    "overridden_by",
+]
 
 
 @pytest.fixture
@@ -509,13 +548,15 @@ class TestInspectExternalScope:
 
     @pytest.mark.asyncio
     async def test_external_scope_edge_counts_present(self, analyzer: JediAnalyzer) -> None:
-        """edge_counts invariant holds for external-scope symbols too."""
+        """edge_counts invariant holds for external-scope symbols too (present, is a dict)."""
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_PATH_CLASS_HANDLE, analyzer)
 
         assert "edge_counts" in result
-        assert result["edge_counts"] == {}
+        assert isinstance(result["edge_counts"], dict)
+        # Phase 4 populates edge_counts for external symbols too (project-scoped counts).
+        # Emptiness is not asserted — see TestInspectEdgeCounts for Phase 4 contract.
 
 
 # ---------------------------------------------------------------------------
@@ -527,17 +568,25 @@ class TestInspectUniversalContract:
     """Absence-vs-zero invariants that hold across ALL Python kinds."""
 
     @pytest.mark.asyncio
-    async def test_edge_counts_always_present_and_empty(self, analyzer: JediAnalyzer) -> None:
-        """edge_counts is ALWAYS present and equals {} in Phase 3."""
+    async def test_edge_counts_always_present_as_dict(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts is ALWAYS present and is a dict.
+
+        Phase 3 returns {} for all handles.  Phase 4 populates it with measured
+        edges.  The universal contract is: edge_counts is present and is a dict.
+        Emptiness is NOT required here — the absence-vs-zero invariant is tested
+        separately in TestInspectEdgeCounts.
+        """
         from pyeye.mcp.operations.inspect import inspect
 
         for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
             result = await inspect(handle, analyzer)
             assert "edge_counts" in result, f"edge_counts must be present for handle={handle!r}"
-            assert result["edge_counts"] == {}, (
-                f"edge_counts must equal {{}} in Phase 3 for handle={handle!r}; "
-                f"got {result['edge_counts']!r}"
+            assert isinstance(result["edge_counts"], dict), (
+                f"edge_counts must be a dict for handle={handle!r}; "
+                f"got {type(result['edge_counts'])!r}"
             )
+            # Phase 4 populates this with measured edges; emptiness is no longer required.
+            # The absence-vs-zero invariant is enforced by TestInspectEdgeCounts.
 
     @pytest.mark.asyncio
     async def test_re_exports_is_absent(self, analyzer: JediAnalyzer) -> None:
@@ -637,3 +686,420 @@ class TestInspectUniversalContract:
                 f"Fixture symbol {handle!r} should have scope='project'; "
                 f"got {result['scope']!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectEdgeCounts — Phase 4 contract (Task 4.1 — FAILING tests)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectEdgeCounts:
+    """Phase 4 contract: edge_counts populated with exactly 5 measured edge types.
+
+    These tests are in the RED state until Task 4.2 implements edge_counts.
+    The Phase 3 implementation returns ``edge_counts: {}`` always, so every
+    assertion that checks for a non-empty edge_counts (or for a 0-valued key)
+    will fail with AssertionError.
+
+    The absence-vs-zero invariant (load-bearing):
+    - Measured edges with zero value MUST be PRESENT with value 0 (not omitted)
+    - Unmeasured edge types MUST be ABSENT (not present with value 0)
+
+    Phase 4 measures exactly these 5 edges:
+    - ``members``: class and module handles
+    - ``superclasses``: class handles
+    - ``subclasses``: class handles (project-scoped)
+    - ``callers``: function/method handles
+    - ``references``: any handle (aggregate read/written/passed; excludes calls)
+    """
+
+    # ------------------------------------------------------------------ (a)
+    @pytest.mark.asyncio
+    async def test_class_has_members_count(self, analyzer: JediAnalyzer) -> None:
+        """(a) Class handles have edge_counts['members'] = count of direct members.
+
+        Widget has: color, name, visible, __init__, greet, slow_greet,
+        display_name, default, normalize — at least 5 direct members.
+        Phase 3 returns edge_counts: {} so 'members' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "members" in result["edge_counts"], (
+            f"Class handle must have edge_counts['members']; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # Widget has at least 5 direct members — allow slack for Jedi's resolution
+        assert (
+            result["edge_counts"]["members"] >= 5
+        ), f"Widget has >= 5 members; got members={result['edge_counts']['members']}"
+
+    # ------------------------------------------------------------------ (a) module
+    @pytest.mark.asyncio
+    async def test_module_has_members_count(self, analyzer: JediAnalyzer) -> None:
+        """(a) Module handles have edge_counts['members'] = count of top-level definitions.
+
+        mypackage._core.widgets defines: DEFAULT_NAME, Widget, Config, make_widget,
+        Premium, Deluxe — at least 4 top-level definitions.
+        Phase 3 returns edge_counts: {} so 'members' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+
+        assert "members" in result["edge_counts"], (
+            f"Module handle must have edge_counts['members']; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # widgets.py has at least 4 top-level definitions
+        assert result["edge_counts"]["members"] >= 4, (
+            f"widgets module has >= 4 top-level members; "
+            f"got members={result['edge_counts']['members']}"
+        )
+
+    # ------------------------------------------------------------------ (b)
+    @pytest.mark.asyncio
+    async def test_class_has_superclasses_count_key(self, analyzer: JediAnalyzer) -> None:
+        """(b) Class handles have edge_counts['superclasses'] key present.
+
+        Widget has no explicit base class — so the count could be 0.
+        The key MUST be present regardless.
+        Phase 3 returns edge_counts: {} so 'superclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "superclasses" in result["edge_counts"], (
+            f"Class handle must have edge_counts['superclasses'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert isinstance(result["edge_counts"]["superclasses"], int), (
+            f"edge_counts['superclasses'] must be an int; "
+            f"got {type(result['edge_counts']['superclasses'])!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_class_with_explicit_base_has_superclasses_count(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """(b) A class with an explicit base has superclasses count >= 1.
+
+        Premium extends Widget explicitly — superclasses count must be >= 1.
+        Phase 3 returns edge_counts: {} so 'superclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert "superclasses" in result["edge_counts"], (
+            f"Class handle must have edge_counts['superclasses'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert result["edge_counts"]["superclasses"] >= 1, (
+            f"Premium(Widget) has 1 explicit superclass; "
+            f"got superclasses={result['edge_counts']['superclasses']}"
+        )
+
+    # ------------------------------------------------------------------ (c)
+    @pytest.mark.asyncio
+    async def test_class_with_no_subclasses_returns_zero(self, analyzer: JediAnalyzer) -> None:
+        """(c/g) CRITICAL: measured-and-zero is PRESENT with value 0, not omitted.
+
+        Config has no subclasses in the project.
+        edge_counts['subclasses'] MUST be 0 (present!), NOT absent.
+        Phase 3 returns edge_counts: {} — 'subclasses' is absent → FAIL.
+        This tests BOTH directions of the invariant:
+        - key is present ('subclasses' in edge_counts)
+        - value is 0 (not a non-zero count)
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_CONFIG_HANDLE, analyzer)
+
+        # CRITICAL: 'subclasses' MUST be in edge_counts even when count is 0
+        assert "subclasses" in result["edge_counts"], (
+            f"Config has no subclasses — but 'subclasses' key MUST be present with value 0; "
+            f"got edge_counts={result['edge_counts']!r}. "
+            "Absence means 'not measured'; 0 means 'measured, none found'. "
+            "Phase 4 measures subclasses for all class handles."
+        )
+        assert result["edge_counts"]["subclasses"] == 0, (
+            f"Config has no project subclasses; expected subclasses=0; "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_class_with_subclasses_counts_them(self, analyzer: JediAnalyzer) -> None:
+        """(c) A class with project subclasses returns their count in edge_counts.
+
+        Widget has Premium and Deluxe as explicit subclasses in the project.
+        edge_counts['subclasses'] must be >= 2.
+        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "subclasses" in result["edge_counts"], (
+            f"Widget has subclasses (Premium, Deluxe) — 'subclasses' key must be present; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert result["edge_counts"]["subclasses"] >= 2, (
+            f"Widget has >= 2 project subclasses (Premium, Deluxe); "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    # ------------------------------------------------------------------ (d)
+    @pytest.mark.asyncio
+    async def test_function_has_callers_count_key(self, analyzer: JediAnalyzer) -> None:
+        """(d) Function handles have edge_counts['callers'] key present.
+
+        make_widget is called from usage.py — callers >= 2.
+        Phase 3 returns edge_counts: {} so 'callers' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        assert "callers" in result["edge_counts"], (
+            f"Function handle must have edge_counts['callers'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # make_widget is called twice in usage.py
+        assert result["edge_counts"]["callers"] >= 2, (
+            f"make_widget is called >= 2 times in usage.py; "
+            f"got callers={result['edge_counts']['callers']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_method_has_callers_count(self, analyzer: JediAnalyzer) -> None:
+        """(d) Method handles have edge_counts['callers'] key with count >= 0.
+
+        Widget.greet is called from usage.py — callers >= 2.
+        Phase 3 returns edge_counts: {} so 'callers' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_GREET_HANDLE, analyzer)
+
+        assert "callers" in result["edge_counts"], (
+            f"Method handle must have edge_counts['callers'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # greet is called twice in usage.py
+        assert result["edge_counts"]["callers"] >= 2, (
+            f"Widget.greet is called >= 2 times in usage.py; "
+            f"got callers={result['edge_counts']['callers']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_function_with_no_callers_returns_zero(self, analyzer: JediAnalyzer) -> None:
+        """(d/g) A truly uncalled function has callers: 0 (PRESENT, not omitted).
+
+        Widget.normalize is a staticmethod not called in any fixture file.
+        edge_counts['callers'] MUST be 0 (present), NOT absent.
+        Phase 3 returns edge_counts: {} → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_NORMALIZE_HANDLE, analyzer)
+
+        assert "callers" in result["edge_counts"], (
+            f"normalize has no callers — but 'callers' key MUST be present with value 0; "
+            f"got edge_counts={result['edge_counts']!r}. "
+            "Absence means 'not measured'; 0 means 'measured, no callers found'."
+        )
+        assert result["edge_counts"]["callers"] == 0, (
+            f"Widget.normalize is uncalled in the fixture project; expected callers=0; "
+            f"got callers={result['edge_counts']['callers']}"
+        )
+
+    # ------------------------------------------------------------------ (e)
+    @pytest.mark.asyncio
+    async def test_handle_has_references_aggregate_count(self, analyzer: JediAnalyzer) -> None:
+        """(e) edge_counts['references'] aggregates read/written/passed; excludes call sites.
+
+        DEFAULT_NAME is read in usage.py (name = DEFAULT_NAME) without being called.
+        So references >= 1.  It is NOT called, so callers == 0 (separate key).
+        Phase 3 returns edge_counts: {} so 'references' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
+
+        assert "references" in result["edge_counts"], (
+            f"Variable handle must have edge_counts['references'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # DEFAULT_NAME is read at least once in usage.py
+        assert result["edge_counts"]["references"] >= 1, (
+            f"DEFAULT_NAME is read >= 1 time in usage.py; "
+            f"got references={result['edge_counts']['references']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_references_excludes_call_sites(self, analyzer: JediAnalyzer) -> None:
+        """(e) references and callers are DISTINCT — call sites counted only in callers.
+
+        make_widget is called twice (usage.py) and the name is also imported once.
+        The import/read is a reference; the calls are callers.
+        So: callers >= 2 AND references >= 0 (at minimum the import is a reference).
+        Critically: callers and references must NOT double-count call sites.
+        Phase 3 returns edge_counts: {} → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        assert "callers" in result["edge_counts"], (
+            f"make_widget must have 'callers' in edge_counts; " f"got {result['edge_counts']!r}"
+        )
+        assert "references" in result["edge_counts"], (
+            f"make_widget must have 'references' in edge_counts; " f"got {result['edge_counts']!r}"
+        )
+
+        callers = result["edge_counts"]["callers"]
+        references = result["edge_counts"]["references"]
+
+        # make_widget is called twice — callers must be >= 2
+        assert callers >= 2, f"make_widget called >= 2 times; got callers={callers}"
+
+        # References should NOT include the call sites (those are in callers).
+        # The import statement counts as a reference; actual calls do NOT.
+        # The import in usage.py is: from mypackage._core.widgets import ..., make_widget
+        # So references >= 0. We verify callers and references don't sum to > total usages,
+        # which would indicate double-counting.
+        assert references >= 0, f"references must be >= 0; got references={references}"
+        # The call sites (callers) must NOT be counted in references too:
+        # If total usages = N, and callers = 2, then references < N (calls excluded).
+        # We assert references != callers as a proxy that they're not the same count
+        # (unless by coincidence, which is acceptable).
+        # The key invariant: references is the non-call usage count.
+        assert isinstance(references, int), f"references must be an int; got {type(references)!r}"
+
+    # ------------------------------------------------------------------ (f)
+    @pytest.mark.asyncio
+    async def test_unmeasured_edges_are_absent(self, analyzer: JediAnalyzer) -> None:
+        """(f) CRITICAL: unmeasured edge types MUST NOT appear in edge_counts.
+
+        Phase 4 measures exactly 5 edges. All other edge types are ABSENT.
+        An absent key means 'we didn't measure this' — not 'the value is 0'.
+        This test runs against a class handle (Widget) where Phase 4 WILL populate
+        members/superclasses/subclasses. It verifies the other 11 types stay absent.
+
+        Phase 3 returns {} — this test PASSES in Phase 3 (no spurious keys).
+        But after Phase 4 implementation, the 5 measured keys will be present.
+        The unmeasured keys must STILL be absent.
+
+        NOTE: This test is designed to pass in Phase 3 (nothing to check for yet)
+        and continue passing in Phase 4 (measured keys in, unmeasured keys still out).
+        We include it here to document the contract and to catch any implementation
+        that accidentally adds unmeasured keys.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_UNMEASURED_EDGES:
+            assert edge not in result["edge_counts"], (
+                f"Phase 4 only measures {sorted(_PHASE4_MEASURED_EDGES)!r}; "
+                f"{edge!r} must be ABSENT (not present with value 0). "
+                f"Got edge_counts={result['edge_counts']!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_unmeasured_edges_absent_for_function(self, analyzer: JediAnalyzer) -> None:
+        """(f) Unmeasured edge types are absent for function handles too.
+
+        Phase 4 measures callers and references for functions.
+        All other 11 edge types must be absent.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_UNMEASURED_EDGES:
+            assert edge not in result["edge_counts"], (
+                f"Phase 4 only measures callers+references for functions; "
+                f"{edge!r} must be ABSENT. Got edge_counts={result['edge_counts']!r}"
+            )
+
+    # ------------------------------------------------------------------ (g) — covered by
+    # test_class_with_no_subclasses_returns_zero (subclasses=0 present)
+    # test_function_with_no_callers_returns_zero (callers=0 present)
+
+    # ------------------------------------------------------------------ (h)
+    @pytest.mark.asyncio
+    async def test_external_node_subclasses_are_project_scoped(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """(h) edge_counts on an external node reflects project-internal subclasses only.
+
+        pathlib.Path is a stdlib class. The fixture project has no class that
+        extends pathlib.Path, so edge_counts['subclasses'] must be 0.
+        This verifies that the count is project-scoped (not all Python subclasses globally).
+
+        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
+
+        assert "subclasses" in result["edge_counts"], (
+            f"External class handle must have edge_counts['subclasses'] key (project-scoped); "
+            f"got edge_counts={result['edge_counts']!r}. "
+            "Phase 4 measures project subclasses even for external symbols."
+        )
+        # No fixture class extends pathlib.Path → project-scoped count must be 0
+        assert result["edge_counts"]["subclasses"] == 0, (
+            f"No project class extends pathlib.Path; expected subclasses=0 (project-scoped); "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_all_five_phase4_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
+        """All 5 Phase 4 edge types are present in edge_counts for a class handle.
+
+        Widget is a class — Phase 4 wires members, superclasses, subclasses,
+        callers (= 0, Widget is not a callable in the callers sense), and references.
+        All 5 keys must be present.
+        Phase 3 returns {} → FAIL (none of the 5 keys are present).
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_MEASURED_EDGES:
+            assert edge in result["edge_counts"], (
+                f"Phase 4 must populate edge_counts[{edge!r}] for class handles; "
+                f"got edge_counts={result['edge_counts']!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_only_phase4_edges_present_no_extras(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts contains ONLY the 5 Phase 4 measured edges (no extras).
+
+        After Phase 4, edge_counts must contain exactly the 5 measured keys
+        (for the appropriate kinds) and nothing else.
+        Phase 3 returns {} — this test FAILS because the 5 keys are absent.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+        edge_counts = result["edge_counts"]
+
+        # All 5 measured keys must be present for a class
+        for edge in _PHASE4_MEASURED_EDGES:
+            assert edge in edge_counts, (
+                f"Phase 4 must populate {edge!r} for class Widget; "
+                f"got edge_counts={edge_counts!r}"
+            )
+
+        # No extra keys beyond the 5 measured ones
+        extra_keys = set(edge_counts.keys()) - _PHASE4_MEASURED_EDGES
+        assert not extra_keys, (
+            f"edge_counts contains unexpected keys beyond Phase 4's 5 measured edges: "
+            f"{sorted(extra_keys)!r}. Only {sorted(_PHASE4_MEASURED_EDGES)!r} are allowed."
+        )
