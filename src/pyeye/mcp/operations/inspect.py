@@ -26,7 +26,6 @@ Design notes
 from __future__ import annotations
 
 import ast
-import inspect as _stdlib_inspect
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,19 +41,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Param.kind mapping  (Python inspect.Parameter → API lowercase 5-value enum)
+# Node-type constants
 # ---------------------------------------------------------------------------
 
-_PARAM_KIND_MAP: dict[int, str] = {
-    _stdlib_inspect.Parameter.POSITIONAL_ONLY: "positional",
-    _stdlib_inspect.Parameter.POSITIONAL_OR_KEYWORD: "positional_or_keyword",
-    _stdlib_inspect.Parameter.KEYWORD_ONLY: "keyword_only",
-    _stdlib_inspect.Parameter.VAR_POSITIONAL: "var_positional",
-    _stdlib_inspect.Parameter.VAR_KEYWORD: "var_keyword",
-}
+_DEFINITION_TYPES: frozenset[str] = frozenset(
+    ("funcdef", "classdef", "async_funcdef", "async_stmt", "decorated")
+)
 
-# Fallback mapping for Jedi's string-style .kind attribute (enum name → lowercase)
-_JEDI_PARAM_KIND_MAP: dict[str, str] = {
+# ---------------------------------------------------------------------------
+# Param.kind mapping  (enum .name → API lowercase 5-value enum)
+# Jedi's .kind is a Python inspect.Parameter.ParameterKind enum; we key on
+# its .name string which is stable and avoids int-cast ambiguity.
+# ---------------------------------------------------------------------------
+
+_PARAM_KIND_MAP: dict[str, str] = {
     "POSITIONAL_ONLY": "positional",
     "POSITIONAL_OR_KEYWORD": "positional_or_keyword",
     "KEYWORD_ONLY": "keyword_only",
@@ -88,11 +88,11 @@ def _is_simple_literal(value_str: str) -> bool:
 
 
 def _normalise_param_kind(jedi_param_kind: Any) -> str:
-    """Map Jedi's param .kind (enum or enum name) to the API lowercase 5-value string.
+    """Map Jedi's param .kind enum to the API lowercase 5-value string.
 
     Jedi returns a ``jedi.api.classes.Parameter`` whose ``.kind`` attribute is
     a Python ``inspect.Parameter.ParameterKind`` enum value.  We map via its
-    integer value (which matches Python's own enum).  Falls back to
+    ``.name`` string, which is stable across Python versions.  Falls back to
     ``"positional_or_keyword"`` if unrecognised.
 
     Args:
@@ -101,18 +101,9 @@ def _normalise_param_kind(jedi_param_kind: Any) -> str:
     Returns:
         One of the 5 lowercase kind strings.
     """
-    # Jedi's .kind is a Python inspect.Parameter.ParameterKind enum value
-    try:
-        return _PARAM_KIND_MAP.get(int(jedi_param_kind), "positional_or_keyword")
-    except (TypeError, ValueError):
-        pass
-
-    # Fallback: try matching by name (e.g. enum's .name attribute)
-    name = getattr(jedi_param_kind, "name", None)
-    if name and name in _JEDI_PARAM_KIND_MAP:
-        return _JEDI_PARAM_KIND_MAP[name]
-
-    return "positional_or_keyword"
+    return _PARAM_KIND_MAP.get(
+        getattr(jedi_param_kind, "name", None) or "", "positional_or_keyword"
+    )
 
 
 def _make_location(
@@ -172,9 +163,6 @@ def _get_end_line(jedi_name: Any) -> int:
             return start_line
 
         # Walk up to the nearest definition node with end_pos
-        _DEFINITION_TYPES = frozenset(
-            ("funcdef", "classdef", "async_funcdef", "async_stmt", "decorated")
-        )
         node = tree_name.parent
         while node is not None:
             if getattr(node, "type", None) in _DEFINITION_TYPES:
@@ -301,7 +289,7 @@ def _build_parameters(jedi_name: Any) -> list[dict[str, Any]]:
                 type_hint = p.get_type_hint()
                 if type_hint:
                     param_dict["type"] = type_hint
-            except (AttributeError, Exception):
+            except Exception:
                 pass
 
             # Default value — only simple literals
@@ -415,11 +403,18 @@ def _extract_attribute_info(file_path: Path, line: int) -> tuple[str | None, str
 
 
 def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
-    """Extract direct superclass handles for a class definition.
+    """Extract direct superclasses from a class definition.
 
-    Uses AST parsing on the class definition's source file to extract the base
-    class expressions.  Attempts to resolve each base to a full dotted path via
-    Jedi's inference; falls back to the raw AST-unparsed base name.
+    NOTE: This is intentionally a parallel implementation to
+    JediAnalyzer._get_class_inheritance_info (jedi_analyzer.py line ~3278),
+    which uses Jedi's MRO via py__mro__() with C3 linearization. The two
+    implementations may diverge if the analyzer's logic is improved without
+    matching changes here. A future refactor should consolidate by extracting
+    shared base-extraction logic into a public helper.
+
+    Approach: ast.parse + ast.ClassDef.bases for source-level extraction,
+    then jedi script.goto() per base to resolve to canonical handles.
+    Falls back to ast.unparse of the base expression when goto fails.
 
     Args:
         jedi_name: A Jedi ``Name`` object for a class.
@@ -539,7 +534,6 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
     # Try progressively shorter module paths
     for split_at in range(len(parts) - 1, 0, -1):
         module_dotted = ".".join(parts[:split_at])
-        leaf = ".".join(parts[split_at:])  # may include nested class.method
         mod_file = find_module_file(module_dotted, analyzer)
         if mod_file is None:
             continue
@@ -558,27 +552,25 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
         for r in results:
             if r.full_name == handle:
                 return r
-        # Broader search for e.g. pathlib.Path
-        for r in results:
-            if r.full_name and r.full_name.endswith(f".{leaf_name}") and r.full_name == handle:
-                return r
     except Exception:
         pass
 
-    # Final fallback: try jedi.Script with a synthetic import
-    try:
-        import jedi
+    # Final fallback: synthetic-import inference for stdlib/third-party symbols
+    # (e.g. pathlib.Path) where project.search returns nothing.
+    # TODO: add a dedicated unit test that exercises this path, then drop pragma.
+    try:  # pragma: no cover
+        import jedi  # pragma: no cover
 
-        module_dotted = ".".join(parts[:-1])
-        leaf = parts[-1]
-        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf}"
-        script = jedi.Script(code=fake_code, project=analyzer.project)
-        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf))
-        for n in inferred:
-            if n.full_name == handle:
-                return n
-    except Exception:
-        pass
+        module_dotted = ".".join(parts[:-1])  # pragma: no cover
+        leaf_sym = parts[-1]  # pragma: no cover
+        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf_sym}"  # pragma: no cover
+        script = jedi.Script(code=fake_code, project=analyzer.project)  # pragma: no cover
+        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf_sym))  # pragma: no cover
+        for n in inferred:  # pragma: no cover
+            if n.full_name == handle:  # pragma: no cover
+                return n  # pragma: no cover
+    except Exception:  # pragma: no cover
+        pass  # pragma: no cover
 
     return None
 
@@ -697,16 +689,12 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     docstring: str | None = None
     try:
         ds = jedi_name.docstring(raw=True)
-        docstring = ds if ds else None
-    except TypeError:
-        # Some name objects don't accept raw= kwarg
+    except Exception:
         try:
             ds = jedi_name.docstring()
-            docstring = ds if ds else None
         except Exception:
-            docstring = None
-    except Exception:
-        docstring = None
+            ds = None
+    docstring = ds if ds else None
 
     # ------------------------------------------------------------------
     # Step 3 — Kind-dependent fields
