@@ -48,7 +48,7 @@ vim $CLAUDE_LEARNING_HUB/.claude/agents/worktree-manager.md
 
 ```bash
 # Generate performance reports
-for agent in worktree-manager smart-commit pr-workflow; do
+for agent in worktree-manager smart-commit; do
     echo "=== $agent ==="
     python $CLAUDE_FEEDBACK_DIR/analyze_agent_performance.py $agent --days 7
 done

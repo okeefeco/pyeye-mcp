@@ -122,7 +122,7 @@ The `claude-development` worktree is the **persistent learning hub** with specia
 
 **Important for Agents**:
 
-- When using `pr-workflow` agent with claude/development, specify `--no-delete-branch`
+- When merging claude/development PRs, use `gh pr merge <N> --merge` WITHOUT `--delete-branch` (the branch is persistent — see 06-workflow-commits.md "Special Cases")
 - When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
 - The worktree at `/home/mark/GitHub/pyeye-mcp-work/claude-development` is **persistent**
 - **NEVER switch this worktree to other branches** - always create new worktrees for releases, features, etc.

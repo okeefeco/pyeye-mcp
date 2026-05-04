@@ -102,7 +102,7 @@ fi
 
 ```bash
 # Daily review (could be automated)
-for agent in worktree-manager smart-commit pr-workflow; do
+for agent in worktree-manager smart-commit; do
     issues_today=$(grep -c "issue" $CLAUDE_FEEDBACK_DIR/logs/$(date +%Y-%m-%d)-$agent.json 2>/dev/null || echo 0)
     if [ "$issues_today" -gt 2 ]; then
         echo "📝 $agent needs update - $issues_today issues today"

@@ -21,7 +21,6 @@ This document describes the self-improvement feedback mechanism for Claude Code 
 ├── agents/
 │   ├── worktree-manager.md
 │   ├── smart-commit.md
-│   ├── pr-workflow.md
 │   └── ...
 ├── feedback/
 │   ├── logs/
@@ -264,7 +263,7 @@ Some learnings apply to multiple agents:
 - Solution: Export critical variables, use absolute paths
 
 ### Git Operations
-- Applies to: worktree-manager, smart-commit, pr-workflow
+- Applies to: worktree-manager, smart-commit
 - Learning: Git commands can fail silently
 - Solution: Always check exit codes, parse output
 
