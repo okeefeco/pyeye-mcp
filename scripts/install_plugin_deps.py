@@ -24,9 +24,10 @@ from pathlib import Path
 UV_INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
 
 
-def _fail(msg: str, code: int = 1) -> int:
-    print(f"pyeye plugin: {msg}", file=sys.stderr)
-    return code
+def _fail(msg: str) -> int:
+    # Exit code 2 triggers asyncRewake so Claude sees setup errors.
+    print(f"pyeye plugin setup error: {msg}")
+    return 2
 
 
 def main() -> int:
@@ -57,10 +58,10 @@ def main() -> int:
     try:
         result = subprocess.run(cmd, env=env, check=False)
     except FileNotFoundError:
-        return _fail(f"'uv' not found on PATH. Install: {UV_INSTALL_URL}", code=127)
+        return _fail(f"'uv' not found on PATH. Install: {UV_INSTALL_URL}")
 
     if result.returncode != 0:
-        return _fail(f"uv sync failed (exit {result.returncode})", code=result.returncode)
+        return _fail(f"uv sync failed (exit {result.returncode})")
 
     shutil.copyfile(root_lock, data_lock)
     return 0

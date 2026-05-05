@@ -1,7 +1,6 @@
 {
   "metadata": {
-    "description": "PyEye MCP server - semantic Python code analysis for Claude Code",
-    "version": "1.0.0"
+    "description": "PyEye MCP server - semantic Python code analysis for Claude Code"
   },
   "name": "pyeye-marketplace",
   "owner": {

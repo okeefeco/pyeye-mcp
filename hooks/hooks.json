@@ -4,7 +4,10 @@
       {
         "hooks": [
           {
+            "asyncRewake": true,
             "command": "uv run --no-project python \"${CLAUDE_PLUGIN_ROOT}/scripts/install_plugin_deps.py\"",
+            "rewakeSummary": "pyeye plugin setup",
+            "statusMessage": "Setting up pyeye dependencies...",
             "type": "command"
           }
         ]

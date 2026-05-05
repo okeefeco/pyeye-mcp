@@ -16,6 +16,5 @@
   "license": "MIT",
   "mcpServers": "./.mcp.json",
   "name": "pyeye",
-  "repository": "https://github.com/okeefeco/pyeye-mcp",
-  "version": "1.0.2"
+  "repository": "https://github.com/okeefeco/pyeye-mcp"
 }
