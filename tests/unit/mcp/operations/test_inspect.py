@@ -90,11 +90,19 @@ re_exports absence-vs-zero invariant (spec-driven):
   - Values are sorted lexicographically (deterministic ordering)
 """
 
+import importlib
 from pathlib import Path
 
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+# The ``inspect`` function is re-exported from ``pyeye.mcp.operations`` (see
+# operations/__init__.py), which shadows the submodule of the same name on the
+# package namespace. ``import ... as`` / ``from ... import`` both resolve via
+# attribute access and would bind the *function*, not the module. Use importlib
+# to fetch the real submodule object as the target for ``patch.object``.
+inspect_ops = importlib.import_module("pyeye.mcp.operations.inspect")
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 _FIXTURE_BASIC = Path(__file__).parent.parent.parent.parent / "fixtures" / "canonicalization_basic"
@@ -1241,8 +1249,9 @@ class TestInspectEdgeTimeout:
         async def subclasses_timeout(*_args: object, **_kwargs: object) -> int:
             raise asyncio.TimeoutError()
 
-        with patch(
-            "pyeye.mcp.operations.inspect._count_subclasses",
+        with patch.object(
+            inspect_ops,
+            "_count_subclasses",
             side_effect=subclasses_timeout,
         ):
             result = await inspect(_WIDGET_HANDLE, analyzer)
@@ -1283,7 +1292,7 @@ class TestInspectEdgeTimeout:
             await asyncio.sleep(10)  # longer than any reasonable budget
             return 99  # pragma: no cover
 
-        with patch("pyeye.mcp.operations.inspect._count_subclasses", side_effect=slow_subclasses):
+        with patch.object(inspect_ops, "_count_subclasses", side_effect=slow_subclasses):
             # Use a 0.01 second budget so the sleep definitely times out
             result = await _build_edge_counts(
                 _WIDGET_HANDLE,
@@ -1317,13 +1326,11 @@ class TestInspectEdgeTimeout:
             raise asyncio.TimeoutError()
 
         with (
-            patch("pyeye.mcp.operations.inspect._count_class_members", side_effect=always_timeout),
-            patch("pyeye.mcp.operations.inspect._count_superclasses", side_effect=always_timeout),
-            patch("pyeye.mcp.operations.inspect._count_subclasses", side_effect=always_timeout),
-            patch("pyeye.mcp.operations.inspect._count_callers_only", side_effect=always_timeout),
-            patch(
-                "pyeye.mcp.operations.inspect._count_references_only", side_effect=always_timeout
-            ),
+            patch.object(inspect_ops, "_count_class_members", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_superclasses", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_subclasses", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_callers_only", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_references_only", side_effect=always_timeout),
         ):
             result = await inspect(_WIDGET_HANDLE, analyzer)
 
@@ -1449,7 +1456,7 @@ class TestFindJediNameForHandleFallbacks:
         # Patch find_module_file to always return None (skip Cases 1 & 2)
         # Patch project.search to return our fake name
         with (
-            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(inspect_ops, "find_module_file", return_value=None),
             patch.object(analyzer.project, "search", return_value=iter([fake_name])),
         ):
             result = _find_jedi_name_for_handle(handle, analyzer)
@@ -1473,7 +1480,7 @@ class TestFindJediNameForHandleFallbacks:
         # Force Cases 1 & 2 (find_module_file) to return None
         # Force Case 3 (project.search) to return an empty iterator
         with (
-            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(inspect_ops, "find_module_file", return_value=None),
             patch.object(analyzer.project, "search", return_value=iter([])),
         ):
             result = _find_jedi_name_for_handle(handle, analyzer)
@@ -1502,7 +1509,7 @@ class TestFindJediNameForHandleFallbacks:
         handle = "totally.bogus.DoesNotExistAnywhere9999"
 
         with (
-            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(inspect_ops, "find_module_file", return_value=None),
             patch.object(analyzer.project, "search", return_value=iter([])),
         ):
             result = _find_jedi_name_for_handle(handle, analyzer)
@@ -1595,7 +1602,7 @@ class TestInspectSpanLocation:
         handle = "pathlib.Path"
 
         with (
-            patch("pyeye.mcp.operations.inspect.find_module_file", return_value=None),
+            patch.object(inspect_ops, "find_module_file", return_value=None),
             patch.object(analyzer.project, "search", return_value=iter([])),
             # Force jedi.Script constructor to raise inside the synthetic-import try block
             patch("jedi.Script", side_effect=RuntimeError("simulated jedi failure")),
@@ -1724,8 +1731,9 @@ class TestMeasureCallersAndRefsWithBudget:
             await asyncio.sleep(10)
             return 0, 0  # pragma: no cover
 
-        with patch(
-            "pyeye.mcp.operations.inspect._count_callers_and_refs",
+        with patch.object(
+            inspect_ops,
+            "_count_callers_and_refs",
             side_effect=slow_count,
         ):
             result = await _measure_callers_and_refs_with_budget(
@@ -1756,8 +1764,9 @@ class TestMeasureCallersAndRefsWithBudget:
         async def boom(*_args: object, **_kwargs: object) -> tuple[int, int]:
             raise RuntimeError("simulated Jedi analysis failure")
 
-        with patch(
-            "pyeye.mcp.operations.inspect._count_callers_and_refs",
+        with patch.object(
+            inspect_ops,
+            "_count_callers_and_refs",
             side_effect=boom,
         ):
             result = await _measure_callers_and_refs_with_budget(
@@ -2037,7 +2046,7 @@ class TestInspectReExports:
         async def always_raises(*_args: object, **_kwargs: object) -> list:
             raise RuntimeError("simulated Jedi analysis failure")
 
-        with patch("pyeye.mcp.operations.inspect.collect_re_exports", side_effect=always_raises):
+        with patch.object(inspect_ops, "collect_re_exports", side_effect=always_raises):
             result = await inspect("package._impl.config.Config", basic_analyzer)
 
         # re_exports must be absent (exception during collection → couldn't measure)
