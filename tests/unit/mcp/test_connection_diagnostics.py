@@ -63,15 +63,17 @@ class TestConnectionDiagnostics:
         assert diag1 is diag2
 
     def test_signal_handlers_registered(self) -> None:
-        """Test that signal handlers can be registered."""
-        # This just verifies no errors are raised
-        # We can't easily test actual signal handling in unit tests
+        """Test that signal handlers can be registered.
+
+        SIGTERM is available on all platforms; SIGHUP and SIGPIPE are POSIX-only
+        and must not be registered (or asserted on) when running on Windows.
+        """
         setup_signal_handlers()
 
-        # Verify handlers are registered
         assert signal.getsignal(signal.SIGTERM) != signal.SIG_DFL
-        assert signal.getsignal(signal.SIGHUP) != signal.SIG_DFL
 
-        # SIGPIPE only on Unix
+        if hasattr(signal, "SIGHUP"):
+            assert signal.getsignal(signal.SIGHUP) != signal.SIG_DFL
+
         if hasattr(signal, "SIGPIPE"):
             assert signal.getsignal(signal.SIGPIPE) != signal.SIG_DFL

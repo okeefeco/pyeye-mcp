@@ -192,8 +192,10 @@ class TestPyrightExtraPathsIntegration:
         config = ProjectConfig(str(PYRIGHT_FIXTURE))
         packages = config.get_package_paths()
 
-        # Should include the sibling path from pyright extraPaths
-        sibling = str((FIXTURES / "lookup_namespace_sibling").resolve())
+        # Should include the sibling path from pyright extraPaths.
+        # Use .as_posix() so the comparison works on Windows, where str(WindowsPath)
+        # yields backslashes but ProjectConfig stores POSIX-form strings.
+        sibling = (FIXTURES / "lookup_namespace_sibling").resolve().as_posix()
         assert any(
             sibling in p for p in packages
         ), f"Expected pyright extraPaths to be in package_paths, got: {packages}"

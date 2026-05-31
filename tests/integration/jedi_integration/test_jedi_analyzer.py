@@ -18,8 +18,11 @@ class TestJediAnalyzer:
             analyzer = JediAnalyzer(str(temp_project_dir))
 
             assert analyzer.project_path == temp_project_dir
-            # We now pass POSIX string to jedi.Project to avoid Path object cache issues
-            mock_project.assert_called_once_with(path=temp_project_dir.as_posix())
+            # JediAnalyzer calls .resolve() before passing to jedi.Project, which
+            # collapses symlinks (macOS /var -> /private/var) and expands Windows
+            # short paths (RUNNER~1 -> runneradmin). Apply the same canonicalization
+            # to the expected value so the assertion is platform-independent.
+            mock_project.assert_called_once_with(path=temp_project_dir.resolve().as_posix())
 
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio

@@ -155,6 +155,7 @@ cython_debug/
 *.override.json
 
 # uv
+# uv.lock
 .venv/
 # Auto-generated version file
 src/pyeye/_version.py

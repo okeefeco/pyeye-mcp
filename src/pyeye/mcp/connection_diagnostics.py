@@ -91,14 +91,14 @@ def setup_signal_handlers() -> None:
     """
     diagnostics = get_diagnostics()
 
-    def handle_sigterm(signum: int, _frame: Any) -> None:
+    def handle_sigterm(signum: int, _: Any) -> None:
         """Handle SIGTERM - client requested shutdown."""
         diagnostics.log_event("signal_received", f"SIGTERM (signal {signum})")
         logger.warning("Received SIGTERM - client likely disconnected")
         # Don't call sys.exit() - let the asyncio event loop shut down gracefully
         # The SIGTERM will naturally terminate the process after cleanup
 
-    def handle_sigpipe(signum: int, _frame: Any) -> None:
+    def handle_sigpipe(signum: int, _: Any) -> None:
         """Handle SIGPIPE - broken pipe (client disconnected)."""
         diagnostics.log_event("signal_received", f"SIGPIPE (signal {signum})")
         logger.error("Received SIGPIPE - stdio pipe broken, client disconnected unexpectedly")
@@ -108,23 +108,27 @@ def setup_signal_handlers() -> None:
         # Don't call sys.exit() - let the asyncio event loop shut down gracefully
         # The SIGPIPE will naturally terminate the process after cleanup
 
-    def handle_sighup(signum: int, _frame: Any) -> None:
+    def handle_sighup(signum: int, _: Any) -> None:
         """Handle SIGHUP - hangup (terminal closed)."""
         diagnostics.log_event("signal_received", f"SIGHUP (signal {signum})")
         logger.warning("Received SIGHUP - terminal hangup")
         # Don't call sys.exit() - let the asyncio event loop shut down gracefully
         # The SIGHUP will naturally terminate the process after cleanup
 
-    # Register signal handlers
+    # Register signal handlers. SIGTERM is available on all platforms; SIGHUP and
+    # SIGPIPE are POSIX-only (Windows does not define them).
     signal.signal(signal.SIGTERM, handle_sigterm)
-    signal.signal(signal.SIGHUP, handle_sighup)
+    registered = ["SIGTERM"]
 
-    # SIGPIPE may not be available on all platforms (Windows doesn't have it)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, handle_sighup)
+        registered.append("SIGHUP")
+
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, handle_sigpipe)
-        diagnostics.log_event("startup", "Signal handlers registered (SIGTERM, SIGPIPE, SIGHUP)")
-    else:
-        diagnostics.log_event("startup", "Signal handlers registered (SIGTERM, SIGHUP)")
+        registered.append("SIGPIPE")
+
+    diagnostics.log_event("startup", f"Signal handlers registered ({', '.join(registered)})")
 
     logger.info("Connection diagnostics signal handlers installed")
 
