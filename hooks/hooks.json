@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "cd ${CLAUDE_PLUGIN_ROOT} && uv sync --quiet",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

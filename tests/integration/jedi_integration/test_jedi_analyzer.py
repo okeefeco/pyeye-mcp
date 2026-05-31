@@ -18,8 +18,11 @@ class TestJediAnalyzer:
             analyzer = JediAnalyzer(str(temp_project_dir))
 
             assert analyzer.project_path == temp_project_dir
-            # We now pass POSIX string to jedi.Project to avoid Path object cache issues
-            mock_project.assert_called_once_with(path=temp_project_dir.as_posix())
+            # JediAnalyzer calls .resolve() before passing to jedi.Project, which
+            # collapses symlinks (macOS /var -> /private/var) and expands Windows
+            # short paths (RUNNER~1 -> runneradmin). Apply the same canonicalization
+            # to the expected value so the assertion is platform-independent.
+            mock_project.assert_called_once_with(path=temp_project_dir.resolve().as_posix())
 
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
@@ -86,7 +89,7 @@ class TestJediAnalyzer:
         results = await analyzer.find_symbol("test", fuzzy=True)
         assert len(results) == 3
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_goto_definition(self, mock_project_class, mock_script_class, temp_project_dir):
@@ -125,7 +128,7 @@ test_function()
         assert result["line"] == 2
         assert "docstring" in result
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_goto_definition_no_result(
@@ -147,7 +150,7 @@ test_function()
 
         assert result is None
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_find_references(self, mock_project_class, mock_script_class, temp_project_dir):
@@ -192,7 +195,7 @@ func()
         assert not results[1]["is_definition"]
         assert not results[2]["is_definition"]
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_get_type_info(self, mock_project_class, mock_script_class, temp_project_dir):
@@ -373,7 +376,7 @@ __all__ = [
         result = analyzer._find_init_file("nonexistent.module.path")
         assert result is None  # Should return None when not found
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_find_imports(self, mock_project_class, mock_script_class, temp_project_dir):
@@ -426,7 +429,7 @@ import json
         assert len(results) == 2
         assert all(r["import_statement"] == "import os" for r in results)
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_get_call_hierarchy(
@@ -496,30 +499,31 @@ def main():
         assert "Failed to search for symbol 'test'" in str(exc_info.value)
         assert "Error in find_symbol" in caplog.text
 
-    @pytest.mark.skip(reason="_serialize_name method doesn't exist in JediAnalyzer")
-    def test_serialize_name(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_serialize_name(self, temp_project_dir):
         """Test serializing Jedi name objects."""
         with patch("pyeye.analyzers.jedi_analyzer.jedi.Project"):
             analyzer = JediAnalyzer(str(temp_project_dir))
 
-            # Create mock name object
+            # Create mock name object matching the fields _serialize_name reads
             mock_name = Mock()
             mock_name.name = "TestClass"
-            mock_name.module_name = "test_module"
             mock_name.line = 42
             mock_name.column = 8
             mock_name.module_path = Path("/test/module.py")
             mock_name.type = "class"
+            mock_name.description = "class TestClass"
+            mock_name.full_name = "test_module.TestClass"
             mock_name.docstring = Mock(return_value="Test class docstring")
 
-            result = analyzer._serialize_name(mock_name, include_docstring=True)
+            result = await analyzer._serialize_name(mock_name, include_docstring=True)
 
             assert result["name"] == "TestClass"
-            assert result["module"] == "test_module"
             assert result["line"] == 42
             assert result["column"] == 8
             assert result["type"] == "class"
-            assert "docstring" in result
+            assert result["file"] == "/test/module.py"
+            assert result["docstring"] == "Test class docstring"
 
     @pytest.mark.asyncio
     async def test_nonexistent_file_handling(self, temp_project_dir):
@@ -567,7 +571,7 @@ def main():
             await analyzer.get_type_info("nonexistent.py", 1, 0)
         assert "nonexistent.py" in str(exc_info.value)
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @pytest.mark.asyncio
     async def test_get_type_info_jedi_error(self, mock_script_class, temp_project_dir):
         """Test get_type_info when Jedi raises an error."""
@@ -596,7 +600,7 @@ def main():
             await analyzer.find_references("nonexistent.py", 1, 0)
         assert "nonexistent.py" in str(exc_info.value)
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @pytest.mark.asyncio
     async def test_find_references_jedi_error(self, mock_script_class, temp_project_dir, caplog):
         """Test find_references when Jedi raises an error."""
@@ -645,7 +649,7 @@ def main():
             await analyzer.get_call_hierarchy("test_func")
         assert "Failed to get call hierarchy" in str(exc_info.value)
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_get_call_hierarchy_with_file_path(
@@ -682,7 +686,7 @@ def main():
         assert "callers" in result
         assert "callees" in result
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Script")
+    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
     async def test_get_call_hierarchy_with_class(

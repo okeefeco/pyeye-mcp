@@ -242,10 +242,10 @@ class DjangoPlugin(AnalyzerPlugin):
     def get_framework_components(self) -> dict[str, list[str]]:
         """Get Django framework components."""
         return {
-            "models": [str(f) for f in self.project_path.rglob("models.py")],
-            "views": [str(f) for f in self.project_path.rglob("views.py")],
-            "urls": [str(f) for f in self.project_path.rglob("urls.py")],
-            "serializers": [str(f) for f in self.project_path.rglob("serializers.py")],
-            "admin": [str(f) for f in self.project_path.rglob("admin.py")],
-            "forms": [str(f) for f in self.project_path.rglob("forms.py")],
+            "models": [f.as_posix() for f in self.project_path.rglob("models.py")],
+            "views": [f.as_posix() for f in self.project_path.rglob("views.py")],
+            "urls": [f.as_posix() for f in self.project_path.rglob("urls.py")],
+            "serializers": [f.as_posix() for f in self.project_path.rglob("serializers.py")],
+            "admin": [f.as_posix() for f in self.project_path.rglob("admin.py")],
+            "forms": [f.as_posix() for f in self.project_path.rglob("forms.py")],
         }
