@@ -290,17 +290,13 @@ class TestInspectResponseConformance:
 
         analyzer = _make_analyzer(_RESOLVE_PROJECT)
         result = await inspect("completely.unknown.handle.xyz", analyzer)
-        # Fallback node: kind='variable', edge_counts={}
-        # Variable kind expects 'references' in edge_counts, but the minimal
-        # fallback returns {} because the symbol wasn't found.
-        # The linter must handle this gracefully by accepting empty edge_counts
-        # when the measurement couldn't run (timeout / not found).
-        # Note: we call lint_response but the linter will flag missing 'references'.
-        # This is intentional — it reveals a real conformance tension in the fallback.
-        # For now, we assert the result shape without full linting.
+        # Fallback node: kind='variable', edge_counts={}.
+        # Since callers/references were removed (#332), a variable handle has no
+        # required edges — empty edge_counts is fully valid and passes the linter.
         assert isinstance(result, dict)
         assert result["kind"] == "variable"
         assert result["edge_counts"] == {}
+        lint_response(result, "inspect")
 
     @pytest.mark.asyncio
     async def test_inspect_package_module_passes(self) -> None:

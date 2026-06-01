@@ -131,9 +131,10 @@ _DELUXE_HANDLE = "mypackage._core.widgets.Deluxe"
 _PATH_CLASS_HANDLE = "pathlib.Path"
 
 # All 5 edge types measured by Phase 4 (must be present for relevant kinds)
-_PHASE4_MEASURED_EDGES = frozenset(
-    {"members", "superclasses", "subclasses", "callers", "references"}
-)
+# callers/references removed (#332): derived from Jedi's budget-capped
+# get_references, which under-reports non-deterministically. Omitted until an
+# indexed backend lands (#333). Only structural edges remain measured.
+_PHASE4_MEASURED_EDGES = frozenset({"members", "superclasses", "subclasses"})
 
 # All unmeasured edge types in Phase 4 (must be ABSENT from edge_counts)
 _PHASE4_UNMEASURED_EDGES = [
@@ -960,133 +961,59 @@ class TestInspectEdgeCounts:
             f"got subclasses={result['edge_counts']['subclasses']}"
         )
 
-    # ------------------------------------------------------------------ (d)
+    # ------------------------------------------------------------------ (d/e)
+    # callers/references are NO LONGER measured (#332): they were derived from
+    # Jedi's budget-capped get_references, which under-reports non-deterministically.
+    # They are omitted entirely (absence = "not measured") until an indexed backend
+    # lands (#333).  The tests below assert that omission across kinds.
     @pytest.mark.asyncio
-    async def test_function_has_callers_count_key(self, analyzer: JediAnalyzer) -> None:
-        """(d) Function handles have edge_counts['callers'] key present.
+    async def test_function_omits_callers_and_references(self, analyzer: JediAnalyzer) -> None:
+        """Function handles must NOT carry callers/references (omitted, #332).
 
-        make_widget is called from usage.py — callers >= 2.
-        Phase 3 returns edge_counts: {} so 'callers' is absent → FAIL.
+        make_widget is called in usage.py, but callers/references are no longer
+        measured.  A function handle's edge_counts therefore has neither key
+        (and, having no other measured edges, is empty).
         """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
 
-        assert "callers" in result["edge_counts"], (
-            f"Function handle must have edge_counts['callers'] key; "
+        assert "callers" not in result["edge_counts"], (
+            f"callers is no longer measured (#332) and must be absent; "
             f"got edge_counts={result['edge_counts']!r}"
         )
-        # make_widget is called twice in usage.py
-        assert result["edge_counts"]["callers"] >= 2, (
-            f"make_widget is called >= 2 times in usage.py; "
-            f"got callers={result['edge_counts']['callers']}"
+        assert "references" not in result["edge_counts"], (
+            f"references is no longer measured (#332) and must be absent; "
+            f"got edge_counts={result['edge_counts']!r}"
         )
 
     @pytest.mark.asyncio
-    async def test_method_has_callers_count(self, analyzer: JediAnalyzer) -> None:
-        """(d) Method handles have edge_counts['callers'] key with count >= 0.
-
-        Widget.greet is called from usage.py — callers >= 2.
-        Phase 3 returns edge_counts: {} so 'callers' is absent → FAIL.
-        """
+    async def test_method_omits_callers(self, analyzer: JediAnalyzer) -> None:
+        """Method handles must NOT carry callers (omitted, #332)."""
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_GREET_HANDLE, analyzer)
 
-        assert "callers" in result["edge_counts"], (
-            f"Method handle must have edge_counts['callers'] key; "
+        assert "callers" not in result["edge_counts"], (
+            f"callers is no longer measured (#332) and must be absent; "
             f"got edge_counts={result['edge_counts']!r}"
         )
-        # greet is called twice in usage.py
-        assert result["edge_counts"]["callers"] >= 2, (
-            f"Widget.greet is called >= 2 times in usage.py; "
-            f"got callers={result['edge_counts']['callers']}"
-        )
 
     @pytest.mark.asyncio
-    async def test_function_with_no_callers_returns_zero(self, analyzer: JediAnalyzer) -> None:
-        """(d/g) A truly uncalled function has callers: 0 (PRESENT, not omitted).
+    async def test_variable_omits_references(self, analyzer: JediAnalyzer) -> None:
+        """Variable handles must NOT carry references (omitted, #332).
 
-        Widget.normalize is a staticmethod not called in any fixture file.
-        edge_counts['callers'] MUST be 0 (present), NOT absent.
-        Phase 3 returns edge_counts: {} → FAIL.
-        """
-        from pyeye.mcp.operations.inspect import inspect
-
-        result = await inspect(_NORMALIZE_HANDLE, analyzer)
-
-        assert "callers" in result["edge_counts"], (
-            f"normalize has no callers — but 'callers' key MUST be present with value 0; "
-            f"got edge_counts={result['edge_counts']!r}. "
-            "Absence means 'not measured'; 0 means 'measured, no callers found'."
-        )
-        assert result["edge_counts"]["callers"] == 0, (
-            f"Widget.normalize is uncalled in the fixture project; expected callers=0; "
-            f"got callers={result['edge_counts']['callers']}"
-        )
-
-    # ------------------------------------------------------------------ (e)
-    @pytest.mark.asyncio
-    async def test_handle_has_references_aggregate_count(self, analyzer: JediAnalyzer) -> None:
-        """(e) edge_counts['references'] aggregates read/written/passed; excludes call sites.
-
-        DEFAULT_NAME is read in usage.py (name = DEFAULT_NAME) without being called.
-        So references >= 1.  It is NOT called, so callers == 0 (separate key).
-        Phase 3 returns edge_counts: {} so 'references' is absent → FAIL.
+        DEFAULT_NAME is read in usage.py, but references is no longer measured,
+        so a variable handle's edge_counts is empty (no measured edges remain).
         """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
 
-        assert "references" in result["edge_counts"], (
-            f"Variable handle must have edge_counts['references'] key; "
+        assert "references" not in result["edge_counts"], (
+            f"references is no longer measured (#332) and must be absent; "
             f"got edge_counts={result['edge_counts']!r}"
         )
-        # DEFAULT_NAME is read at least once in usage.py
-        assert result["edge_counts"]["references"] >= 1, (
-            f"DEFAULT_NAME is read >= 1 time in usage.py; "
-            f"got references={result['edge_counts']['references']}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_references_excludes_call_sites(self, analyzer: JediAnalyzer) -> None:
-        """(e) references and callers are DISTINCT — call sites counted only in callers.
-
-        make_widget is called twice (usage.py) and the name is also imported once.
-        The import/read is a reference; the calls are callers.
-        So: callers >= 2 AND references >= 0 (at minimum the import is a reference).
-        Critically: callers and references must NOT double-count call sites.
-        Phase 3 returns edge_counts: {} → FAIL.
-        """
-        from pyeye.mcp.operations.inspect import inspect
-
-        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
-
-        assert "callers" in result["edge_counts"], (
-            f"make_widget must have 'callers' in edge_counts; " f"got {result['edge_counts']!r}"
-        )
-        assert "references" in result["edge_counts"], (
-            f"make_widget must have 'references' in edge_counts; " f"got {result['edge_counts']!r}"
-        )
-
-        callers = result["edge_counts"]["callers"]
-        references = result["edge_counts"]["references"]
-
-        # make_widget is called twice — callers must be >= 2
-        assert callers >= 2, f"make_widget called >= 2 times; got callers={callers}"
-
-        # References should NOT include the call sites (those are in callers).
-        # The import statement counts as a reference; actual calls do NOT.
-        # The import in usage.py is: from mypackage._core.widgets import ..., make_widget
-        # So references >= 0. We verify callers and references don't sum to > total usages,
-        # which would indicate double-counting.
-        assert references >= 0, f"references must be >= 0; got references={references}"
-        # The call sites (callers) must NOT be counted in references too:
-        # If total usages = N, and callers = 2, then references < N (calls excluded).
-        # We assert references != callers as a proxy that they're not the same count
-        # (unless by coincidence, which is acceptable).
-        # The key invariant: references is the non-call usage count.
-        assert isinstance(references, int), f"references must be an int; got {type(references)!r}"
 
     # ------------------------------------------------------------------ (f)
     @pytest.mark.asyncio
@@ -1168,13 +1095,11 @@ class TestInspectEdgeCounts:
         )
 
     @pytest.mark.asyncio
-    async def test_all_five_phase4_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
-        """All 5 Phase 4 edge types are present in edge_counts for a class handle.
+    async def test_all_measured_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
+        """All measured edge types are present in edge_counts for a class handle.
 
-        Widget is a class — Phase 4 wires members, superclasses, subclasses,
-        callers (= 0, Widget is not a callable in the callers sense), and references.
-        All 5 keys must be present.
-        Phase 3 returns {} → FAIL (none of the 5 keys are present).
+        Widget is a class — the measured class edges are members, superclasses,
+        and subclasses (callers/references removed, #332).  All must be present.
         """
         from pyeye.mcp.operations.inspect import inspect
 
@@ -1187,12 +1112,12 @@ class TestInspectEdgeCounts:
             )
 
     @pytest.mark.asyncio
-    async def test_only_phase4_edges_present_no_extras(self, analyzer: JediAnalyzer) -> None:
-        """edge_counts contains ONLY the 5 Phase 4 measured edges (no extras).
+    async def test_only_measured_edges_present_no_extras(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts contains ONLY the measured edges (no extras).
 
-        After Phase 4, edge_counts must contain exactly the 5 measured keys
-        (for the appropriate kinds) and nothing else.
-        Phase 3 returns {} — this test FAILS because the 5 keys are absent.
+        For a class, edge_counts must contain exactly the measured class keys
+        (members, superclasses, subclasses) and nothing else — in particular
+        no callers/references (removed, #332).
         """
         from pyeye.mcp.operations.inspect import inspect
 
@@ -1266,7 +1191,7 @@ class TestInspectEdgeTimeout:
         )
 
         # Other class edges must still be present (per-measurement isolation)
-        for edge in ("members", "superclasses", "references"):
+        for edge in ("members", "superclasses"):
             assert edge in edge_counts, (
                 f"Edge {edge!r} must still be present when subclasses timed out; "
                 f"got edge_counts={edge_counts!r}"
@@ -1329,8 +1254,6 @@ class TestInspectEdgeTimeout:
             patch.object(inspect_ops, "_count_class_members", side_effect=always_timeout),
             patch.object(inspect_ops, "_count_superclasses", side_effect=always_timeout),
             patch.object(inspect_ops, "_count_subclasses", side_effect=always_timeout),
-            patch.object(inspect_ops, "_count_callers_only", side_effect=always_timeout),
-            patch.object(inspect_ops, "_count_references_only", side_effect=always_timeout),
         ):
             result = await inspect(_WIDGET_HANDLE, analyzer)
 
@@ -1709,74 +1632,13 @@ class TestBuildAttributeFieldsPropertyBranch:
             tmp_path.unlink(missing_ok=True)
 
 
-class TestMeasureCallersAndRefsWithBudget:
-    """Tests for _measure_callers_and_refs_with_budget timeout/exception paths (lines 1004-1020)."""
+class TestBuildEdgeCounts:
+    """Tests for _build_edge_counts behaviour.
 
-    @pytest.mark.asyncio
-    async def test_timeout_omits_both_callers_and_references(self, analyzer: JediAnalyzer) -> None:
-        """When _count_callers_and_refs times out, the budget function returns None.
-
-        This exercises the asyncio.TimeoutError handler at lines 1004-1011.
-        The caller (_build_edge_counts) then omits both callers and references.
-        """
-        import asyncio
-        from unittest.mock import MagicMock, patch
-
-        from pyeye.mcp.operations.inspect import _measure_callers_and_refs_with_budget
-
-        mock_name = MagicMock()
-        mock_name.module_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
-
-        async def slow_count(*_args: object, **_kwargs: object) -> tuple[int, int]:
-            await asyncio.sleep(10)
-            return 0, 0  # pragma: no cover
-
-        with patch.object(
-            inspect_ops,
-            "_count_callers_and_refs",
-            side_effect=slow_count,
-        ):
-            result = await _measure_callers_and_refs_with_budget(
-                _MAKE_WIDGET_HANDLE,
-                mock_name,
-                analyzer,
-                budget_seconds=0.01,  # tiny budget so sleep definitely times out
-            )
-
-        assert result is None, (
-            f"Timed-out budget function must return None; got {result!r}. "
-            "None means 'both callers and references are absent'."
-        )
-
-    @pytest.mark.asyncio
-    async def test_exception_in_count_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """When _count_callers_and_refs raises a generic Exception, the budget returns None.
-
-        This exercises the generic except handler at lines 1012-1020.
-        """
-        from unittest.mock import MagicMock, patch
-
-        from pyeye.mcp.operations.inspect import _measure_callers_and_refs_with_budget
-
-        mock_name = MagicMock()
-        mock_name.module_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
-
-        async def boom(*_args: object, **_kwargs: object) -> tuple[int, int]:
-            raise RuntimeError("simulated Jedi analysis failure")
-
-        with patch.object(
-            inspect_ops,
-            "_count_callers_and_refs",
-            side_effect=boom,
-        ):
-            result = await _measure_callers_and_refs_with_budget(
-                _MAKE_WIDGET_HANDLE,
-                mock_name,
-                analyzer,
-                budget_seconds=5.0,
-            )
-
-        assert result is None, f"Exception in budget function must return None; got {result!r}."
+    The former callers/references budget-path tests were removed with those
+    edges (#332); the shared per-edge budget path remains covered by
+    TestInspectEdgeTimeout.
+    """
 
     @pytest.mark.asyncio
     async def test_build_edge_counts_unknown_kind_returns_empty(

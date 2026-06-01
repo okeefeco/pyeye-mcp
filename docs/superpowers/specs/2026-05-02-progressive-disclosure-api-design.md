@@ -373,6 +373,20 @@ The same rule applies to:
 
 **Why this matters.** "Zero results" is a load-bearing signal — a class with `subclasses: 0` is genuinely unextended; a function with `callers: 0` is genuinely unused (within scope). Conflating that with "we didn't bother to check" destroys the agent's ability to distinguish certainty from ignorance, and quiet differences between implementations would silently corrupt downstream reasoning.
 
+> **Implementation status (2026-06): `callers` and `references` are NOT measured.**
+> The current Jedi-backed implementation measures only `members`, `superclasses`,
+> and `subclasses`. `callers` and `references` were removed because they were
+> derived from Jedi's `get_references`, which is budget-capped upstream ("broken
+> since forever" per Jedi's author) and under-reports non-deterministically
+> depending on the anchor position — anchored at a definition it can return a
+> near-empty set for a heavily-used symbol. Emitting `callers: 0` for a symbol
+> with many live callers would be a *false zero*, the exact failure the
+> absence-vs-zero invariant above exists to prevent. Per that invariant, these
+> edges are therefore **omitted** (absent = "not measured"), not reported as 0.
+> They return once an indexed reference backend (Pyright) lands. Restoring them
+> (absent → present) is a non-breaking, conformant change. See issues #332
+> (root cause + decision) and #333 (Pyright/daemon direction).
+
 ### Kind-dependent properties (on Python kinds)
 
 | Kind | Additional fields |

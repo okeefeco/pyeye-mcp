@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import functools
 import logging
 import time
 from collections.abc import Awaitable
@@ -703,58 +702,6 @@ class _ModuleSentinel:
 # ---------------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=256)
-def _read_file_lines(file_str: str) -> tuple[str, ...]:
-    """Read a file's lines; cached to avoid re-reading per reference site.
-
-    Keyed by POSIX file path string.  LRU-evicts at 256 entries to bound
-    memory.  Returns an empty tuple on any I/O or encoding error.
-
-    Args:
-        file_str: POSIX file path string.
-
-    Returns:
-        A tuple of line strings (no trailing newlines).
-    """
-    try:
-        with open(file_str, encoding="utf-8", errors="replace") as f:
-            return tuple(f.read().splitlines())
-    except (OSError, UnicodeDecodeError):
-        return ()
-
-
-def _is_call_site(file_str: str, line: int, col: int, name: str) -> bool:
-    """Return True if the symbol reference at (file, line, col) is a call site.
-
-    Checks whether the character immediately after the symbol name at column
-    ``col`` is an opening parenthesis ``(``.  This is a source-level heuristic
-    that works reliably for simple call patterns (``f()``, ``obj.method()``,
-    ``pkg.func(*args)``).
-
-    File lines are read via ``_read_file_lines`` which is LRU-cached, so a
-    file with N reference sites is read from disk only once per inspect call.
-
-    Args:
-        file_str: POSIX file path string.
-        line: 1-indexed line number.
-        col: 0-indexed column of the name start.
-        name: The symbol name (to compute the end column).
-
-    Returns:
-        ``True`` when the character at ``col + len(name)`` is ``(``.
-    """
-    try:
-        lines = _read_file_lines(file_str)
-        if 0 <= line - 1 < len(lines):
-            src_line = lines[line - 1]
-            check_pos = col + len(name)
-            if check_pos < len(src_line):
-                return src_line[check_pos] == "("
-    except Exception:
-        pass
-    return False
-
-
 async def _measure_with_budget(
     edge_name: str,
     measurement_coro: Awaitable[int],
@@ -904,190 +851,6 @@ async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
         return 0
 
 
-async def _count_callers_and_refs(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-) -> tuple[int, int]:
-    """Count callers and non-call references for a function/method.
-
-    Uses Jedi ``get_references`` (excluding definitions) then partitions
-    results into call sites vs non-call references using a source-level
-    heuristic (character immediately after the name is ``(``) .
-
-    Args:
-        handle: Canonical dotted-name string.
-        jedi_name: Jedi ``Name`` for the function/method.
-        analyzer: Active analyzer.
-
-    Returns:
-        ``(callers, references)`` tuple where ``callers`` is the count of
-        call sites and ``references`` is the count of non-call usages.
-    """
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0, 0
-    try:
-        file_str = file_path.as_posix()
-        line = jedi_name.line
-        col = jedi_name.column
-        if not line:
-            return 0, 0
-        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
-        name = handle.split(".")[-1]
-        callers = 0
-        references = 0
-        for ref in refs:
-            ref_file = ref.get("file", "")
-            ref_line = ref.get("line", 0)
-            ref_col = ref.get("column", 0)
-            if ref_file and _is_call_site(ref_file, ref_line, ref_col, name):
-                callers += 1
-            else:
-                references += 1
-        return callers, references
-    except Exception:
-        return 0, 0
-
-
-async def _count_references_only(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-) -> int:
-    """Count non-call references for a non-callable symbol (attr/variable/module/class).
-
-    For non-callable kinds (attributes, variables, modules, and classes when
-    accessed as a reference), all non-definition uses count as references.
-    There is no separate callers count.
-
-    Args:
-        handle: Canonical dotted-name string.
-        jedi_name: Jedi ``Name`` for the symbol.
-        analyzer: Active analyzer.
-
-    Returns:
-        Count of non-definition, non-call references.
-    """
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        file_str = file_path.as_posix()
-        line = jedi_name.line
-        col = jedi_name.column
-        if not line:
-            return 0
-        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
-        name = handle.split(".")[-1]
-        # For non-callable kinds, exclude call sites from references count
-        # (a class used as a constructor call is a caller, not a reference)
-        count = 0
-        for ref in refs:
-            ref_file = ref.get("file", "")
-            ref_line = ref.get("line", 0)
-            ref_col = ref.get("column", 0)
-            if ref_file and not _is_call_site(ref_file, ref_line, ref_col, name):
-                count += 1
-        return count
-    except Exception:
-        return 0
-
-
-async def _count_callers_only(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-) -> int:
-    """Count call sites for a class handle (instantiation calls).
-
-    For classes, we measure callers as the number of times the class is
-    instantiated (called with ``()``).
-
-    Args:
-        handle: Canonical dotted-name string.
-        jedi_name: Jedi ``Name`` for the class.
-        analyzer: Active analyzer.
-
-    Returns:
-        Count of call sites (instantiation/call usages).
-    """
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        file_str = file_path.as_posix()
-        line = jedi_name.line
-        col = jedi_name.column
-        if not line:
-            return 0
-        refs = await analyzer.find_references(file_str, line, col, include_definitions=False)
-        name = handle.split(".")[-1]
-        count = 0
-        for ref in refs:
-            ref_file = ref.get("file", "")
-            ref_line = ref.get("line", 0)
-            ref_col = ref.get("column", 0)
-            if ref_file and _is_call_site(ref_file, ref_line, ref_col, name):
-                count += 1
-        return count
-    except Exception:
-        return 0
-
-
-async def _measure_callers_and_refs_with_budget(
-    handle: str,
-    jedi_name: Any,
-    analyzer: JediAnalyzer,
-    budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
-) -> tuple[int, int] | None:
-    """Run ``_count_callers_and_refs`` under a single shared time budget.
-
-    Uses ONE ``find_references`` call to derive both ``callers`` and
-    ``references`` counts.  A timeout or error on the shared query omits
-    BOTH edges — this is correct: if we couldn't finish the query, neither
-    count is reliable.
-
-    Note: Jedi's API is synchronous internally, so the ``asyncio.wait_for``
-    wrapper provides clean budget enforcement but does not provide true
-    concurrency with other async tasks.
-
-    Args:
-        handle: Canonical dotted-name string (for logging).
-        jedi_name: Jedi ``Name`` for the function/method.
-        analyzer: Active analyzer.
-        budget_seconds: Maximum wall-clock time for the combined measurement.
-
-    Returns:
-        ``(callers, references)`` tuple on success, or ``None`` on
-        timeout/error (both edges are absent when ``None`` is returned).
-    """
-    start = time.perf_counter()
-    try:
-        result = await asyncio.wait_for(
-            _count_callers_and_refs(handle, jedi_name, analyzer),
-            timeout=budget_seconds,
-        )
-        return result
-    except asyncio.TimeoutError:
-        elapsed = time.perf_counter() - start
-        logger.warning(
-            "inspect.edge_counts: callers+references timeout after %.2fs (handle=%r)",
-            elapsed,
-            handle,
-        )
-        return None
-    except Exception as exc:
-        elapsed = time.perf_counter() - start
-        logger.warning(
-            "inspect.edge_counts: callers+references failed after %.2fs (handle=%r): %s",
-            elapsed,
-            handle,
-            exc,
-        )
-        return None
-
-
 async def _build_edge_counts(
     handle: str,
     kind: str,
@@ -1095,23 +858,28 @@ async def _build_edge_counts(
     analyzer: JediAnalyzer,
     budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
 ) -> dict[str, int]:
-    """Build the edge_counts dict per Phase 4 contract.
+    """Build the edge_counts dict.
 
     Each edge measurement runs under an independent time budget.  Edges that
     time out or error are OMITTED from the returned dict (absence-vs-zero
     invariant).  Edges that succeed are included even when the count is 0.
 
-    For function/method handles, ``callers`` and ``references`` share ONE
-    ``find_references`` call via ``_measure_callers_and_refs_with_budget``.
-    A timeout on that shared query omits BOTH edges — if the underlying query
-    didn't complete, neither derived count is reliable.
-
-    Phase 4 measures exactly 5 edge types:
+    Measured edge types:
     - ``members``: count of direct members (class and module handles)
     - ``superclasses``: count of direct superclasses (class handles)
     - ``subclasses``: count of project-internal subclasses (class handles)
-    - ``callers``: count of call sites (function/method handles; also class)
-    - ``references``: non-call usages aggregate (all kinds)
+
+    **``callers`` and ``references`` are intentionally NOT measured** (see #332).
+    They were derived from Jedi's ``get_references``, which is budget-capped
+    upstream ("broken since forever" per Jedi's author) and under-reports
+    non-deterministically depending on the anchor position — anchored at a
+    definition it can return a near-empty set for a heavily-used symbol.
+    Emitting ``callers: 0`` for something with 80 live callers is worse than
+    emitting nothing, and violates the absence-vs-zero invariant (a measured
+    ``0`` must mean "measured, none found", not "couldn't measure").  These
+    edges are therefore omitted entirely until an indexed reference backend
+    (Pyright) lands — see #333.  Their absence reads correctly as "not
+    measured"; restoring them later (absent → present) is non-breaking.
 
     Note: Jedi's API is synchronous internally, so ``asyncio.gather`` provides
     clean concurrent-looking code but execution is effectively serialized.
@@ -1124,40 +892,26 @@ async def _build_edge_counts(
         budget_seconds: Per-edge time budget in seconds.
 
     Returns:
-        A dict containing the successfully measured edges.
+        A dict containing the successfully measured edges.  May be empty
+        (e.g. for function/method handles, whose only edges were the omitted
+        ``callers``/``references``).
     """
     counts: dict[str, int] = {}
 
-    if kind in ("function", "method"):
-        # ONE find_references call shared between callers and references.
-        # A timeout omits BOTH — we couldn't measure either reliably.
-        pair = await _measure_callers_and_refs_with_budget(
-            handle, jedi_name, analyzer, budget_seconds
-        )
-        if pair is not None:
-            callers, references = pair
-            counts["callers"] = callers
-            counts["references"] = references
-        return counts
-
-    # For all other kinds, build a dict of independent single-int coroutines.
+    # Build a dict of independent single-int coroutines per kind.
+    # callers/references are deliberately excluded — see docstring / #332.
     coros: dict[str, Awaitable[int]] = {}
 
     if kind == "class":
         coros["members"] = _count_class_members(handle, jedi_name, analyzer)
         coros["superclasses"] = _count_superclasses(jedi_name, analyzer)
         coros["subclasses"] = _count_subclasses(handle, analyzer)
-        coros["callers"] = _count_callers_only(handle, jedi_name, analyzer)
-        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
 
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
-        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
 
-    elif kind in ("attribute", "property", "variable", "statement"):
-        coros["references"] = _count_references_only(handle, jedi_name, analyzer)
-
-    # else: kind not handled → no measurements; counts stays empty
+    # function, method, attribute, property, variable, statement: no measured
+    # edges remain after callers/references were removed → counts stays empty.
 
     if not coros:
         return counts

@@ -146,24 +146,29 @@ KNOWN_EDGE_TYPES: frozenset[str] = frozenset(
 # B.2 — Plugin edge pattern: e.g. "validators@pydantic"
 _PLUGIN_EDGE_RE: re.Pattern[str] = re.compile(r"^\w+@\w+$")
 
-# B.3 — Phase 4 measured edges per kind.
+# B.3 — Measured edges per kind.
 # Maps kind → frozenset of edge keys that MUST be present (possibly 0) when
 # the implementation measured them.  "other" kinds produce no measurements.
+#
+# ``callers`` and ``references`` were REMOVED from every kind (see #332): they
+# were derived from Jedi's budget-capped ``get_references`` and under-reported
+# non-deterministically, so they are no longer measured and now live in
+# ``_PHASE4_UNMEASURED_EDGES`` (forbidden).  function/method/attribute/property/
+# variable handles therefore have NO required edges — an empty edge_counts is
+# valid for them.  They return once an indexed backend lands (#333).
 _PHASE4_EXPECTED_EDGES: dict[str, frozenset[str]] = {
-    "class": frozenset({"members", "superclasses", "subclasses", "callers", "references"}),
-    "module": frozenset({"members", "references"}),
-    "function": frozenset({"callers", "references"}),
-    "method": frozenset({"callers", "references"}),
-    "attribute": frozenset({"references"}),
-    "property": frozenset({"references"}),
-    "variable": frozenset({"references"}),
+    "class": frozenset({"members", "superclasses", "subclasses"}),
+    "module": frozenset({"members"}),
 }
 
-# B.3 — Keys that must NOT appear (they are Phase 4 unmeasured edges).
-# These are in KNOWN_EDGE_TYPES (future vocab) but are NOT measured by Phase 4.
+# B.3 — Keys that must NOT appear (unmeasured edges).
+# These are in KNOWN_EDGE_TYPES (future vocab) but are NOT measured.
 # Their presence with any value (including 0) is a false claim about measurements.
+# ``callers``/``references`` are here pending the indexed-backend fix (#332/#333).
 _PHASE4_UNMEASURED_EDGES: frozenset[str] = frozenset(
     {
+        "callers",
+        "references",
         "callees",
         "read_by",
         "written_by",

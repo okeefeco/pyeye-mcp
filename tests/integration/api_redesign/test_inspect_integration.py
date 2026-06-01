@@ -90,11 +90,17 @@ class TestInspectUniversalFields:
         assert isinstance(
             result["edge_counts"], dict
         ), f"edge_counts must be a dict; got {type(result['edge_counts'])!r}"
-        # Phase 4: edge_counts is populated with measured edges for class handles.
-        # All 5 measured edge types must be present for Widget (a class).
-        for edge in ("members", "superclasses", "subclasses", "callers", "references"):
+        # edge_counts is populated with measured edges for class handles.
+        # The measured class edges are members/superclasses/subclasses; callers
+        # and references were removed (#332).
+        for edge in ("members", "superclasses", "subclasses"):
             assert edge in result["edge_counts"], (
-                f"Phase 4 must populate edge_counts[{edge!r}] for class Widget; "
+                f"inspect must populate edge_counts[{edge!r}] for class Widget; "
+                f"got edge_counts={result['edge_counts']!r}"
+            )
+        for edge in ("callers", "references"):
+            assert edge not in result["edge_counts"], (
+                f"edge_counts[{edge!r}] was removed (#332) and must be absent; "
                 f"got edge_counts={result['edge_counts']!r}"
             )
 

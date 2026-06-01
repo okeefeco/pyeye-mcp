@@ -39,8 +39,6 @@ _VALID_CLASS: dict = {
         "members": 0,
         "superclasses": 0,
         "subclasses": 0,
-        "callers": 0,
-        "references": 0,
     },
     "re_exports": [],
 }
@@ -58,7 +56,7 @@ _VALID_FUNCTION: dict = {
     "is_async": False,
     "is_classmethod": False,
     "is_staticmethod": False,
-    "edge_counts": {"callers": 0, "references": 0},
+    "edge_counts": {},
     "re_exports": [],
 }
 
@@ -70,7 +68,7 @@ _VALID_MODULE: dict = {
     "location": {"file": "pkg/__init__.py", "line_start": 1, "line_end": 1},
     "docstring": None,
     "is_package": True,
-    "edge_counts": {"members": 5, "references": 0},
+    "edge_counts": {"members": 5},
 }
 
 # ---------------------------------------------------------------------------
@@ -474,22 +472,22 @@ class TestAbsenceVsZeroDetection:
         with pytest.raises(ConformanceViolation, match="subclasses"):
             lint_response(bad, "inspect")
 
-    def test_class_missing_callers_edge_rejected(self) -> None:
-        """class kind must have 'callers' in edge_counts."""
+    def test_class_callers_edge_present_rejected(self) -> None:
+        """'callers' is no longer measured (#332); its presence is rejected."""
         bad = _clone(_VALID_CLASS)
-        del bad["edge_counts"]["callers"]
+        bad["edge_counts"]["callers"] = 0
         with pytest.raises(ConformanceViolation, match="callers"):
             lint_response(bad, "inspect")
 
-    def test_class_missing_references_edge_rejected(self) -> None:
-        """class kind must have 'references' in edge_counts."""
+    def test_class_references_edge_present_rejected(self) -> None:
+        """'references' is no longer measured (#332); its presence is rejected."""
         bad = _clone(_VALID_CLASS)
-        del bad["edge_counts"]["references"]
+        bad["edge_counts"]["references"] = 0
         with pytest.raises(ConformanceViolation, match="references"):
             lint_response(bad, "inspect")
 
     def test_class_with_only_two_edges_rejected(self) -> None:
-        """class with only 2 of 5 expected edges is rejected."""
+        """class with only 2 of 3 expected edges is rejected."""
         bad = _clone(_VALID_CLASS)
         bad["edge_counts"] = {"members": 0, "superclasses": 0}
         with pytest.raises(ConformanceViolation):
@@ -523,17 +521,17 @@ class TestAbsenceVsZeroDetection:
         with pytest.raises(ConformanceViolation, match="members"):
             lint_response(bad, "inspect")
 
-    def test_module_missing_references_rejected(self) -> None:
-        """module kind must have 'references' in edge_counts."""
+    def test_module_references_present_rejected(self) -> None:
+        """'references' is no longer measured (#332); its presence is rejected."""
         bad = _clone(_VALID_MODULE)
-        del bad["edge_counts"]["references"]
+        bad["edge_counts"]["references"] = 0
         with pytest.raises(ConformanceViolation, match="references"):
             lint_response(bad, "inspect")
 
-    def test_function_missing_callers_rejected(self) -> None:
-        """function kind must have 'callers' in edge_counts."""
+    def test_function_callers_present_rejected(self) -> None:
+        """'callers' is no longer measured (#332); its presence is rejected."""
         bad = _clone(_VALID_FUNCTION)
-        del bad["edge_counts"]["callers"]
+        bad["edge_counts"]["callers"] = 0
         with pytest.raises(ConformanceViolation, match="callers"):
             lint_response(bad, "inspect")
 
@@ -629,8 +627,6 @@ class TestLinterAcceptsValidResponses:
                 "members": 3,
                 "superclasses": 0,
                 "subclasses": 1,
-                "callers": 5,
-                "references": 12,
             },
             "re_exports": ["pkg.X"],
         }
@@ -700,8 +696,12 @@ class TestLinterAcceptsValidResponses:
         }
         lint_response(good, "resolve")  # must not raise
 
-    def test_variable_response_with_only_references_passes(self) -> None:
-        """A variable inspect response with only 'references' in edge_counts passes."""
+    def test_variable_response_with_empty_edge_counts_passes(self) -> None:
+        """A variable inspect response with empty edge_counts passes (#332).
+
+        references was removed, so a variable handle has no measured edges —
+        an empty edge_counts is the valid shape.
+        """
         good = {
             "handle": "pkg.MY_CONST",
             "kind": "variable",
@@ -710,13 +710,13 @@ class TestLinterAcceptsValidResponses:
             "docstring": None,
             "type": "str",
             "default": '"hello"',
-            "edge_counts": {"references": 3},
+            "edge_counts": {},
             "re_exports": [],
         }
         lint_response(good, "inspect")  # must not raise
 
     def test_attribute_response_passes(self) -> None:
-        """An attribute inspect response with 'references' in edge_counts passes."""
+        """An attribute inspect response with empty edge_counts passes (#332)."""
         good = {
             "handle": "pkg.X.my_attr",
             "kind": "attribute",
@@ -724,13 +724,17 @@ class TestLinterAcceptsValidResponses:
             "location": {"file": "pkg/x.py", "line_start": 5, "line_end": 5},
             "docstring": None,
             "type": "int",
-            "edge_counts": {"references": 0},
+            "edge_counts": {},
             "re_exports": [],
         }
         lint_response(good, "inspect")  # must not raise
 
     def test_method_response_passes(self) -> None:
-        """A method inspect response with callers and references passes."""
+        """A method inspect response with empty edge_counts passes (#332).
+
+        callers/references were removed, so a method handle has no measured
+        edges — an empty edge_counts is the valid shape.
+        """
         good = {
             "handle": "pkg.X.do_thing",
             "kind": "method",
@@ -743,7 +747,7 @@ class TestLinterAcceptsValidResponses:
             "is_async": False,
             "is_classmethod": False,
             "is_staticmethod": False,
-            "edge_counts": {"callers": 2, "references": 0},
+            "edge_counts": {},
             "re_exports": [],
         }
         lint_response(good, "inspect")  # must not raise
