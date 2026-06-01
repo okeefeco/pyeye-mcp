@@ -3048,6 +3048,14 @@ class JediAnalyzer:
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
 
+            # Index FQNs by simple (leaf) name.  Used by the FQN-strict resolver
+            # to take a path-independent fast path when a leaf name is unique
+            # (no Jedi goto/canonicalisation needed — robust on symlinked temp
+            # dirs; issue #335).
+            fqns_by_leaf: dict[str, list[str]] = {}
+            for fqn in classes_by_fqn:
+                fqns_by_leaf.setdefault(fqn.split(".")[-1], []).append(fqn)
+
             # -------------------------------------------------------------------
             # Ambiguity check: when caller passes a bare simple name and multiple
             # distinct FQN-keyed classes share that leaf name, return the
@@ -3095,6 +3103,7 @@ class JediAnalyzer:
                     base_class,
                     classes_by_fqn,
                     parent_to_children,
+                    fqns_by_leaf,
                     resolved_cache,
                     canonical_cache,
                 )
@@ -3136,6 +3145,7 @@ class JediAnalyzer:
                         current_fqn,
                         classes_by_fqn,
                         parent_to_children,
+                        fqns_by_leaf,
                         resolved_cache,
                         canonical_cache,
                     )
@@ -3224,6 +3234,7 @@ class JediAnalyzer:
         target_fqn: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
+        fqns_by_leaf: dict[str, list[str]],
         resolved_cache: dict[tuple[str, int, int], str | None],
         canonical_cache: dict[str, Handle | None],
     ) -> set[str]:
@@ -3235,15 +3246,34 @@ class JediAnalyzer:
         Bug A) and lets the indirect/grandchild traversal carry FQN identity
         rather than re-keying on the simple class name (issue #335 Bug B).
 
+        **Path-independent fast path:** when exactly one project class bears the
+        leaf name and its AST FQN equals ``target_fqn``, the relationship is
+        unambiguous from the AST alone, so candidate children are accepted
+        without invoking Jedi ``goto``/canonicalisation.  This avoids the
+        symlinked-temp-dir fragility (macOS ``/var`` -> ``/private/var``) that
+        makes Jedi return degraded results, and also speeds up the common case.
+        Jedi resolution is reserved for genuine simple-name collisions and
+        re-export-path mismatches.
+
         Args:
             target_fqn: The (definition-site or re-export) FQN to match against.
             classes_by_fqn: FQN -> (node, tree, file) mapping.
             parent_to_children: declared-base-name -> set of child FQNs.
+            fqns_by_leaf: simple (leaf) name -> list of class FQNs sharing it.
             resolved_cache: shared (file, line, col) -> resolved full_name cache.
             canonical_cache: shared identifier -> canonical Handle cache.
         """
         leaf_name = target_fqn.split(".")[-1]
-        canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
+
+        # Path-independent fast path: a unique leaf whose sole class IS the
+        # target leaves no ambiguity, so no Jedi resolution is needed.
+        same_leaf_fqns = fqns_by_leaf.get(leaf_name, [])
+        fast_accept = len(same_leaf_fqns) == 1 and same_leaf_fqns[0] == target_fqn
+
+        # Only canonicalise (Jedi-backed) when the fast path does not apply.
+        canonical_target = (
+            None if fast_accept else await self._canonical_cached(target_fqn, canonical_cache)
+        )
 
         found: set[str] = set()
 
@@ -3258,6 +3288,10 @@ class JediAnalyzer:
 
         for child_fqn in candidate_child_fqns:
             if child_fqn not in classes_by_fqn:
+                continue
+            if fast_accept:
+                # Unambiguous: the unique class named leaf_name is target_fqn.
+                found.add(child_fqn)
                 continue
             child_node, _, child_file = classes_by_fqn[child_fqn]
             try:

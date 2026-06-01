@@ -1301,6 +1301,39 @@ class TestInspectEdgeCountsSubclassesIssue335:
         ), f"Expected subclasses count 2 for Vehicle; got {result['edge_counts']!r}"
 
 
+class TestFindSubclassesJediIndependence:
+    """Issue #335 macOS-regression guard: unique-name hierarchies resolve via AST.
+
+    On symlinked temp dirs (macOS ``/var`` -> ``/private/var``) Jedi goto() and
+    canonicalisation return degraded/empty results.  When a class's simple name
+    is unique in the project the subclass relationship is unambiguous from the
+    AST alone, so resolution MUST NOT depend on the Jedi layer.  This test
+    simulates total Jedi-layer failure by patching ``get_script`` and asserts
+    the full unique-name chain (Root -> Mid -> Leaf) is still discovered.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unique_name_chain_resolves_without_jedi(self) -> None:
+        """Direct and indirect subclasses of a unique-name class survive Jedi failure."""
+        failed_script = Mock()
+        failed_script.goto.return_value = []
+        failed_script.get_names.return_value = []
+
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        with patch("pyeye.file_artifact_cache.get_script", return_value=failed_script):
+            raw = await analyzer.find_subclasses("pkg.deep_chain.Root")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert names == {
+            "Mid",
+            "Leaf",
+        }, (
+            "Unique-name subclass chain must resolve from the AST without Jedi "
+            f"goto/canonicalisation; got {names}"
+        )
+
+
 class TestFqnMatchesTarget:
     """Unit coverage for the _fqn_matches_target equality/canonical logic (issue #335)."""
 
