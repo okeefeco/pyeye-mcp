@@ -15,6 +15,11 @@ symbol lives, which is enough information for the caller.
 
 Classification rule order (first match wins)
 --------------------------------------------
+The input path is resolved (``Path.resolve()``) once up front and **every** rule
+is applied against that resolved path, so the result never depends on which path
+form the caller supplied (e.g. a ``site-packages`` symlink vs the real
+editable-install target — see #338).
+
 1. **Build artifacts** -- if any path segment is a build directory
    (``build``, ``dist``, ``.tox``, ``__pycache__``, ``*.egg-info``) →
    ``"external"``.  These paths should ideally never reach here due to
@@ -225,8 +230,14 @@ def classify_scope(file_path: Path | str, analyzer: JediAnalyzer) -> Scope:
     ``"project"`` if the file lives inside the project boundary; ``"external"``
     otherwise.
     """
-    path = Path(file_path)
-    resolved = path.resolve()
+    # Resolve the input ONCE and apply every rule against the resolved path.
+    # Mixing resolved and raw paths across rules made the result depend on which
+    # path form the caller happened to supply — e.g. an editable install where
+    # ``site-packages/<pkg>`` symlinks to the real project package classified as
+    # "external" via the symlink path but "project" via the real path (#338).
+    # Resolving first is the symlink/editable-install-correct choice: the symlink
+    # collapses to its real location before any segment/prefix test runs.
+    resolved = Path(file_path).resolve()
 
     # Rule 1: Build artifacts — even if inside the project, classify external.
     # Pass the resolved project root so that ``build`` and ``dist`` are only
@@ -237,11 +248,11 @@ def classify_scope(file_path: Path | str, analyzer: JediAnalyzer) -> Scope:
         return "external"
 
     # Rule 2: site-packages / dist-packages
-    if _has_site_packages_segment(path):
+    if _has_site_packages_segment(resolved):
         return "external"
 
-    # Rule 3: Stdlib — resolve first for accurate prefix comparison
-    if _is_under_stdlib(path):
+    # Rule 3: Stdlib (descendant of a stdlib root)
+    if _is_under_stdlib(resolved):
         return "external"
 
     # Rule 4: Project source roots

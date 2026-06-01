@@ -8,6 +8,7 @@ Covers the five acceptance criteria from the plan:
   (e) Build artifact path (build/, dist/) → scope: "external"
 """
 
+import os
 import sysconfig
 from pathlib import Path
 
@@ -360,3 +361,48 @@ class TestHypotheticalStdlib:
         stdlib_root = Path(sysconfig.get_paths()["stdlib"])
         hypothetical = stdlib_root / "hypothetical_future_module.py"
         assert classify_scope(hypothetical, analyzer) == "external"
+
+
+# ---------------------------------------------------------------------------
+# Issue #338: consistent classification through site-packages -> project symlink
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="symlink creation typically needs elevated privileges on Windows"
+)
+class TestEditableInstallSymlink:
+    """An editable install symlinks site-packages/<pkg> -> the real project package.
+
+    classify_scope must give the SAME answer regardless of whether the caller
+    supplies the site-packages symlink path or the real project path.  Before
+    the fix the site-packages rule tested the raw (unresolved) path while the
+    project-roots rule tested the resolved path, so the two forms disagreed
+    (issue #338).
+    """
+
+    def test_symlink_and_real_path_classify_identically(self, tmp_path: Path) -> None:
+        """Both the symlink path and the real path classify as 'project'."""
+        # Real project package.
+        project = tmp_path / "project"
+        pkg = project / "mypkg"
+        pkg.mkdir(parents=True)
+        real_file = pkg / "core.py"
+        real_file.write_text("x = 1\n")
+
+        # Fake venv site-packages with an editable-install symlink to the package.
+        site_packages = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+        site_packages.mkdir(parents=True)
+        (site_packages / "mypkg").symlink_to(pkg, target_is_directory=True)
+        symlink_file = site_packages / "mypkg" / "core.py"  # reaches real_file via symlink
+
+        analyzer = JediAnalyzer(project.as_posix())
+
+        via_real = classify_scope(real_file, analyzer)
+        via_symlink = classify_scope(symlink_file, analyzer)
+
+        assert via_real == "project", f"real path should be project; got {via_real}"
+        assert via_symlink == via_real, (
+            "site-packages symlink path must classify identically to the real "
+            f"path; got symlink={via_symlink!r} vs real={via_real!r}"
+        )
