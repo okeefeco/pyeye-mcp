@@ -4,17 +4,13 @@
       "args": [
         "run",
         "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
+        "${CLAUDE_PROJECT_DIR:-.}",
         "--no-sync",
-        "--frozen",
         "python",
         "-m",
         "pyeye.mcp"
       ],
-      "command": "uv",
-      "env": {
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv"
-      }
+      "command": "uv"
     }
   }
 }
