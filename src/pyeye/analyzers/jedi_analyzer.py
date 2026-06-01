@@ -12,9 +12,11 @@ import jedi
 
 from .. import file_artifact_cache
 from ..async_utils import read_file_async, rglob_async, ripgrep_async
+from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
+from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer
 from ..path_utils import paths_equal
 from ..scope_utils import (
@@ -3078,77 +3080,23 @@ class JediAnalyzer:
             # -------------------------------------------------------------------
             direct_fqns: set[str] = set()
 
+            # Caches shared across the direct resolution AND every indirect
+            # (grandchild) traversal step.  Keyed by source position / identifier
+            # so repeated Jedi goto() and canonicalization work is done once.
+            resolved_cache: dict[tuple[str, int, int], str | None] = {}
+            canonical_cache: dict[str, Handle | None] = {}
+
             if is_fqn_input:
-                # FQN-strict path: only include children whose canonicalized parent
-                # matches the requested FQN exactly.  We use Jedi goto() to resolve
-                # each child's base expression to its definition, then check the FQN.
-                #
-                # For children that declare their base as a simple name or short dotted
-                # name matching leaf_name, we resolve via goto(); for those that declare
-                # with a dotted path ending in leaf_name we also attempt resolution.
-                candidate_child_fqns: set[str] = set()
-
-                # Gather candidate children: declared base simple name == leaf_name
-                # OR declared base dotted name ends with ".{leaf_name}"
-                if leaf_name in parent_to_children:
-                    candidate_child_fqns.update(parent_to_children[leaf_name])
-                for parent_name, children in parent_to_children.items():
-                    if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
-                        candidate_child_fqns.update(children)
-
-                # Resolve each candidate via Jedi goto() to confirm the parent FQN
-                resolved_cache: dict[tuple[str, int, int], str | None] = {}
-
-                for child_fqn in candidate_child_fqns:
-                    if child_fqn not in classes_by_fqn:
-                        continue
-                    child_node, _, child_file = classes_by_fqn[child_fqn]
-                    try:
-                        script = file_artifact_cache.get_script(child_file, self.project)
-                    except Exception:
-                        continue
-
-                    for base in child_node.bases:
-                        parent_name = self._get_base_name_from_ast(base)
-                        if not parent_name:
-                            continue
-                        simple_part = parent_name.split(".")[-1]
-                        if simple_part != leaf_name:
-                            continue
-
-                        # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
-                        # col_offset points to the first name component, not the
-                        # leaf name.  Use the leaf's position so goto() resolves
-                        # to the class, not the package/module.
-                        goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
-                        cache_key = (child_file.as_posix(), goto_line, goto_col)
-                        if cache_key not in resolved_cache:
-                            try:
-                                goto_results = script.goto(goto_line, goto_col, follow_imports=True)
-                                resolved_fqn: str | None = None
-                                for gr in goto_results:
-                                    if gr.name == leaf_name:
-                                        # Prefer full_name from Jedi — it's already FQN-qualified
-                                        # and works regardless of whether gr.module_path is
-                                        # absolute or relative to our project root.
-                                        if gr.full_name:
-                                            resolved_fqn = gr.full_name
-                                        break
-                                resolved_cache[cache_key] = resolved_fqn
-                            except Exception:
-                                resolved_cache[cache_key] = None
-
-                        resolved = resolved_cache[cache_key]
-                        if resolved == base_class:
-                            direct_fqns.add(child_fqn)
-                            break
-
-                # Also resolve aliased imports for FQN path
-                # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
-                direct_fqns.update(
-                    await self._resolve_aliased_bases(
-                        leaf_name, classes_by_fqn, parent_to_children, target_fqn=base_class
-                    )
+                # FQN-strict path: only include children whose declared base
+                # canonically resolves to the requested FQN.  See
+                # _resolve_direct_subclass_fqns for the re-export-aware match
+                # (issue #335 Bug A).
+                direct_fqns = await self._resolve_direct_subclass_fqns(
+                    base_class,
+                    classes_by_fqn,
+                    parent_to_children,
+                    resolved_cache,
+                    canonical_cache,
                 )
 
             else:
@@ -3170,7 +3118,13 @@ class JediAnalyzer:
                     )
                 )
 
-            # Collect indirect subclasses via graph traversal
+            # Collect indirect subclasses via graph traversal.
+            #
+            # Issue #335 Bug B: each grandchild step re-resolves children against
+            # the *FQN* of the current subclass (via _resolve_direct_subclass_fqns)
+            # rather than re-keying on its simple name.  Two unrelated classes that
+            # share a simple name therefore never cross-contaminate each other's
+            # (in)direct subclass sets.
             if include_indirect:
                 all_matching_fqns = set(direct_fqns)
                 queue = list(direct_fqns)
@@ -3178,14 +3132,17 @@ class JediAnalyzer:
                     current_fqn = queue.pop()
                     if current_fqn not in classes_by_fqn:
                         continue
-                    current_node = classes_by_fqn[current_fqn][0]
-                    current_name = current_node.name
-                    # Find children of this class
-                    if current_name in parent_to_children:
-                        for child_fqn in parent_to_children[current_name]:
-                            if child_fqn not in all_matching_fqns:
-                                all_matching_fqns.add(child_fqn)
-                                queue.append(child_fqn)
+                    children = await self._resolve_direct_subclass_fqns(
+                        current_fqn,
+                        classes_by_fqn,
+                        parent_to_children,
+                        resolved_cache,
+                        canonical_cache,
+                    )
+                    for child_fqn in children:
+                        if child_fqn not in all_matching_fqns:
+                            all_matching_fqns.add(child_fqn)
+                            queue.append(child_fqn)
             else:
                 all_matching_fqns = direct_fqns
 
@@ -3227,12 +3184,142 @@ class JediAnalyzer:
 
         return {"ambiguous": False, "subclasses": subclasses}
 
+    async def _canonical_cached(
+        self, identifier: str, canonical_cache: dict[str, Handle | None]
+    ) -> Handle | None:
+        """Memoised :func:`resolve_canonical` keyed by identifier.
+
+        Canonicalisation walks import chains via Jedi and can be repeated many
+        times during an indirect-subclass traversal, so results are cached for
+        the lifetime of a single ``find_subclasses`` call.  Never raises.
+        """
+        if identifier not in canonical_cache:
+            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+        return canonical_cache[identifier]
+
+    async def _fqn_matches_target(
+        self,
+        resolved: str | None,
+        target_fqn: str,
+        canonical_target: Handle | None,
+        canonical_cache: dict[str, Handle | None],
+    ) -> bool:
+        """Return True if a resolved base FQN identifies ``target_fqn``.
+
+        Matches on exact equality first (cheap, the common case), then falls
+        back to comparing canonical (definition-site) handles so a base that
+        resolves across a re-export boundary is not dropped (issue #335 Bug A).
+        """
+        if resolved is None:
+            return False
+        if resolved == target_fqn:
+            return True
+        if canonical_target is None:
+            return False
+        resolved_canonical = await self._canonical_cached(resolved, canonical_cache)
+        return resolved_canonical is not None and str(resolved_canonical) == str(canonical_target)
+
+    async def _resolve_direct_subclass_fqns(
+        self,
+        target_fqn: str,
+        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
+        parent_to_children: dict[str, set[str]],
+        resolved_cache: dict[tuple[str, int, int], str | None],
+        canonical_cache: dict[str, Handle | None],
+    ) -> set[str]:
+        """Return FQNs of classes whose declared base resolves to ``target_fqn``.
+
+        FQN-strict: a candidate child matches only when Jedi's resolved base
+        ``full_name`` equals ``target_fqn`` exactly OR canonicalises to the same
+        definition site.  This both honours re-export boundaries (issue #335
+        Bug A) and lets the indirect/grandchild traversal carry FQN identity
+        rather than re-keying on the simple class name (issue #335 Bug B).
+
+        Args:
+            target_fqn: The (definition-site or re-export) FQN to match against.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: declared-base-name -> set of child FQNs.
+            resolved_cache: shared (file, line, col) -> resolved full_name cache.
+            canonical_cache: shared identifier -> canonical Handle cache.
+        """
+        leaf_name = target_fqn.split(".")[-1]
+        canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
+
+        found: set[str] = set()
+
+        # Gather candidate children: declared base simple name == leaf_name
+        # OR declared base dotted name ends with ".{leaf_name}".
+        candidate_child_fqns: set[str] = set()
+        if leaf_name in parent_to_children:
+            candidate_child_fqns.update(parent_to_children[leaf_name])
+        for parent_name, children in parent_to_children.items():
+            if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
+                candidate_child_fqns.update(children)
+
+        for child_fqn in candidate_child_fqns:
+            if child_fqn not in classes_by_fqn:
+                continue
+            child_node, _, child_file = classes_by_fqn[child_fqn]
+            try:
+                script = file_artifact_cache.get_script(child_file, self.project)
+            except Exception:
+                continue
+
+            for base in child_node.bases:
+                base_name = self._get_base_name_from_ast(base)
+                if not base_name:
+                    continue
+                if base_name.split(".")[-1] != leaf_name:
+                    continue
+
+                # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
+                # col_offset points to the first name component, not the leaf
+                # name.  Use the leaf's position so goto() resolves to the
+                # class, not the package/module.
+                goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
+                cache_key = (child_file.as_posix(), goto_line, goto_col)
+                if cache_key not in resolved_cache:
+                    resolved_fqn: str | None = None
+                    try:
+                        goto_results = script.goto(goto_line, goto_col, follow_imports=True)
+                        for gr in goto_results:
+                            if gr.name == leaf_name and gr.full_name:
+                                # Prefer full_name from Jedi — already FQN-qualified
+                                # and independent of project-relative path resolution.
+                                resolved_fqn = gr.full_name
+                                break
+                    except Exception:
+                        resolved_fqn = None
+                    resolved_cache[cache_key] = resolved_fqn
+
+                if await self._fqn_matches_target(
+                    resolved_cache[cache_key], target_fqn, canonical_target, canonical_cache
+                ):
+                    found.add(child_fqn)
+                    break
+
+        # Also resolve aliased imports
+        # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
+        found.update(
+            await self._resolve_aliased_bases(
+                leaf_name,
+                classes_by_fqn,
+                parent_to_children,
+                target_fqn=target_fqn,
+                canonical_target=canonical_target,
+                canonical_cache=canonical_cache,
+            )
+        )
+        return found
+
     async def _resolve_aliased_bases(
         self,
         base_class: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
         target_fqn: str | None = None,
+        canonical_target: Handle | None = None,
+        canonical_cache: dict[str, Handle | None] | None = None,
     ) -> set[str]:
         """Use Jedi goto() to resolve aliased base class references.
 
@@ -3244,11 +3331,20 @@ class JediAnalyzer:
             classes_by_fqn: FQN -> (node, tree, file) mapping.
             parent_to_children: parent name -> set of child FQNs.
             target_fqn: When set (FQN-strict mode), only include children
-                        whose resolved parent FQN equals this value.
+                        whose resolved parent FQN equals this value (matched
+                        exactly or via canonical definition site — issue #335).
                         When None (simple-name mode), any class named base_class
                         is accepted.
+            canonical_target: Pre-resolved canonical handle for ``target_fqn``
+                        (computed if omitted).  Ignored when ``target_fqn`` is None.
+            canonical_cache: Shared identifier -> canonical Handle cache.
         """
         resolved_fqns: set[str] = set()
+
+        if canonical_cache is None:
+            canonical_cache = {}
+        if target_fqn is not None and canonical_target is None:
+            canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
 
         # Only check parent names that didn't match the base_class by simple name
         # These are candidates for aliased imports
@@ -3291,10 +3387,15 @@ class JediAnalyzer:
                             for result in goto_results:
                                 if result.name == base_class:
                                     if target_fqn is not None:
-                                        # FQN-strict: compare using Jedi's full_name
-                                        # which is already FQN-qualified and doesn't
-                                        # depend on project-relative path resolution.
-                                        if result.full_name == target_fqn:
+                                        # FQN-strict: match exactly or via canonical
+                                        # definition site so re-exported bases are
+                                        # not dropped (issue #335 Bug A).
+                                        if await self._fqn_matches_target(
+                                            result.full_name,
+                                            target_fqn,
+                                            canonical_target,
+                                            canonical_cache,
+                                        ):
                                             resolved_fqns.add(fqn)
                                     else:
                                         resolved_fqns.add(fqn)
