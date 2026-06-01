@@ -116,46 +116,31 @@ def _make_location(
     return loc
 
 
-def _is_method(handle: str, jedi_type: str, analyzer: JediAnalyzer) -> bool:
-    """Return True if the symbol identified by *handle* is a method (not a module-level function).
+def _is_method(jedi_name: Any) -> bool:
+    """Return True if *jedi_name* is a method (a function enclosed by a class).
 
-    Checks whether the direct parent of the symbol in the dotted-name hierarchy
-    is a class definition.  A standalone function at module level returns False.
+    Reads the resolved Jedi ``Name``'s parent scope directly via
+    ``Name.parent()`` instead of re-deriving the enclosing scope from the dotted
+    handle.  Dotted-name string arithmetic plus a filesystem module lookup
+    cannot see class nesting — for ``module.Outer.Inner.method`` it treats
+    ``Outer`` as a module, fails to find it, and misclassifies the nested-class
+    method as a plain function (issue #337).  Using ``parent()`` also avoids a
+    redundant per-call Jedi ``Script`` load.
 
     Args:
-        handle: Fully-qualified dotted-name string.
-        jedi_type: Jedi's ``Name.type`` string (e.g. ``"function"``).
-        analyzer: Active analyzer for the project.
+        jedi_name: The resolved Jedi ``Name`` object for the symbol.
 
     Returns:
-        ``True`` when the parent symbol is a class.
+        ``True`` when the symbol is a function whose immediate enclosing scope
+        is a class (at any nesting depth).
     """
-    if jedi_type != "function":
+    if getattr(jedi_name, "type", None) != "function":
         return False
-
-    parts = handle.split(".")
-    if len(parts) < 3:
-        # Needs at least: module.Class.method
-        return False
-
-    parent_handle = ".".join(parts[:-1])
-    parent_parts = parent_handle.split(".")
-    if len(parent_parts) < 2:
-        return False
-
-    parent_module = ".".join(parent_parts[:-1])
-    mod_file = find_module_file(parent_module, analyzer)
-    if mod_file is None:
-        return False
-
     try:
-        script = file_artifact_cache.get_script(mod_file, analyzer.project)
-        for name in script.get_names(all_scopes=True, definitions=True, references=False):
-            if name.full_name == parent_handle and name.type == "class":
-                return True
+        parent = jedi_name.parent()
     except Exception:
-        pass
-    return False
+        return False
+    return parent is not None and getattr(parent, "type", None) == "class"
 
 
 def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, bool, bool]:
@@ -990,10 +975,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     jedi_type: str = getattr(jedi_name, "type", None) or "statement"
     # Determine if this function is actually a method
     raw_kind = _normalise_kind(jedi_type)
-    if raw_kind == "function" and _is_method(handle, jedi_type, analyzer):
-        kind = "method"
-    else:
-        kind = raw_kind
+    kind = "method" if raw_kind == "function" and _is_method(jedi_name) else raw_kind
 
     location = location_from_name(file_str, jedi_name)
 

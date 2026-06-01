@@ -389,3 +389,52 @@ class TestInspectSpanLocationEndToEnd:
             f"Widget body is multi-line; expected line_end > line_start end-to-end; "
             f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
         )
+
+
+_NESTED_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "nested_class_inspect"
+
+
+class TestInspectMethodClassification:
+    """Issue #337: methods are classified as 'method' regardless of class nesting.
+
+    ``_is_method`` previously re-derived the enclosing scope by dotted-name
+    string arithmetic + ``find_module_file``, which cannot see class nesting:
+    for ``pkg.mod.Outer.Inner.inner_method`` it looked for a module ``Outer``,
+    found none, and reported ``kind: "function"``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nested_class_method_is_method(self) -> None:
+        """A method on a nested class reports kind 'method', not 'function'."""
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="pkg.mod.Outer.Inner.inner_method",
+            project_path=_NESTED_FIXTURE.as_posix(),
+        )
+        assert result["kind"] == "method", (
+            "method of a nested class must be 'method'; "
+            f"got {result['kind']!r} (result={result!r})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_top_level_class_method_is_method(self) -> None:
+        """A method on a top-level class still reports kind 'method'."""
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="pkg.mod.Outer.outer_method",
+            project_path=_NESTED_FIXTURE.as_posix(),
+        )
+        assert result["kind"] == "method", f"got {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_module_level_function_is_function(self) -> None:
+        """A module-level function still reports kind 'function'."""
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="pkg.mod.top_level_function",
+            project_path=_NESTED_FIXTURE.as_posix(),
+        )
+        assert result["kind"] == "function", f"got {result['kind']!r}"
