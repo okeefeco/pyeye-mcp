@@ -922,7 +922,7 @@ async def find_subclasses(
     project_path: str = ".",
     include_indirect: bool = True,
     show_hierarchy: bool = False,
-) -> list[dict[str, Any]] | dict[str, Any]:
+) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
     **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses`` for
@@ -950,12 +950,34 @@ async def find_subclasses(
             show_hierarchy=show_hierarchy,
         )
 
-        # Discriminated-union unwrap:
-        #   - Unambiguous: return the flat list (backward-compat for MCP callers)
-        #   - Ambiguous: return the full dict so agents can disambiguate
+        # The internal analyzer returns a discriminated union (a bare colliding
+        # name yields {"ambiguous": True, "candidates": [...]}).  This deprecated
+        # tool must NOT leak that new shape — it keeps its original
+        # ``list[dict]`` contract so existing ``for sc in result: ...`` callers
+        # don't break (#336).  Resolving ambiguity is the new resolve()/expand()
+        # surface's job, not this tool's.
         if result.get("ambiguous", False):
-            ambiguous_result: dict[str, Any] = result
-            return ambiguous_result
+            # Reproduce main's behaviour for a colliding bare name: the flat
+            # union of every same-named class's subclasses.  Each candidate
+            # handle is a FQN, so the per-candidate call is itself unambiguous.
+            merged: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for candidate in result.get("candidates", []):
+                candidate_handle = candidate.get("handle")
+                if not candidate_handle:
+                    continue
+                candidate_result = await analyzer.find_subclasses(
+                    base_class=candidate_handle,
+                    include_indirect=include_indirect,
+                    show_hierarchy=show_hierarchy,
+                )
+                for subclass in candidate_result.get("subclasses", []):
+                    key = subclass.get("full_name") or repr(subclass)
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(subclass)
+            return merged
+
         subclasses: list[dict[str, Any]] = result.get("subclasses", [])
         return subclasses
     except ProjectNotFoundError:
