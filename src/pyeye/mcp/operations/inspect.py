@@ -156,27 +156,21 @@ def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, 
     Returns:
         A 3-tuple ``(is_async, is_classmethod, is_staticmethod)``.
     """
-    try:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.lineno == line:
-                    is_async = isinstance(node, ast.AsyncFunctionDef)
-                    deco_names: set[str] = set()
-                    for deco in node.decorator_list:
-                        if isinstance(deco, ast.Name):
-                            deco_names.add(deco.id)
-                        elif isinstance(deco, ast.Attribute):
-                            deco_names.add(deco.attr)
-                    return (
-                        is_async,
-                        "classmethod" in deco_names,
-                        "staticmethod" in deco_names,
-                    )
-    except Exception:
-        pass
-    return False, False, False
+    # Reuse the cached-AST lookup (file_artifact_cache.get_ast) instead of a raw
+    # read_text() + ast.parse(); avoids re-reading/re-parsing an unchanged file
+    # (issue #339).
+    node = _find_function_def_at_line(file_path, line)
+    if node is None:
+        return False, False, False
+
+    is_async = isinstance(node, ast.AsyncFunctionDef)
+    deco_names: set[str] = set()
+    for deco in node.decorator_list:
+        if isinstance(deco, ast.Name):
+            deco_names.add(deco.id)
+        elif isinstance(deco, ast.Attribute):
+            deco_names.add(deco.attr)
+    return is_async, "classmethod" in deco_names, "staticmethod" in deco_names
 
 
 def _find_function_def_at_line(
@@ -462,8 +456,9 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
     superclasses: list[str] = []
 
     try:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
+        # Reuse the mtime-keyed cached AST instead of read_text() + ast.parse()
+        # (issue #339).
+        tree = file_artifact_cache.get_ast(file_path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.lineno == line:
                 for base in node.bases:
@@ -789,7 +784,9 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
         return 0
 
 
-async def _count_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> int:
+async def _count_superclasses(
+    jedi_name: Any, analyzer: JediAnalyzer, superclasses: list[str] | None = None
+) -> int:
     """Count direct superclasses of a class.
 
     Re-uses ``_get_superclasses`` (the AST + Jedi goto approach already
@@ -799,11 +796,16 @@ async def _count_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     Args:
         jedi_name: Jedi ``Name`` for the class.
         analyzer: Active analyzer.
+        superclasses: Pre-resolved superclass list, when the caller already
+            computed it for the ``superclasses`` field — avoids resolving the
+            bases a second time (issue #339).  Resolved on demand when omitted.
 
     Returns:
         Count of direct superclasses.
     """
-    return len(_get_superclasses(jedi_name, analyzer))
+    if superclasses is None:
+        superclasses = _get_superclasses(jedi_name, analyzer)
+    return len(superclasses)
 
 
 async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
@@ -842,6 +844,7 @@ async def _build_edge_counts(
     jedi_name: Any,
     analyzer: JediAnalyzer,
     budget_seconds: float = _DEFAULT_EDGE_BUDGET_SECONDS,
+    superclasses: list[str] | None = None,
 ) -> dict[str, int]:
     """Build the edge_counts dict.
 
@@ -889,7 +892,7 @@ async def _build_edge_counts(
 
     if kind == "class":
         coros["members"] = _count_class_members(handle, jedi_name, analyzer)
-        coros["superclasses"] = _count_superclasses(jedi_name, analyzer)
+        coros["superclasses"] = _count_superclasses(jedi_name, analyzer, superclasses)
         coros["subclasses"] = _count_subclasses(handle, analyzer)
 
     elif kind == "module":
@@ -995,8 +998,13 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     # ------------------------------------------------------------------
     kind_fields: dict[str, Any] = {}
 
+    # Issue #339: resolve a class's superclasses once and reuse the same list for
+    # the `superclasses` field and `edge_counts.superclasses` (each resolution
+    # is read+parse + a Jedi goto() per base).
+    superclasses: list[str] | None = None
     if kind == "class":
-        kind_fields.update(_build_class_fields(jedi_name, analyzer))
+        superclasses = _get_superclasses(jedi_name, analyzer)
+        kind_fields.update(_build_class_fields(jedi_name, analyzer, superclasses))
 
     elif kind in ("function", "method"):
         kind_fields.update(await _build_function_fields(jedi_name, file_path, analyzer))
@@ -1018,8 +1026,11 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         "docstring": docstring,
     }
     node.update(kind_fields)
-    # Phase 4: edge_counts populated with per-measurement budgeted counts
-    node["edge_counts"] = await _build_edge_counts(handle, kind, jedi_name, analyzer)
+    # Phase 4: edge_counts populated with per-measurement budgeted counts.
+    # Reuse the already-resolved superclasses list (issue #339).
+    node["edge_counts"] = await _build_edge_counts(
+        handle, kind, jedi_name, analyzer, superclasses=superclasses
+    )
 
     # Phase 6: re_exports — always present (possibly []) for non-module kinds.
     # Per the absence-vs-zero invariant (spec):
@@ -1054,7 +1065,9 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _build_class_fields(jedi_name: Any, analyzer: JediAnalyzer) -> dict[str, Any]:
+def _build_class_fields(
+    jedi_name: Any, analyzer: JediAnalyzer, superclasses: list[str] | None = None
+) -> dict[str, Any]:
     """Build kind-dependent fields for a class node.
 
     Extracts the class signature (from ``__init__``) and the list of direct
@@ -1063,6 +1076,9 @@ def _build_class_fields(jedi_name: Any, analyzer: JediAnalyzer) -> dict[str, Any
     Args:
         jedi_name: Jedi Name for the class.
         analyzer: Active analyzer.
+        superclasses: Pre-resolved superclass list shared with edge_counts to
+            avoid resolving the bases twice (issue #339).  Resolved on demand
+            when omitted.
 
     Returns:
         A dict with ``superclasses: list[str]`` and optionally ``signature: str``.
@@ -1070,7 +1086,8 @@ def _build_class_fields(jedi_name: Any, analyzer: JediAnalyzer) -> dict[str, Any
     fields: dict[str, Any] = {}
 
     # Superclasses
-    superclasses = _get_superclasses(jedi_name, analyzer)
+    if superclasses is None:
+        superclasses = _get_superclasses(jedi_name, analyzer)
     fields["superclasses"] = superclasses
 
     # Class signature — from Jedi's get_signatures() which uses __init__

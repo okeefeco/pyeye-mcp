@@ -1917,3 +1917,86 @@ class TestInspectReExports:
             f"got re_exports={result.get('re_exports')!r}. "
             "An exception means 'couldn't measure', not 'measured empty'."
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #339: redundant-work removal (no output change — structural assertions)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSuperclassWorkReuse:
+    """A class inspect must resolve superclasses ONCE and read ASTs via the cache.
+
+    These are structural (call-count / cache-usage) assertions, not timing
+    assertions — the output of inspect() is unchanged.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_inspect_resolves_superclasses_once(self, analyzer: JediAnalyzer) -> None:
+        """inspect() of a class calls _get_superclasses exactly once.
+
+        Previously it ran twice — once for the ``superclasses`` field and again
+        via ``_count_superclasses`` for ``edge_counts.superclasses`` — repeating
+        read + parse + a Jedi goto() per base for an identical result.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        with patch.object(
+            inspect_ops, "_get_superclasses", wraps=inspect_ops._get_superclasses
+        ) as spy:
+            result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert result["kind"] == "class"
+        # The output is still correct: Premium extends Widget.
+        assert any("Widget" in s for s in result["superclasses"]), result["superclasses"]
+        assert result["edge_counts"]["superclasses"] == len(result["superclasses"])
+        assert spy.call_count == 1, (
+            "_get_superclasses must run once per class inspect (field + edge_count "
+            f"share the result); ran {spy.call_count} times"
+        )
+
+    def test_get_superclasses_uses_cached_ast(self, analyzer: JediAnalyzer) -> None:
+        """_get_superclasses reads the source AST via file_artifact_cache.get_ast."""
+        from unittest.mock import patch
+
+        jedi_name = inspect_ops._find_jedi_name_for_handle(_PREMIUM_HANDLE, analyzer)
+        assert jedi_name is not None
+
+        with patch.object(
+            inspect_ops.file_artifact_cache,
+            "get_ast",
+            wraps=inspect_ops.file_artifact_cache.get_ast,
+        ) as spy:
+            superclasses = inspect_ops._get_superclasses(jedi_name, analyzer)
+
+        assert spy.called, "_get_superclasses must obtain the AST via file_artifact_cache.get_ast"
+        assert any("Widget" in s for s in superclasses), superclasses
+
+    def test_extract_function_flags_uses_cached_ast(self, analyzer: JediAnalyzer) -> None:
+        """_extract_function_flags_from_ast reads the AST via file_artifact_cache.get_ast."""
+        from unittest.mock import patch
+
+        # Widget.default is a @classmethod — exercises a non-trivial flag result.
+        jedi_name = inspect_ops._find_jedi_name_for_handle(_DEFAULT_HANDLE, analyzer)
+        assert jedi_name is not None
+        file_path = jedi_name.module_path
+        line = jedi_name.line
+
+        with patch.object(
+            inspect_ops.file_artifact_cache,
+            "get_ast",
+            wraps=inspect_ops.file_artifact_cache.get_ast,
+        ) as spy:
+            is_async, is_classmethod, is_staticmethod = (
+                inspect_ops._extract_function_flags_from_ast(file_path, line)
+            )
+
+        assert spy.called, (
+            "_extract_function_flags_from_ast must obtain the AST via "
+            "file_artifact_cache.get_ast"
+        )
+        assert is_classmethod is True
+        assert is_async is False
+        assert is_staticmethod is False
