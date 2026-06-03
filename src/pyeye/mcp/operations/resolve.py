@@ -743,7 +743,7 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> Resolve
     except ValueError:
         return _NotFoundResult(found=False, reason="unresolved")
 
-    scope = classify_scope(str(file_path), analyzer)
+    scope = classify_scope(file_path, analyzer)
 
     return _SuccessResult(
         found=True,

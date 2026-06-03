@@ -186,7 +186,7 @@ class JediAnalyzer:
             merged = list(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
             self.project = jedi.Project(
-                path=str(jedi_root),
+                path=Path(jedi_root).as_posix(),
                 added_sys_path=merged,
             )
             logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
@@ -1476,7 +1476,7 @@ class JediAnalyzer:
                         )
 
         except FileNotFoundError as e:
-            raise ProjectNotFoundError(str(self.project_path)) from e
+            raise ProjectNotFoundError(self.project_path.as_posix()) from e
         except Exception as e:
             logger.error(f"Error getting call hierarchy: {e}")
             # Convert Path objects in exception to strings for serialization

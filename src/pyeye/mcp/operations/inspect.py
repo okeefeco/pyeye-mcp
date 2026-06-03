@@ -465,7 +465,7 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
                     base_str = ast.unparse(base)
                     # Attempt Jedi-based resolution for the base class handle
                     resolved = _resolve_base_class_via_jedi(
-                        str(file_path), base, base_str, analyzer
+                        file_path.as_posix(), base, base_str, analyzer
                     )
                     superclasses.append(resolved)
                 break
