@@ -40,12 +40,19 @@ AST hand-walk MISSED (spec §3.3 gap closure):
 """
 
 from pathlib import Path
+from unittest.mock import Mock, patch
 
+import jedi
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.handle import Handle
-from pyeye.mcp.operations.edges import edge_status, resolve_members
+from pyeye.mcp.operations.edges import (
+    EdgeResult,
+    edge_status,
+    resolve_callees,
+    resolve_members,
+)
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
@@ -56,6 +63,9 @@ _MODULE_HANDLE = "mypackage._core.widgets"
 _MAKE_WIDGET_HANDLE = "mypackage._core.widgets.make_widget"
 
 _MODULE_FORMS_HANDLE = "mypackage._core.module_forms"
+
+_CALLEES_MODULE_HANDLE = "mypackage._core.callees_fixture"
+_ORCHESTRATE_HANDLE = "mypackage._core.callees_fixture.orchestrate"
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +80,24 @@ def analyzer() -> JediAnalyzer:
 
 
 def _members_for(handle: str, analyzer: JediAnalyzer) -> list[Handle]:
-    """Resolve *handle* to a Jedi name and return its members."""
+    """Resolve *handle* to a Jedi name and return its member handles.
+
+    ``resolve_members`` now returns an :class:`EdgeResult`; the member tests
+    operate on the ``.handles`` list (its ``unresolved_call_sites`` is always
+    ``None`` for the members edge — that notion is callees-only).
+    """
     jedi_name = _find_jedi_name_for_handle(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
-    return resolve_members(jedi_name, analyzer)
+    result = resolve_members(jedi_name, analyzer)
+    assert result.unresolved_call_sites is None, "members never reports call-site counts"
+    return result.handles
+
+
+def _callees_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
+    """Resolve *handle* to a Jedi name and return its callees ``EdgeResult``."""
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return resolve_callees(jedi_name, analyzer)
 
 
 # ---------------------------------------------------------------------------
@@ -304,3 +328,106 @@ class TestResolveMembersModuleForms:
         members = _members_for(_MODULE_FORMS_HANDLE, analyzer)
         assert members, "module_forms should have at least one member"
         assert all(isinstance(h, Handle) for h in members)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.1/3.2 — callees resolver (forward goto, never reverse search)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCalleesContract:
+    """``callees`` = forward resolution of each call site to a canonical handle.
+
+    Contract is "≥ these handles, plus N unresolved" — NOT exact equality —
+    because Jedi may resolve incidental builtins.  We pin the resolvable project
+    and stdlib callees, dedup, the unresolved count, nested-scope exclusion, and
+    the non-function empty case.
+
+    Fixture ``orchestrate`` call inventory:
+    - ``make_widget("alpha")`` and ``make_widget("beta")`` → ONE callee (dedup)
+    - ``math.sqrt(2)`` → external-scope callee ``math.sqrt``
+    - ``cb()`` → dynamic, UNRESOLVABLE → unresolved_call_sites >= 1
+    - ``_inner()`` is a nested def; its ``len(...)`` call is NOT orchestrate's
+    """
+
+    def test_returns_edgeresult(self, analyzer: JediAnalyzer) -> None:
+        result = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    def test_project_callee_present(self, analyzer: JediAnalyzer) -> None:
+        callees = {str(h) for h in _callees_for(_ORCHESTRATE_HANDLE, analyzer).handles}
+        assert _MAKE_WIDGET_HANDLE in callees, f"project callee make_widget missing; got {callees}"
+
+    def test_stdlib_callee_present(self, analyzer: JediAnalyzer) -> None:
+        callees = {str(h) for h in _callees_for(_ORCHESTRATE_HANDLE, analyzer).handles}
+        # math.sqrt is an external-scope callee; its attribute target must goto
+        # the rightmost identifier (sqrt), not the receiver (math).
+        assert "math.sqrt" in callees, f"stdlib callee math.sqrt missing; got {callees}"
+
+    def test_duplicate_call_deduped(self, analyzer: JediAnalyzer) -> None:
+        # make_widget is called twice in the body; it must appear exactly once.
+        handles = [str(h) for h in _callees_for(_ORCHESTRATE_HANDLE, analyzer).handles]
+        assert (
+            handles.count(_MAKE_WIDGET_HANDLE) == 1
+        ), f"make_widget should be deduped to one entry; got {handles}"
+
+    def test_unresolved_call_sites_counted(self, analyzer: JediAnalyzer) -> None:
+        # The dynamic ``cb()`` call cannot be resolved by goto.
+        result = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
+        assert (
+            result.unresolved_call_sites is not None and result.unresolved_call_sites >= 1
+        ), f"expected >=1 unresolved call site, got {result.unresolved_call_sites}"
+
+    def test_nested_scope_call_excluded(self, analyzer: JediAnalyzer) -> None:
+        # ``len`` is called only inside the nested ``_inner`` function; it must
+        # NOT be attributed to orchestrate's callees.
+        callees = {str(h) for h in _callees_for(_ORCHESTRATE_HANDLE, analyzer).handles}
+        assert not any(
+            c.endswith(".len") or c == "len" or c.endswith("builtins.len") for c in callees
+        ), f"nested-scope call ``len`` leaked into orchestrate callees: {callees}"
+
+    def test_deterministic_across_runs(self, analyzer: JediAnalyzer) -> None:
+        first = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
+        second = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
+        assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
+        assert first.unresolved_call_sites == second.unresolved_call_sites
+
+
+class TestResolveCalleesNonFunction:
+    """A non-function source has no callees: empty handles, zero unresolved."""
+
+    def test_class_is_empty(self, analyzer: JediAnalyzer) -> None:
+        result = _callees_for(_WIDGET_HANDLE, analyzer)
+        assert result.handles == []
+        assert result.unresolved_call_sites == 0
+
+    def test_module_is_empty(self, analyzer: JediAnalyzer) -> None:
+        result = _callees_for(_CALLEES_MODULE_HANDLE, analyzer)
+        assert result.handles == []
+        assert result.unresolved_call_sites == 0
+
+    def test_variable_is_empty(self, analyzer: JediAnalyzer) -> None:
+        result = _callees_for(f"{_MODULE_HANDLE}.DEFAULT_NAME", analyzer)
+        assert result.handles == []
+        assert result.unresolved_call_sites == 0
+
+
+class TestResolveCalleesNeverReverseSearch:
+    """The load-bearing trust constraint: callees NEVER calls reverse search.
+
+    ``get_references`` is the non-deterministic reverse-search path.  Patch it to
+    explode if touched, then run the resolver over the fixture and assert it
+    completes AND the spy was never called.
+    """
+
+    def test_get_references_not_called(self, analyzer: JediAnalyzer) -> None:
+        # Sanity: the patch target must actually be the method Jedi exposes,
+        # otherwise this test is a no-op.
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on callees path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            result = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
+        # Resolver completed without touching reverse search.
+        assert _MAKE_WIDGET_HANDLE in {str(h) for h in result.handles}
+        spy.assert_not_called()
