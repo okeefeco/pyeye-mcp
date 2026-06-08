@@ -69,20 +69,36 @@ if TYPE_CHECKING:
 class EdgeResult:
     """Result of an implemented edge resolver.
 
-    Carries the adjacent canonical handles, plus — for ``callees`` only — the
-    count of call sites that could not be statically resolved.
+    Carries the adjacent ``(canonical handle, Jedi Name)`` pairs, plus — for
+    ``callees`` only — the count of call sites that could not be statically
+    resolved.  The Jedi ``Name`` is retained per adjacent so ``expand`` can
+    build a stub WITHOUT re-resolving the handle (re-resolution is wasteful and
+    unreliable for builtins such as ``builtins.float``).  The resolvers already
+    hold the exact ``Name`` at the point they construct each ``Handle``, so they
+    pass it through here.
 
     Attributes:
-        handles: The adjacent canonical :class:`Handle` objects (deduplicated,
-            deterministic order).
+        adjacents: The adjacent ``(canonical Handle, Jedi Name)`` pairs
+            (deduplicated by handle string, deterministic first-seen order).
+            The ``Name`` is the one used to build the adjacent's stub.
         unresolved_call_sites: For ``callees``, the number of call sites whose
             target could not be resolved via forward ``goto`` (a count only —
             never a partial/invented handle).  ``None`` for edges where the
             notion does not apply (e.g. ``members``).
     """
 
-    handles: list[Handle]
+    adjacents: list[tuple[Handle, Any]]
     unresolved_call_sites: int | None = None
+
+    @property
+    def handles(self) -> list[Handle]:
+        """Return just the adjacent canonical handles, dropping the carried Names.
+
+        Preserves the existing ``.handles`` accessor used by callers (the edges
+        tests and the Phase-5 ``inspect`` member count) so the
+        ``(handle, name)`` refactor stays backwards-compatible.
+        """
+        return [h for h, _ in self.adjacents]
 
 
 # ---------------------------------------------------------------------------
@@ -173,20 +189,21 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
-        An :class:`EdgeResult` whose ``handles`` are the canonical member
-        handles (empty for a non-container).  ``unresolved_call_sites`` is always
-        ``None`` — that notion is callees-only.
+        An :class:`EdgeResult` whose ``adjacents`` are the canonical member
+        ``(handle, Name)`` pairs (empty for a non-container).
+        ``unresolved_call_sites`` is always ``None`` — that notion is
+        callees-only.
     """
     kind = _normalise_kind(getattr(jedi_name, "type", None))
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
-        return EdgeResult(handles=[])
+        return EdgeResult(adjacents=[])
 
     if kind == "class":
-        return EdgeResult(handles=_class_members(jedi_name, handle, analyzer))
+        return EdgeResult(adjacents=_class_members(jedi_name, handle, analyzer))
     if kind == "module":
-        return EdgeResult(handles=_module_members(jedi_name, handle, analyzer))
-    return EdgeResult(handles=[])
+        return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
+    return EdgeResult(adjacents=[])
 
 
 def _try_handle(s: str) -> Handle | None:
@@ -209,8 +226,12 @@ def _try_handle(s: str) -> Handle | None:
         return None
 
 
-def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[Handle]:
+def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[tuple[Handle, Any]]:
     """Enumerate direct class members via Jedi prefix + exact-depth filtering.
+
+    Each kept member is paired with the Jedi ``Name`` that produced it, so a
+    caller (``expand``) can build the member's stub without re-resolving the
+    handle.  Dedup is by handle string, keeping the FIRST ``Name`` seen.
 
     Args:
         jedi_name: Resolved Jedi ``Name`` for the class.
@@ -218,7 +239,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
         analyzer: Active analyzer (for the Jedi project).
 
     Returns:
-        A list of canonical direct-member :class:`Handle` objects.
+        A list of ``(canonical Handle, Jedi Name)`` pairs for direct members.
     """
     file_path = getattr(jedi_name, "module_path", None)
     if file_path is None:
@@ -226,7 +247,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))
-    members: list[Handle] = []
+    members: list[tuple[Handle, Any]] = []
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
         names = script.get_names(all_scopes=True, definitions=True, references=False)
@@ -245,11 +266,13 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
         seen.add(full_name)
         h = _try_handle(full_name)
         if h is not None:
-            members.append(h)
+            members.append((h, name))
     return members
 
 
-def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[Handle]:
+def _module_members(
+    jedi_name: Any, handle: str, analyzer: JediAnalyzer
+) -> list[tuple[Handle, Any]]:
     """Enumerate top-level module members via Jedi ``get_names`` minus imports.
 
     Uses the same Jedi enumeration as the legacy ``inspect._count_module_members``
@@ -272,8 +295,11 @@ def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
-        A list of canonical member :class:`Handle` objects for the module's
-        top-level definitions, with all import-bound names removed.
+        A list of ``(canonical Handle, Jedi Name)`` pairs for the module's
+        top-level definitions, with all import-bound names removed.  Each member
+        is paired with its producing ``Name`` so ``expand`` can build the stub
+        without re-resolving.  Dedup is by handle string, keeping the first
+        ``Name``.
     """
     file_path = getattr(jedi_name, "module_path", None)
     if file_path is None:
@@ -305,8 +331,8 @@ def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list
                 # `from x import y` binds "y"; `from x import y as z` binds "z".
                 import_bound_names.add(alias.asname or alias.name)
 
-    # Step 3: emit handles for every non-import top-level name.
-    members: list[Handle] = []
+    # Step 3: emit (handle, name) pairs for every non-import top-level name.
+    members: list[tuple[Handle, Any]] = []
     seen: set[str] = set()
     for name in names:
         if name.name in import_bound_names:
@@ -317,7 +343,7 @@ def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list
         seen.add(full_name)
         h = _try_handle(full_name)
         if h is not None:
-            members.append(h)
+            members.append((h, name))
     return members
 
 
@@ -404,9 +430,9 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
-        An :class:`EdgeResult` with the deduplicated callee handles and the
-        unresolved-call-site count.  Non-function sources yield
-        ``EdgeResult(handles=[], unresolved_call_sites=0)``.
+        An :class:`EdgeResult` with the deduplicated callee ``(handle, Name)``
+        pairs and the unresolved-call-site count.  Non-function sources yield
+        ``EdgeResult(adjacents=[], unresolved_call_sites=0)``.
     """
     kind = _normalise_kind(getattr(jedi_name, "type", None))
     # Jedi reports BOTH module-level functions AND methods (instance, class,
@@ -415,24 +441,24 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     # @property getters — they are not excluded.  Only non-function kinds
     # (class, module, variable, …) short-circuit here.
     if kind != "function":
-        return EdgeResult(handles=[], unresolved_call_sites=0)
+        return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
     file_path = getattr(jedi_name, "module_path", None)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
-        return EdgeResult(handles=[], unresolved_call_sites=0)
+        return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
     func_node = find_function_def_at_line(Path(file_path), line)
     if func_node is None:
-        return EdgeResult(handles=[], unresolved_call_sites=0)
+        return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
     except Exception:
-        return EdgeResult(handles=[], unresolved_call_sites=0)
+        return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
     seen: set[str] = set()
-    handles: list[Handle] = []
+    adjacents: list[tuple[Handle, Any]] = []
     unresolved = 0
 
     for call in _collect_direct_calls(func_node.body):
@@ -441,16 +467,17 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
             # No single identifier to goto (e.g. f()(), subscript call).
             unresolved += 1
             continue
-        callee = _resolve_call_target(script, target)
-        if callee is None:
+        resolved = _resolve_call_target(script, target)
+        if resolved is None:
             unresolved += 1
             continue
+        callee, callee_name = resolved
         if str(callee) in seen:
             continue  # dedup repeated calls — already counted, not unresolved
         seen.add(str(callee))
-        handles.append(callee)
+        adjacents.append((callee, callee_name))
 
-    return EdgeResult(handles=handles, unresolved_call_sites=unresolved)
+    return EdgeResult(adjacents=adjacents, unresolved_call_sites=unresolved)
 
 
 def _call_target_position(func: ast.expr) -> tuple[int, int] | None:
@@ -472,12 +499,14 @@ def _call_target_position(func: ast.expr) -> tuple[int, int] | None:
     return None
 
 
-def _resolve_call_target(script: Any, target: tuple[int, int]) -> Handle | None:
-    """Forward-resolve a call target's (line, col) to a canonical :class:`Handle`.
+def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, Any] | None:
+    """Forward-resolve a call target's (line, col) to a ``(Handle, Name)`` pair.
 
     Uses ``script.goto(line, col, follow_imports=True)`` — the import-following
     landing IS the canonicalization for callees.  Returns the first def with a
-    ``full_name`` as a :class:`Handle`, or ``None`` when nothing resolves, no
+    ``full_name`` as a ``(Handle, Name)`` pair (the Jedi def ``Name`` is carried
+    so ``expand`` can build the callee's stub without re-resolving — important
+    for builtins/stdlib callees).  Returns ``None`` when nothing resolves, no
     def has a ``full_name``, or ``Handle`` construction fails.
 
     Args:
@@ -485,7 +514,8 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> Handle | None:
         target: ``(line, col)`` of the call's target identifier.
 
     Returns:
-        A canonical :class:`Handle`, or ``None`` (caller counts as unresolved).
+        A ``(canonical Handle, Jedi Name)`` pair, or ``None`` (caller counts as
+        unresolved).
     """
     line, col = target
     try:
@@ -497,7 +527,7 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> Handle | None:
         if full_name:
             h = _try_handle(full_name)
             if h is not None:
-                return h
+                return h, d
     return None
 
 
