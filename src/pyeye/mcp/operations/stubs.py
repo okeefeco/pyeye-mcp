@@ -63,12 +63,6 @@ from pyeye.scope import classify_scope
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
-# ---------------------------------------------------------------------------
-# Callable kinds that carry a ``signature`` field
-# ---------------------------------------------------------------------------
-
-_CALLABLE_KINDS: frozenset[str] = frozenset({"class", "function", "method"})
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -115,7 +109,7 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
     line_end: int = get_end_line(jedi_name)
 
     # ------------------------------------------------------------------
-    # 4. Signature — PRESENT for callable kinds, ABSENT otherwise
+    # 4. Signature — PRESENT only when a REAL Jedi signature exists
     # ------------------------------------------------------------------
     stub: dict[str, Any] = {
         "handle": handle,
@@ -125,15 +119,8 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
         "line_end": line_end,
     }
 
-    if kind in _CALLABLE_KINDS:
-        sig = _build_signature(jedi_name)
-        if sig is not None:
-            stub["signature"] = sig
-        else:
-            # _build_signature returned None (e.g. class with no __init__
-            # signatures available) — still include the key with the class
-            # name as a minimal fallback so the contract always holds for
-            # callable kinds.
-            stub["signature"] = handle.split(".")[-1]
+    sig = _build_signature(jedi_name)
+    if sig is not None:
+        stub["signature"] = sig
 
     return stub

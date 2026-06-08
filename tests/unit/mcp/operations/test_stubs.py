@@ -283,15 +283,18 @@ class TestStubProperty:
         assert isinstance(stub["line_end"], int)
         assert stub["line_end"] >= stub["line_start"]
 
-    def test_property_signature_matches_kind(self, analyzer: JediAnalyzer) -> None:
-        """Property stub: if kind is 'property', signature must be ABSENT;
-        if kind is 'method' (Jedi limitation), signature may be present."""
+    def test_property_no_signature(self, analyzer: JediAnalyzer) -> None:
+        """Property stub must NOT have a 'signature' key.
+
+        Jedi types ``@property`` as a function/method but ``_build_signature``
+        returns ``None`` for it (no call signatures available).  After the fix,
+        ``build_stub`` gates ``signature`` on a REAL Jedi signature, so the key
+        must be absent regardless of whether Jedi calls it 'property' or 'method'.
+        """
         stub = _get_stub(_DISPLAY_NAME_HANDLE, analyzer)
-        if stub["kind"] == "property":
-            assert (
-                "signature" not in stub
-            ), f"property stub must NOT have 'signature'; got stub={stub!r}"
-        # kind=="method" -> signature present is correct (callable contract applies)
+        assert (
+            "signature" not in stub
+        ), f"property stub must NOT have 'signature'; got stub={stub!r}"
 
     def test_property_no_content(self, analyzer: JediAnalyzer) -> None:
         """Property stub carries no source content."""
