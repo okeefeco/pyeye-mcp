@@ -40,7 +40,10 @@ Design invariants
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields a graceful
   supported empty result (consistent with how ``inspect`` returns a minimal node
-  rather than raising).
+  rather than raising).  Source-not-found is intentionally NOT surfaced as a
+  distinct discriminator in this slice; callers are expected to
+  ``resolve``/``inspect`` before calling ``expand``, so a ghost handle is
+  ruled out upstream — this is deliberate, not an oversight.
 - ``reason`` IS the ``edge_status`` value — the status string doubles as the
   unsupported reason (single source of truth in :mod:`edges`).
 
@@ -145,6 +148,8 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         # how inspect returns a minimal node (never raises) for the same case.
         result: dict[str, Any] = {"source": handle, "edge": edge, "stubs": []}
         if edge == "callees":
+            # Mirror resolve_callees, which always sets unresolved_call_sites for the
+            # callees edge; no resolver runs on this not-found path so we synthesize count=0.
             result["unresolved_call_sites"] = 0
         return result
 
