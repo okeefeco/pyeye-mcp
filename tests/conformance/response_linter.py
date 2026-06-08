@@ -42,7 +42,9 @@ B.4 Nullable optional fields — ``re_exports``, ``highlights``, ``tags``,
 
 Check E — ExpandResult structural floors (operation == "expand")
 ----------------------------------------------------------------
-E.1 Required fields — ``source`` (str) and ``edge`` (str) must be present.
+E.1 Required fields — ``source`` (str, single-line) and ``edge`` (str, single-line)
+    must be present.  Both are identifiers (handle / edge-name), not content — they
+    must not contain newlines.
 E.2 Discriminated-union exclusivity — exactly one of supported (has ``stubs``
     list) or unsupported (has ``unsupported: True``) branch; garbled/blended
     results are rejected.  The unsupported branch requires ``reason`` ∈
@@ -78,6 +80,16 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Shared type helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_plain_int(value: Any) -> bool:
+    """Return True if value is an int but NOT a bool (bool is an int subclass)."""
+    return isinstance(value, int) and type(value) is not bool
+
 
 # ---------------------------------------------------------------------------
 # Public exception
@@ -456,7 +468,7 @@ def _check_b1_edge_value_types(
         violations: Mutable list to append violation messages to.
     """
     for key, value in edge_counts.items():
-        if type(value) is bool:  # explicit type() check to catch bool before int
+        if type(value) is bool:  # bool subclasses int; reject before the int check
             violations.append(
                 f"[B.1 edge_counts value type] edge_counts[{key!r}] has value {value!r} "
                 f"(bool); must be a plain int. "
@@ -718,12 +730,7 @@ def _check_stub_structural_floor(
         )
     else:
         # Only check ordering when both are valid ints (not bool)
-        if (
-            "line_start" in stub
-            and isinstance(line_start, int)
-            and type(line_start) is not bool
-            and line_end < line_start
-        ):
+        if "line_start" in stub and _is_plain_int(line_start) and line_end < line_start:
             violations.append(
                 f"[S.1 stub field value] {path}: line_end ({line_end}) < "
                 f"line_start ({line_start}); span must be non-negative."
@@ -760,7 +767,7 @@ def _check_expand_structural_floor(
     is run separately by ``_check_layering`` which handles the top-level
     ``source`` exemption for ``expand`` responses.
 
-    E.1 source (str) and edge (str) must be present.
+    E.1 source (str, single-line) and edge (str, single-line) must be present.
     E.2 Exactly one of supported (has 'stubs' list) or unsupported
         (has 'unsupported': True) branch; blended/garbled results rejected.
     E.3 'unresolved_call_sites' only on supported branch when edge == 'callees';
@@ -771,7 +778,7 @@ def _check_expand_structural_floor(
         response: The ExpandResult dict.
         violations: Mutable list to append violation messages to.
     """
-    # E.1 — source: required str
+    # E.1 — source: required single-line str (canonical handle pointer)
     source = response.get("source")
     if "source" not in response:
         violations.append(
@@ -783,8 +790,13 @@ def _check_expand_structural_floor(
             f"[E.1 expand field type] 'source' must be a str; "
             f"got {type(source).__name__!r} ({_truncate(source)})."
         )
+    elif "\n" in source:
+        violations.append(
+            f"[E.1 expand field single-line] 'source' must be a single-line str "
+            f"(canonical handle — no newlines); value={_truncate(source)}."
+        )
 
-    # E.1 — edge: required str
+    # E.1 — edge: required single-line str (edge name)
     edge_val = response.get("edge")
     if "edge" not in response:
         violations.append(
@@ -795,6 +807,11 @@ def _check_expand_structural_floor(
         violations.append(
             f"[E.1 expand field type] 'edge' must be a str; "
             f"got {type(edge_val).__name__!r} ({_truncate(edge_val)})."
+        )
+    elif "\n" in edge_val:
+        violations.append(
+            f"[E.1 expand field single-line] 'edge' must be a single-line str "
+            f"(edge name — no newlines); value={_truncate(edge_val)}."
         )
 
     # E.2 — discriminated-union exclusivity

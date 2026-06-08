@@ -234,6 +234,20 @@ class TestExpandSourceEdgeRequired:
         with pytest.raises(ConformanceViolation, match="E.1"):
             lint_response(bad, "expand")
 
+    def test_multiline_source_rejected(self) -> None:
+        """source with an embedded newline raises E.1 (must be a single-line handle)."""
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["source"] = "mypackage._core.widgets.Widget\nextra line"
+        with pytest.raises(ConformanceViolation, match=r"E\.1.*single-line|single-line.*E\.1"):
+            lint_response(bad, "expand")
+
+    def test_multiline_edge_rejected(self) -> None:
+        """edge with an embedded newline raises E.1 (must be a single-line edge name)."""
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["edge"] = "members\nextra line"
+        with pytest.raises(ConformanceViolation, match=r"E\.1.*single-line|single-line.*E\.1"):
+            lint_response(bad, "expand")
+
 
 # ===========================================================================
 # E.2 — Discriminated-union exclusivity
@@ -394,7 +408,7 @@ class TestExpandStubsLayering:
         """A Stub inside stubs[] with a 'body' key raises (layering violation)."""
         bad = _clone(_VALID_EXPAND_MEMBERS)
         bad["stubs"][0]["body"] = "def render(self): ..."
-        with pytest.raises(ConformanceViolation, match="body"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'body'"):
             lint_response(bad, "expand")
 
     def test_source_key_in_stub_rejected(self) -> None:
@@ -405,21 +419,21 @@ class TestExpandStubsLayering:
         """
         bad = _clone(_VALID_EXPAND_CALLEES)
         bad["stubs"][0]["source"] = "def format_name(s): return s.title()"
-        with pytest.raises(ConformanceViolation, match="source"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'source'"):
             lint_response(bad, "expand")
 
     def test_code_key_in_stub_rejected(self) -> None:
         """A Stub inside stubs[] with a 'code' key raises."""
         bad = _clone(_VALID_EXPAND_MEMBERS)
         bad["stubs"][0]["code"] = "..."
-        with pytest.raises(ConformanceViolation, match="code"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'code'"):
             lint_response(bad, "expand")
 
     def test_snippet_key_in_stub_rejected(self) -> None:
         """A Stub inside stubs[] with a 'snippet' key raises."""
         bad = _clone(_VALID_EXPAND_MEMBERS)
         bad["stubs"][0]["snippet"] = "Widget(name)"
-        with pytest.raises(ConformanceViolation, match="snippet"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'snippet'"):
             lint_response(bad, "expand")
 
     def test_multiline_signature_in_stub_rejected(self) -> None:
@@ -440,7 +454,7 @@ class TestExpandStubsLayering:
         """A 'body' key on the ExpandResult dict itself raises."""
         bad = _clone(_VALID_EXPAND_MEMBERS)
         bad["body"] = "some code"
-        with pytest.raises(ConformanceViolation, match="body"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'body'"):
             lint_response(bad, "expand")
 
 
@@ -592,28 +606,28 @@ class TestStubLayering:
         """Standalone Stub with 'body' key raises."""
         bad = _clone(_VALID_STUB_CALLABLE)
         bad["body"] = "def render(self): ..."
-        with pytest.raises(ConformanceViolation, match="body"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'body'"):
             lint_response(bad, "stub")
 
     def test_source_key_in_stub_rejected(self) -> None:
         """Standalone Stub with 'source' key raises."""
         bad = _clone(_VALID_STUB_CALLABLE)
         bad["source"] = "class Widget: ..."
-        with pytest.raises(ConformanceViolation, match="source"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'source'"):
             lint_response(bad, "stub")
 
     def test_code_key_in_stub_rejected(self) -> None:
         """Standalone Stub with 'code' key raises."""
         bad = _clone(_VALID_STUB_CALLABLE)
         bad["code"] = "Widget()"
-        with pytest.raises(ConformanceViolation, match="code"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'code'"):
             lint_response(bad, "stub")
 
     def test_text_key_in_stub_rejected(self) -> None:
         """Standalone Stub with 'text' key raises."""
         bad = _clone(_VALID_STUB_CALLABLE)
         bad["text"] = "some text"
-        with pytest.raises(ConformanceViolation, match="text"):
+        with pytest.raises(ConformanceViolation, match=r"Key 'text'"):
             lint_response(bad, "stub")
 
     def test_source_body_substring_key_rejected(self) -> None:
