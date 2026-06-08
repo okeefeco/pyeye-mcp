@@ -34,9 +34,9 @@ Fixture facts (``mypackage/_core/widgets.py``):
 Fixture ``mypackage/_core/module_forms.py`` exercises the forms that the old
 AST hand-walk MISSED (spec §3.3 gap closure):
 - ``ALPHA, BETA = 1, 2``  ← tuple-unpacking (missed by old walk)
-- ``GAMMA: ClassVar[int] = 3``  ← annotated var (covered by both old and new)
+- ``GAMMA: Final[int] = 3``  ← annotated var (covered by both old and new)
 - ``some_function``, ``SomeClass``  ← normal def/class
-- ``from typing import ClassVar``  ← import (must be EXCLUDED)
+- ``from typing import Final``  ← import (must be EXCLUDED)
 """
 
 from pathlib import Path
@@ -257,10 +257,10 @@ class TestResolveMembersModuleForms:
     that the old AST hand-walk silently missed:
 
     - tuple-unpacking assignment (``ALPHA, BETA = 1, 2``)
-    - annotated variable (``GAMMA: ClassVar[int] = 3``)
+    - annotated variable (``GAMMA: Final[int] = 3``)
     - normal def/class (sanity)
 
-    Also verifies that the imported name (``ClassVar`` from ``typing``) is
+    Also verifies that the imported name (``Final`` from ``typing``) is
     excluded, so import-exclusion is preserved for this fixture too.
     """
 
@@ -292,12 +292,12 @@ class TestResolveMembersModuleForms:
         ), "SomeClass (class) should be a module member"
 
     def test_import_excluded(self, analyzer: JediAnalyzer) -> None:
-        """``ClassVar`` (imported from typing) must NOT appear in members."""
+        """``Final`` (imported from typing) must NOT appear in members."""
         members = {str(h) for h in _members_for(_MODULE_FORMS_HANDLE, analyzer)}
         assert (
-            f"{_MODULE_FORMS_HANDLE}.ClassVar" not in members
-        ), "ClassVar is an imported name and must be excluded from members"
-        assert not any(m.endswith(".ClassVar") for m in members)
+            f"{_MODULE_FORMS_HANDLE}.Final" not in members
+        ), "Final is an imported name and must be excluded from members"
+        assert not any(m.endswith(".Final") for m in members)
 
     def test_members_are_handles(self, analyzer: JediAnalyzer) -> None:
         """All returned members must be Handle instances."""
