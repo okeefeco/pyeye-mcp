@@ -692,13 +692,32 @@ async def _count_class_members(handle: str, jedi_name: Any, analyzer: JediAnalyz
     """Count direct class members for a class handle.
 
     Delegates to :func:`edges.resolve_members` — the single enumeration source
-    for member counts.  The ``handle`` parameter is retained for call-site and
-    patch stability (existing tests patch this function by name with a
-    ``side_effect``); it is consumed but not used in the delegated logic.
+    for member counts since Phase 5.  Member counts are now driven by
+    ``jedi_name.full_name`` (inside ``edges.resolve_members``) rather than the
+    inbound ``handle``; for re-exported symbols these agree (both resolve to the
+    definition site), so counts are unchanged, but the source-of-truth shifted.
+
+    **Why ``async def`` with no ``await``**: ``_build_edge_counts`` gathers
+    coroutines as ``Awaitable[int]`` and wraps each in ``asyncio.wait_for``
+    (via ``_measure_with_budget``).  The coroutine protocol is required by that
+    budget/gather contract — removing ``async`` would break the gather at runtime.
+
+    **Why two separate named functions** (``_count_class_members`` vs
+    ``_count_module_members``) rather than one: ``_build_edge_counts`` dispatches
+    by kind to these exact names, and the per-edge budget isolation test patches
+    ``_count_class_members`` by name (``monkeypatch`` / ``unittest.mock.patch``).
+    Collapsing them into one function would break that dispatch and test seam.
+
+    The ``handle`` parameter is retained for **call-site stability**:
+    ``_build_edge_counts`` calls this function positionally as
+    ``_count_class_members(handle, jedi_name, analyzer)``.  The timeout test uses
+    ``side_effect=AsyncMock(*args, **kwargs)`` and does not depend on the parameter
+    by name, but the positional signature must remain unchanged so existing call
+    sites continue to work without modification.
 
     Args:
         handle: The class's canonical dotted-name string (retained for
-            call-site/patch stability; not used in the delegated logic).
+            call-site positional-signature stability; not forwarded to the delegate).
         jedi_name: Jedi ``Name`` for the class.
         analyzer: Active analyzer.
 
@@ -713,9 +732,20 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count top-level definitions in a module.
 
     Delegates to :func:`edges.resolve_members` — the single enumeration source
-    for member counts.  Unlike the former flat ``get_names`` approach, this now
-    **excludes import-bound names** (spec §3.3 correctness fix), so the count
-    may be lower than before for modules with top-level imports.
+    for member counts since Phase 5.  Unlike the former flat ``get_names``
+    approach, this **excludes import-bound names** (spec §3.3 correctness fix),
+    so the count may be lower than before for modules with top-level imports.
+
+    **Why ``async def`` with no ``await``**: ``_build_edge_counts`` gathers
+    coroutines as ``Awaitable[int]`` and wraps each in ``asyncio.wait_for``
+    (via ``_measure_with_budget``).  The coroutine protocol is required by that
+    budget/gather contract — removing ``async`` would break the gather at runtime.
+
+    **Why two separate named functions** (``_count_class_members`` vs
+    ``_count_module_members``) rather than one: ``_build_edge_counts`` dispatches
+    by kind to these exact names, and the per-edge budget isolation test patches
+    ``_count_class_members`` by name (``monkeypatch`` / ``unittest.mock.patch``).
+    Collapsing them into one function would break that dispatch and test seam.
 
     Args:
         jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.

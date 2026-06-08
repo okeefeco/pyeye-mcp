@@ -29,18 +29,19 @@ status                          edges
 
 Architectural constraint
 -------------------------
-This module MUST NOT import from ``inspect.py``.  In Phase 5 ``inspect`` will
-import :func:`resolve_members` to derive ``edge_counts.members`` — importing
-back from ``inspect`` here would create a circular import.  Member enumeration
-is therefore implemented FRESH in this module (deliberate, temporary
-duplication of ``inspect._count_*_members``, removed in Phase 5).
+This module MUST NOT import from ``inspect.py``.  ``inspect`` imports
+:func:`resolve_members` to derive ``edge_counts.members`` (landed in Phase 5)
+— importing back from ``inspect`` here would create a circular import.
+``resolve_members`` is therefore the **sole** member-enumeration source;
+``inspect._count_class_members`` and ``inspect._count_module_members`` are now
+thin delegators into it (the duplication that existed before Phase 5 has been
+removed).
 
 The ``members`` resolver is pure structural enumeration — it never calls
 ``get_references`` / ``find_references``.  The module path uses Jedi
-``get_names(all_scopes=False)`` to enumerate top-level definitions (same
-source as ``inspect._count_module_members``), then subtracts import-bound
-names from the AST — guaranteeing the only divergence from the legacy count
-is import exclusion (spec §3.3).
+``get_names(all_scopes=False)`` to enumerate top-level definitions, then
+subtracts import-bound names from the AST — guaranteeing the only divergence
+from the legacy count is import exclusion (spec §3.3).
 """
 
 from __future__ import annotations
