@@ -1,4 +1,8 @@
-"""Unified lookup tool for any Python identifier form."""
+"""Unified lookup tool for any Python identifier form.
+
+**Deprecated:** Module is deprecated alongside the legacy lookup MCP tool.
+Use resolve/resolve_at/inspect from pyeye.mcp.operations instead.
+"""
 
 import logging
 from pathlib import Path

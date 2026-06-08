@@ -180,7 +180,7 @@ class EnhancedTestCoverageAgent:
         instructions.append(
             MCPInstruction(
                 tool="mcp__pyeye__list_modules",
-                params={"project_path": str(self.project_root)},
+                params={"project_path": self.project_root.as_posix()},
                 purpose="Discover all modules and their structure",
                 expected_output="List of modules with exports, classes, functions, and metrics",
             )

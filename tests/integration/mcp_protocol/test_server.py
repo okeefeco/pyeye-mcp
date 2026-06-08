@@ -653,6 +653,34 @@ class Leaf(Middle):
             await find_subclasses("TestClass", "/test/path")
         assert "Failed to find subclasses" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_ambiguous_bare_name_returns_flat_list_not_dict(self):
+        """Issue #336: a bare colliding name returns a flat list, never a dict.
+
+        The exposed MCP tool must keep its original ``list[dict]`` contract even
+        though the internal analyzer now returns an ambiguity discriminated
+        union.  An existing consumer doing ``for sc in result: sc["name"]`` must
+        not break (a dict would yield string keys and raise TypeError).
+
+        Uses the committed resolve_project fixture (real dir, not a tmp dir):
+        ``Widget`` is defined in three modules, so the bare name is ambiguous,
+        and the per-candidate FQN resolution exercises Jedi on a non-symlinked
+        path.
+        """
+        fixture = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
+        result = await find_subclasses("Widget", fixture.as_posix())
+
+        # Old contract: always a list (never the ambiguity dict).
+        assert isinstance(result, list), f"expected a list, got {type(result).__name__}: {result!r}"
+
+        # Iterable as the old shape: each entry is a subclass dict with a name.
+        names = {sc["name"] for sc in result}
+
+        # Flat union of every Widget's subclasses (matches main's behaviour):
+        # mypackage._core.widgets.Widget -> Premium, Deluxe, ViaAttr
+        # mypackage.collision_demo.Widget -> UnrelatedSub
+        assert {"Premium", "Deluxe", "ViaAttr", "UnrelatedSub"} <= names, names
+
 
 class TestPluginActivation:
     """Test plugin activation based on project type."""

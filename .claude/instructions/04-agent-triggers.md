@@ -58,8 +58,33 @@ Claude: I'll use the worktree-manager agent to create that worktree.
 
 ### "Push and create PR" / "Create a PR" / "Monitor CI" / "Check if CI passes"
 
-→ **IMMEDIATELY use**: `Task tool with subagent_type="pr-workflow"`
-→ **NEVER use**: Manual `git push`, `gh pr create`, `gh run list` sequences
+→ **Use raw commands** (the pr-workflow agent was deleted — see "Why no pr-workflow agent" below):
+
+```bash
+# Verify untracked files first (per the post-commit-verification rule)
+git status --short
+
+# Push (with -u for new branches)
+git push -u origin "$(git branch --show-current)"
+
+# Verify push succeeded
+[ $? -eq 0 ] && [ "$(git rev-parse HEAD)" = "$(git rev-parse @{u})" ] || echo "ERROR: push did not sync"
+
+# Create PR (issue-link goes in body via "Fixes #N" / "Closes #N" / "Resolves #N")
+gh pr create --base <base-branch> --title "type(scope): summary (#N)" --body "$(cat <<'EOF'
+## Summary
+- ...
+
+## Test plan
+- [ ] ...
+
+Fixes #<issue>
+EOF
+)"
+
+# Monitor CI (built-in, blocks until terminal state)
+gh pr checks --watch
+```
 
 ## Composite Agent Workflows
 
@@ -69,7 +94,24 @@ These commands trigger multiple agents in sequence:
 
 → **EXECUTE IN SEQUENCE**:
 
-1. `Task tool with subagent_type="pr-workflow"` - Merge the PR, update main, delete remote branch
+1. **Merge the PR with raw commands** (capture exit codes; verify state):
+
+   ```bash
+   # For normal feature branches:
+   gh pr merge <PR-NUMBER> --merge --delete-branch
+   [ $? -eq 0 ] || { echo "ERROR: merge failed"; exit 1; }
+
+   # For claude/development (persistent — DO NOT delete):
+   gh pr merge <PR-NUMBER> --merge   # no --delete-branch
+   # Then update main + merge main back into claude/development:
+   git -C "$(git worktree list | head -1 | awk '{print $1}')" checkout main
+   git -C "$(git worktree list | head -1 | awk '{print $1}')" pull origin main
+   # ... see Special Cases in 06-workflow-commits.md for the full claude/development handling
+
+   # Verify merge state (auto-close of linked issues is async — may need a brief wait)
+   gh pr view <PR-NUMBER> --json state,mergedAt,headRefDeleted
+   ```
+
 2. `Task tool with subagent_type="worktree-manager"` - Remove the worktree safely after confirming no uncommitted changes
 
 ### "PR is merged. update" / "Update after merge" / "Sync with main" / "Merged externally"
@@ -91,7 +133,16 @@ These commands trigger multiple agents in sequence:
 - **smart-commit**: Intelligent git commit workflow with pre-commit validation
 - **cross-platform-validator**: Validates cross-platform compatibility
 - **worktree-manager**: Safe worktree operations with session tracking
-- **pr-workflow**: Complete PR lifecycle - push, create/update PR, monitor CI
 - **general-purpose**: For complex multi-step research tasks
 
 **Note**: Agents are defined in `.claude/agents/` and are automatically available via the Task tool.
+
+## Why no pr-workflow agent
+
+The `pr-workflow` agent was deleted because it was net liability:
+
+- Most of its work was thin wrappers over `git push` + `gh pr create` + `gh pr checks --watch` (all of which are simple, transparent, well-documented commands).
+- The few genuinely-useful pieces (CI error parsing, merge composite for claude/development) had silent-wrong-success bugs (exit codes not checked, race conditions in CI run lookup, factual errors in examples).
+- Documentation drifted (one example used a `--issue` flag that doesn't exist in `gh pr create`), actively misleading anyone who copied it.
+
+Use raw `git` and `gh` commands. They're transparent, debuggable, and don't accumulate hidden bugs. `gh pr checks --watch` already does the CI-monitoring loop the agent reinvented.

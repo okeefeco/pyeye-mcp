@@ -344,7 +344,7 @@ class ProjectManager:
             # get_package_paths() always prepends the project itself; skip the first entry
             extra_paths = [p for p in config_package_paths if Path(p).resolve() != path_key]
             if extra_paths:
-                self.get_project(str(path_key), extra_paths)
+                self.get_project(path_key.as_posix(), extra_paths)
                 logger.info(
                     f"Bridged {len(extra_paths)} extra package paths from config to dependencies"
                 )

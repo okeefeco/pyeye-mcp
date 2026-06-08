@@ -28,7 +28,7 @@ repos:
         # - GHSA-4xh5-x5gv-qwph: pip vulnerability, awaiting pip 25.3
         # - CVE-2025-69872: diskcache pickle deserialization, no fix available (issue #289)
         # - CVE-2026-4539: pygments vulnerability, no fix available yet (latest is 2.19.2)
-        entry: uv run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
+        entry: uv run pip-audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
@@ -90,7 +90,10 @@ repos:
         args: ['--fix=lf']
       - id: name-tests-test
         args: ['--pytest-test-first']
-        exclude: '^tests/(fixtures|utils)/'
+        # Exclude any 'fixtures/' or 'utils/' directory under tests/, at any
+        # nesting depth. Fixture .py files are intentionally NOT named
+        # 'test_*' — they are sample code under analysis, not pytest cases.
+        exclude: '^tests/.*(fixtures|utils)/|response_linter\.py$'
 
   # Project-specific checks
   # Cross-platform path checker - useful for periodic audits but has false positives
@@ -119,6 +122,19 @@ repos:
     hooks:
       - id: commitizen
         stages: [commit-msg]
+
+  # Conformance linter — layering + absence-vs-zero invariant
+  # Runs the adversarial + existing-response tests to catch content-layer
+  # violations and incorrect edge_counts semantics before each commit.
+  # Intentionally fast: only tests/conformance/ is executed (< 5 seconds).
+  - repo: local
+    hooks:
+      - id: conformance-linter
+        name: PyEye conformance linter (layering + absence-vs-zero)
+        entry: uv run pytest tests/conformance/ -q --no-header --no-cov
+        language: system
+        pass_filenames: false
+        always_run: true
 
   # Markdown
   - repo: https://github.com/igorshubovych/markdownlint-cli

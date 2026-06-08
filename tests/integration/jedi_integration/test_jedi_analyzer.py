@@ -771,7 +771,9 @@ class Kitten(Cat):  # This won't be found since Cat is not imported
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find direct subclasses of Animal only
-        results = await analyzer.find_subclasses("Animal", include_indirect=False)
+        raw = await analyzer.find_subclasses("Animal", include_indirect=False)
+        assert not raw.get("ambiguous"), "Animal is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Should find Dog and Cat (direct subclasses)
         assert len(results) == 2
@@ -812,7 +814,9 @@ class Eagle(Bird):
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find all subclasses of Animal (direct and indirect)
-        results = await analyzer.find_subclasses("Animal", include_indirect=True)
+        raw = await analyzer.find_subclasses("Animal", include_indirect=True)
+        assert not raw.get("ambiguous"), "Animal is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Should find all subclasses
         assert len(results) == 5
@@ -850,7 +854,9 @@ class D(C):
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find subclasses with hierarchy
-        results = await analyzer.find_subclasses("A", show_hierarchy=True)
+        raw = await analyzer.find_subclasses("A", show_hierarchy=True)
+        assert not raw.get("ambiguous"), "A is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Check that hierarchy chains are included
         for result in results:
@@ -889,7 +895,9 @@ class Airplane(Flyable):
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find subclasses of Flyable
-        results = await analyzer.find_subclasses("Flyable")
+        raw = await analyzer.find_subclasses("Flyable")
+        assert not raw.get("ambiguous"), "Flyable is unambiguous in this project"
+        results = raw["subclasses"]
 
         assert len(results) == 2
         names = {r["name"] for r in results}
@@ -902,9 +910,10 @@ class Airplane(Flyable):
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Try to find subclasses of non-existent class
-        results = await analyzer.find_subclasses("NonExistentClass")
-
-        # Should return empty list
+        raw = await analyzer.find_subclasses("NonExistentClass")
+        # Should return unambiguous empty list (no classes exist with that name)
+        assert not raw.get("ambiguous")
+        results = raw["subclasses"]
         assert results == []
 
     @pytest.mark.asyncio
@@ -925,7 +934,10 @@ class NetworkError(Exception):
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find subclasses of Exception
-        results = await analyzer.find_subclasses("Exception")
+        raw = await analyzer.find_subclasses("Exception")
+        # Exception is a unique name in this temp project
+        assert not raw.get("ambiguous"), "Exception is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Should find CustomError and NetworkError (direct)
         # and ValidationError (indirect)
@@ -985,7 +997,9 @@ class Service(BaseService):
 """)
 
         analyzer = JediAnalyzer(str(temp_project_dir))
-        results = await analyzer.find_subclasses("BaseService", include_indirect=False)
+        raw = await analyzer.find_subclasses("BaseService", include_indirect=False)
+        assert not raw.get("ambiguous"), "BaseService is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Should find ALL THREE classes named "Service"
         assert (
@@ -1046,7 +1060,9 @@ class ProdService(Service):
 """)
 
         analyzer = JediAnalyzer(str(temp_project_dir))
-        results = await analyzer.find_subclasses("BaseService", include_indirect=True)
+        raw = await analyzer.find_subclasses("BaseService", include_indirect=True)
+        assert not raw.get("ambiguous"), "BaseService is unambiguous in this project"
+        results = raw["subclasses"]
 
         # Should find both Service (direct) and ProdService (indirect)
         assert (
@@ -1063,3 +1079,290 @@ class ProdService(Service):
                 assert result["is_direct"] is True, "Service should be marked as direct"
             elif result["name"] == "ProdService":
                 assert result["is_direct"] is False, "ProdService should be marked as indirect"
+
+
+_RESOLVE_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
+
+
+class TestFindSubclassesAmbiguity:
+    """Regression tests for the simple-name conflation bug.
+
+    Previously, find_subclasses("Widget") returned the UNION of subclasses across
+    ALL classes named Widget in the project.  The fix adds ambiguity detection:
+    bare simple names that match >1 class return {"ambiguous": True, "candidates": [...]}.
+    FQN inputs return the FQN-strict subclass list.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bare_widget_returns_ambiguous(self) -> None:
+        """find_subclasses("Widget") returns the ambiguous variant.
+
+        The resolve_project fixture has at least two classes named Widget
+        (mypackage._core.widgets.Widget and mypackage.helpers.Widget — plus
+        mypackage.collision_demo.Widget), so the bare name is ambiguous.
+        """
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        raw = await analyzer.find_subclasses("Widget")
+
+        assert (
+            raw.get("ambiguous") is True
+        ), f"Expected ambiguous=True for bare 'Widget'; got: {raw}"
+        assert "candidates" in raw, "Ambiguous result must include 'candidates'"
+        handles = {c["handle"] for c in raw["candidates"]}
+        assert (
+            "mypackage._core.widgets.Widget" in handles
+        ), f"mypackage._core.widgets.Widget missing from candidates: {handles}"
+        assert (
+            "mypackage.collision_demo.Widget" in handles
+        ), f"mypackage.collision_demo.Widget missing from candidates: {handles}"
+        # Each candidate must have handle, kind, location
+        for c in raw["candidates"]:
+            assert "handle" in c
+            assert c["kind"] == "class"
+            assert "location" in c
+            assert "file" in c["location"]
+
+    @pytest.mark.asyncio
+    async def test_fqn_real_widget_returns_exactly_three_subclasses(self) -> None:
+        """find_subclasses("mypackage._core.widgets.Widget") returns exactly 3.
+
+        Confirmed subclasses of the real Widget:
+        - Premium   (direct, in widgets.py)
+        - Deluxe    (direct, in widgets.py)
+        - ViaAttr   (direct via attribute access, in inheritance_via_attr.py)
+
+        UnrelatedSub (from collision_demo.Widget) must NOT appear.
+        """
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        raw = await analyzer.find_subclasses("mypackage._core.widgets.Widget")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        subclasses = raw["subclasses"]
+        names = {s["name"] for s in subclasses}
+
+        assert "Premium" in names, f"Premium missing; got {names}"
+        assert "Deluxe" in names, f"Deluxe missing; got {names}"
+        assert "ViaAttr" in names, f"ViaAttr missing; got {names}"
+        assert (
+            "UnrelatedSub" not in names
+        ), f"UnrelatedSub belongs to collision_demo.Widget, NOT the real Widget; got {names}"
+        assert (
+            len(subclasses) == 3
+        ), f"Expected exactly 3 subclasses of mypackage._core.widgets.Widget; got {len(subclasses)}: {names}"
+
+    @pytest.mark.asyncio
+    async def test_fqn_collision_widget_returns_exactly_one_subclass(self) -> None:
+        """find_subclasses("mypackage.collision_demo.Widget") returns exactly 1.
+
+        UnrelatedSub is the only subclass of the collision_demo Widget.
+        Premium/Deluxe/ViaAttr must NOT appear.
+        """
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        raw = await analyzer.find_subclasses("mypackage.collision_demo.Widget")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        subclasses = raw["subclasses"]
+        names = {s["name"] for s in subclasses}
+
+        assert "UnrelatedSub" in names, f"UnrelatedSub missing; got {names}"
+        assert (
+            "Premium" not in names
+        ), f"Premium belongs to widgets.Widget, not collision_demo.Widget; got {names}"
+        assert (
+            "Deluxe" not in names
+        ), f"Deluxe belongs to widgets.Widget, not collision_demo.Widget; got {names}"
+        assert (
+            "ViaAttr" not in names
+        ), f"ViaAttr belongs to widgets.Widget, not collision_demo.Widget; got {names}"
+        assert (
+            len(subclasses) == 1
+        ), f"Expected exactly 1 subclass of mypackage.collision_demo.Widget; got {len(subclasses)}: {names}"
+
+
+_ISSUE_335_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "issue_335_subclasses"
+
+
+class TestFindSubclassesReExport:
+    """Issue #335 Bug A: FQN-strict exact-match must survive re-export boundaries.
+
+    ``pkg.shapes.Shape`` (public re-export) and ``pkg.shapes._impl.Shape``
+    (definition site) bind to the same class.  Circle and Square subclass it.
+    Querying by EITHER path must return both subclasses; exact string equality
+    against Jedi's resolved ``full_name`` silently drops them when the caller's
+    path and Jedi's resolved path straddle the re-export boundary.
+    """
+
+    @pytest.mark.asyncio
+    async def test_canonical_path_includes_reexport_subclasses(self) -> None:
+        """Querying the definition-site FQN returns both subclasses."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        raw = await analyzer.find_subclasses("pkg.shapes._impl.Shape")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert names == {
+            "Circle",
+            "Square",
+        }, f"Expected Circle and Square as subclasses of the canonical Shape; got {names}"
+
+    @pytest.mark.asyncio
+    async def test_reexport_path_includes_reexport_subclasses(self) -> None:
+        """Querying the re-exported public FQN returns the same subclasses.
+
+        This is the direction that fails before the fix: Jedi resolves each
+        child's base to ``pkg.shapes._impl.Shape`` while the caller passed
+        ``pkg.shapes.Shape``; exact equality drops Circle and Square.
+        """
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        raw = await analyzer.find_subclasses("pkg.shapes.Shape")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert names == {
+            "Circle",
+            "Square",
+        }, (
+            "Re-exported base path must resolve to the same subclasses as the "
+            f"canonical path; got {names}"
+        )
+
+
+class TestFindSubclassesIndirectIdentity:
+    """Issue #335 Bug B: grandchild traversal must carry FQN identity.
+
+    Two unrelated classes share the simple name ``Car``:
+    - ``pkg.vehicles_a.Car`` is a real subclass of ``Vehicle`` (with grandchild RaceCar).
+    - ``pkg.vehicles_b.Car`` is unrelated (with child SportsCar).
+
+    The indirect-subclass walk previously expanded via the simple name ``Car``
+    against ``parent_to_children``, pulling SportsCar (a child of the *unrelated*
+    Car) into Vehicle's subclass list.
+    """
+
+    @pytest.mark.asyncio
+    async def test_indirect_walk_excludes_same_named_unrelated_grandchild(self) -> None:
+        """Vehicle's subclasses are exactly {Car, RaceCar}; SportsCar excluded."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        raw = await analyzer.find_subclasses("pkg.vehicles_a.Vehicle")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert "Car" in names, f"Real direct subclass Car missing; got {names}"
+        assert "RaceCar" in names, f"Genuine grandchild RaceCar missing; got {names}"
+        assert (
+            "SportsCar" not in names
+        ), f"SportsCar extends the unrelated vehicles_b.Car and must not appear; got {names}"
+        assert (
+            len(raw["subclasses"]) == 2
+        ), f"Expected exactly 2 subclasses of Vehicle; got {len(raw['subclasses'])}: {names}"
+
+    @pytest.mark.asyncio
+    async def test_unrelated_car_keeps_only_its_own_child(self) -> None:
+        """The unrelated Car's subclasses are exactly {SportsCar}; RaceCar excluded."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        raw = await analyzer.find_subclasses("pkg.vehicles_b.Car")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert names == {"SportsCar"}, f"Unrelated Car must own only SportsCar; got {names}"
+
+
+class TestInspectEdgeCountsSubclassesIssue335:
+    """Issue #335 criterion 3: inspect().edge_counts.subclasses matches truth.
+
+    edge_counts.subclasses delegates to find_subclasses with the canonical FQN,
+    so the Bug A / Bug B fixes must flow through to the inspect surface.
+    """
+
+    @pytest.mark.asyncio
+    async def test_shape_edge_count_includes_reexport_subclasses(self) -> None:
+        """inspect(Shape).edge_counts.subclasses counts both re-export subclasses."""
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="pkg.shapes._impl.Shape",
+            project_path=str(_ISSUE_335_FIXTURE),
+        )
+        assert (
+            result["edge_counts"].get("subclasses") == 2
+        ), f"Expected subclasses count 2 for Shape; got {result['edge_counts']!r}"
+
+    @pytest.mark.asyncio
+    async def test_vehicle_edge_count_excludes_unrelated_grandchild(self) -> None:
+        """inspect(Vehicle).edge_counts.subclasses == 2 (Car, RaceCar), not 3."""
+        from pyeye.mcp.server import inspect
+
+        result = await inspect(
+            handle="pkg.vehicles_a.Vehicle",
+            project_path=str(_ISSUE_335_FIXTURE),
+        )
+        assert (
+            result["edge_counts"].get("subclasses") == 2
+        ), f"Expected subclasses count 2 for Vehicle; got {result['edge_counts']!r}"
+
+
+class TestFindSubclassesJediIndependence:
+    """Issue #335 macOS-regression guard: unique-name hierarchies resolve via AST.
+
+    On symlinked temp dirs (macOS ``/var`` -> ``/private/var``) Jedi goto() and
+    canonicalisation return degraded/empty results.  When a class's simple name
+    is unique in the project the subclass relationship is unambiguous from the
+    AST alone, so resolution MUST NOT depend on the Jedi layer.  This test
+    simulates total Jedi-layer failure by patching ``get_script`` and asserts
+    the full unique-name chain (Root -> Mid -> Leaf) is still discovered.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unique_name_chain_resolves_without_jedi(self) -> None:
+        """Direct and indirect subclasses of a unique-name class survive Jedi failure."""
+        failed_script = Mock()
+        failed_script.goto.return_value = []
+        failed_script.get_names.return_value = []
+
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        with patch("pyeye.file_artifact_cache.get_script", return_value=failed_script):
+            raw = await analyzer.find_subclasses("pkg.deep_chain.Root")
+
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        names = {s["name"] for s in raw["subclasses"]}
+        assert names == {
+            "Mid",
+            "Leaf",
+        }, (
+            "Unique-name subclass chain must resolve from the AST without Jedi "
+            f"goto/canonicalisation; got {names}"
+        )
+
+
+class TestFqnMatchesTarget:
+    """Unit coverage for the _fqn_matches_target equality/canonical logic (issue #335)."""
+
+    @pytest.mark.asyncio
+    async def test_none_resolved_never_matches(self) -> None:
+        """An unresolved base (None) never matches a target."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        assert await analyzer._fqn_matches_target(None, "pkg.shapes._impl.Shape", None, {}) is False
+
+    @pytest.mark.asyncio
+    async def test_exact_match_short_circuits(self) -> None:
+        """Exact string equality matches without needing canonicalisation."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        # canonical_target deliberately None to prove the exact branch is taken
+        # before any canonical comparison.
+        assert (
+            await analyzer._fqn_matches_target(
+                "pkg.shapes._impl.Shape", "pkg.shapes._impl.Shape", None, {}
+            )
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_canonical_target_and_no_exact_match_returns_false(self) -> None:
+        """When the target cannot be canonicalised and is not an exact match, no match."""
+        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
+        assert (
+            await analyzer._fqn_matches_target(
+                "pkg.shapes.Shape", "pkg.shapes._impl.Shape", None, {}
+            )
+            is False
+        )

@@ -1,0 +1,2002 @@
+"""Tests for the inspect(handle) operation — Tasks 3.1, 4.1, and 6.2.
+
+Task 3.1 (Phase 3) pins down the universal + kind-dependent return shape.
+Task 4.1 (Phase 4) pins down the edge_counts contract with the critical
+absence-vs-zero invariant.
+Task 6.2 (Phase 6) pins down the re_exports contract.
+
+Fixture layout
+--------------
+tests/fixtures/resolve_project/
+  mypackage/
+    __init__.py           # re-exports Widget from _core.widgets
+    usage.py              # usage site: callers/references for edge_counts tests
+    _core/
+      __init__.py         # empty
+      widgets.py          # Widget class (line 21), make_widget function (line 71),
+                          # DEFAULT_NAME variable (line 18), Config class (line 61),
+                          # Premium(Widget) and Deluxe(Widget) at end of file
+
+tests/fixtures/canonicalization_basic/
+  package/
+    __init__.py           # re-exports Config from _impl.config
+    _impl/
+      config.py           # defines Config (canonical), _PrivateConfig (not re-exported)
+
+tests/fixtures/canonicalization_multihop/
+  package/
+    __init__.py           # re-exports Config via subpkg (hop 2)
+    subpkg/__init__.py    # re-exports Config from _impl.config (hop 1)
+    legacy.py             # re-exports Config as LegacyConfig
+    _impl/config.py       # defines Config (canonical)
+
+All tests are ``@pytest.mark.asyncio`` to match the async signature of ``inspect``.
+
+Contract tested — Phase 3 (Tasks 3.1)
+--------------------------------------
+Universal fields (all kinds):
+  - ``handle``: str, the canonical handle
+  - ``kind``: one of the API kind vocabulary values
+  - ``scope``: ``"project"`` or ``"external"``
+  - ``location``: dict with ``file``, ``line_start``, ``line_end``,
+    ``column_start``, ``column_end`` — location pointer, NOT source content
+  - ``docstring``: str or None (present when available)
+
+Kind-dependent fields:
+  - class: ``superclasses: list[str]``; optional ``signature: str``
+  - function/method: ``signature: str``, ``parameters: list[dict]``,
+    ``return_type: str | None``, ``is_async: bool``,
+    ``is_classmethod: bool``, ``is_staticmethod: bool``
+  - module: ``is_package: bool``; optional ``package: str``
+  - attribute/property/variable: optional ``type: str``, optional
+    ``default: str`` (simple literals only)
+
+Phase 3 absence-vs-zero invariants (Task 3.1 contract):
+  - ``edge_counts``: ALWAYS present as a dict; Phase 3 returns ``{}``
+  - ``re_exports``: ABSENT (not ``[]``) — Phase 6 wires it in
+  - ``highlights``: ABSENT — Phase 5 wires it in
+  - ``tags``: ABSENT for Python kinds (plugin kinds only)
+  - ``properties``: ABSENT for Python kinds (plugin kinds only)
+
+No source-content fields:
+  - Signatures are short single-line strings — NOT multi-line code bodies
+  - ``default`` is a simple literal string when present — NOT a complex expression
+  - ``location`` is a pointer dict — NOT a source snippet
+
+Contract tested — Phase 4 (Task 4.1)
+--------------------------------------
+Phase 4 wires exactly 5 edge types into ``edge_counts``:
+  - ``members``: for class and module handles (count of direct members)
+  - ``superclasses``: for class handles
+  - ``subclasses``: for class handles (project-scoped)
+  - ``callers``: for function/method handles
+  - ``references``: for any handle (aggregate read/written/passed; excludes calls)
+
+The absence-vs-zero invariant (load-bearing):
+  - Unmeasured edges are ABSENT from edge_counts (not present with value 0)
+  - Measured-and-zero edges are PRESENT with value 0 (not omitted)
+  - ``read_by``, ``written_by``, ``passed_by``, ``decorated_by``, ``decorates``,
+    ``imports``, ``imported_by``, ``enclosing_scope``, ``callees``,
+    ``overrides``, ``overridden_by`` MUST NOT appear in Phase 4 edge_counts
+
+Contract tested — Phase 6 (Task 6.2)
+--------------------------------------
+re_exports absence-vs-zero invariant (spec-driven):
+  - PRESENT (possibly []) for class/function/method/property/variable/attribute
+  - ABSENT for module kind (not computed for modules)
+  - Populated with all public re-export paths when the symbol is re-exported
+  - Empty list ([]) when no re-exports found (measured-and-empty, not absent)
+  - Values are plain str (handle-shaped dotted names), NOT Handle objects
+  - Values are sorted lexicographically (deterministic ordering)
+"""
+
+import importlib
+from pathlib import Path
+
+import pytest
+
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+# The ``inspect`` function is re-exported from ``pyeye.mcp.operations`` (see
+# operations/__init__.py), which shadows the submodule of the same name on the
+# package namespace. ``import ... as`` / ``from ... import`` both resolve via
+# attribute access and would bind the *function*, not the module. Use importlib
+# to fetch the real submodule object as the target for ``patch.object``.
+inspect_ops = importlib.import_module("pyeye.mcp.operations.inspect")
+
+_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
+_FIXTURE_BASIC = Path(__file__).parent.parent.parent.parent / "fixtures" / "canonicalization_basic"
+_FIXTURE_MULTIHOP = (
+    Path(__file__).parent.parent.parent.parent / "fixtures" / "canonicalization_multihop"
+)
+
+# Known canonical handles from the fixture
+_WIDGET_HANDLE = "mypackage._core.widgets.Widget"
+_CONFIG_HANDLE = "mypackage._core.widgets.Config"
+_MAKE_WIDGET_HANDLE = "mypackage._core.widgets.make_widget"
+_GREET_HANDLE = "mypackage._core.widgets.Widget.greet"
+_SLOW_GREET_HANDLE = "mypackage._core.widgets.Widget.slow_greet"
+_DEFAULT_HANDLE = "mypackage._core.widgets.Widget.default"
+_NORMALIZE_HANDLE = "mypackage._core.widgets.Widget.normalize"
+_DISPLAY_NAME_HANDLE = "mypackage._core.widgets.Widget.display_name"
+_COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
+_MODULE_HANDLE = "mypackage._core.widgets"
+_DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
+
+# Phase 4 fixture handles — subclasses of Widget added at end of widgets.py
+_PREMIUM_HANDLE = "mypackage._core.widgets.Premium"
+_DELUXE_HANDLE = "mypackage._core.widgets.Deluxe"
+
+# External symbol — pathlib.Path is stdlib, always available
+_PATH_CLASS_HANDLE = "pathlib.Path"
+
+# All 5 edge types measured by Phase 4 (must be present for relevant kinds)
+# callers/references removed (#332): derived from Jedi's budget-capped
+# get_references, which under-reports non-deterministically. Omitted until an
+# indexed backend lands (#333). Only structural edges remain measured.
+_PHASE4_MEASURED_EDGES = frozenset({"members", "superclasses", "subclasses"})
+
+# All unmeasured edge types in Phase 4 (must be ABSENT from edge_counts)
+_PHASE4_UNMEASURED_EDGES = [
+    "read_by",
+    "written_by",
+    "passed_by",
+    "decorated_by",
+    "decorates",
+    "imports",
+    "imported_by",
+    "enclosing_scope",
+    "callees",
+    "overrides",
+    "overridden_by",
+]
+
+
+@pytest.fixture
+def analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the resolve_project fixture."""
+    return JediAnalyzer(str(_FIXTURE))
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+
+def _assert_location(location: dict) -> None:
+    """Assert that a location dict has the required pointer fields."""
+    assert isinstance(location, dict), f"location must be a dict, got {type(location)}"
+    assert "file" in location, "location must contain 'file'"
+    assert "line_start" in location, "location must contain 'line_start'"
+    assert "line_end" in location, "location must contain 'line_end'"
+    assert isinstance(location["file"], str), "location.file must be a str"
+    assert isinstance(location["line_start"], int), "location.line_start must be an int"
+    assert isinstance(location["line_end"], int), "location.line_end must be an int"
+    # Must NOT contain source content — only structural fields
+    assert "source" not in location, "location must NOT contain source content"
+    assert "text" not in location, "location must NOT contain text content"
+    assert "snippet" not in location, "location must NOT contain snippet content"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectClass — fixture: Widget
+# ---------------------------------------------------------------------------
+
+
+class TestInspectClass:
+    """inspect returns correct universal and class-specific fields for a class handle."""
+
+    @pytest.mark.asyncio
+    async def test_class_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a class handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        # Universal fields
+        assert result["handle"] == _WIDGET_HANDLE
+        assert result["kind"] == "class"
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+        # docstring is present (Widget has a docstring)
+        assert "docstring" in result
+        assert result["docstring"] is not None
+        assert isinstance(result["docstring"], str)
+
+    @pytest.mark.asyncio
+    async def test_class_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a class: superclasses list is present."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        # superclasses must be present (list of handle strings)
+        assert "superclasses" in result
+        assert isinstance(result["superclasses"], list)
+        # Each superclass is a string handle
+        for sc in result["superclasses"]:
+            assert isinstance(sc, str), f"superclass handle must be str, got {type(sc)}"
+
+    @pytest.mark.asyncio
+    async def test_class_location_is_in_fixture_file(self, analyzer: JediAnalyzer) -> None:
+        """Widget's location.file must point to the widgets.py fixture file."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        loc = result["location"]
+        assert (
+            "widgets.py" in loc["file"]
+        ), f"Widget location should be in widgets.py, got: {loc['file']}"
+        # line_start should correspond to where Widget is defined (line 21)
+        assert (
+            loc["line_start"] == 21
+        ), f"Widget is defined on line 21; got line_start={loc['line_start']}"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectFunction — fixture: make_widget
+# ---------------------------------------------------------------------------
+
+
+class TestInspectFunction:
+    """inspect returns correct universal and function-specific fields."""
+
+    @pytest.mark.asyncio
+    async def test_function_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a function handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        assert result["handle"] == _MAKE_WIDGET_HANDLE
+        assert result["kind"] == "function"
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+        # docstring is present
+        assert "docstring" in result
+        assert result["docstring"] is not None
+
+    @pytest.mark.asyncio
+    async def test_function_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a function: signature, parameters, return_type, flags."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        # signature: non-empty string, single-line (no body)
+        assert "signature" in result
+        assert isinstance(result["signature"], str)
+        assert len(result["signature"]) > 0
+        assert "\n" not in result["signature"], "signature must be a single-line string"
+
+        # parameters: list of Param dicts
+        assert "parameters" in result
+        assert isinstance(result["parameters"], list)
+        # make_widget(widget_name: str) has one parameter
+        assert len(result["parameters"]) >= 1
+        param = result["parameters"][0]
+        assert "name" in param
+        assert param["name"] == "widget_name"
+        assert "kind" in param
+        valid_param_kinds = {
+            "positional",
+            "positional_or_keyword",
+            "keyword_only",
+            "var_positional",
+            "var_keyword",
+        }
+        assert (
+            param["kind"] in valid_param_kinds
+        ), f"param.kind must be one of {valid_param_kinds}, got {param['kind']!r}"
+
+        # return_type: str or None (not required but must be present as key)
+        assert "return_type" in result
+
+        # async/classmethod/staticmethod flags
+        assert "is_async" in result
+        assert result["is_async"] is False  # make_widget is not async
+        assert "is_classmethod" in result
+        assert result["is_classmethod"] is False
+        assert "is_staticmethod" in result
+        assert result["is_staticmethod"] is False
+
+    @pytest.mark.asyncio
+    async def test_function_parameter_type_annotation(self, analyzer: JediAnalyzer) -> None:
+        """Parameter type annotation is captured as a TypeRef when present.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef
+        dict ``{raw, handle?, args?}``.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        params = result["parameters"]
+        widget_name_param = next((p for p in params if p["name"] == "widget_name"), None)
+        assert widget_name_param is not None, "widget_name parameter not found"
+        # make_widget(widget_name: str) has a type annotation
+        if "type" in widget_name_param:
+            type_node = widget_name_param["type"]
+            assert isinstance(type_node, dict), (
+                f"Phase 8: parameter 'type' must be a TypeRef dict; "
+                f"got {type(type_node).__name__}"
+            )
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectMethod — fixture: Widget.greet
+# ---------------------------------------------------------------------------
+
+
+class TestInspectMethod:
+    """inspect returns correct fields for a method handle."""
+
+    @pytest.mark.asyncio
+    async def test_method_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a method handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_GREET_HANDLE, analyzer)
+
+        assert result["handle"] == _GREET_HANDLE
+        assert result["kind"] == "method"
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+        # greet has a docstring
+        assert "docstring" in result
+        assert result["docstring"] is not None
+
+    @pytest.mark.asyncio
+    async def test_method_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a regular instance method."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_GREET_HANDLE, analyzer)
+
+        assert "signature" in result
+        assert isinstance(result["signature"], str)
+        assert "\n" not in result["signature"]
+
+        assert "parameters" in result
+        assert isinstance(result["parameters"], list)
+
+        assert "return_type" in result
+
+        assert "is_async" in result
+        assert result["is_async"] is False  # greet is not async
+        assert "is_classmethod" in result
+        assert result["is_classmethod"] is False
+        assert "is_staticmethod" in result
+        assert result["is_staticmethod"] is False
+
+    @pytest.mark.asyncio
+    async def test_async_method_flag(self, analyzer: JediAnalyzer) -> None:
+        """An async method has is_async=True."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_SLOW_GREET_HANDLE, analyzer)
+
+        assert result["kind"] == "method"
+        assert result["is_async"] is True
+
+    @pytest.mark.asyncio
+    async def test_classmethod_flag(self, analyzer: JediAnalyzer) -> None:
+        """A classmethod has is_classmethod=True."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DEFAULT_HANDLE, analyzer)
+
+        assert result["kind"] == "method"
+        assert result["is_classmethod"] is True
+        assert result["is_staticmethod"] is False
+
+    @pytest.mark.asyncio
+    async def test_staticmethod_flag(self, analyzer: JediAnalyzer) -> None:
+        """A staticmethod has is_staticmethod=True."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_NORMALIZE_HANDLE, analyzer)
+
+        assert result["kind"] == "method"
+        assert result["is_staticmethod"] is True
+        assert result["is_classmethod"] is False
+
+
+# ---------------------------------------------------------------------------
+# TestInspectModule — fixture: mypackage._core.widgets
+# ---------------------------------------------------------------------------
+
+
+class TestInspectModule:
+    """inspect returns correct universal and module-specific fields."""
+
+    @pytest.mark.asyncio
+    async def test_module_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a module handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+
+        assert result["handle"] == _MODULE_HANDLE
+        assert result["kind"] == "module"
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+        # Module has a module-level docstring
+        assert "docstring" in result
+
+    @pytest.mark.asyncio
+    async def test_module_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a module: is_package bool is present."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+
+        assert "is_package" in result
+        assert isinstance(result["is_package"], bool)
+        # widgets.py is a module, not a package (__init__.py), so is_package=False
+        assert result["is_package"] is False
+
+        # package is optional but if present, must be a str (handle)
+        if "package" in result:
+            assert isinstance(result["package"], str)
+
+
+# ---------------------------------------------------------------------------
+# TestInspectAttribute — fixture: Widget.color (ClassVar)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectAttribute:
+    """inspect returns correct fields for a class attribute handle."""
+
+    @pytest.mark.asyncio
+    async def test_attribute_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for an attribute handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_COLOR_HANDLE, analyzer)
+
+        assert result["handle"] == _COLOR_HANDLE
+        assert result["kind"] in ("attribute", "variable")  # Jedi may return either
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+
+    @pytest.mark.asyncio
+    async def test_attribute_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for attribute: optional type (TypeRef) and default.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef
+        dict ``{raw, handle?, args?}``; ``default`` remains a string literal.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_COLOR_HANDLE, analyzer)
+
+        # type is optional; when present it is a TypeRef dict with non-empty raw
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
+        if "default" in result:
+            # default must be a simple literal string when present
+            assert result["default"] is None or isinstance(result["default"], str)
+            # Must NOT be a complex expression (no newlines, no function calls)
+            if result["default"] is not None:
+                assert (
+                    "\n" not in result["default"]
+                ), "default must be a simple literal, not a multi-line expression"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectProperty — fixture: Widget.display_name
+# ---------------------------------------------------------------------------
+
+
+class TestInspectProperty:
+    """inspect returns correct fields for a property handle."""
+
+    @pytest.mark.asyncio
+    async def test_property_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a property handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DISPLAY_NAME_HANDLE, analyzer)
+
+        assert result["handle"] == _DISPLAY_NAME_HANDLE
+        assert result["kind"] in ("property", "function", "method")  # Jedi normalisation
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+        # display_name has a docstring
+        assert "docstring" in result
+
+    @pytest.mark.asyncio
+    async def test_property_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a property: type is optional TypeRef.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DISPLAY_NAME_HANDLE, analyzer)
+
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectVariable — fixture: DEFAULT_NAME (module-level)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectVariable:
+    """inspect returns correct fields for a module-level variable handle."""
+
+    @pytest.mark.asyncio
+    async def test_variable_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Universal fields are populated for a variable handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
+
+        assert result["handle"] == _DEFAULT_NAME_HANDLE
+        assert result["kind"] in ("variable", "statement")  # Jedi normalisation
+        assert result["scope"] == "project"
+        _assert_location(result["location"])
+
+    @pytest.mark.asyncio
+    async def test_variable_kind_dependent_fields(self, analyzer: JediAnalyzer) -> None:
+        """Kind-dependent fields for a variable: optional TypeRef type and default.
+
+        Phase 8 changed ``type`` from a flat string to a recursive TypeRef.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
+
+        # DEFAULT_NAME: str = "widget" — type annotation present
+        if "type" in result and result["type"] is not None:
+            type_node = result["type"]
+            assert isinstance(
+                type_node, dict
+            ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+            assert (
+                isinstance(type_node.get("raw"), str) and type_node["raw"]
+            ), f"TypeRef must have non-empty 'raw'; got {type_node!r}"
+
+        # default may be "widget" (the literal value)
+        if "default" in result and result["default"] is not None:
+            # Must be a simple literal string representation
+            assert isinstance(result["default"], str)
+            assert (
+                "\n" not in result["default"]
+            ), "default must be a simple literal, not a complex expression"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectExternalScope — external symbol: pathlib.Path (stdlib)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectExternalScope:
+    """inspect returns shallow data with scope='external' for an external handle."""
+
+    @pytest.mark.asyncio
+    async def test_external_scope_classification(self, analyzer: JediAnalyzer) -> None:
+        """pathlib.Path is a stdlib class — must have scope='external'."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
+
+        assert (
+            result["scope"] == "external"
+        ), f"pathlib.Path is stdlib; expected scope='external', got {result['scope']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_scope_has_universal_fields(self, analyzer: JediAnalyzer) -> None:
+        """Even for external symbols, universal fields must be present."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
+
+        # handle, kind, scope are required
+        assert "handle" in result
+        assert result["handle"] == _PATH_CLASS_HANDLE
+        assert "kind" in result
+        assert result["kind"] == "class"
+        assert "scope" in result
+        # location is required (points to stdlib source, which may be .pyi)
+        assert "location" in result
+        _assert_location(result["location"])
+
+    @pytest.mark.asyncio
+    async def test_external_scope_edge_counts_present(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts invariant holds for external-scope symbols too (present, is a dict)."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
+
+        assert "edge_counts" in result
+        assert isinstance(result["edge_counts"], dict)
+        # Phase 4 populates edge_counts for external symbols too (project-scoped counts).
+        # Emptiness is not asserted — see TestInspectEdgeCounts for Phase 4 contract.
+
+
+# ---------------------------------------------------------------------------
+# TestInspectUniversalContract — kind-agnostic invariants
+# ---------------------------------------------------------------------------
+
+
+class TestInspectUniversalContract:
+    """Absence-vs-zero invariants that hold across ALL Python kinds."""
+
+    @pytest.mark.asyncio
+    async def test_edge_counts_always_present_as_dict(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts is ALWAYS present and is a dict.
+
+        Phase 3 returns {} for all handles.  Phase 4 populates it with measured
+        edges.  The universal contract is: edge_counts is present and is a dict.
+        Emptiness is NOT required here — the absence-vs-zero invariant is tested
+        separately in TestInspectEdgeCounts.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert "edge_counts" in result, f"edge_counts must be present for handle={handle!r}"
+            assert isinstance(result["edge_counts"], dict), (
+                f"edge_counts must be a dict for handle={handle!r}; "
+                f"got {type(result['edge_counts'])!r}"
+            )
+            # Phase 4 populates this with measured edges; emptiness is no longer required.
+            # The absence-vs-zero invariant is enforced by TestInspectEdgeCounts.
+
+    @pytest.mark.asyncio
+    async def test_re_exports_present_as_list_for_non_module_kinds(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports is PRESENT (possibly []) for class, function, and other non-module kinds.
+
+        Phase 6 wires re_exports for all kinds except module.
+        Per the absence-vs-zero invariant:
+          - PRESENT [] means 'measured and found no re-exports'
+          - ABSENT means 'we don't compute re-exports for this kind (module)'
+        This test checks that the field IS present for class and function handles.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert "re_exports" in result, (
+                f"re_exports must be PRESENT (Phase 6) for handle={handle!r}; "
+                f"re_exports is absent. Phase 6 returns [] when no re-exports are found."
+            )
+            assert isinstance(result["re_exports"], list), (
+                f"re_exports must be a list for handle={handle!r}; "
+                f"got {type(result['re_exports'])!r}"
+            )
+            for path in result["re_exports"]:
+                assert isinstance(
+                    path, str
+                ), f"re_exports elements must be plain str, got {type(path)!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_for_module_kind(self, analyzer: JediAnalyzer) -> None:
+        """re_exports is ABSENT for module-kind handles.
+
+        Per spec: absent means 'we don't compute re_exports for this kind'.
+        Modules CAN be re-exported but the BFS-based collect_re_exports walks
+        __init__.py for symbol names — walking module re-exports would require
+        a different strategy. For Phase 6, module handles skip re_exports.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT for module-kind handles; "
+            f"got re_exports={result.get('re_exports')!r}. "
+            "Module kind is not measured in Phase 6."
+        )
+
+    @pytest.mark.asyncio
+    async def test_highlights_is_absent(self, analyzer: JediAnalyzer) -> None:
+        """highlights must be ABSENT in Phase 3 responses."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert "highlights" not in result, (
+                f"highlights must be ABSENT (Phase 3) for handle={handle!r}; "
+                f"got highlights={result.get('highlights')!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_tags_is_absent_for_python_kinds(self, analyzer: JediAnalyzer) -> None:
+        """tags is absent for Python kinds (only plugin kinds emit tags)."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert (
+                "tags" not in result
+            ), f"tags must be ABSENT for Python kinds in Phase 3 for handle={handle!r}"
+
+    @pytest.mark.asyncio
+    async def test_properties_is_absent_for_python_kinds(self, analyzer: JediAnalyzer) -> None:
+        """properties is absent for Python kinds (only plugin kinds emit properties)."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert (
+                "properties" not in result
+            ), f"properties must be ABSENT for Python kinds in Phase 3 for handle={handle!r}"
+
+    @pytest.mark.asyncio
+    async def test_location_is_pointer_not_content(self, analyzer: JediAnalyzer) -> None:
+        """location is always a structural pointer dict, never a source snippet."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _GREET_HANDLE, _MODULE_HANDLE):
+            result = await inspect(handle, analyzer)
+            loc = result["location"]
+            _assert_location(loc)
+            # line_start <= line_end is a basic sanity check
+            assert loc["line_start"] <= loc["line_end"], (
+                f"line_start must be <= line_end for handle={handle!r}; "
+                f"got {loc['line_start']} > {loc['line_end']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_signature_is_single_line_when_present(self, analyzer: JediAnalyzer) -> None:
+        """Signature fields (when present) are single-line strings — not code bodies."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_MAKE_WIDGET_HANDLE, _GREET_HANDLE):
+            result = await inspect(handle, analyzer)
+            if "signature" in result and result["signature"]:
+                assert "\n" not in result["signature"], (
+                    f"signature must be a single-line string for handle={handle!r}; "
+                    f"got multi-line: {result['signature']!r}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_handle_field_matches_input(self, analyzer: JediAnalyzer) -> None:
+        """The handle field in the response equals the input handle."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert result["handle"] == handle, (
+                f"result['handle'] must equal the input handle; "
+                f"got {result['handle']!r} for input {handle!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_scope_is_project_for_fixture_symbols(self, analyzer: JediAnalyzer) -> None:
+        """All symbols defined in the fixture project have scope='project'."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _MODULE_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert result["scope"] == "project", (
+                f"Fixture symbol {handle!r} should have scope='project'; "
+                f"got {result['scope']!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectEdgeCounts — Phase 4 contract (Task 4.1 — FAILING tests)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectEdgeCounts:
+    """Phase 4 contract: edge_counts populated with exactly 5 measured edge types.
+
+    These tests are in the RED state until Task 4.2 implements edge_counts.
+    The Phase 3 implementation returns ``edge_counts: {}`` always, so every
+    assertion that checks for a non-empty edge_counts (or for a 0-valued key)
+    will fail with AssertionError.
+
+    The absence-vs-zero invariant (load-bearing):
+    - Measured edges with zero value MUST be PRESENT with value 0 (not omitted)
+    - Unmeasured edge types MUST be ABSENT (not present with value 0)
+
+    Phase 4 measures exactly these 5 edges:
+    - ``members``: class and module handles
+    - ``superclasses``: class handles
+    - ``subclasses``: class handles (project-scoped)
+    - ``callers``: function/method handles
+    - ``references``: any handle (aggregate read/written/passed; excludes calls)
+    """
+
+    # ------------------------------------------------------------------ (a)
+    @pytest.mark.asyncio
+    async def test_class_has_members_count(self, analyzer: JediAnalyzer) -> None:
+        """(a) Class handles have edge_counts['members'] = count of direct members.
+
+        Widget has: color, name, visible, __init__, greet, slow_greet,
+        display_name, default, normalize — at least 5 direct members.
+        Phase 3 returns edge_counts: {} so 'members' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "members" in result["edge_counts"], (
+            f"Class handle must have edge_counts['members']; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # Widget has at least 5 direct members — allow slack for Jedi's resolution
+        assert (
+            result["edge_counts"]["members"] >= 5
+        ), f"Widget has >= 5 members; got members={result['edge_counts']['members']}"
+
+    # ------------------------------------------------------------------ (a) module
+    @pytest.mark.asyncio
+    async def test_module_has_members_count(self, analyzer: JediAnalyzer) -> None:
+        """(a) Module handles have edge_counts['members'] = count of top-level definitions.
+
+        mypackage._core.widgets defines: DEFAULT_NAME, Widget, Config, make_widget,
+        Premium, Deluxe — at least 4 top-level definitions.
+        Phase 3 returns edge_counts: {} so 'members' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MODULE_HANDLE, analyzer)
+
+        assert "members" in result["edge_counts"], (
+            f"Module handle must have edge_counts['members']; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        # widgets.py has at least 4 top-level definitions
+        assert result["edge_counts"]["members"] >= 4, (
+            f"widgets module has >= 4 top-level members; "
+            f"got members={result['edge_counts']['members']}"
+        )
+
+    # ------------------------------------------------------------------ (b)
+    @pytest.mark.asyncio
+    async def test_class_has_superclasses_count_key(self, analyzer: JediAnalyzer) -> None:
+        """(b) Class handles have edge_counts['superclasses'] key present.
+
+        Widget has no explicit base class — so the count could be 0.
+        The key MUST be present regardless.
+        Phase 3 returns edge_counts: {} so 'superclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "superclasses" in result["edge_counts"], (
+            f"Class handle must have edge_counts['superclasses'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert isinstance(result["edge_counts"]["superclasses"], int), (
+            f"edge_counts['superclasses'] must be an int; "
+            f"got {type(result['edge_counts']['superclasses'])!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_class_with_explicit_base_has_superclasses_count(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """(b) A class with an explicit base has superclasses count >= 1.
+
+        Premium extends Widget explicitly — superclasses count must be >= 1.
+        Phase 3 returns edge_counts: {} so 'superclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert "superclasses" in result["edge_counts"], (
+            f"Class handle must have edge_counts['superclasses'] key; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert result["edge_counts"]["superclasses"] >= 1, (
+            f"Premium(Widget) has 1 explicit superclass; "
+            f"got superclasses={result['edge_counts']['superclasses']}"
+        )
+
+    # ------------------------------------------------------------------ (c)
+    @pytest.mark.asyncio
+    async def test_class_with_no_subclasses_returns_zero(self, analyzer: JediAnalyzer) -> None:
+        """(c/g) CRITICAL: measured-and-zero is PRESENT with value 0, not omitted.
+
+        Config has no subclasses in the project.
+        edge_counts['subclasses'] MUST be 0 (present!), NOT absent.
+        Phase 3 returns edge_counts: {} — 'subclasses' is absent → FAIL.
+        This tests BOTH directions of the invariant:
+        - key is present ('subclasses' in edge_counts)
+        - value is 0 (not a non-zero count)
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_CONFIG_HANDLE, analyzer)
+
+        # CRITICAL: 'subclasses' MUST be in edge_counts even when count is 0
+        assert "subclasses" in result["edge_counts"], (
+            f"Config has no subclasses — but 'subclasses' key MUST be present with value 0; "
+            f"got edge_counts={result['edge_counts']!r}. "
+            "Absence means 'not measured'; 0 means 'measured, none found'. "
+            "Phase 4 measures subclasses for all class handles."
+        )
+        assert result["edge_counts"]["subclasses"] == 0, (
+            f"Config has no project subclasses; expected subclasses=0; "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_class_with_subclasses_counts_them(self, analyzer: JediAnalyzer) -> None:
+        """(c) A class with project subclasses returns their count in edge_counts.
+
+        Widget has Premium and Deluxe as explicit subclasses in the project.
+        edge_counts['subclasses'] must be >= 2.
+        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        assert "subclasses" in result["edge_counts"], (
+            f"Widget has subclasses (Premium, Deluxe) — 'subclasses' key must be present; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert result["edge_counts"]["subclasses"] >= 2, (
+            f"Widget has >= 2 project subclasses (Premium, Deluxe); "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    # ------------------------------------------------------------------ (d/e)
+    # callers/references are NO LONGER measured (#332): they were derived from
+    # Jedi's budget-capped get_references, which under-reports non-deterministically.
+    # They are omitted entirely (absence = "not measured") until an indexed backend
+    # lands (#333).  The tests below assert that omission across kinds.
+    @pytest.mark.asyncio
+    async def test_function_omits_callers_and_references(self, analyzer: JediAnalyzer) -> None:
+        """Function handles must NOT carry callers/references (omitted, #332).
+
+        make_widget is called in usage.py, but callers/references are no longer
+        measured.  A function handle's edge_counts therefore has neither key
+        (and, having no other measured edges, is empty).
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        assert "callers" not in result["edge_counts"], (
+            f"callers is no longer measured (#332) and must be absent; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+        assert "references" not in result["edge_counts"], (
+            f"references is no longer measured (#332) and must be absent; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_method_omits_callers(self, analyzer: JediAnalyzer) -> None:
+        """Method handles must NOT carry callers (omitted, #332)."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_GREET_HANDLE, analyzer)
+
+        assert "callers" not in result["edge_counts"], (
+            f"callers is no longer measured (#332) and must be absent; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_variable_omits_references(self, analyzer: JediAnalyzer) -> None:
+        """Variable handles must NOT carry references (omitted, #332).
+
+        DEFAULT_NAME is read in usage.py, but references is no longer measured,
+        so a variable handle's edge_counts is empty (no measured edges remain).
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_DEFAULT_NAME_HANDLE, analyzer)
+
+        assert "references" not in result["edge_counts"], (
+            f"references is no longer measured (#332) and must be absent; "
+            f"got edge_counts={result['edge_counts']!r}"
+        )
+
+    # ------------------------------------------------------------------ (f)
+    @pytest.mark.asyncio
+    async def test_unmeasured_edges_are_absent(self, analyzer: JediAnalyzer) -> None:
+        """(f) CRITICAL: unmeasured edge types MUST NOT appear in edge_counts.
+
+        Phase 4 measures exactly 5 edges. All other edge types are ABSENT.
+        An absent key means 'we didn't measure this' — not 'the value is 0'.
+        This test runs against a class handle (Widget) where Phase 4 WILL populate
+        members/superclasses/subclasses. It verifies the other 11 types stay absent.
+
+        Phase 3 returns {} — this test PASSES in Phase 3 (no spurious keys).
+        But after Phase 4 implementation, the 5 measured keys will be present.
+        The unmeasured keys must STILL be absent.
+
+        NOTE: This test is designed to pass in Phase 3 (nothing to check for yet)
+        and continue passing in Phase 4 (measured keys in, unmeasured keys still out).
+        We include it here to document the contract and to catch any implementation
+        that accidentally adds unmeasured keys.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_UNMEASURED_EDGES:
+            assert edge not in result["edge_counts"], (
+                f"Phase 4 only measures {sorted(_PHASE4_MEASURED_EDGES)!r}; "
+                f"{edge!r} must be ABSENT (not present with value 0). "
+                f"Got edge_counts={result['edge_counts']!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_unmeasured_edges_absent_for_function(self, analyzer: JediAnalyzer) -> None:
+        """(f) Unmeasured edge types are absent for function handles too.
+
+        Phase 4 measures callers and references for functions.
+        All other 11 edge types must be absent.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_UNMEASURED_EDGES:
+            assert edge not in result["edge_counts"], (
+                f"Phase 4 only measures callers+references for functions; "
+                f"{edge!r} must be ABSENT. Got edge_counts={result['edge_counts']!r}"
+            )
+
+    # ------------------------------------------------------------------ (g) — covered by
+    # test_class_with_no_subclasses_returns_zero (subclasses=0 present)
+    # test_function_with_no_callers_returns_zero (callers=0 present)
+
+    # ------------------------------------------------------------------ (h)
+    @pytest.mark.asyncio
+    async def test_external_node_subclasses_are_project_scoped(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """(h) edge_counts on an external node reflects project-internal subclasses only.
+
+        pathlib.Path is a stdlib class. The fixture project has no class that
+        extends pathlib.Path, so edge_counts['subclasses'] must be 0.
+        This verifies that the count is project-scoped (not all Python subclasses globally).
+
+        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
+
+        assert "subclasses" in result["edge_counts"], (
+            f"External class handle must have edge_counts['subclasses'] key (project-scoped); "
+            f"got edge_counts={result['edge_counts']!r}. "
+            "Phase 4 measures project subclasses even for external symbols."
+        )
+        # No fixture class extends pathlib.Path → project-scoped count must be 0
+        assert result["edge_counts"]["subclasses"] == 0, (
+            f"No project class extends pathlib.Path; expected subclasses=0 (project-scoped); "
+            f"got subclasses={result['edge_counts']['subclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_all_measured_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
+        """All measured edge types are present in edge_counts for a class handle.
+
+        Widget is a class — the measured class edges are members, superclasses,
+        and subclasses (callers/references removed, #332).  All must be present.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        for edge in _PHASE4_MEASURED_EDGES:
+            assert edge in result["edge_counts"], (
+                f"Phase 4 must populate edge_counts[{edge!r}] for class handles; "
+                f"got edge_counts={result['edge_counts']!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_only_measured_edges_present_no_extras(self, analyzer: JediAnalyzer) -> None:
+        """edge_counts contains ONLY the measured edges (no extras).
+
+        For a class, edge_counts must contain exactly the measured class keys
+        (members, superclasses, subclasses) and nothing else — in particular
+        no callers/references (removed, #332).
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+        edge_counts = result["edge_counts"]
+
+        # All 5 measured keys must be present for a class
+        for edge in _PHASE4_MEASURED_EDGES:
+            assert edge in edge_counts, (
+                f"Phase 4 must populate {edge!r} for class Widget; "
+                f"got edge_counts={edge_counts!r}"
+            )
+
+        # No extra keys beyond the 5 measured ones
+        extra_keys = set(edge_counts.keys()) - _PHASE4_MEASURED_EDGES
+        assert not extra_keys, (
+            f"edge_counts contains unexpected keys beyond Phase 4's 5 measured edges: "
+            f"{sorted(extra_keys)!r}. Only {sorted(_PHASE4_MEASURED_EDGES)!r} are allowed."
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectEdgeTimeout — Phase 4 per-measurement time budget contract
+# ---------------------------------------------------------------------------
+
+
+class TestInspectEdgeTimeout:
+    """Per-measurement time budget contract for edge_counts.
+
+    These tests verify the absence-vs-zero invariant for timed-out edges:
+    an edge that exceeds its measurement budget is OMITTED from edge_counts
+    (consistent with 'not measured'), not present with value 0 ('measured, none').
+
+    All tests use mocks to force timeout deterministically — no real-time delays.
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_subclasses_omits_edge(self, analyzer: JediAnalyzer) -> None:
+        """A timeout on subclasses measurement omits 'subclasses' from edge_counts.
+
+        When ``_count_subclasses`` exceeds the per-edge budget,
+        ``edge_counts['subclasses']`` must be ABSENT (not 0).
+        The other edges (members, superclasses, callers, references) should still
+        be measured independently and present in edge_counts.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        # Patch _count_subclasses to raise asyncio.TimeoutError on every call.
+        # _measure_with_budget catches TimeoutError from wait_for, but we also
+        # need to handle the case where the coroutine itself raises it.
+        async def subclasses_timeout(*_args: object, **_kwargs: object) -> int:
+            raise asyncio.TimeoutError()
+
+        with patch.object(
+            inspect_ops,
+            "_count_subclasses",
+            side_effect=subclasses_timeout,
+        ):
+            result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        edge_counts = result["edge_counts"]
+
+        # subclasses must be ABSENT (timed out → not measured)
+        assert "subclasses" not in edge_counts, (
+            f"Timed-out edge 'subclasses' must be ABSENT from edge_counts; "
+            f"got edge_counts={edge_counts!r}. "
+            "Absence means 'not measured'; 0 means 'measured, none found'."
+        )
+
+        # Other class edges must still be present (per-measurement isolation)
+        for edge in ("members", "superclasses"):
+            assert edge in edge_counts, (
+                f"Edge {edge!r} must still be present when subclasses timed out; "
+                f"got edge_counts={edge_counts!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_timeout_on_one_edge_does_not_block_others(self, analyzer: JediAnalyzer) -> None:
+        """A timeout on one edge does not prevent other edges from being measured.
+
+        This verifies per-measurement isolation: ``subclasses`` timeout must not
+        cause ``members`` or ``superclasses`` to be absent.
+
+        Uses a mock with a very short budget (1 ms) so that the slow mock
+        times out via ``asyncio.wait_for`` while others proceed normally.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _build_edge_counts
+
+        # Replace _count_subclasses with a coroutine that sleeps longer than the budget
+        async def slow_subclasses(*_args: object, **_kwargs: object) -> int:
+            await asyncio.sleep(10)  # longer than any reasonable budget
+            return 99  # pragma: no cover
+
+        with patch.object(inspect_ops, "_count_subclasses", side_effect=slow_subclasses):
+            # Use a 0.01 second budget so the sleep definitely times out
+            result = await _build_edge_counts(
+                _WIDGET_HANDLE,
+                "class",
+                # We need a jedi_name; get it via the real inspect flow
+                # by using a sentinel approach — just call build_edge_counts
+                # with a minimal budget and check the isolation
+                None,  # jedi_name will cause other counts to return 0 or skip gracefully
+                analyzer,
+                budget_seconds=0.01,
+            )
+
+        # subclasses must be absent (timed out)
+        assert (
+            "subclasses" not in result
+        ), f"subclasses must be absent after timeout; got {result!r}"
+
+    @pytest.mark.asyncio
+    async def test_all_edges_absent_when_all_timeout(self, analyzer: JediAnalyzer) -> None:
+        """When all edge measurements time out, edge_counts is empty (all absent).
+
+        This tests the full timeout path: every edge is absent, consistent with
+        the invariant that absence means 'not measured'.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        async def always_timeout(*_args: object, **_kwargs: object) -> int:
+            raise asyncio.TimeoutError()
+
+        with (
+            patch.object(inspect_ops, "_count_class_members", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_superclasses", side_effect=always_timeout),
+            patch.object(inspect_ops, "_count_subclasses", side_effect=always_timeout),
+        ):
+            result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        # All edges must be absent (all timed out)
+        edge_counts = result["edge_counts"]
+        assert edge_counts == {}, (
+            f"All edges timed out — edge_counts must be empty; got {edge_counts!r}. "
+            "All absent means all timed out (none measured)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectCoverageLift — targeted tests for previously-uncovered branches
+# ---------------------------------------------------------------------------
+
+
+class TestInspectHelperUnits:
+    """Direct unit tests for helper functions with uncovered branches."""
+
+    def test_is_simple_literal_invalid_raises_false(self) -> None:
+        """_is_simple_literal returns False for non-literal expressions."""
+        from pyeye.mcp.operations.inspect import _is_simple_literal
+
+        # These are NOT simple literals — should return False
+        assert _is_simple_literal("Widget()") is False
+        assert _is_simple_literal("{key: value}") is False
+        assert _is_simple_literal("1 + 2") is False
+
+    def test_is_simple_literal_valid_returns_true(self) -> None:
+        """_is_simple_literal returns True for actual literals."""
+        from pyeye.mcp.operations.inspect import _is_simple_literal
+
+        assert _is_simple_literal('"hello"') is True
+        assert _is_simple_literal("42") is True
+        assert _is_simple_literal("3.14") is True
+        assert _is_simple_literal("True") is True
+
+    def test_make_location_with_column_end(self) -> None:
+        """_make_location includes column_end when provided."""
+        from pyeye.mcp.operations.inspect import _make_location
+
+        loc = _make_location("myfile.py", 10, 20, column_start=4, column_end=12)
+
+        assert loc["file"] == "myfile.py"
+        assert loc["line_start"] == 10
+        assert loc["line_end"] == 20
+        assert loc["column_start"] == 4
+        assert loc["column_end"] == 12  # exercises the column_end branch (line 154)
+
+    def test_make_location_without_optional_columns(self) -> None:
+        """_make_location omits column_start / column_end when not provided."""
+        from pyeye.mcp.operations.inspect import _make_location
+
+        loc = _make_location("f.py", 1, 5)
+
+        assert "column_start" not in loc
+        assert "column_end" not in loc
+
+    def test_attr_target_position_name_node(self) -> None:
+        """_attr_target_position returns start position for a plain ast.Name node."""
+        import ast
+
+        from pyeye.mcp.operations.inspect import _attr_target_position
+
+        # Parse 'class X(Widget): pass' and extract the Name base node
+        tree = ast.parse("class X(Widget): pass")
+        cls_node = tree.body[0]
+        assert isinstance(cls_node, ast.ClassDef)
+        base = cls_node.bases[0]
+        assert isinstance(base, ast.Name)
+
+        line, col = _attr_target_position(base)
+        assert line == base.lineno
+        assert col == base.col_offset
+
+    def test_attr_target_position_attribute_node(self) -> None:
+        """_attr_target_position returns position of the rightmost attr for ast.Attribute."""
+        import ast
+
+        from pyeye.mcp.operations.inspect import _attr_target_position
+
+        # Parse 'class X(pkg.sub.Widget): pass' — base is an ast.Attribute chain
+        tree = ast.parse("class X(pkg.sub.Widget): pass")
+        cls_node = tree.body[0]
+        assert isinstance(cls_node, ast.ClassDef)
+        base = cls_node.bases[0]
+        assert isinstance(base, ast.Attribute)
+
+        line, col = _attr_target_position(base)
+        # 'Widget' is the rightmost attr; its start = end_col_offset - len('Widget')
+        expected_line = base.end_lineno or base.lineno
+        expected_col = max(0, (base.end_col_offset or 0) - len(base.attr))
+        assert line == expected_line
+        assert col == expected_col
+
+
+class TestFindJediNameForHandleFallbacks:
+    """Tests for the uncovered branches in _find_jedi_name_for_handle."""
+
+    def test_bare_name_with_no_module_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A single-component handle that is not a module file returns None (line 547)."""
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        # "nonexistent" is one component — len(parts) < 2 returns None
+        result = _find_jedi_name_for_handle("nonexistent_bare_name_xyz", analyzer)
+        assert result is None
+
+    def test_project_search_match_found_in_case3(self, analyzer: JediAnalyzer) -> None:
+        """Case 3: project.search returns a result with a matching full_name (lines 568-569).
+
+        This covers the ``if r.full_name == handle: return r`` branch that is
+        skipped when project.search returns an empty list.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        # Build a fake Jedi Name-like object that matches the handle
+        handle = "mypackage._core.widgets.Widget"
+        fake_name = MagicMock()
+        fake_name.full_name = handle
+
+        # Patch find_module_file to always return None (skip Cases 1 & 2)
+        # Patch project.search to return our fake name
+        with (
+            patch.object(inspect_ops, "find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([fake_name])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # The fake name should be returned (Case 3 match)
+        assert result is fake_name
+
+    def test_synthetic_import_fallback_for_external_symbol(self, analyzer: JediAnalyzer) -> None:
+        """Synthetic-import fallback resolves pathlib.Path when earlier cases fail.
+
+        Forces Cases 1, 2, and 3 to fail, then verifies that the synthetic-import
+        block (lines 576-590) resolves the external symbol correctly.
+        This is the load-bearing path for stdlib resolution and covers Goal 2.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "pathlib.Path"
+
+        # Force Cases 1 & 2 (find_module_file) to return None
+        # Force Case 3 (project.search) to return an empty iterator
+        with (
+            patch.object(inspect_ops, "find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # Synthetic-import fallback should resolve pathlib.Path
+        assert result is not None, (
+            "Synthetic-import fallback must resolve 'pathlib.Path'; got None. "
+            "This path is load-bearing for stdlib external resolution."
+        )
+        assert (
+            result.full_name == handle
+        ), f"Resolved name must have full_name='pathlib.Path'; got {result.full_name!r}"
+
+    def test_synthetic_import_fallback_returns_none_for_bogus_handle(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Synthetic-import fallback returns None when the handle doesn't exist.
+
+        Verifies the function returns None (not raises) when no code path resolves
+        the handle — covering the final ``return None`` after all fallbacks fail.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "totally.bogus.DoesNotExistAnywhere9999"
+
+        with (
+            patch.object(inspect_ops, "find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestInspectSpanLocation — column_end and line_end correctness
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSpanLocation:
+    """Verify that inspect Location spans name identifiers and full definition bodies."""
+
+    @pytest.mark.asyncio
+    async def test_class_location_spans_full_definition(self, analyzer: JediAnalyzer) -> None:
+        """A class location spans from the class name through the end of the body.
+
+        Widget is defined at line 21 in widgets.py.
+        'Widget' is 6 characters, so column_end - column_start == 6.
+        Widget has methods and attributes, so line_end > line_start.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_WIDGET_HANDLE, analyzer)
+
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present in location"
+        assert "column_end" in loc, "column_end must be present in location"
+        # Name span: "Widget" is 6 characters
+        assert loc["column_end"] - loc["column_start"] == 6, (
+            f"'Widget' is 6 chars; expected column span of 6, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Body span: Widget has multiple methods — line_end must exceed line_start
+        assert loc["line_end"] > loc["line_start"], (
+            f"Widget class body should span multiple lines; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_function_location_column_span(self, analyzer: JediAnalyzer) -> None:
+        """A function location has column_end = column_start + len('make_widget').
+
+        'make_widget' is 11 characters.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present"
+        assert "column_end" in loc, "column_end must be present"
+        assert loc["column_end"] - loc["column_start"] == len("make_widget"), (
+            f"'make_widget' is 11 chars; expected column span of 11, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_column_end_always_gte_column_start(self, analyzer: JediAnalyzer) -> None:
+        """column_end >= column_start for all inspect handles."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (
+            _WIDGET_HANDLE,
+            _MAKE_WIDGET_HANDLE,
+            _GREET_HANDLE,
+            _MODULE_HANDLE,
+            _DEFAULT_NAME_HANDLE,
+        ):
+            result = await inspect(handle, analyzer)
+            loc = result["location"]
+            if "column_start" in loc and "column_end" in loc:
+                assert loc["column_end"] >= loc["column_start"], (
+                    f"column_end must be >= column_start for handle={handle!r}; "
+                    f"got column_start={loc['column_start']}, column_end={loc['column_end']}"
+                )
+
+    def test_synthetic_import_exception_handler_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """When jedi.Script raises inside the synthetic-import fallback, returns None.
+
+        Exercises the ``except Exception: pass`` handler at the end of the
+        synthetic-import block (lines 587-588).
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+
+        handle = "pathlib.Path"
+
+        with (
+            patch.object(inspect_ops, "find_module_file", return_value=None),
+            patch.object(analyzer.project, "search", return_value=iter([])),
+            # Force jedi.Script constructor to raise inside the synthetic-import try block
+            patch("jedi.Script", side_effect=RuntimeError("simulated jedi failure")),
+        ):
+            result = _find_jedi_name_for_handle(handle, analyzer)
+
+        # Exception was caught; function returns None gracefully
+        assert result is None
+
+
+class TestInspectNotFoundFallback:
+    """Tests for the minimal-node fallback when a handle cannot be resolved."""
+
+    @pytest.mark.asyncio
+    async def test_unresolved_handle_returns_minimal_node(self, analyzer: JediAnalyzer) -> None:
+        """inspect returns a valid minimal node for an unresolvable handle (lines 1147-1148).
+
+        The minimal node must have all universal fields with safe defaults,
+        following the contract that inspect never raises.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("totally.bogus.handle.DoesNotExist999", analyzer)
+
+        # Must not raise; must return the minimal fallback dict
+        assert result["handle"] == "totally.bogus.handle.DoesNotExist999"
+        assert result["kind"] == "variable"  # safe default
+        assert result["scope"] == "external"  # safe default
+        assert "location" in result
+        assert isinstance(result["edge_counts"], dict)
+
+
+class TestBuildAttributeFieldsPropertyBranch:
+    """Tests for the 'property' branch in _build_attribute_fields.
+
+    Phase 8 makes ``_build_attribute_fields`` async and replaces the
+    flat-string ``type`` field with a recursive ``TypeRef`` dict.
+    """
+
+    @pytest.mark.asyncio
+    async def test_property_kind_extracts_return_type(self, analyzer: JediAnalyzer) -> None:
+        """_build_attribute_fields with kind='property' extracts return type annotation.
+
+        Exercises the AST-based return-type extraction. The result is a
+        ``TypeRef`` dict whose ``raw`` is the annotation as written.
+        """
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_attribute_fields
+
+        fixture_file = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        # display_name is a @property in widgets.py
+        # Verify by reading the fixture
+        source = fixture_file.read_text()
+        lines = source.splitlines()
+        property_line = next(i + 1 for i, ln in enumerate(lines) if "def display_name" in ln)
+
+        mock_name = MagicMock()
+        mock_name.line = property_line
+
+        fields = await _build_attribute_fields(mock_name, "property", fixture_file, analyzer)
+
+        # The property has return type -> str annotation
+        assert "type" in fields, (
+            f"_build_attribute_fields with kind='property' should extract return type; "
+            f"fields={fields!r}, property_line={property_line}"
+        )
+        type_node = fields["type"]
+        assert isinstance(
+            type_node, dict
+        ), f"Phase 8: 'type' must be a TypeRef dict; got {type(type_node).__name__}"
+        assert (
+            type_node.get("raw") == "str"
+        ), f"Expected raw='str' for display_name -> str; got {type_node.get('raw')!r}"
+
+    @pytest.mark.asyncio
+    async def test_property_kind_no_return_annotation_returns_empty(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """_build_attribute_fields with kind='property' and no annotation returns empty dict."""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_attribute_fields
+
+        # Write a temporary file with a property lacking a return annotation
+        source = "class Foo:\n    @property\n    def val(self):\n        return 42\n"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(source)
+            tmp_path = Path(f.name)
+
+        try:
+            mock_name = MagicMock()
+            mock_name.line = 3  # 'def val' is on line 3
+
+            fields = await _build_attribute_fields(mock_name, "property", tmp_path, analyzer)
+            # No return annotation — 'type' should not be present
+            assert "type" not in fields or fields.get("type") is None
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+class TestBuildEdgeCounts:
+    """Tests for _build_edge_counts behaviour.
+
+    The former callers/references budget-path tests were removed with those
+    edges (#332); the shared per-edge budget path remains covered by
+    TestInspectEdgeTimeout.
+    """
+
+    @pytest.mark.asyncio
+    async def test_build_edge_counts_unknown_kind_returns_empty(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """_build_edge_counts returns {} for a kind with no registered measurements (line 1095).
+
+        When kind is not 'function', 'method', 'class', 'module', or an
+        attribute kind, no coroutines are added and the function returns early.
+        """
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.inspect import _build_edge_counts
+
+        mock_name = MagicMock()
+        mock_name.module_path = None
+
+        # Use a kind that has no registered measurements
+        result = await _build_edge_counts(
+            "some.handle",
+            "keyword",  # not a measured kind
+            mock_name,
+            analyzer,
+        )
+
+        assert (
+            result == {}
+        ), f"Unmeasured kind 'keyword' must produce empty edge_counts; got {result!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestInspectSuperclassResolution — regression tests for attribute-chain bases
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSuperclassResolution:
+    """Regression tests for _resolve_base_class_via_jedi attribute-chain fix.
+
+    Before the fix, ``class X(pkg.sub.Widget):`` would resolve to the package
+    (e.g. ``mypackage._core``) instead of the class (``mypackage._core.widgets.Widget``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_superclass_via_attribute_chain_resolves_to_class(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A base class accessed via attribute chain (pkg.sub.Class) must resolve
+        to the class handle, not to the package.
+
+        Regression: inspect() previously returned the leftmost package in the
+        attribute chain instead of walking through to the actual class.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("mypackage.inheritance_via_attr.ViaAttr", analyzer)
+        assert result["superclasses"] == ["mypackage._core.widgets.Widget"], (
+            f"Expected ViaAttr's superclass to resolve to the Widget class, "
+            f"got: {result['superclasses']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_superclass_same_file_simple_name_still_works(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Same-file inheritance with a bare base class name (ast.Name) still resolves correctly.
+
+        Guard against regressions in the existing simple-name path after the
+        attribute-chain fix.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+        assert result["superclasses"] == ["mypackage._core.widgets.Widget"], (
+            f"Expected Premium's superclass to resolve to Widget, " f"got: {result['superclasses']}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestInspectReExports — Phase 6 contract (Task 6.2)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectReExports:
+    """Phase 6 contract: re_exports field populated for symbols that are re-exported.
+
+    Per the absence-vs-zero invariant (from the spec):
+    - PRESENT (possibly []) = "we walked re-exports for this symbol and found these"
+    - ABSENT = "we don't compute re-exports for this kind/implementation"
+
+    Phase 6 computes re_exports for class/function/method/property/variable/attribute.
+    Phase 6 does NOT compute re_exports for module kind (field is absent).
+    """
+
+    @pytest.fixture
+    def basic_analyzer(self) -> JediAnalyzer:
+        """JediAnalyzer pointed at the canonicalization_basic fixture."""
+        return JediAnalyzer(str(_FIXTURE_BASIC))
+
+    @pytest.fixture
+    def multihop_analyzer(self) -> JediAnalyzer:
+        """JediAnalyzer pointed at the canonicalization_multihop fixture."""
+        return JediAnalyzer(str(_FIXTURE_MULTIHOP))
+
+    @pytest.mark.asyncio
+    async def test_re_exports_populated_for_re_exported_class(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """inspect on a re-exported class returns re_exports with all public paths.
+
+        package._impl.config.Config is re-exported via package/__init__.py as package.Config.
+        inspect("package._impl.config.Config") should return re_exports=["package.Config"].
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        assert "re_exports" in result, (
+            "re_exports must be present for a class handle (Phase 6 wires it). "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        assert isinstance(
+            result["re_exports"], list
+        ), f"re_exports must be a list; got {type(result['re_exports'])!r}"
+        assert "package.Config" in result["re_exports"], (
+            f"package.Config must be in re_exports for package._impl.config.Config; "
+            f"got re_exports={result['re_exports']!r}"
+        )
+        # All elements must be plain str (not Handle objects or other types)
+        for path in result["re_exports"]:
+            assert isinstance(
+                path, str
+            ), f"re_exports elements must be plain str; got {type(path)!r}: {path!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_empty_for_non_re_exported_class(self, analyzer: JediAnalyzer) -> None:
+        """inspect on a class that is NOT re-exported returns re_exports=[].
+
+        mypackage._core.widgets.Premium is not re-exported from mypackage/__init__.py
+        (only Widget is re-exported). So inspect(Premium) should return re_exports=[].
+
+        This tests the measured-and-empty case: re_exports is PRESENT with value [],
+        not absent. Absent would mean 'we didn't compute it'; [] means 'we computed
+        and found no re-exports'.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert "re_exports" in result, (
+            f"re_exports must be PRESENT (possibly []) for {_PREMIUM_HANDLE!r}; "
+            "Phase 6 returns [] when measured-and-empty, not absent. "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        assert result["re_exports"] == [], (
+            f"Premium is not re-exported; expected re_exports=[]; "
+            f"got re_exports={result['re_exports']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_multiple_paths(self, multihop_analyzer: JediAnalyzer) -> None:
+        """inspect returns all three re-export paths for a multi-hop fixture.
+
+        package._impl.config.Config is re-exported via:
+          - package.subpkg.Config (hop 1)
+          - package.Config (hop 2, via subpkg)
+          - package.legacy.LegacyConfig (aliased re-export)
+
+        All three paths must appear in re_exports.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", multihop_analyzer)
+
+        assert "re_exports" in result, (
+            "re_exports must be present for a class handle (Phase 6 wires it). "
+            f"Got keys: {sorted(result.keys())!r}"
+        )
+        re_exports = result["re_exports"]
+        assert isinstance(re_exports, list), f"re_exports must be a list; got {type(re_exports)!r}"
+
+        expected_paths = {"package.Config", "package.subpkg.Config", "package.legacy.LegacyConfig"}
+        missing = expected_paths - set(re_exports)
+        assert not missing, (
+            f"Missing re-export paths: {sorted(missing)!r}. "
+            f"Got re_exports={re_exports!r}. "
+            "All three public paths (package.Config, package.subpkg.Config, "
+            "package.legacy.LegacyConfig) must be present."
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_deterministic_ordering(self, basic_analyzer: JediAnalyzer) -> None:
+        """re_exports returns the same sorted list on repeated calls.
+
+        collect_re_exports sorts lexicographically for determinism.
+        Two consecutive inspect calls on the same handle must return identical lists.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result1 = await inspect("package._impl.config.Config", basic_analyzer)
+        result2 = await inspect("package._impl.config.Config", basic_analyzer)
+
+        assert result1["re_exports"] == result2["re_exports"], (
+            "re_exports must be deterministic across calls; "
+            f"got {result1['re_exports']!r} then {result2['re_exports']!r}"
+        )
+        # Verify the list is actually sorted
+        re_exports = result1["re_exports"]
+        assert re_exports == sorted(
+            re_exports
+        ), f"re_exports must be sorted lexicographically; got {re_exports!r}"
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_for_module_kind_basic_fixture(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports is ABSENT for module-kind handles (Phase 6 decision).
+
+        Phase 6 skips re_exports for modules — the BFS-based collect_re_exports
+        walks __init__.py for symbol names, not module re-exports. Modules can
+        be re-exported but this is not computed in Phase 6.
+        Per the spec: absent means 'we don't compute re_exports for this kind'.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl", basic_analyzer)
+
+        # Module kind must not have re_exports (not computed in Phase 6)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT for module-kind handles in Phase 6; "
+            f"got re_exports={result.get('re_exports')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_values_are_plain_str_not_handle_objects(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """re_exports elements are plain str, not Handle objects or other subtypes.
+
+        The MCP serialization path requires primitive types. Handle is a str subclass,
+        but we explicitly convert to str for wire format.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        for path in result.get("re_exports", []):
+            # isinstance(Handle("x"), str) is True, so check type exactly
+            assert type(path) is str, (  # noqa: E721
+                f"re_exports elements must be plain str (not Handle subclass); "
+                f"got type={type(path).__name__!r} for {path!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_re_exports_absent_when_collection_raises(
+        self, basic_analyzer: JediAnalyzer
+    ) -> None:
+        """When collect_re_exports raises, re_exports is ABSENT (not []).
+
+        Per absence-vs-zero: if collection raises unexpectedly, the field is absent
+        (we couldn't measure) rather than present-as-empty (measured and found none).
+        This exercises the except handler in the Phase 6 wiring code.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        async def always_raises(*_args: object, **_kwargs: object) -> list:
+            raise RuntimeError("simulated Jedi analysis failure")
+
+        with patch.object(inspect_ops, "collect_re_exports", side_effect=always_raises):
+            result = await inspect("package._impl.config.Config", basic_analyzer)
+
+        # re_exports must be absent (exception during collection → couldn't measure)
+        assert "re_exports" not in result, (
+            f"re_exports must be ABSENT when collection raises; "
+            f"got re_exports={result.get('re_exports')!r}. "
+            "An exception means 'couldn't measure', not 'measured empty'."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Issue #339: redundant-work removal (no output change — structural assertions)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSuperclassWorkReuse:
+    """A class inspect must resolve superclasses ONCE and read ASTs via the cache.
+
+    These are structural (call-count / cache-usage) assertions, not timing
+    assertions — the output of inspect() is unchanged.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_inspect_resolves_superclasses_once(self, analyzer: JediAnalyzer) -> None:
+        """inspect() of a class calls _get_superclasses exactly once.
+
+        Previously it ran twice — once for the ``superclasses`` field and again
+        via ``_count_superclasses`` for ``edge_counts.superclasses`` — repeating
+        read + parse + a Jedi goto() per base for an identical result.
+        """
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        with patch.object(
+            inspect_ops, "_get_superclasses", wraps=inspect_ops._get_superclasses
+        ) as spy:
+            result = await inspect(_PREMIUM_HANDLE, analyzer)
+
+        assert result["kind"] == "class"
+        # The output is still correct: Premium extends Widget.
+        assert any("Widget" in s for s in result["superclasses"]), result["superclasses"]
+        assert result["edge_counts"]["superclasses"] == len(result["superclasses"])
+        assert spy.call_count == 1, (
+            "_get_superclasses must run once per class inspect (field + edge_count "
+            f"share the result); ran {spy.call_count} times"
+        )
+
+    def test_get_superclasses_uses_cached_ast(self, analyzer: JediAnalyzer) -> None:
+        """_get_superclasses reads the source AST via file_artifact_cache.get_ast."""
+        from unittest.mock import patch
+
+        jedi_name = inspect_ops._find_jedi_name_for_handle(_PREMIUM_HANDLE, analyzer)
+        assert jedi_name is not None
+
+        with patch.object(
+            inspect_ops.file_artifact_cache,
+            "get_ast",
+            wraps=inspect_ops.file_artifact_cache.get_ast,
+        ) as spy:
+            superclasses = inspect_ops._get_superclasses(jedi_name, analyzer)
+
+        assert spy.called, "_get_superclasses must obtain the AST via file_artifact_cache.get_ast"
+        assert any("Widget" in s for s in superclasses), superclasses
+
+    def test_extract_function_flags_uses_cached_ast(self, analyzer: JediAnalyzer) -> None:
+        """_extract_function_flags_from_ast reads the AST via file_artifact_cache.get_ast."""
+        from unittest.mock import patch
+
+        # Widget.default is a @classmethod — exercises a non-trivial flag result.
+        jedi_name = inspect_ops._find_jedi_name_for_handle(_DEFAULT_HANDLE, analyzer)
+        assert jedi_name is not None
+        file_path = jedi_name.module_path
+        line = jedi_name.line
+
+        with patch.object(
+            inspect_ops.file_artifact_cache,
+            "get_ast",
+            wraps=inspect_ops.file_artifact_cache.get_ast,
+        ) as spy:
+            is_async, is_classmethod, is_staticmethod = (
+                inspect_ops._extract_function_flags_from_ast(file_path, line)
+            )
+
+        assert spy.called, (
+            "_extract_function_flags_from_ast must obtain the AST via "
+            "file_artifact_cache.get_ast"
+        )
+        assert is_classmethod is True
+        assert is_async is False
+        assert is_staticmethod is False

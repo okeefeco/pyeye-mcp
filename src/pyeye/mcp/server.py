@@ -51,6 +51,11 @@ from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
+from .operations.inspect import inspect as _inspect_impl
+from .operations.resolve import (
+    resolve as _resolve_impl,
+    resolve_at as _resolve_at_impl,
+)
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -293,6 +298,7 @@ def configure_packages(
     }
 
 
+# DEPRECATED: replaced by resolve(identifier) — same intent, returns canonical handle with ambiguity surfaced. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_symbol")
@@ -304,6 +310,12 @@ async def find_symbol(
     scope: str = "all",
 ) -> list[dict[str, Any]]:
     """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
+
+    **Deprecated:** Replaced by ``resolve(identifier)`` — same intent, returns
+    a canonical handle with ambiguity surfaced — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form.
     This tool provides fuzzy search and scope filtering for targeted queries.
@@ -339,6 +351,7 @@ async def find_symbol(
     return results
 
 
+# DEPRECATED: replaced by resolve_at(file, line, column) — position → canonical handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("goto_definition")
@@ -347,6 +360,12 @@ async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
     """Python: Jump to where a symbol is defined from any usage location.
+
+    **Deprecated:** Replaced by ``resolve_at(file, line, column)`` — position
+    to canonical handle — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
@@ -360,6 +379,105 @@ async def goto_definition(
     return await analyzer.goto_definition(file, line, column)
 
 
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("resolve")
+@track_mcp_operation("resolve")
+async def resolve(
+    identifier: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Resolve any identifier form to a canonical Handle.
+
+    Accepts bare names, FQN dotted paths, re-exported public paths,
+    file:line coordinates, or file paths. Returns the definition-site
+    canonical handle along with kind and scope ("project" or "external").
+
+    Args:
+        identifier: The identifier to resolve. Forms supported:
+            - Bare name: "Config"
+            - FQN: "a.b.c.Config"
+            - Re-exported: "package.Config" (collapses to definition site)
+            - File:line: "src/foo.py:42"
+            - File only: "src/foo.py"
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict — one of:
+        - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
+        - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
+        - Not found: {"found": False, "reason": str}
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
+    # to match this wrapper's declared return type. TypedDict instances are
+    # already dicts at runtime; this is a mypy-compliance shallow copy.
+    return dict(await _resolve_impl(identifier, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("resolve_at")
+@track_mcp_operation("resolve_at")
+async def resolve_at(
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Resolve a (file, line, column) position to a canonical Handle.
+
+    Used when you have coordinates (from a stack trace, error report, or
+    pasted excerpt) rather than a name. Returns the same shape as resolve().
+
+    Args:
+        file: Absolute or project-relative path to the source file.
+        line: 1-indexed line number.
+        column: 0-indexed column number. Pass 0 for the start of the line —
+            this is valid; do not coerce to a default.
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict (see resolve() for shape).
+    """
+    analyzer = get_analyzer(project_path)
+    # See note on resolve() above re: dict() widening.
+    return dict(await _resolve_at_impl(file, line, column, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("inspect")
+@track_mcp_operation("inspect")
+async def inspect(
+    handle: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Inspect a canonical handle and return a structural Node.
+
+    The "what is this?" operation. Returns the symbol's kind, location,
+    signature, docstring, and kind-dependent fields. Cheap by default —
+    no source content, no exhaustive enumerations. Edge counts and
+    highlights come in later phases.
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/resolve_at).
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        Node dict with universal fields (handle, kind, scope, location,
+        docstring, edge_counts={}) plus kind-dependent fields:
+        - class: signature (constructor), superclasses (list of Handle strings)
+        - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
+        - module: is_package, package?
+        - attribute/property/variable: type?, default? (simple literals only)
+    """
+    analyzer = get_analyzer(project_path)
+    # See note on resolve() above re: dict() widening.
+    return dict(await _inspect_impl(handle, analyzer))
+
+
+# NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_references")
@@ -466,6 +584,7 @@ async def find_references(
     return result
 
 
+# DEPRECATED: replaced by inspect(handle) — richer structural Node response. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_type_info")
@@ -479,6 +598,12 @@ async def get_type_info(
     fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
+
+    **Deprecated:** Replaced by ``inspect(handle)`` — richer structural Node
+    response — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form.
     This tool provides detailed mode and fields filtering for targeted queries.
@@ -513,12 +638,19 @@ async def get_type_info(
     return await analyzer.get_type_info(file, line, column, detailed=detailed, fields=fields)
 
 
+# DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_imports")
 @track_mcp_operation("find_imports")
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Python: Find all files that import a specific module.
+
+    **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
+    in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
@@ -530,6 +662,7 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
     return await analyzer.find_imports(module_name)
 
 
+# DEPRECATED: replaced by inspect(handle).edge_counts.callers for the count; future expand(handle, edge="callers") for the list. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_call_hierarchy")
@@ -538,6 +671,13 @@ async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
     """Python: Trace function callers and callees through the codebase.
+
+    **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` for the
+    count and future ``expand(handle, edge="callers")`` for the list in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form.
     This tool provides full call graph traversal beyond the default limit.
@@ -551,12 +691,19 @@ async def get_call_hierarchy(
     return await analyzer.get_call_hierarchy(function_name, file)
 
 
+# DEPRECATED: replaced by future outline over the project root. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_packages")
 @track_mcp_operation("list_packages")
 async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
     """Python: List all packages with their structure and subpackages.
+
+    **Deprecated:** Replaced by future ``outline`` over the project root in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
@@ -578,6 +725,7 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
         ) from e
 
 
+# DEPRECATED: replaced by future outline per package handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_modules")
@@ -586,6 +734,12 @@ async def list_modules(
     project_path: str = ".", fields: list[str] | None = None
 ) -> list[dict[str, Any]]:
     """Python: List all modules with their exports, classes, functions, and metrics.
+
+    **Deprecated:** Replaced by future ``outline`` per package handle in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
@@ -620,6 +774,7 @@ async def list_modules(
         ) from e
 
 
+# DEPRECATED: replaced by future trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("analyze_dependencies")
@@ -628,6 +783,12 @@ async def analyze_dependencies(
     module_path: str, project_path: str = ".", scope: str = "all"
 ) -> dict[str, Any]:
     """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
+
+    **Deprecated:** Replaced by future ``trace(handle, follow=["imports"])`` in
+    the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form.
     This tool provides circular dependency detection and scope filtering for targeted queries.
@@ -656,12 +817,19 @@ async def analyze_dependencies(
         ) from e
 
 
+# DEPRECATED: replaced by inspect(handle) on a module handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_module_info")
 @track_mcp_operation("get_module_info")
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Python: Get module exports, classes, functions, and complexity metrics.
+
+    **Deprecated:** Replaced by ``inspect(handle)`` on a module handle in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
@@ -688,12 +856,19 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
         ) from e
 
 
+# DEPRECATED: replaced by future outline operation. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_project_structure")
 @track_mcp_operation("list_project_structure")
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
     """Python: Hierarchical view of Python files and packages in the project.
+
+    **Deprecated:** Replaced by the future ``outline`` operation in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
@@ -737,6 +912,7 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
     return build_tree(project_root)
 
 
+# DEPRECATED: replaced by inspect(handle).edge_counts.subclasses for the count; future expand(handle, edge="subclasses") for the list. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_subclasses")
@@ -748,6 +924,13 @@ async def find_subclasses(
     show_hierarchy: bool = False,
 ) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
+
+    **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses`` for
+    the count and future ``expand(handle, edge="subclasses")`` for the list in
+    the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     For general use, prefer lookup() which accepts any identifier form.
     This tool provides show_hierarchy and indirect inheritance chains for targeted queries.
@@ -761,11 +944,42 @@ async def find_subclasses(
     try:
         analyzer = get_analyzer(project_path)
 
-        return await analyzer.find_subclasses(
+        result = await analyzer.find_subclasses(
             base_class=base_class,
             include_indirect=include_indirect,
             show_hierarchy=show_hierarchy,
         )
+
+        # The internal analyzer returns a discriminated union (a bare colliding
+        # name yields {"ambiguous": True, "candidates": [...]}).  This deprecated
+        # tool must NOT leak that new shape — it keeps its original
+        # ``list[dict]`` contract so existing ``for sc in result: ...`` callers
+        # don't break (#336).  Resolving ambiguity is the new resolve()/expand()
+        # surface's job, not this tool's.
+        if result.get("ambiguous", False):
+            # Reproduce main's behaviour for a colliding bare name: the flat
+            # union of every same-named class's subclasses.  Each candidate
+            # handle is a FQN, so the per-candidate call is itself unambiguous.
+            merged: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for candidate in result.get("candidates", []):
+                candidate_handle = candidate.get("handle")
+                if not candidate_handle:
+                    continue
+                candidate_result = await analyzer.find_subclasses(
+                    base_class=candidate_handle,
+                    include_indirect=include_indirect,
+                    show_hierarchy=show_hierarchy,
+                )
+                for subclass in candidate_result.get("subclasses", []):
+                    key = subclass.get("full_name") or repr(subclass)
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(subclass)
+            return merged
+
+        subclasses: list[dict[str, Any]] = result.get("subclasses", [])
+        return subclasses
     except ProjectNotFoundError:
         raise
     except Exception as e:
@@ -777,6 +991,7 @@ async def find_subclasses(
         ) from e
 
 
+# DEPRECATED: replaced by resolve then inspect — the unified lookup is replaced by progressive disclosure. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("lookup")
@@ -790,6 +1005,12 @@ async def lookup(
     limit: int = 20,
 ) -> dict[str, Any]:
     """Python: Look up any identifier — name, full dotted path, file path, or coordinates.
+
+    **Deprecated:** Replaced by ``resolve`` then ``inspect`` — the unified
+    lookup is superseded by the progressive disclosure API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Returns comprehensive structural information about the resolved Python object.
     """

@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -520,3 +520,61 @@ where = ["{TEST_SRC_DIR}", "{TEST_LIB_DIR}"]
         packages = config.config.get("packages", [])
         assert TEST_SRC_DIR in packages
         assert TEST_LIB_DIR in packages
+
+
+class TestProcessPathPosixOutput:
+    """The path producers must emit POSIX (forward-slash) strings locally.
+
+    ``get_package_paths()`` is POSIX-correct because ``_deduplicate_paths``
+    normalises every entry, but that makes the guarantee non-local: a future
+    accessor that returns a producer's output without going through dedup would
+    leak OS-native separators on Windows.  These tests pin the guarantee at the
+    source so each producer is correct on its own.
+
+    The validated path is mocked so its ``str()`` (OS-native) and ``as_posix()``
+    forms differ — simulating Windows — which lets the test fail locally on a
+    POSIX machine when a producer uses ``str()`` instead of ``.as_posix()``.
+    """
+
+    def _windows_style_validated(self) -> MagicMock:
+        """A validated-path stand-in whose str() and as_posix() differ."""
+        validated = MagicMock()
+        validated.exists.return_value = True
+        validated.__str__.return_value = "C:\\repo\\pkg"
+        validated.as_posix.return_value = "C:/repo/pkg"
+        return validated
+
+    def test_process_package_path_emits_posix(self, temp_project_dir) -> None:
+        """_process_package_path returns the POSIX form, not str(Path)."""
+        config = ProjectConfig(temp_project_dir.as_posix())
+        with (
+            patch.object(ProjectConfig, "_auto_discover"),
+            patch(  # avoid filesystem auto-discovery noise
+                "pyeye.config.PathValidator.validate_path",
+                return_value=self._windows_style_validated(),
+            ),
+        ):
+            # Absolute input skips the os.path.join branch and isolates the append.
+            result = config._process_package_path("/abs/pkg")
+
+        assert result == ["C:/repo/pkg"], (
+            "producer must emit the POSIX form (validated.as_posix()), not "
+            f"str(validated); got {result!r}"
+        )
+
+    def test_process_namespace_paths_emits_posix(self, temp_project_dir) -> None:
+        """_process_namespace_paths returns the POSIX form, not str(Path)."""
+        config = ProjectConfig(temp_project_dir.as_posix())
+        with (
+            patch.object(ProjectConfig, "_auto_discover"),
+            patch(
+                "pyeye.config.PathValidator.validate_path",
+                return_value=self._windows_style_validated(),
+            ),
+        ):
+            result = config._process_namespace_paths({"company": ["/abs/ns"]})
+
+        assert result == ["C:/repo/pkg"], (
+            "producer must emit the POSIX form (validated.as_posix()), not "
+            f"str(validated); got {result!r}"
+        )

@@ -12,9 +12,11 @@ import jedi
 
 from .. import file_artifact_cache
 from ..async_utils import read_file_async, rglob_async, ripgrep_async
+from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
+from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer
 from ..path_utils import paths_equal
 from ..scope_utils import (
@@ -184,7 +186,7 @@ class JediAnalyzer:
             merged = list(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
             self.project = jedi.Project(
-                path=str(jedi_root),
+                path=Path(jedi_root).as_posix(),
                 added_sys_path=merged,
             )
             logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
@@ -214,8 +216,17 @@ class JediAnalyzer:
             self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
         return self._additional_projects[resolved]
 
+    # DEPRECATED: internal helper for legacy methods; will be removed alongside them.
     async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
         """Search for a symbol name across all configured scopes.
+
+        **Deprecated:** Internal helper for legacy methods that are being
+        superseded by the resolve/resolve_at/inspect API. Will be removed
+        alongside the legacy methods it supports (get_call_hierarchy,
+        find_imports, analyze_dependencies, get_module_info, find_subclasses).
+        See docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Uses Jedi project.search() on the main project, then searches
         additional and namespace paths. Deduplicates by (name, file, line).
@@ -927,10 +938,29 @@ class JediAnalyzer:
                     )
 
                     try:
-                        # Find all subclasses (including indirect)
-                        subclasses = await self.find_subclasses(
-                            class_name, include_indirect=True, show_hierarchy=False
+                        # Find all subclasses (including indirect).
+                        # Prefer the inferred FQN when available so we get FQN-strict
+                        # resolution and avoid the ambiguous-name variant.
+                        # Use Jedi's full_name directly — it's already FQN-qualified.
+                        inferred_fqn: str | None = None
+                        if inferred:
+                            first = inferred[0]
+                            if first.full_name:
+                                inferred_fqn = first.full_name
+                        lookup_name = inferred_fqn if inferred_fqn else class_name
+                        raw_subclasses = await self.find_subclasses(
+                            lookup_name, include_indirect=True, show_hierarchy=False
                         )
+
+                        # Handle discriminated-union result
+                        if raw_subclasses.get("ambiguous", False):
+                            logger.warning(
+                                f"Polymorphic search: ambiguous class name {class_name!r}; "
+                                "skipping subclass expansion"
+                            )
+                            subclasses: list[dict[str, Any]] = []
+                        else:
+                            subclasses = raw_subclasses.get("subclasses", [])
 
                         if subclasses:
                             logger.info(f"Found {len(subclasses)} subclasses of {class_name}")
@@ -1106,8 +1136,15 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
+    # DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
     async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_name: Name of the module to find imports for
@@ -1334,10 +1371,18 @@ class JediAnalyzer:
 
         return results
 
+    # DEPRECATED: replaced by inspect(handle).edge_counts.callers (count) and future expand(handle, edge="callers") + expand(handle, edge="callees") (lists). Will be removed in the legacy-tool cleanup phase.
     async def get_call_hierarchy(
         self, function_name: str, file: str | None = None
     ) -> dict[str, Any]:
         """Get the call hierarchy for a function or class.
+
+        **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` (count)
+        and future ``expand(handle, edge="callers")`` + ``expand(handle, edge="callees")``
+        (lists) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         For functions, finds callers (who calls it) and callees (what it calls).
         For classes, finds instantiation sites (callers) and what __init__ calls (callees).
@@ -1431,7 +1476,7 @@ class JediAnalyzer:
                         )
 
         except FileNotFoundError as e:
-            raise ProjectNotFoundError(str(self.project_path)) from e
+            raise ProjectNotFoundError(self.project_path.as_posix()) from e
         except Exception as e:
             logger.error(f"Error getting call hierarchy: {e}")
             # Convert Path objects in exception to strings for serialization
@@ -1822,10 +1867,17 @@ class JediAnalyzer:
 
         return modules
 
+    # DEPRECATED: replaced by future expand(handle, edge="imports") and trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
     async def analyze_dependencies(
         self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
         """Analyze import dependencies for a module.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imports")`` and
+        ``trace(handle, follow=["imports"])`` in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_path: The module to analyze dependencies for
@@ -2053,8 +2105,16 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle) for module-kind handles. Will be removed in the legacy-tool cleanup phase.
     async def get_module_info(self, module_path: str) -> dict[str, Any]:
-        """Get detailed information about a specific module."""
+        """Get detailed information about a specific module.
+
+        **Deprecated:** Replaced by ``inspect(handle)`` for module-kind handles
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+        """
         info: dict[str, Any] = {
             "module": module_path,
             "file": None,
@@ -2774,10 +2834,17 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle).re_exports (Phase 6 of resolve+inspect plan). Will be removed in the legacy-tool cleanup phase.
     async def find_reexports(
         self, symbol_name: str, original_module: str, file_path: str | None = None
     ) -> list[str]:
         """Find re-export paths for a symbol.
+
+        **Deprecated:** Replaced by ``inspect(handle).re_exports`` (Phase 6 of
+        the resolve+inspect plan) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             symbol_name: Name of the symbol to find re-exports for
@@ -2888,14 +2955,28 @@ class JediAnalyzer:
 
         return False
 
+    # DEPRECATED: replaced by inspect(handle).edge_counts.subclasses (count) and future expand(handle, edge="subclasses") (list). Will be removed in the legacy-tool cleanup phase.
     async def find_subclasses(
         self,
         base_class: str,
         scope: Scope | None = None,
         include_indirect: bool = True,
         show_hierarchy: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
+
+        **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses``
+        (count) and future ``expand(handle, edge="subclasses")`` (list) in the
+        redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+
+        Note: The ambiguity-aware discriminated-union return shape
+        (``{"ambiguous": False, "subclasses": [...]}`` vs
+        ``{"ambiguous": True, "candidates": [...]}``) was introduced just before
+        this deprecation to fix a name-conflation bug; the method is still being
+        deprecated as a whole in favour of the inspect/expand API.
 
         Uses a hybrid Jedi + AST approach for performance:
         1. Single-pass AST parsing of scoped files (no double-read)
@@ -2914,10 +2995,19 @@ class JediAnalyzer:
             show_hierarchy: Show the full inheritance chain
 
         Returns:
-            List of subclasses with their locations and inheritance details
+            Discriminated-union dict:
+              {"ambiguous": False, "subclasses": [...]}  — unambiguous result
+              {"ambiguous": True, "candidates": [...]}   — multiple classes share
+                                                           the simple name; caller
+                                                           must disambiguate with FQN
         """
-        subclasses = []
+        subclasses: list[dict[str, Any]] = []
         processed_classes: set[str] = set()
+
+        # Determine if the caller supplied a FQN (has a dot) or a bare simple name.
+        is_fqn_input = "." in base_class
+        # For FQN input the simple leaf name used to match dotted base expressions.
+        leaf_name = base_class.split(".")[-1] if is_fqn_input else base_class
 
         try:
             # Get all Python files in scope (cached by get_project_files)
@@ -2958,25 +3048,92 @@ class JediAnalyzer:
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
 
-            # Find all direct subclasses by name match
+            # Index FQNs by simple (leaf) name.  Used by the FQN-strict resolver
+            # to take a path-independent fast path when a leaf name is unique
+            # (no Jedi goto/canonicalisation needed — robust on symlinked temp
+            # dirs; issue #335).
+            fqns_by_leaf: dict[str, list[str]] = {}
+            for fqn in classes_by_fqn:
+                fqns_by_leaf.setdefault(fqn.split(".")[-1], []).append(fqn)
+
+            # -------------------------------------------------------------------
+            # Ambiguity check: when caller passes a bare simple name and multiple
+            # distinct FQN-keyed classes share that leaf name, return the
+            # ambiguous variant so the caller can re-call with a FQN.
+            # -------------------------------------------------------------------
+            if not is_fqn_input:
+                matching_fqns_for_name = [
+                    fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
+                ]
+                if len(matching_fqns_for_name) > 1:
+                    # Build candidate descriptors
+                    candidates: list[dict[str, Any]] = []
+                    for fqn in sorted(matching_fqns_for_name):
+                        node, _, py_file = classes_by_fqn[fqn]
+                        candidates.append(
+                            {
+                                "handle": fqn,
+                                "kind": "class",
+                                "location": {
+                                    "file": py_file.as_posix(),
+                                    "line_start": node.lineno,
+                                    "line_end": node.lineno,
+                                },
+                            }
+                        )
+                    return {"ambiguous": True, "candidates": candidates}
+
+            # -------------------------------------------------------------------
+            # Find all direct subclasses.
+            # -------------------------------------------------------------------
             direct_fqns: set[str] = set()
 
-            # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
-            if base_class in parent_to_children:
-                direct_fqns.update(parent_to_children[base_class])
+            # Caches shared across the direct resolution AND every indirect
+            # (grandchild) traversal step.  Keyed by source position / identifier
+            # so repeated Jedi goto() and canonicalization work is done once.
+            resolved_cache: dict[tuple[str, int, int], str | None] = {}
+            canonical_cache: dict[str, Handle | None] = {}
 
-            # Check dotted name matches (e.g., class Foo(module.Animal))
-            for parent_name, children in parent_to_children.items():
-                if parent_name != base_class and parent_name.endswith(f".{base_class}"):
-                    direct_fqns.update(children)
+            if is_fqn_input:
+                # FQN-strict path: only include children whose declared base
+                # canonically resolves to the requested FQN.  See
+                # _resolve_direct_subclass_fqns for the re-export-aware match
+                # (issue #335 Bug A).
+                direct_fqns = await self._resolve_direct_subclass_fqns(
+                    base_class,
+                    classes_by_fqn,
+                    parent_to_children,
+                    fqns_by_leaf,
+                    resolved_cache,
+                    canonical_cache,
+                )
 
-            # Try Jedi-based resolution for aliased imports
-            # e.g., "from module import Animal as A" -> class Foo(A)
-            direct_fqns.update(
-                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
-            )
+            else:
+                # Simple name path (unambiguous — ambiguity was checked above).
+                # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
+                if base_class in parent_to_children:
+                    direct_fqns.update(parent_to_children[base_class])
 
-            # Collect indirect subclasses via graph traversal
+                # Check dotted name matches (e.g., class Foo(module.Animal))
+                for parent_name, children in parent_to_children.items():
+                    if parent_name != base_class and parent_name.endswith(f".{base_class}"):
+                        direct_fqns.update(children)
+
+                # Try Jedi-based resolution for aliased imports
+                # e.g., "from module import Animal as A" -> class Foo(A)
+                direct_fqns.update(
+                    await self._resolve_aliased_bases(
+                        base_class, classes_by_fqn, parent_to_children
+                    )
+                )
+
+            # Collect indirect subclasses via graph traversal.
+            #
+            # Issue #335 Bug B: each grandchild step re-resolves children against
+            # the *FQN* of the current subclass (via _resolve_direct_subclass_fqns)
+            # rather than re-keying on its simple name.  Two unrelated classes that
+            # share a simple name therefore never cross-contaminate each other's
+            # (in)direct subclass sets.
             if include_indirect:
                 all_matching_fqns = set(direct_fqns)
                 queue = list(direct_fqns)
@@ -2984,14 +3141,18 @@ class JediAnalyzer:
                     current_fqn = queue.pop()
                     if current_fqn not in classes_by_fqn:
                         continue
-                    current_node = classes_by_fqn[current_fqn][0]
-                    current_name = current_node.name
-                    # Find children of this class
-                    if current_name in parent_to_children:
-                        for child_fqn in parent_to_children[current_name]:
-                            if child_fqn not in all_matching_fqns:
-                                all_matching_fqns.add(child_fqn)
-                                queue.append(child_fqn)
+                    children = await self._resolve_direct_subclass_fqns(
+                        current_fqn,
+                        classes_by_fqn,
+                        parent_to_children,
+                        fqns_by_leaf,
+                        resolved_cache,
+                        canonical_cache,
+                    )
+                    for child_fqn in children:
+                        if child_fqn not in all_matching_fqns:
+                            all_matching_fqns.add(child_fqn)
+                            queue.append(child_fqn)
             else:
                 all_matching_fqns = direct_fqns
 
@@ -3005,7 +3166,7 @@ class JediAnalyzer:
                 is_direct = fqn in direct_fqns
 
                 # Determine direct parent name
-                direct_parent = self._find_direct_parent_name(node, base_class, is_direct)
+                direct_parent = self._find_direct_parent_name(node, leaf_name, is_direct)
 
                 subclass_info: dict[str, Any] = {
                     "name": node.name,
@@ -3031,20 +3192,193 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-        return subclasses
+        return {"ambiguous": False, "subclasses": subclasses}
+
+    async def _canonical_cached(
+        self, identifier: str, canonical_cache: dict[str, Handle | None]
+    ) -> Handle | None:
+        """Memoised :func:`resolve_canonical` keyed by identifier.
+
+        Canonicalisation walks import chains via Jedi and can be repeated many
+        times during an indirect-subclass traversal, so results are cached for
+        the lifetime of a single ``find_subclasses`` call.  Never raises.
+        """
+        if identifier not in canonical_cache:
+            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+        return canonical_cache[identifier]
+
+    async def _fqn_matches_target(
+        self,
+        resolved: str | None,
+        target_fqn: str,
+        canonical_target: Handle | None,
+        canonical_cache: dict[str, Handle | None],
+    ) -> bool:
+        """Return True if a resolved base FQN identifies ``target_fqn``.
+
+        Matches on exact equality first (cheap, the common case), then falls
+        back to comparing canonical (definition-site) handles so a base that
+        resolves across a re-export boundary is not dropped (issue #335 Bug A).
+        """
+        if resolved is None:
+            return False
+        if resolved == target_fqn:
+            return True
+        if canonical_target is None:
+            return False
+        resolved_canonical = await self._canonical_cached(resolved, canonical_cache)
+        return resolved_canonical is not None and str(resolved_canonical) == str(canonical_target)
+
+    async def _resolve_direct_subclass_fqns(
+        self,
+        target_fqn: str,
+        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
+        parent_to_children: dict[str, set[str]],
+        fqns_by_leaf: dict[str, list[str]],
+        resolved_cache: dict[tuple[str, int, int], str | None],
+        canonical_cache: dict[str, Handle | None],
+    ) -> set[str]:
+        """Return FQNs of classes whose declared base resolves to ``target_fqn``.
+
+        FQN-strict: a candidate child matches only when Jedi's resolved base
+        ``full_name`` equals ``target_fqn`` exactly OR canonicalises to the same
+        definition site.  This both honours re-export boundaries (issue #335
+        Bug A) and lets the indirect/grandchild traversal carry FQN identity
+        rather than re-keying on the simple class name (issue #335 Bug B).
+
+        **Path-independent fast path:** when exactly one project class bears the
+        leaf name and its AST FQN equals ``target_fqn``, the relationship is
+        unambiguous from the AST alone, so candidate children are accepted
+        without invoking Jedi ``goto``/canonicalisation.  This avoids the
+        symlinked-temp-dir fragility (macOS ``/var`` -> ``/private/var``) that
+        makes Jedi return degraded results, and also speeds up the common case.
+        Jedi resolution is reserved for genuine simple-name collisions and
+        re-export-path mismatches.
+
+        Args:
+            target_fqn: The (definition-site or re-export) FQN to match against.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: declared-base-name -> set of child FQNs.
+            fqns_by_leaf: simple (leaf) name -> list of class FQNs sharing it.
+            resolved_cache: shared (file, line, col) -> resolved full_name cache.
+            canonical_cache: shared identifier -> canonical Handle cache.
+        """
+        leaf_name = target_fqn.split(".")[-1]
+
+        # Path-independent fast path: a unique leaf whose sole class IS the
+        # target leaves no ambiguity, so no Jedi resolution is needed.
+        same_leaf_fqns = fqns_by_leaf.get(leaf_name, [])
+        fast_accept = len(same_leaf_fqns) == 1 and same_leaf_fqns[0] == target_fqn
+
+        # Only canonicalise (Jedi-backed) when the fast path does not apply.
+        canonical_target = (
+            None if fast_accept else await self._canonical_cached(target_fqn, canonical_cache)
+        )
+
+        found: set[str] = set()
+
+        # Gather candidate children: declared base simple name == leaf_name
+        # OR declared base dotted name ends with ".{leaf_name}".
+        candidate_child_fqns: set[str] = set()
+        if leaf_name in parent_to_children:
+            candidate_child_fqns.update(parent_to_children[leaf_name])
+        for parent_name, children in parent_to_children.items():
+            if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
+                candidate_child_fqns.update(children)
+
+        for child_fqn in candidate_child_fqns:
+            if child_fqn not in classes_by_fqn:
+                continue
+            if fast_accept:
+                # Unambiguous: the unique class named leaf_name is target_fqn.
+                found.add(child_fqn)
+                continue
+            child_node, _, child_file = classes_by_fqn[child_fqn]
+            try:
+                script = file_artifact_cache.get_script(child_file, self.project)
+            except Exception:
+                continue
+
+            for base in child_node.bases:
+                base_name = self._get_base_name_from_ast(base)
+                if not base_name:
+                    continue
+                if base_name.split(".")[-1] != leaf_name:
+                    continue
+
+                # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
+                # col_offset points to the first name component, not the leaf
+                # name.  Use the leaf's position so goto() resolves to the
+                # class, not the package/module.
+                goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
+                cache_key = (child_file.as_posix(), goto_line, goto_col)
+                if cache_key not in resolved_cache:
+                    resolved_fqn: str | None = None
+                    try:
+                        goto_results = script.goto(goto_line, goto_col, follow_imports=True)
+                        for gr in goto_results:
+                            if gr.name == leaf_name and gr.full_name:
+                                # Prefer full_name from Jedi — already FQN-qualified
+                                # and independent of project-relative path resolution.
+                                resolved_fqn = gr.full_name
+                                break
+                    except Exception:
+                        resolved_fqn = None
+                    resolved_cache[cache_key] = resolved_fqn
+
+                if await self._fqn_matches_target(
+                    resolved_cache[cache_key], target_fqn, canonical_target, canonical_cache
+                ):
+                    found.add(child_fqn)
+                    break
+
+        # Also resolve aliased imports
+        # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
+        found.update(
+            await self._resolve_aliased_bases(
+                leaf_name,
+                classes_by_fqn,
+                parent_to_children,
+                target_fqn=target_fqn,
+                canonical_target=canonical_target,
+                canonical_cache=canonical_cache,
+            )
+        )
+        return found
 
     async def _resolve_aliased_bases(
         self,
         base_class: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
+        target_fqn: str | None = None,
+        canonical_target: Handle | None = None,
+        canonical_cache: dict[str, Handle | None] | None = None,
     ) -> set[str]:
         """Use Jedi goto() to resolve aliased base class references.
 
         Handles cases like 'from module import Animal as A; class Foo(A):'
         where AST name matching alone would miss the relationship.
+
+        Args:
+            base_class: The simple name (leaf) of the base class to match.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: parent name -> set of child FQNs.
+            target_fqn: When set (FQN-strict mode), only include children
+                        whose resolved parent FQN equals this value (matched
+                        exactly or via canonical definition site — issue #335).
+                        When None (simple-name mode), any class named base_class
+                        is accepted.
+            canonical_target: Pre-resolved canonical handle for ``target_fqn``
+                        (computed if omitted).  Ignored when ``target_fqn`` is None.
+            canonical_cache: Shared identifier -> canonical Handle cache.
         """
         resolved_fqns: set[str] = set()
+
+        if canonical_cache is None:
+            canonical_cache = {}
+        if target_fqn is not None and canonical_target is None:
+            canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
 
         # Only check parent names that didn't match the base_class by simple name
         # These are candidates for aliased imports
@@ -3086,7 +3420,19 @@ class JediAnalyzer:
                             )
                             for result in goto_results:
                                 if result.name == base_class:
-                                    resolved_fqns.add(fqn)
+                                    if target_fqn is not None:
+                                        # FQN-strict: match exactly or via canonical
+                                        # definition site so re-exported bases are
+                                        # not dropped (issue #335 Bug A).
+                                        if await self._fqn_matches_target(
+                                            result.full_name,
+                                            target_fqn,
+                                            canonical_target,
+                                            canonical_cache,
+                                        ):
+                                            resolved_fqns.add(fqn)
+                                    else:
+                                        resolved_fqns.add(fqn)
                                     break
                         except Exception:
                             pass
@@ -3111,6 +3457,24 @@ class JediAnalyzer:
             if parent_name:
                 return parent_name
         return "unknown"
+
+    @staticmethod
+    def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:
+        """Get the source position of the leaf name in a base class AST node.
+
+        For a simple ``ast.Name`` node the col_offset already points at the name.
+        For an ``ast.Attribute`` chain like ``_core.widgets.Widget`` the node's
+        col_offset points at the first component (``_core``), while Jedi needs
+        to be positioned at ``Widget`` to follow imports to the class definition.
+
+        Uses ``end_col_offset`` (present in Python 3.8+) to compute where the
+        final attribute name starts.
+        """
+        if isinstance(base, ast.Attribute) and base.attr == leaf_name:
+            end_col = getattr(base, "end_col_offset", None)
+            if end_col is not None:
+                return base.lineno, end_col - len(leaf_name)
+        return base.lineno, base.col_offset
 
     @staticmethod
     def _get_base_name_from_ast(base: Any) -> str | None:

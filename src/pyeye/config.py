@@ -404,14 +404,14 @@ class ProjectConfig:
                 expanded = glob(os.path.expanduser(package))
                 for exp_path in expanded:
                     validated = PathValidator.validate_path(exp_path)
-                    paths.append(str(validated))
+                    paths.append(validated.as_posix())
             else:
                 # Resolve relative to project directory
                 if not os.path.isabs(package):
                     package = os.path.join(str(self.project_path), package)
                 validated = PathValidator.validate_path(package)
                 if validated.exists():
-                    paths.append(str(validated))
+                    paths.append(validated.as_posix())
         except ValidationError as e:
             logger.warning(f"Skipping invalid package path {package}: {e}")
 
@@ -436,11 +436,11 @@ class ProjectConfig:
                         expanded = glob(os.path.expanduser(ns_path))
                         for exp_path in expanded:
                             validated = PathValidator.validate_path(exp_path)
-                            paths.append(str(validated))
+                            paths.append(validated.as_posix())
                     else:
                         validated = PathValidator.validate_path(ns_path)
                         if validated.exists():
-                            paths.append(str(validated))
+                            paths.append(validated.as_posix())
                 except ValidationError as e:
                     logger.warning(
                         f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"

@@ -14,8 +14,24 @@
     "code-navigation"
   ],
   "license": "MIT",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": {
+    "pyeye": {
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "--no-sync",
+        "--frozen",
+        "python",
+        "-m",
+        "pyeye.mcp"
+      ],
+      "command": "uv",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv"
+      }
+    }
+  },
   "name": "pyeye",
-  "repository": "https://github.com/okeefeco/pyeye-mcp",
-  "version": "1.0.2"
+  "repository": "https://github.com/okeefeco/pyeye-mcp"
 }
