@@ -7,9 +7,9 @@ This module is the **single source of truth** for which traversal edges
    machine-distinguishable statuses.  The status string IS the ``reason``
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
-   names to their resolver callables.  In this phase only ``members`` has a
-   resolver; ``callees`` is classified ``implemented`` in the status matrix but
-   its resolver lands in Phase 3.
+   names (``members``, ``callees``) to their resolver callables.  Each resolver
+   is synchronous and returns an :class:`EdgeResult` (adjacent canonical handles
+   plus, for ``callees`` only, the count of unresolved call sites).
 
 Status model (spec §4.3)
 ------------------------
@@ -47,14 +47,42 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
+from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+
+# ---------------------------------------------------------------------------
+# Uniform resolver return type
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EdgeResult:
+    """Result of an implemented edge resolver.
+
+    Carries the adjacent canonical handles, plus — for ``callees`` only — the
+    count of call sites that could not be statically resolved.
+
+    Attributes:
+        handles: The adjacent canonical :class:`Handle` objects (deduplicated,
+            deterministic order).
+        unresolved_call_sites: For ``callees``, the number of call sites whose
+            target could not be resolved via forward ``goto`` (a count only —
+            never a partial/invented handle).  ``None`` for edges where the
+            notion does not apply (e.g. ``members``).
+    """
+
+    handles: list[Handle]
+    unresolved_call_sites: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +146,7 @@ def edge_status(edge: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> list[Handle]:
+def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the direct structural members of a container as canonical handles.
 
     Two distinct mechanisms are used (this divergence is intentional):
@@ -145,19 +173,20 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> list[Handle]:
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
-        A list of canonical member :class:`Handle` objects, or ``[]`` for a
-        non-container.
+        An :class:`EdgeResult` whose ``handles`` are the canonical member
+        handles (empty for a non-container).  ``unresolved_call_sites`` is always
+        ``None`` — that notion is callees-only.
     """
     kind = _normalise_kind(getattr(jedi_name, "type", None))
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
-        return []
+        return EdgeResult(handles=[])
 
     if kind == "class":
-        return _class_members(jedi_name, handle, analyzer)
+        return EdgeResult(handles=_class_members(jedi_name, handle, analyzer))
     if kind == "module":
-        return _module_members(jedi_name, handle, analyzer)
-    return []
+        return EdgeResult(handles=_module_members(jedi_name, handle, analyzer))
+    return EdgeResult(handles=[])
 
 
 def _try_handle(s: str) -> Handle | None:
@@ -293,12 +322,183 @@ def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list
 
 
 # ---------------------------------------------------------------------------
+# callees resolver (spec §5.2)
+# ---------------------------------------------------------------------------
+
+#: Node types that open a NEW lexical scope — calls inside them belong to that
+#: inner scope, not the enclosing function, so the call collector stops here.
+_NESTED_SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _collect_direct_calls(body: list[ast.stmt]) -> list[ast.Call]:
+    """Collect ``ast.Call`` nodes in *body*, NOT descending into nested scopes.
+
+    Walks every statement in the function's body, recording each ``ast.Call`` it
+    encounters, but stops at nested-scope boundaries (``FunctionDef`` /
+    ``AsyncFunctionDef`` / ``Lambda`` / ``ClassDef``) — calls inside those belong
+    to the inner scope's callees, not the enclosing function's.
+
+    A ``Call``'s own children (its ``func`` and ``args``) ARE recursed, so
+    ``foo(bar())`` yields both ``foo`` and ``bar``.  ``ast.walk`` is deliberately
+    NOT used (it descends through everything, ignoring scope boundaries).
+
+    Args:
+        body: The statement list of the function body (``func_node.body``).
+
+    Returns:
+        The direct ``ast.Call`` nodes in source order.
+    """
+    calls: list[ast.Call] = []
+
+    def _recurse(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _NESTED_SCOPE_TYPES):
+                # New scope — its calls are its own; do not descend.
+                continue
+            if isinstance(child, ast.Call):
+                calls.append(child)
+            _recurse(child)
+
+    for stmt in body:
+        # Top-level body statements cannot themselves be a bare Call expr without
+        # an Expr wrapper, but guard anyway for symmetry with the recursion.
+        if isinstance(stmt, _NESTED_SCOPE_TYPES):
+            continue
+        if isinstance(stmt, ast.Call):
+            calls.append(stmt)
+        _recurse(stmt)
+    return calls
+
+
+def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
+    """Return the outbound callees of a function/method as canonical handles.
+
+    Forward resolution only: ONE ``goto`` per call site.  This NEVER touches
+    ``get_references`` / ``find_references`` (the non-deterministic reverse-search
+    path) — that is the load-bearing trust constraint for this edge.
+
+    Mechanics (spec §5.2):
+
+    1. Locate the def node at ``jedi_name.line`` in the function's cached AST.
+    2. Collect ``ast.Call`` nodes within ``func_node.body``, stopping at nested
+       scope boundaries (a nested function/lambda/class's calls are its own).
+    3. For each call, compute the target identifier's (line, col) from
+       ``call.func`` and ``script.goto(line, col, follow_imports=True)`` — the
+       ``follow_imports`` landing IS the canonicalization.  Builtins/stdlib
+       callees are included.
+    4. Dedup by handle string (deterministic first-seen order).
+    5. Count call sites that ``goto`` could not resolve (no def, no ``full_name``,
+       ``Handle`` construction failure, or a ``call.func`` with no single
+       identifier to goto) as ``unresolved_call_sites`` — a COUNT only.
+
+    Synchronous (AST walk + per-call Jedi ``goto`` + ``Handle`` construction).
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` for the source symbol.  Only
+            ``function``-kind sources have callees.
+        analyzer: Active analyzer (for the Jedi project used by ``get_script``).
+
+    Returns:
+        An :class:`EdgeResult` with the deduplicated callee handles and the
+        unresolved-call-site count.  Non-function sources yield
+        ``EdgeResult(handles=[], unresolved_call_sites=0)``.
+    """
+    kind = _normalise_kind(getattr(jedi_name, "type", None))
+    if kind != "function":
+        return EdgeResult(handles=[], unresolved_call_sites=0)
+
+    file_path = getattr(jedi_name, "module_path", None)
+    line = getattr(jedi_name, "line", None)
+    if file_path is None or line is None:
+        return EdgeResult(handles=[], unresolved_call_sites=0)
+
+    func_node = find_function_def_at_line(Path(file_path), line)
+    if func_node is None:
+        return EdgeResult(handles=[], unresolved_call_sites=0)
+
+    try:
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+    except Exception:
+        return EdgeResult(handles=[], unresolved_call_sites=0)
+
+    seen: set[str] = set()
+    handles: list[Handle] = []
+    unresolved = 0
+
+    for call in _collect_direct_calls(func_node.body):
+        target = _call_target_position(call.func)
+        if target is None:
+            # No single identifier to goto (e.g. f()(), subscript call).
+            unresolved += 1
+            continue
+        callee = _resolve_call_target(script, target)
+        if callee is None:
+            unresolved += 1
+            continue
+        if str(callee) in seen:
+            continue  # dedup repeated calls — already counted, not unresolved
+        seen.add(str(callee))
+        handles.append(callee)
+
+    return EdgeResult(handles=handles, unresolved_call_sites=unresolved)
+
+
+def _call_target_position(func: ast.expr) -> tuple[int, int] | None:
+    """Return the (line, col) to ``goto`` for a call target, or ``None``.
+
+    For ``ast.Name`` → the name's own position.  For ``ast.Attribute`` → the
+    rightmost identifier (via :func:`attr_target_position`), so ``obj.method()``
+    resolves ``method`` rather than the receiver ``obj``.  For any other form
+    (e.g. ``f()()``, a subscript) there is no single identifier to goto.
+
+    Args:
+        func: The ``call.func`` expression node.
+
+    Returns:
+        A ``(line, col)`` tuple, or ``None`` when no single identifier applies.
+    """
+    if isinstance(func, (ast.Name, ast.Attribute)):
+        return attr_target_position(func)
+    return None
+
+
+def _resolve_call_target(script: Any, target: tuple[int, int]) -> Handle | None:
+    """Forward-resolve a call target's (line, col) to a canonical :class:`Handle`.
+
+    Uses ``script.goto(line, col, follow_imports=True)`` — the import-following
+    landing IS the canonicalization for callees.  Returns the first def with a
+    ``full_name`` as a :class:`Handle`, or ``None`` when nothing resolves, no
+    def has a ``full_name``, or ``Handle`` construction fails.
+
+    Args:
+        script: The cached Jedi ``Script`` for the call's file.
+        target: ``(line, col)`` of the call's target identifier.
+
+    Returns:
+        A canonical :class:`Handle`, or ``None`` (caller counts as unresolved).
+    """
+    line, col = target
+    try:
+        defs = script.goto(line, col, follow_imports=True)
+    except Exception:
+        return None
+    for d in defs:
+        full_name = getattr(d, "full_name", None)
+        if full_name:
+            h = _try_handle(full_name)
+            if h is not None:
+                return h
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
-#: Maps *implemented* edge names → resolver callables.  Separate from the status
-#: matrix on purpose: ``edge_status("callees") == "implemented"`` but ``callees``
-#: has no resolver here yet (Phase 3 wires it in).
-EDGE_RESOLVERS: dict[str, Callable[[Any, JediAnalyzer], list[Handle]]] = {
+#: Maps *implemented* edge names → resolver callables.  Each resolver is
+#: synchronous and returns an :class:`EdgeResult` (uniform across edges so
+#: ``expand`` stays edge-agnostic).
+EDGE_RESOLVERS: dict[str, Callable[[Any, JediAnalyzer], EdgeResult]] = {
     "members": resolve_members,
+    "callees": resolve_callees,
 }

@@ -39,6 +39,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
+from pyeye._ast_targets import (
+    attr_target_position as _attr_target_position,
+    find_function_def_at_line as _find_function_def_at_line,
+)
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
@@ -171,24 +175,6 @@ def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, 
         elif isinstance(deco, ast.Attribute):
             deco_names.add(deco.attr)
     return is_async, "classmethod" in deco_names, "staticmethod" in deco_names
-
-
-def _find_function_def_at_line(
-    file_path: Path, line: int
-) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
-    """Return the FunctionDef / AsyncFunctionDef whose ``lineno`` equals *line*.
-
-    Uses the cached file AST. Returns ``None`` when no match is found or any
-    error occurs (file missing, parse error, etc.).
-    """
-    try:
-        tree = file_artifact_cache.get_ast(file_path)
-    except Exception:
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == line:
-            return node
-    return None
 
 
 def _build_param_kind_for_arg(fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> str:
@@ -473,32 +459,6 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
         pass
 
     return superclasses
-
-
-def _attr_target_position(base_node: ast.expr) -> tuple[int, int]:
-    """Return (line, col) of the rightmost identifier in a base-class expression.
-
-    For ``ast.Name`` (e.g. ``Widget``): the position of the name itself.
-    For ``ast.Attribute`` (e.g. ``pkg.sub.Widget``): the position of the
-    rightmost attribute name (``Widget``), not the leftmost receiver (``pkg``).
-
-    Using the rightmost position ensures ``jedi.Script.goto()`` resolves the
-    actual class, not the package/module that acts as the receiver.
-
-    Args:
-        base_node: AST node representing the base class expression.
-
-    Returns:
-        ``(line, col)`` tuple suitable for passing to ``jedi.Script.goto()``.
-    """
-    if isinstance(base_node, ast.Attribute):
-        # ast.Attribute stores end_lineno/end_col_offset for the entire chain.
-        # The rightmost attr name ends there and starts len(attr) characters before.
-        end_line = base_node.end_lineno or base_node.lineno
-        end_col = base_node.end_col_offset or 0
-        return end_line, max(0, end_col - len(base_node.attr))
-    # ast.Name or any other node type — use the node's own start position.
-    return base_node.lineno, base_node.col_offset
 
 
 def _resolve_base_class_via_jedi(
