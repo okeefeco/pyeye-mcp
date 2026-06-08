@@ -66,6 +66,7 @@ _MODULE_FORMS_HANDLE = "mypackage._core.module_forms"
 
 _CALLEES_MODULE_HANDLE = "mypackage._core.callees_fixture"
 _ORCHESTRATE_HANDLE = "mypackage._core.callees_fixture.orchestrate"
+_PROCESSOR_RUN_HANDLE = "mypackage._core.callees_fixture.Processor.run"
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +393,44 @@ class TestResolveCalleesContract:
         second = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
         assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
         assert first.unresolved_call_sites == second.unresolved_call_sites
+
+
+class TestResolveCalleesMethodSource:
+    """Spec §5.2 "function/method": a METHOD source also produces callees.
+
+    Jedi reports methods (instance, class, static) with ``type="function"``,
+    so ``_normalise_kind`` returns ``"function"`` for them.  The ``"function"``
+    gate in ``resolve_callees`` therefore intentionally INCLUDES methods — they
+    are NOT excluded.  This class provides the regression test that was missing.
+
+    Fixture: ``Processor.run`` (``mypackage._core.callees_fixture.Processor.run``)
+    calls ``make_widget("processed")`` — one statically resolvable callee.
+    """
+
+    def test_method_source_returns_edgeresult(self, analyzer: JediAnalyzer) -> None:
+        result = _callees_for(_PROCESSOR_RUN_HANDLE, analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    def test_method_source_has_project_callee(self, analyzer: JediAnalyzer) -> None:
+        """``Processor.run`` calls ``make_widget`` — that handle must appear.
+
+        This is the load-bearing assertion: if methods were gated out by the
+        ``"function"`` check, handles would be empty and this would fail.
+        """
+        result = _callees_for(_PROCESSOR_RUN_HANDLE, analyzer)
+        callees = {str(h) for h in result.handles}
+        assert (
+            _MAKE_WIDGET_HANDLE in callees
+        ), f"method source Processor.run should have make_widget as a callee; got {callees}"
+
+    def test_method_source_has_zero_unresolved(self, analyzer: JediAnalyzer) -> None:
+        """``make_widget`` is fully resolvable; no dynamic call sites in run's body."""
+        result = _callees_for(_PROCESSOR_RUN_HANDLE, analyzer)
+        assert result.unresolved_call_sites == 0, (
+            f"expected 0 unresolved call sites for Processor.run; "
+            f"got {result.unresolved_call_sites}"
+        )
 
 
 class TestResolveCalleesNonFunction:

@@ -342,6 +342,11 @@ def _collect_direct_calls(body: list[ast.stmt]) -> list[ast.Call]:
     ``foo(bar())`` yields both ``foo`` and ``bar``.  ``ast.walk`` is deliberately
     NOT used (it descends through everything, ignoring scope boundaries).
 
+    Note: decorators on a nested ``def``/``class`` are part of that nested
+    scope's subtree and are intentionally NOT attributed to the enclosing
+    function — the entire nested-scope node (decorators included) is skipped.
+    This is a documented design choice, not an oversight.
+
     Args:
         body: The statement list of the function body (``func_node.body``).
 
@@ -404,6 +409,11 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``EdgeResult(handles=[], unresolved_call_sites=0)``.
     """
     kind = _normalise_kind(getattr(jedi_name, "type", None))
+    # Jedi reports BOTH module-level functions AND methods (instance, class,
+    # static) with ``type="function"``, so ``_normalise_kind`` yields
+    # ``"function"`` for all of them.  This gate therefore INCLUDES methods and
+    # @property getters — they are not excluded.  Only non-function kinds
+    # (class, module, variable, …) short-circuit here.
     if kind != "function":
         return EdgeResult(handles=[], unresolved_call_sites=0)
 

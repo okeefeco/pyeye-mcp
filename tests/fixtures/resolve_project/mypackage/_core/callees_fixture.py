@@ -15,6 +15,13 @@ Canonical handle of the source function under test:
   an invented handle),
 - a NESTED function (``_inner``) whose own call (``len``) must NOT be attributed
   to ``orchestrate`` — a nested scope's callees are its own.
+
+``Processor.run`` is a METHOD source (spec §5.2 "function/method") exercising the
+coverage gap: Jedi reports methods as ``type="function"``, so the ``"function"``
+gate in ``resolve_callees`` intentionally INCLUDES methods.  Its single call to
+``make_widget`` must appear in the method's callees.
+
+Canonical handle: ``mypackage._core.callees_fixture.Processor.run``.
 """
 
 from __future__ import annotations
@@ -50,3 +57,23 @@ def orchestrate(cb: Callable[[], object]) -> float:
         return len(first.name)
 
     return root + float(_inner())
+
+
+class Processor:
+    """A class whose method exercises callees from a METHOD source (spec §5.2).
+
+    Verifies that ``_normalise_kind`` returning ``"function"`` for a method
+    means the ``"function"`` gate in ``resolve_callees`` INCLUDES methods, not
+    just module-level functions.
+    """
+
+    def run(self) -> object:
+        """Call ``make_widget`` and return the result.
+
+        The single call to ``make_widget`` is statically resolvable, so the
+        method-source callees test can assert its handle is present.
+
+        Returns:
+            A Widget instance (typed as object to avoid importing Widget here).
+        """
+        return make_widget("processed")
