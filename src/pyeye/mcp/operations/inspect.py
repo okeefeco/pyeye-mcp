@@ -46,6 +46,7 @@ from pyeye._ast_targets import (
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
+from pyeye.mcp.operations.edges import resolve_members
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
@@ -690,58 +691,40 @@ async def _measure_with_budget(
 async def _count_class_members(handle: str, jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count direct class members for a class handle.
 
-    Walks the class definition's file via Jedi and counts names whose
-    ``full_name`` has exactly one more dotted component than the class handle.
+    Delegates to :func:`edges.resolve_members` — the single enumeration source
+    for member counts.  The ``handle`` parameter is retained for call-site and
+    patch stability (existing tests patch this function by name with a
+    ``side_effect``); it is consumed but not used in the delegated logic.
 
     Args:
-        handle: The class's canonical dotted-name string.
+        handle: The class's canonical dotted-name string (retained for
+            call-site/patch stability; not used in the delegated logic).
         jedi_name: Jedi ``Name`` for the class.
-        analyzer: Active analyzer (unused here, but consistent with API).
+        analyzer: Active analyzer.
 
     Returns:
         Count of direct class members.
     """
-    _ = analyzer
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-        prefix = handle + "."
-        handle_depth = len(handle.split("."))
-        count = 0
-        for n in names:
-            fn = n.full_name or ""
-            if fn.startswith(prefix) and len(fn.split(".")) == handle_depth + 1:
-                count += 1
-        return count
-    except Exception:
-        return 0
+    _ = handle
+    return len(resolve_members(jedi_name, analyzer).handles)
 
 
 async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count top-level definitions in a module.
 
-    Uses Jedi's ``get_names(all_scopes=False)`` on the module file to find all
-    top-level definitions.
+    Delegates to :func:`edges.resolve_members` — the single enumeration source
+    for member counts.  Unlike the former flat ``get_names`` approach, this now
+    **excludes import-bound names** (spec §3.3 correctness fix), so the count
+    may be lower than before for modules with top-level imports.
 
     Args:
         jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.
         analyzer: Active analyzer.
 
     Returns:
-        Count of top-level module members.
+        Count of top-level module members (imports excluded).
     """
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=False, definitions=True, references=False)
-        return len(names)
-    except Exception:
-        return 0
+    return len(resolve_members(jedi_name, analyzer).handles)
 
 
 async def _count_superclasses(
