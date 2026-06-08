@@ -18,9 +18,10 @@ four cases must be machine-distinguishable.
 The ``members`` resolver returns the adjacent canonical handles for a container:
 
 - class → direct methods / nested classes / class-level attributes (no inherited)
-- module → top-level classes / functions / variables DEFINED in the module
-  (imports / re-exports EXCLUDED — the deliberate divergence from the old flat
-  member count, keeping ``members`` disjoint from the ``imports`` edge)
+- module → top-level definitions enumerated via Jedi ``get_names(all_scopes=False)``
+  MINUS names bound by top-level import statements (spec §3.3).  The ONLY
+  divergence from the legacy ``inspect._count_module_members`` count is import
+  exclusion — tuple-unpacking, annotated vars, guarded defs, etc. are all included.
 - non-container → ``[]`` (measured: genuinely no members)
 
 Fixture facts (``mypackage/_core/widgets.py``):
@@ -29,6 +30,13 @@ Fixture facts (``mypackage/_core/widgets.py``):
 - defines (top level): ``DEFAULT_NAME`` (var), ``Widget`` (class),
   ``Config`` (class), ``make_widget`` (function), ``Premium`` (class),
   ``Deluxe`` (class) → module members MUST be exactly those 6.
+
+Fixture ``mypackage/_core/module_forms.py`` exercises the forms that the old
+AST hand-walk MISSED (spec §3.3 gap closure):
+- ``ALPHA, BETA = 1, 2``  ← tuple-unpacking (missed by old walk)
+- ``GAMMA: ClassVar[int] = 3``  ← annotated var (covered by both old and new)
+- ``some_function``, ``SomeClass``  ← normal def/class
+- ``from typing import ClassVar``  ← import (must be EXCLUDED)
 """
 
 from pathlib import Path
@@ -46,6 +54,8 @@ _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
 _CONFIG_HANDLE = "mypackage._core.widgets.Config"
 _MODULE_HANDLE = "mypackage._core.widgets"
 _MAKE_WIDGET_HANDLE = "mypackage._core.widgets.make_widget"
+
+_MODULE_FORMS_HANDLE = "mypackage._core.module_forms"
 
 
 # ---------------------------------------------------------------------------
@@ -232,3 +242,65 @@ class TestResolveMembersNonContainer:
     def test_function_has_no_members(self, analyzer: JediAnalyzer) -> None:
         members = _members_for(_MAKE_WIDGET_HANDLE, analyzer)
         assert members == []
+
+
+# ---------------------------------------------------------------------------
+# Spec §3.3 gap-closure — module_forms fixture
+# ---------------------------------------------------------------------------
+
+
+class TestResolveMembersModuleForms:
+    """Module members via Jedi get_names includes all definition forms (spec §3.3).
+
+    Verifies that the fixed ``_module_members`` implementation — which uses Jedi
+    ``get_names(all_scopes=False)`` minus import-bound names — captures forms
+    that the old AST hand-walk silently missed:
+
+    - tuple-unpacking assignment (``ALPHA, BETA = 1, 2``)
+    - annotated variable (``GAMMA: ClassVar[int] = 3``)
+    - normal def/class (sanity)
+
+    Also verifies that the imported name (``ClassVar`` from ``typing``) is
+    excluded, so import-exclusion is preserved for this fixture too.
+    """
+
+    def test_tuple_unpacked_names_present(self, analyzer: JediAnalyzer) -> None:
+        """ALPHA and BETA from ``ALPHA, BETA = 1, 2`` must appear in members."""
+        members = {str(h) for h in _members_for(_MODULE_FORMS_HANDLE, analyzer)}
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.ALPHA" in members
+        ), "ALPHA (tuple-unpacking) should be a module member"
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.BETA" in members
+        ), "BETA (tuple-unpacking) should be a module member"
+
+    def test_annotated_var_present(self, analyzer: JediAnalyzer) -> None:
+        """GAMMA (annotated assignment) must appear in members."""
+        members = {str(h) for h in _members_for(_MODULE_FORMS_HANDLE, analyzer)}
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.GAMMA" in members
+        ), "GAMMA (annotated assignment) should be a module member"
+
+    def test_def_and_class_present(self, analyzer: JediAnalyzer) -> None:
+        """Normal function and class definitions must appear in members."""
+        members = {str(h) for h in _members_for(_MODULE_FORMS_HANDLE, analyzer)}
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.some_function" in members
+        ), "some_function (def) should be a module member"
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.SomeClass" in members
+        ), "SomeClass (class) should be a module member"
+
+    def test_import_excluded(self, analyzer: JediAnalyzer) -> None:
+        """``ClassVar`` (imported from typing) must NOT appear in members."""
+        members = {str(h) for h in _members_for(_MODULE_FORMS_HANDLE, analyzer)}
+        assert (
+            f"{_MODULE_FORMS_HANDLE}.ClassVar" not in members
+        ), "ClassVar is an imported name and must be excluded from members"
+        assert not any(m.endswith(".ClassVar") for m in members)
+
+    def test_members_are_handles(self, analyzer: JediAnalyzer) -> None:
+        """All returned members must be Handle instances."""
+        members = _members_for(_MODULE_FORMS_HANDLE, analyzer)
+        assert members, "module_forms should have at least one member"
+        assert all(isinstance(h, Handle) for h in members)

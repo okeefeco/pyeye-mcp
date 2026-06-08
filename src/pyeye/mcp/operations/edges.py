@@ -36,7 +36,11 @@ is therefore implemented FRESH in this module (deliberate, temporary
 duplication of ``inspect._count_*_members``, removed in Phase 5).
 
 The ``members`` resolver is pure structural enumeration — it never calls
-``get_references`` / ``find_references``.
+``get_references`` / ``find_references``.  The module path uses Jedi
+``get_names(all_scopes=False)`` to enumerate top-level definitions (same
+source as ``inspect._count_module_members``), then subtracts import-bound
+names from the AST — guaranteeing the only divergence from the legacy count
+is import exclusion (spec §3.3).
 """
 
 from __future__ import annotations
@@ -122,10 +126,12 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> list[Handle]:
     - **class** → direct methods / nested classes / class-level attributes &
       properties DEFINED in the class (inherited excluded).  Jedi ``get_names``
       filtered by ``full_name`` prefix + exact depth.
-    - **module** → top-level classes / functions / module-level variables
-      DEFINED in the module.  Imports / re-exports are EXCLUDED (the deliberate
-      divergence keeping ``members`` disjoint from the ``imports`` edge).
-      AST top-level walk; ``ast.Import`` / ``ast.ImportFrom`` are skipped.
+    - **module** → top-level definitions enumerated via Jedi
+      ``get_names(all_scopes=False)`` (same source as the legacy
+      ``inspect._count_module_members``), **minus** names bound by top-level
+      ``import`` / ``from-import`` statements.  The ONLY divergence from the
+      legacy count is import exclusion (spec §3.3) — all other definition forms
+      (tuple-unpacking, annotated vars, guarded ``def``/``class``) are included.
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
@@ -150,8 +156,28 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> list[Handle]:
     if kind == "class":
         return _class_members(jedi_name, handle, analyzer)
     if kind == "module":
-        return _module_members(jedi_name, handle)
+        return _module_members(jedi_name, handle, analyzer)
     return []
+
+
+def _try_handle(s: str) -> Handle | None:
+    """Attempt to construct a :class:`Handle` from *s*, returning ``None`` on failure.
+
+    Jedi occasionally yields names with non-identifier scope components such as
+    ``<lambda>`` or ``<listcomp>`` that slip through kind-based filtering.
+    Rather than crashing the entire resolver, we skip those per-member here.
+
+    Args:
+        s: Candidate handle string.
+
+    Returns:
+        A :class:`Handle` on success, or ``None`` if construction raises
+        :exc:`ValueError`.
+    """
+    try:
+        return Handle(s)
+    except ValueError:
+        return None
 
 
 def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[Handle]:
@@ -188,56 +214,82 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
         if full_name in seen:
             continue
         seen.add(full_name)
-        members.append(Handle(full_name))
+        h = _try_handle(full_name)
+        if h is not None:
+            members.append(h)
     return members
 
 
-def _module_members(jedi_name: Any, handle: str) -> list[Handle]:
-    """Enumerate top-level module members via an AST top-level walk.
+def _module_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[Handle]:
+    """Enumerate top-level module members via Jedi ``get_names`` minus imports.
 
-    Iterates ``tree.body`` (TOP LEVEL only — never ``ast.walk``, which would
-    descend into class bodies).  Imports are skipped entirely so re-exported
-    names do not appear (keeping ``members`` disjoint from the ``imports`` edge).
+    Uses the same Jedi enumeration as the legacy ``inspect._count_module_members``
+    (``get_names(all_scopes=False, definitions=True, references=False)``), then
+    subtracts names bound by top-level ``import`` / ``from-import`` statements
+    from the module's AST.  This guarantees the ONLY divergence from the legacy
+    module-member count is **import exclusion** (spec §3.3): every definition form
+    that Jedi counts (plain ``def``/``class``, tuple-unpacking assignments,
+    annotated variables, defs/assignments guarded under ``if``/``try``/``with``/
+    ``for``) is included, while imported names are excluded so ``members`` stays
+    disjoint from the ``imports`` edge.
+
+    Known gap: ``from x import *`` wildcards are ignored — their bound names are
+    neither included nor excluded (rare in well-typed codebases).
 
     Args:
         jedi_name: Resolved Jedi ``Name`` (or ``_ModuleSentinel``) for the
             module — its ``module_path`` is the module file.
         handle: The module's canonical dotted-name handle.
+        analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
         A list of canonical member :class:`Handle` objects for the module's
-        top-level definitions.
+        top-level definitions, with all import-bound names removed.
     """
     file_path = getattr(jedi_name, "module_path", None)
     if file_path is None:
         return []
 
     try:
+        # Step 1: enumerate top-level definitions the same way the legacy counter
+        # does — this guarantees parity with inspect._count_module_members for
+        # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+        names = script.get_names(all_scopes=False, definitions=True, references=False)
+
+        # Step 2: build the set of names bound by top-level import statements.
         tree = file_artifact_cache.get_ast(file_path)
     except Exception:
         return []
 
-    member_names: list[str] = []
-    seen: set[str] = set()
-
-    def _add(name: str) -> None:
-        if name and name not in seen:
-            seen.add(name)
-            member_names.append(name)
-
+    import_bound_names: set[str] = set()
     for node in tree.body:
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            _add(node.name)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    _add(target.id)
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name):
-                _add(node.target.id)
-        # ast.Import / ast.ImportFrom: skipped — the import-exclusion fix.
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                # `import foo.bar` binds "foo"; `import foo as f` binds "f".
+                import_bound_names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    # `from x import *` — unknown bound names; skip (known gap).
+                    continue
+                # `from x import y` binds "y"; `from x import y as z` binds "z".
+                import_bound_names.add(alias.asname or alias.name)
 
-    return [Handle(f"{handle}.{name}") for name in member_names]
+    # Step 3: emit handles for every non-import top-level name.
+    members: list[Handle] = []
+    seen: set[str] = set()
+    for name in names:
+        if name.name in import_bound_names:
+            continue
+        full_name = name.full_name or f"{handle}.{name.name}"
+        if full_name in seen:
+            continue
+        seen.add(full_name)
+        h = _try_handle(full_name)
+        if h is not None:
+            members.append(h)
+    return members
 
 
 # ---------------------------------------------------------------------------
