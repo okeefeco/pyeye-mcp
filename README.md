@@ -29,7 +29,17 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Installation
 
-The PyEye can be installed in two ways:
+PyEye can be installed in three ways: as a Claude Code plugin (zero-config), into your project's venv, or globally.
+
+### Option 0: Claude Code Plugin (zero-config)
+
+When PyEye is installed as a Claude Code plugin, dependencies install automatically into a per-user venv on first session start — no manual `pip install` needed.
+
+- **First session start**: a `SessionStart` hook runs `uv sync --no-dev --frozen` against the plugin checkout, with the venv built at `${CLAUDE_PLUGIN_DATA}/.venv` (typically `~/.claude/plugins/data/<plugin-id>/.venv`).
+- **Subsequent sessions**: the hook compares `uv.lock` in the plugin checkout against the last-installed copy in `${CLAUDE_PLUGIN_DATA}` and is a silent no-op unless the lockfile changed.
+- **Requirement**: `uv` must be on your `PATH`. See [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
+
+Both the install hook and the MCP server invocation use `uv run`, so this works on Linux, macOS, and Windows without OS-specific configuration.
 
 ### Option 1: Project-Specific Installation (Recommended)
 

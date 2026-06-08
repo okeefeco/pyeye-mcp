@@ -8,6 +8,25 @@ When to update: When new MCP tools are added or patterns discovered
 
 **CRITICAL**: We build PyEye - we MUST use it for our own development!
 
+## Preferred operations (Phases 1-4 + 6 + 7 done)
+
+For NEW Python code analysis, prefer the redesigned API surface:
+
+- `resolve(identifier)` instead of `find_symbol` — returns canonical handle with ambiguity surfaced
+- `resolve_at(file, line, column)` instead of `goto_definition` — position to canonical handle
+- `inspect(handle)` instead of `get_type_info` — richer structural Node with edge counts
+
+Why prefer these:
+
+- Cheap by default — small structural responses, no source content
+- Absence-vs-zero invariant — `edge_counts` distinguishes "measured zero" from "didn't measure"
+- Canonical handles — re-exported paths collapse to the definition site, deduplicating across import aliases
+
+The legacy tools (`find_symbol`, `goto_definition`, etc.) remain for backwards compat
+but are marked deprecated. They will be removed once the migration completes.
+
+See `docs/api-redesign.md` for full documentation of the new operations.
+
 ## Why MCP-First?
 
 We're developing a powerful semantic code analysis tool but have been falling back to basic grep/glob patterns. This is like building a sports car and pushing it instead of driving it. From now on, ALL Python development in this project MUST prioritize MCP tools over traditional text search.

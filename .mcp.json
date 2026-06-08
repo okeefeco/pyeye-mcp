@@ -4,8 +4,8 @@
       "args": [
         "run",
         "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "--quiet",
+        "${CLAUDE_PROJECT_DIR:-.}",
+        "--no-sync",
         "python",
         "-m",
         "pyeye.mcp"

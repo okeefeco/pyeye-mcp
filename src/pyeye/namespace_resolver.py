@@ -256,6 +256,8 @@ class NamespaceResolver:
             parent = structure
             for part in parts[:-1]:
                 parent = parent[part]["__subpackages__"]
-            parent[parts[-1]]["__paths__"].extend([str(p) for p in paths])
+            parent[parts[-1]]["__paths__"].extend(
+                [p.as_posix() if hasattr(p, "as_posix") else str(p) for p in paths]
+            )
 
         return structure

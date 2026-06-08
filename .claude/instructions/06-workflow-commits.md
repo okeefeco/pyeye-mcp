@@ -108,21 +108,35 @@ The agent will:
 4. Create appropriate commit message
 5. Handle pre-commit fixes if needed
 
-## Using PR-Workflow Agent
+## Creating PRs (raw commands)
 
-**When user says "create PR" or similar**, ALWAYS use the pr-workflow agent:
+The pr-workflow agent was deleted — see `04-agent-triggers.md` for rationale. Use raw commands; they're transparent and `gh` already provides the high-value pieces.
 
 ```bash
-# Instead of manual commands, use:
-Task tool with subagent_type="pr-workflow"
+# 1. Verify untracked files (per post-commit-verification rule in smart-commit)
+git status --short
+
+# 2. Push (capture exit code; verify the remote actually has the commits)
+git push -u origin "$(git branch --show-current)"
+[ "$(git rev-parse HEAD)" = "$(git rev-parse @{u})" ] || { echo "ERROR: push did not sync"; exit 1; }
+
+# 3. Create PR — issue link via "Fixes #N" syntax in body, NOT a flag
+gh pr create --base <base-branch> --title "type(scope): summary (#N)" --body "$(cat <<'EOF'
+## Summary
+- <bullet>
+
+## Test plan
+- [ ] <step>
+
+Fixes #<issue>
+EOF
+)"
+
+# 4. Monitor CI (built-in; blocks until terminal state)
+gh pr checks --watch
 ```
 
-The agent will:
-
-1. Push changes to remote
-2. Create or update PR
-3. Monitor CI status
-4. Report any failures
+For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --body "..."`.
 
 ## Special Cases
 
@@ -130,9 +144,16 @@ The agent will:
 
 For the persistent `claude/development` branch:
 
-- PRs should NOT delete the branch after merge
-- Use `--no-delete-branch` flag with pr-workflow agent
-- After merge, update the branch instead of removing worktree
+- PRs should NOT delete the branch after merge — use `gh pr merge <N> --merge` WITHOUT `--delete-branch`
+- After merge, update the branch instead of removing worktree:
+
+  ```bash
+  cd "$CLAUDE_LEARNING_HUB"   # or the claude/development worktree path
+  git checkout main && git pull origin main
+  git checkout claude/development
+  git merge main --no-edit -m "Merge main into claude/development after PR merge"
+  git push origin claude/development
+  ```
 
 ### Release Branches
 

@@ -1,7 +1,6 @@
 {
   "metadata": {
-    "description": "PyEye MCP server - semantic Python code analysis for Claude Code",
-    "version": "1.0.0"
+    "description": "PyEye MCP server - semantic Python code analysis for Claude Code"
   },
   "name": "pyeye-marketplace",
   "owner": {
@@ -26,12 +25,7 @@
       ],
       "license": "MIT",
       "name": "pyeye",
-      "repository": "https://github.com/okeefeco/pyeye-mcp",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/okeefeco/pyeye-mcp.git"
-      },
-      "version": "1.0.0"
+      "source": "./"
     }
   ]
 }
