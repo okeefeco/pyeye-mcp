@@ -70,13 +70,25 @@ This spec carves out a **thin vertical learning slice** of that plan: `expand(ha
   "handle": str,          # canonical definition-site handle
   "kind": str,            # normalised kind (class|function|method|module|attribute|property|variable)
   "scope": "project" | "external",
-  "signature": str,       # one-line, present for callable kinds; ABSENT otherwise
-  "line_start": int,
-  "line_end": int
+  "signature": str,       # one-line; present whenever Jedi yields a signature
+                          #   (always class/function/method; also any name whose
+                          #   inferred type is callable). Key OMITTED otherwise.
+  "line_start": int,      # the symbol's own line
+  "line_end": int         # get_end_line(); == line_start only for some kinds —
+                          #   invariant is just line_end >= line_start
 }
 ```
 
 No source content ever — pointers + the same one-line signature form `inspect` already produces.
+
+> **Implementation note (signature/span breadth).** The prose above describes the
+> contract the conformance linter actually enforces: `signature` is optional and,
+> when present, a single-line str — it is **not** gated on kind, and `line_end` is
+> only required to satisfy `line_end >= line_start`. An earlier draft said
+> "present for callable kinds; ABSENT otherwise" and "single-line for variables";
+> both overstated the guarantee (a `variable` bound to `None` legitimately carries
+> `signature: "NoneType()"`, and a class-body attribute's `line_end` can be the
+> enclosing class's end line). Corrected to match the implementation + linter.
 
 ### 4.2 `ExpandResult` — discriminated union
 

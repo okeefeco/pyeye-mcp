@@ -13,19 +13,30 @@ Spec §4.1 Stub shape
       "kind":       str,               # class|function|method|module|attribute|
                                        # property|variable
       "scope":      "project"|"external",
-      "signature":  str,               # PRESENT for callable kinds only
-                                       # (class/function/method)
+      "signature":  str,               # PRESENT whenever Jedi yields a real
+                                       # signature (always for class/function/
+                                       # method; also for any other name whose
+                                       # inferred type is callable, e.g. a
+                                       # variable bound to None → "NoneType()")
       "line_start": int,
       "line_end":   int,
     }
 
 Design notes
 ------------
-- ``signature`` is ABSENT (key omitted, NOT an empty string) for non-callable
-  kinds (module, attribute, property, variable).
-- ``line_start`` / ``line_end`` are the flattened span: the full definition
-  block for classes and functions, otherwise equal (single-line for variables,
-  attributes, properties).
+- ``signature`` is present whenever ``_build_signature`` returns a real Jedi
+  signature, and the key is OMITTED (NOT an empty string) otherwise.  This is
+  always the case for ``class`` / ``function`` / ``method``; it can ALSO occur
+  for an otherwise non-callable kind whose inferred type is callable — e.g. a
+  ``variable`` bound to ``None`` yields ``"NoneType()"``.  The conformance
+  linter (S.2) matches this: ``signature`` is optional and, when present, must
+  be a single-line str — it is NOT gated on kind.
+- ``line_start`` / ``line_end`` are the flattened span: ``line_start`` is the
+  symbol's own line; ``line_end`` is ``get_end_line(jedi_name)``.  For a
+  class/function this is the end of the definition block.  It is NOT guaranteed
+  to equal ``line_start`` for other kinds — a class-body attribute, for
+  instance, can report the enclosing class's end line.  The only invariant the
+  linter enforces is ``line_end >= line_start``.
 - No source content anywhere — no ``body``, ``source``, ``code``, ``snippet``,
   or ``text`` fields.
 - ``build_stub`` is a **pure synchronous** function.  It does not call

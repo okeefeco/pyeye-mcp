@@ -532,7 +532,8 @@ async def expand(
           "detail":  str }              # human-readable explanation
 
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
-    ``line_end``, and (for callable kinds) ``signature``.
+    ``line_end``, and ``signature`` when Jedi yields one (always for
+    class/function/method; also any name whose inferred type is callable).
 
     Relationship to deprecated tools: ``members`` supersedes the deprecated
     ``find_subclasses``/``find_symbol`` pattern for enumerating class members.
