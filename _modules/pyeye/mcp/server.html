@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=4b868988"></script>
+      <script src="../../../_static/documentation_options.js?v=039e59f1"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -407,6 +407,11 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">..settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">settings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.lookup</span><span class="w"> </span><span class="kn">import</span> <span class="n">lookup</span> <span class="k">as</span> <span class="n">_lookup_impl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.operations.inspect</span><span class="w"> </span><span class="kn">import</span> <span class="n">inspect</span> <span class="k">as</span> <span class="n">_inspect_impl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.operations.resolve</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">resolve</span> <span class="k">as</span> <span class="n">_resolve_impl</span><span class="p">,</span>
+    <span class="n">resolve_at</span> <span class="k">as</span> <span class="n">_resolve_at_impl</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="c1"># Logger — configured by __main__.py or caller; fallback to basic stderr.</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -652,6 +657,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by resolve(identifier) — same intent, returns canonical handle with ambiguity surfaced. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="find_symbol">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_symbol.html#pyeye.mcp.server.find_symbol">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -665,6 +671,12 @@
     <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``resolve(identifier)`` — same intent, returns</span>
+<span class="sd">    a canonical handle with ambiguity surfaced — in the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
 <span class="sd">    This tool provides fuzzy search and scope filtering for targeted queries.</span>
@@ -701,6 +713,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by resolve_at(file, line, column) — position → canonical handle. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="goto_definition">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.goto_definition.html#pyeye.mcp.server.goto_definition">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -711,6 +724,12 @@
     <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Jump to where a symbol is defined from any usage location.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``resolve_at(file, line, column)`` — position</span>
+<span class="sd">    to canonical handle — in the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form and returns richer results.</span>
 
@@ -725,6 +744,105 @@
 
 
 
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;resolve&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;resolve&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">resolve</span><span class="p">(</span>
+    <span class="n">identifier</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Resolve any identifier form to a canonical Handle.</span>
+
+<span class="sd">    Accepts bare names, FQN dotted paths, re-exported public paths,</span>
+<span class="sd">    file:line coordinates, or file paths. Returns the definition-site</span>
+<span class="sd">    canonical handle along with kind and scope (&quot;project&quot; or &quot;external&quot;).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        identifier: The identifier to resolve. Forms supported:</span>
+<span class="sd">            - Bare name: &quot;Config&quot;</span>
+<span class="sd">            - FQN: &quot;a.b.c.Config&quot;</span>
+<span class="sd">            - Re-exported: &quot;package.Config&quot; (collapses to definition site)</span>
+<span class="sd">            - File:line: &quot;src/foo.py:42&quot;</span>
+<span class="sd">            - File only: &quot;src/foo.py&quot;</span>
+<span class="sd">        project_path: Project root path (default: current directory)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ResolveResult dict — one of:</span>
+<span class="sd">        - Success: {&quot;found&quot;: True, &quot;handle&quot;: str, &quot;kind&quot;: str, &quot;scope&quot;: &quot;project&quot;|&quot;external&quot;}</span>
+<span class="sd">        - Ambiguous: {&quot;found&quot;: True, &quot;ambiguous&quot;: True, &quot;candidates&quot;: [...]}</span>
+<span class="sd">        - Not found: {&quot;found&quot;: False, &quot;reason&quot;: str}</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># dict(...) widens the operation&#39;s TypedDict union to plain dict[str, Any]</span>
+    <span class="c1"># to match this wrapper&#39;s declared return type. TypedDict instances are</span>
+    <span class="c1"># already dicts at runtime; this is a mypy-compliance shallow copy.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_resolve_impl</span><span class="p">(</span><span class="n">identifier</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;resolve_at&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;resolve_at&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">resolve_at</span><span class="p">(</span>
+    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">line</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Resolve a (file, line, column) position to a canonical Handle.</span>
+
+<span class="sd">    Used when you have coordinates (from a stack trace, error report, or</span>
+<span class="sd">    pasted excerpt) rather than a name. Returns the same shape as resolve().</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        file: Absolute or project-relative path to the source file.</span>
+<span class="sd">        line: 1-indexed line number.</span>
+<span class="sd">        column: 0-indexed column number. Pass 0 for the start of the line —</span>
+<span class="sd">            this is valid; do not coerce to a default.</span>
+<span class="sd">        project_path: Project root path (default: current directory)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ResolveResult dict (see resolve() for shape).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># See note on resolve() above re: dict() widening.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_resolve_at_impl</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;inspect&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;inspect&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">inspect</span><span class="p">(</span>
+    <span class="n">handle</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Inspect a canonical handle and return a structural Node.</span>
+
+<span class="sd">    The &quot;what is this?&quot; operation. Returns the symbol&#39;s kind, location,</span>
+<span class="sd">    signature, docstring, and kind-dependent fields. Cheap by default —</span>
+<span class="sd">    no source content, no exhaustive enumerations. Edge counts and</span>
+<span class="sd">    highlights come in later phases.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        handle: Canonical Python dotted-name string (from resolve/resolve_at).</span>
+<span class="sd">        project_path: Project root path (default: current directory)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Node dict with universal fields (handle, kind, scope, location,</span>
+<span class="sd">        docstring, edge_counts={}) plus kind-dependent fields:</span>
+<span class="sd">        - class: signature (constructor), superclasses (list of Handle strings)</span>
+<span class="sd">        - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod</span>
+<span class="sd">        - module: is_package, package?</span>
+<span class="sd">        - attribute/property/variable: type?, default? (simple literals only)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># See note on resolve() above re: dict() widening.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_inspect_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
+
+
+<span class="c1"># NOTE: superseded by future expand(handle, edge=&quot;references&quot;); kept until Phase B migration.</span>
 <div class="viewcode-block" id="find_references">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_references.html#pyeye.mcp.server.find_references">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -834,6 +952,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by inspect(handle) — richer structural Node response. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="get_type_info">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_type_info.html#pyeye.mcp.server.get_type_info">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -849,6 +968,12 @@
     <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get type hints, docstrings, and base classes at cursor position.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``inspect(handle)`` — richer structural Node</span>
+<span class="sd">    response — in the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
 <span class="sd">    This tool provides detailed mode and fields filtering for targeted queries.</span>
@@ -884,6 +1009,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by future expand(handle, edge=&quot;imported_by&quot;). Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="find_imports">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_imports.html#pyeye.mcp.server.find_imports">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -892,6 +1018,12 @@
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_imports&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_imports</span><span class="p">(</span><span class="n">module_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find all files that import a specific module.</span>
+
+<span class="sd">    **Deprecated:** Replaced by future ``expand(handle, edge=&quot;imported_by&quot;)``</span>
+<span class="sd">    in the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form and returns richer results.</span>
 
@@ -904,6 +1036,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by inspect(handle).edge_counts.callers for the count; future expand(handle, edge=&quot;callers&quot;) for the list. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="get_call_hierarchy">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_call_hierarchy.html#pyeye.mcp.server.get_call_hierarchy">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -914,6 +1047,13 @@
     <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Trace function callers and callees through the codebase.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` for the</span>
+<span class="sd">    count and future ``expand(handle, edge=&quot;callers&quot;)`` for the list in the</span>
+<span class="sd">    redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
 <span class="sd">    This tool provides full call graph traversal beyond the default limit.</span>
@@ -928,6 +1068,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by future outline over the project root. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="list_packages">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_packages.html#pyeye.mcp.server.list_packages">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -936,6 +1077,12 @@
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_packages&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_packages</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all packages with their structure and subpackages.</span>
+
+<span class="sd">    **Deprecated:** Replaced by future ``outline`` over the project root in the</span>
+<span class="sd">    redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -958,6 +1105,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by future outline per package handle. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="list_modules">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_modules.html#pyeye.mcp.server.list_modules">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -968,6 +1116,12 @@
     <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: List all modules with their exports, classes, functions, and metrics.</span>
+
+<span class="sd">    **Deprecated:** Replaced by future ``outline`` per package handle in the</span>
+<span class="sd">    redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -1003,6 +1157,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by future trace(handle, follow=[&quot;imports&quot;]). Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="analyze_dependencies">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -1013,6 +1168,12 @@
     <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Map module dependencies and detect circular imports. Semantic analysis grep can&#39;t do.</span>
+
+<span class="sd">    **Deprecated:** Replaced by future ``trace(handle, follow=[&quot;imports&quot;])`` in</span>
+<span class="sd">    the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
 <span class="sd">    This tool provides circular dependency detection and scope filtering for targeted queries.</span>
@@ -1042,6 +1203,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by inspect(handle) on a module handle. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="get_module_info">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_module_info.html#pyeye.mcp.server.get_module_info">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -1050,6 +1212,12 @@
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_module_info&quot;</span><span class="p">)</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_module_info</span><span class="p">(</span><span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Get module exports, classes, functions, and complexity metrics.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``inspect(handle)`` on a module handle in the</span>
+<span class="sd">    redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form and returns richer results.</span>
 
@@ -1077,6 +1245,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by future outline operation. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="list_project_structure">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.list_project_structure.html#pyeye.mcp.server.list_project_structure">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -1085,6 +1254,12 @@
 <span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;list_project_structure&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">list_project_structure</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Hierarchical view of Python files and packages in the project.</span>
+
+<span class="sd">    **Deprecated:** Replaced by the future ``outline`` operation in the</span>
+<span class="sd">    redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        project_path: Root path of the project</span>
@@ -1129,6 +1304,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by inspect(handle).edge_counts.subclasses for the count; future expand(handle, edge=&quot;subclasses&quot;) for the list. Will be removed in the legacy-tool cleanup phase.</span>
 <div class="viewcode-block" id="find_subclasses">
 <a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_subclasses.html#pyeye.mcp.server.find_subclasses">[docs]</a>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -1143,6 +1319,13 @@
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find inheritance tree including indirect subclasses. Impossible with grep.</span>
 
+<span class="sd">    **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses`` for</span>
+<span class="sd">    the count and future ``expand(handle, edge=&quot;subclasses&quot;)`` for the list in</span>
+<span class="sd">    the redesigned API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
+
 <span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
 <span class="sd">    This tool provides show_hierarchy and indirect inheritance chains for targeted queries.</span>
 
@@ -1155,11 +1338,42 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
 
-        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_subclasses</span><span class="p">(</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_subclasses</span><span class="p">(</span>
             <span class="n">base_class</span><span class="o">=</span><span class="n">base_class</span><span class="p">,</span>
             <span class="n">include_indirect</span><span class="o">=</span><span class="n">include_indirect</span><span class="p">,</span>
             <span class="n">show_hierarchy</span><span class="o">=</span><span class="n">show_hierarchy</span><span class="p">,</span>
         <span class="p">)</span>
+
+        <span class="c1"># The internal analyzer returns a discriminated union (a bare colliding</span>
+        <span class="c1"># name yields {&quot;ambiguous&quot;: True, &quot;candidates&quot;: [...]}).  This deprecated</span>
+        <span class="c1"># tool must NOT leak that new shape — it keeps its original</span>
+        <span class="c1"># ``list[dict]`` contract so existing ``for sc in result: ...`` callers</span>
+        <span class="c1"># don&#39;t break (#336).  Resolving ambiguity is the new resolve()/expand()</span>
+        <span class="c1"># surface&#39;s job, not this tool&#39;s.</span>
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ambiguous&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="c1"># Reproduce main&#39;s behaviour for a colliding bare name: the flat</span>
+            <span class="c1"># union of every same-named class&#39;s subclasses.  Each candidate</span>
+            <span class="c1"># handle is a FQN, so the per-candidate call is itself unambiguous.</span>
+            <span class="n">merged</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">seen</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">candidate</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;candidates&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+                <span class="n">candidate_handle</span> <span class="o">=</span> <span class="n">candidate</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;handle&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">candidate_handle</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="n">candidate_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_subclasses</span><span class="p">(</span>
+                    <span class="n">base_class</span><span class="o">=</span><span class="n">candidate_handle</span><span class="p">,</span>
+                    <span class="n">include_indirect</span><span class="o">=</span><span class="n">include_indirect</span><span class="p">,</span>
+                    <span class="n">show_hierarchy</span><span class="o">=</span><span class="n">show_hierarchy</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="k">for</span> <span class="n">subclass</span> <span class="ow">in</span> <span class="n">candidate_result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subclasses&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+                    <span class="n">key</span> <span class="o">=</span> <span class="n">subclass</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;full_name&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">repr</span><span class="p">(</span><span class="n">subclass</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+                        <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                        <span class="n">merged</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">subclass</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">merged</span>
+
+        <span class="n">subclasses</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subclasses&quot;</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">return</span> <span class="n">subclasses</span>
     <span class="k">except</span> <span class="n">ProjectNotFoundError</span><span class="p">:</span>
         <span class="k">raise</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
@@ -1172,6 +1386,7 @@
 
 
 
+<span class="c1"># DEPRECATED: replaced by resolve then inspect — the unified lookup is replaced by progressive disclosure. Will be removed in the legacy-tool cleanup phase.</span>
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 <span class="nd">@validate_mcp_inputs</span>
 <span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;lookup&quot;</span><span class="p">)</span>
@@ -1185,6 +1400,12 @@
     <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Look up any identifier — name, full dotted path, file path, or coordinates.</span>
+
+<span class="sd">    **Deprecated:** Replaced by ``resolve`` then ``inspect`` — the unified</span>
+<span class="sd">    lookup is superseded by the progressive disclosure API. See</span>
+<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
+<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
+<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
 
 <span class="sd">    Returns comprehensive structural information about the resolved Python object.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
