@@ -51,6 +51,7 @@ from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
+from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
 from .operations.resolve import (
     resolve as _resolve_impl,
@@ -475,6 +476,82 @@ async def inspect(
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
     return dict(await _inspect_impl(handle, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("expand")
+@track_mcp_operation("expand")
+async def expand(
+    handle: str,
+    edge: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Expand one outbound edge from a canonical handle (single hop).
+
+    The traversal primitive that walks ONE edge from a source handle and
+    returns adjacent symbols as lightweight Stubs.  Use resolve()/inspect()
+    first to obtain a canonical handle, then call expand() to traverse.
+
+    Supported edges in this slice:
+      - ``members``  — class/module → direct members (attributes, methods, nested
+        classes).  ``stubs: []`` means the class/module was found but has no
+        members; that is NOT the same as unsupported.
+      - ``callees``  — function/method → forward static call targets.  Includes
+        project symbols and stdlib/external symbols reachable via Jedi's goto.
+        Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
+        counted in ``unresolved_call_sites`` rather than invented.
+
+    Unsupported edges return the unsupported branch (never raise):
+      - Inbound/reference edges (``callers``, ``references``, ``imported_by``,
+        ``overrides``, …) require the Pyright reference backend (#333) and return
+        ``unsupported: true, reason: "deferred_reference_backend"``.
+      - Other structural edges (``superclasses``, ``subclasses``, ``imports``,
+        ``enclosing_scope``) are planned but not yet implemented in this slice;
+        they return ``reason: "not_yet_implemented"``.
+      - Unrecognised edge names return ``reason: "unknown_edge"``.
+
+    Response shape — discriminated union:
+
+    *Supported branch* (``"unsupported"`` key absent):
+    ::
+
+        { "source": str,                 # canonical source handle
+          "edge":   str,
+          "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
+          "unresolved_call_sites": int   # callees ONLY; absent for members }
+
+    *Unsupported branch* (``"stubs"`` key absent):
+    ::
+
+        { "source": str,
+          "edge":   str,
+          "unsupported": True,
+          "reason":  str,               # deferred_reference_backend |
+                                        # not_yet_implemented | unknown_edge
+          "detail":  str }              # human-readable explanation
+
+    Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
+    ``line_end``, and (for callable kinds) ``signature``.
+
+    Relationship to deprecated tools: ``members`` supersedes the deprecated
+    ``find_subclasses``/``find_symbol`` pattern for enumerating class members.
+    ``callees`` supersedes manual ``get_call_hierarchy`` usage for forward edges.
+    Both deprecated tools remain registered until Phase B migration.
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/inspect).
+        edge: The outbound edge to expand (e.g. ``"members"``, ``"callees"``).
+        project_path: Project root path (default: current directory).
+
+    Returns:
+        ExpandResult dict — supported branch or unsupported branch (see above).
+        Never raises; unresolvable source handles yield graceful supported-empty
+        results consistent with inspect()'s minimal-node contract.
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(await _expand_impl(handle, edge, analyzer))
 
 
 # NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.
