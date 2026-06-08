@@ -79,15 +79,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, TypeGuard
 
 # ---------------------------------------------------------------------------
 # Shared type helpers
 # ---------------------------------------------------------------------------
 
 
-def _is_plain_int(value: Any) -> bool:
-    """Return True if value is an int but NOT a bool (bool is an int subclass)."""
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """True if value is an int but NOT a bool (bool is an int subclass)."""
     return isinstance(value, int) and type(value) is not bool
 
 
