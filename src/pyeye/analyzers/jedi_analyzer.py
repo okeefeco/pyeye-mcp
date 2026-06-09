@@ -1868,6 +1868,51 @@ class JediAnalyzer:
         return modules
 
     # DEPRECATED: replaced by future expand(handle, edge="imports") and trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
+    @staticmethod
+    def _resolve_relative_import(
+        level: int, module: str | None, importer_module: str, importer_is_package: bool
+    ) -> str | None:
+        """Resolve an ``ast.ImportFrom`` to an absolute module path.
+
+        ``level`` is the number of leading dots and ``module`` is the text after
+        them (``None`` for ``from . import x``).  Absolute imports
+        (``level == 0``) are returned unchanged.  Relative imports are resolved
+        against *importer_module* using Python's package semantics:
+
+        - a regular module ``pkg.sub.mod`` has package ``pkg.sub``; ``level=1``
+          anchors there and each extra level strips one trailing component.
+        - a package ``pkg.sub`` (its ``__init__``) IS its own package; ``level=1``
+          anchors at ``pkg.sub`` itself.
+
+        Without this, a relative import's bare tail (e.g. ``exceptions`` from
+        ``from .exceptions import X``) is mis-classified as external and the
+        importer is never attributed to the target's ``imported_by`` (#343).
+
+        Args:
+            level: Number of leading dots (0 = absolute import).
+            module: Module text after the dots, or ``None`` for ``from . import x``.
+            importer_module: Dotted path of the module doing the import.
+            importer_is_package: ``True`` when the importer is a package
+                ``__init__`` (its module name already denotes the package).
+
+        Returns:
+            The absolute dotted module path, or ``None`` if it cannot be resolved
+            (e.g. the relative level walks above the project root).
+        """
+        if level <= 0:
+            return module
+        if importer_is_package:
+            anchor_parts = importer_module.split(".") if importer_module else []
+        else:
+            anchor_parts = importer_module.split(".")[:-1]
+        strip = level - 1
+        if strip > len(anchor_parts):
+            return None
+        base = anchor_parts[: len(anchor_parts) - strip] if strip else anchor_parts
+        suffix = module.split(".") if module else []
+        combined = base + suffix
+        return ".".join(combined) if combined else None
+
     async def analyze_dependencies(
         self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
@@ -2016,14 +2061,23 @@ class JediAnalyzer:
                         else:
                             result["imports"]["external"].append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        module_name = node.module.split(".")[0]
+                    # Resolve relative imports (`from .x import y`) to their
+                    # absolute path before classifying; otherwise the bare tail
+                    # is mis-bucketed as external and the edge is lost (#343).
+                    resolved = self._resolve_relative_import(
+                        node.level,
+                        node.module,
+                        module_path,
+                        module_file.name == "__init__.py",
+                    )
+                    if resolved:
+                        module_name = resolved.split(".")[0]
                         if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(node.module)
+                            result["imports"]["stdlib"].append(resolved)
                         elif module_name in project_modules:
-                            result["imports"]["internal"].append(node.module)
+                            result["imports"]["internal"].append(resolved)
                         else:
-                            result["imports"]["external"].append(node.module)
+                            result["imports"]["external"].append(resolved)
 
             # Remove duplicates and sort
             stdlib_imports = result["imports"]["stdlib"]
@@ -2034,37 +2088,56 @@ class JediAnalyzer:
             result["imports"]["external"] = sorted(set(external_imports))
 
             # Find what imports this module
+            target_root = module_path.split(".")[0]
             py_files = await self.get_project_files("*.py", scope)
             for py_file in py_files:
                 if py_file == module_file:
                     continue
 
                 try:
-                    # Substring pre-filter (avoids AST parse for unrelated
-                    # files).  Source is read but not cached or returned —
-                    # this is a heuristic, not content delivery.
+                    importer_module = self._get_import_path_for_file(py_file)
+                    # Pre-filter (avoids AST parse for unrelated files; the AST
+                    # check below is authoritative).  Parse when EITHER the
+                    # absolute path appears textually (absolute imports) OR the
+                    # file shares the target's top-level package — a relative
+                    # import (`from .x import y`) can resolve into the target
+                    # without ever spelling its absolute path (#343).  Source is
+                    # read but not cached or returned — a heuristic, not content.
                     source = await read_file_async(py_file)
-                    if module_path in source or module_path.replace(".", "/") in source:
+                    shares_package = bool(
+                        importer_module and importer_module.split(".")[0] == target_root
+                    )
+                    if (
+                        module_path in source
+                        or module_path.replace(".", "/") in source
+                        or shares_package
+                    ):
+                        importer_is_package = py_file.name == "__init__.py"
                         # Bucket 1: AST for the precise check comes from cache.
                         tree = file_artifact_cache.get_ast(py_file)
                         for node in ast.walk(tree):
                             if isinstance(node, ast.Import):
-                                for alias in node.names:
-                                    if alias.name == module_path or alias.name.startswith(
-                                        module_path + "."
-                                    ):
-                                        import_path = self._get_import_path_for_file(py_file)
-                                        if import_path:
-                                            result["imported_by"].append(import_path)
-                                        break
-                            elif isinstance(node, ast.ImportFrom):
-                                if node.module and (
-                                    node.module == module_path
-                                    or node.module.startswith(module_path + ".")
+                                if any(
+                                    alias.name == module_path
+                                    or alias.name.startswith(module_path + ".")
+                                    for alias in node.names
                                 ):
-                                    import_path = self._get_import_path_for_file(py_file)
-                                    if import_path:
-                                        result["imported_by"].append(import_path)
+                                    if importer_module:
+                                        result["imported_by"].append(importer_module)
+                                    break
+                            elif isinstance(node, ast.ImportFrom):
+                                resolved = self._resolve_relative_import(
+                                    node.level,
+                                    node.module,
+                                    importer_module or "",
+                                    importer_is_package,
+                                )
+                                if resolved and (
+                                    resolved == module_path
+                                    or resolved.startswith(module_path + ".")
+                                ):
+                                    if importer_module:
+                                        result["imported_by"].append(importer_module)
                                     break
                 except Exception as e:
                     logger.warning(f"Could not analyze {py_file} for imports: {e}")
