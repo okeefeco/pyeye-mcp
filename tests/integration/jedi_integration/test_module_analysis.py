@@ -261,6 +261,45 @@ from . import __init__
         assert result["module"] == "mypackage.module"
         assert "os" in result["imports"]["stdlib"]
 
+    @pytest.mark.asyncio
+    async def test_relative_import_records_reverse_dependency(self, tmp_path):
+        """A sibling importing via `from .a import f` appears in imported_by (#343)."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (pkg / "b.py").write_text("from .a import f\n\n\ndef g():\n    f()\n")
+
+        result = await analyze_dependencies("pkg.a", str(tmp_path))
+        assert "pkg.b" in result["imported_by"]
+
+    @pytest.mark.asyncio
+    async def test_relative_import_classified_internal_not_bare_external(self, tmp_path):
+        """`from .a import f` resolves to pkg.a in internal, never bare 'a' in external (#343)."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (pkg / "b.py").write_text("from .a import f\n")
+
+        result = await analyze_dependencies("pkg.b", str(tmp_path))
+        assert "pkg.a" in result["imports"]["internal"]
+        assert "a" not in result["imports"]["external"]
+
+    @pytest.mark.asyncio
+    async def test_multi_level_relative_import_reverse_dependency(self, tmp_path):
+        """A `from ..a import f` two levels up is attributed to the importer (#343)."""
+        pkg = tmp_path / "pkg"
+        sub = pkg / "sub"
+        sub.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (sub / "__init__.py").write_text("")
+        (sub / "c.py").write_text("from ..a import f\n")
+
+        result = await analyze_dependencies("pkg.a", str(tmp_path))
+        assert "pkg.sub.c" in result["imported_by"]
+
 
 class TestGetModuleInfo:
     """Test the get_module_info functionality."""
