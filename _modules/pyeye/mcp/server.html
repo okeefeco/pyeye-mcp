@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=01f43e58"></script>
+      <script src="../../../_static/documentation_options.js?v=a52285f3"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -407,6 +407,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">..settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">settings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.lookup</span><span class="w"> </span><span class="kn">import</span> <span class="n">lookup</span> <span class="k">as</span> <span class="n">_lookup_impl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.operations.expand</span><span class="w"> </span><span class="kn">import</span> <span class="n">expand</span> <span class="k">as</span> <span class="n">_expand_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.inspect</span><span class="w"> </span><span class="kn">import</span> <span class="n">inspect</span> <span class="k">as</span> <span class="n">_inspect_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.resolve</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">resolve</span> <span class="k">as</span> <span class="n">_resolve_impl</span><span class="p">,</span>
@@ -840,6 +841,83 @@
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># See note on resolve() above re: dict() widening.</span>
     <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_inspect_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;expand&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;expand&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">expand</span><span class="p">(</span>
+    <span class="n">handle</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">edge</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Expand one outbound edge from a canonical handle (single hop).</span>
+
+<span class="sd">    The traversal primitive that walks ONE edge from a source handle and</span>
+<span class="sd">    returns adjacent symbols as lightweight Stubs.  Use resolve()/inspect()</span>
+<span class="sd">    first to obtain a canonical handle, then call expand() to traverse.</span>
+
+<span class="sd">    Supported edges in this slice:</span>
+<span class="sd">      - ``members``  — class/module → direct members (attributes, methods, nested</span>
+<span class="sd">        classes).  ``stubs: []`` means the class/module was found but has no</span>
+<span class="sd">        members; that is NOT the same as unsupported.</span>
+<span class="sd">      - ``callees``  — function/method → forward static call targets.  Includes</span>
+<span class="sd">        project symbols and stdlib/external symbols reachable via Jedi&#39;s goto.</span>
+<span class="sd">        Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are</span>
+<span class="sd">        counted in ``unresolved_call_sites`` rather than invented.</span>
+
+<span class="sd">    Unsupported edges return the unsupported branch (never raise):</span>
+<span class="sd">      - Inbound/reference edges (``callers``, ``references``, ``imported_by``,</span>
+<span class="sd">        ``overrides``, …) require the Pyright reference backend (#333) and return</span>
+<span class="sd">        ``unsupported: true, reason: &quot;deferred_reference_backend&quot;``.</span>
+<span class="sd">      - Other structural edges (``superclasses``, ``subclasses``, ``imports``,</span>
+<span class="sd">        ``enclosing_scope``) are planned but not yet implemented in this slice;</span>
+<span class="sd">        they return ``reason: &quot;not_yet_implemented&quot;``.</span>
+<span class="sd">      - Unrecognised edge names return ``reason: &quot;unknown_edge&quot;``.</span>
+
+<span class="sd">    Response shape — discriminated union:</span>
+
+<span class="sd">    *Supported branch* (``&quot;unsupported&quot;`` key absent):</span>
+<span class="sd">    ::</span>
+
+<span class="sd">        { &quot;source&quot;: str,                 # canonical source handle</span>
+<span class="sd">          &quot;edge&quot;:   str,</span>
+<span class="sd">          &quot;stubs&quot;:  [Stub, ...],         # [] == measured-empty (NOT unsupported)</span>
+<span class="sd">          &quot;unresolved_call_sites&quot;: int   # callees ONLY; absent for members }</span>
+
+<span class="sd">    *Unsupported branch* (``&quot;stubs&quot;`` key absent):</span>
+<span class="sd">    ::</span>
+
+<span class="sd">        { &quot;source&quot;: str,</span>
+<span class="sd">          &quot;edge&quot;:   str,</span>
+<span class="sd">          &quot;unsupported&quot;: True,</span>
+<span class="sd">          &quot;reason&quot;:  str,               # deferred_reference_backend |</span>
+<span class="sd">                                        # not_yet_implemented | unknown_edge</span>
+<span class="sd">          &quot;detail&quot;:  str }              # human-readable explanation</span>
+
+<span class="sd">    Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,</span>
+<span class="sd">    ``line_end``, and ``signature`` when Jedi yields one (always for</span>
+<span class="sd">    class/function/method; also any name whose inferred type is callable).</span>
+
+<span class="sd">    Relationship to deprecated tools: ``members`` supersedes the deprecated</span>
+<span class="sd">    ``find_subclasses``/``find_symbol`` pattern for enumerating class members.</span>
+<span class="sd">    ``callees`` supersedes manual ``get_call_hierarchy`` usage for forward edges.</span>
+<span class="sd">    Both deprecated tools remain registered until Phase B migration.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        handle: Canonical Python dotted-name string (from resolve/inspect).</span>
+<span class="sd">        edge: The outbound edge to expand (e.g. ``&quot;members&quot;``, ``&quot;callees&quot;``).</span>
+<span class="sd">        project_path: Project root path (default: current directory).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ExpandResult dict — supported branch or unsupported branch (see above).</span>
+<span class="sd">        Never raises; unresolvable source handles yield graceful supported-empty</span>
+<span class="sd">        results consistent with inspect()&#39;s minimal-node contract.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_expand_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">edge</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
 
 
 <span class="c1"># NOTE: superseded by future expand(handle, edge=&quot;references&quot;); kept until Phase B migration.</span>
