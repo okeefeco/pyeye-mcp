@@ -39,9 +39,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
+from pyeye._ast_targets import (
+    attr_target_position as _attr_target_position,
+    find_function_def_at_line as _find_function_def_at_line,
+)
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
+from pyeye.mcp.operations.edges import resolve_members
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
@@ -171,24 +176,6 @@ def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, 
         elif isinstance(deco, ast.Attribute):
             deco_names.add(deco.attr)
     return is_async, "classmethod" in deco_names, "staticmethod" in deco_names
-
-
-def _find_function_def_at_line(
-    file_path: Path, line: int
-) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
-    """Return the FunctionDef / AsyncFunctionDef whose ``lineno`` equals *line*.
-
-    Uses the cached file AST. Returns ``None`` when no match is found or any
-    error occurs (file missing, parse error, etc.).
-    """
-    try:
-        tree = file_artifact_cache.get_ast(file_path)
-    except Exception:
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == line:
-            return node
-    return None
 
 
 def _build_param_kind_for_arg(fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> str:
@@ -475,32 +462,6 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
     return superclasses
 
 
-def _attr_target_position(base_node: ast.expr) -> tuple[int, int]:
-    """Return (line, col) of the rightmost identifier in a base-class expression.
-
-    For ``ast.Name`` (e.g. ``Widget``): the position of the name itself.
-    For ``ast.Attribute`` (e.g. ``pkg.sub.Widget``): the position of the
-    rightmost attribute name (``Widget``), not the leftmost receiver (``pkg``).
-
-    Using the rightmost position ensures ``jedi.Script.goto()`` resolves the
-    actual class, not the package/module that acts as the receiver.
-
-    Args:
-        base_node: AST node representing the base class expression.
-
-    Returns:
-        ``(line, col)`` tuple suitable for passing to ``jedi.Script.goto()``.
-    """
-    if isinstance(base_node, ast.Attribute):
-        # ast.Attribute stores end_lineno/end_col_offset for the entire chain.
-        # The rightmost attr name ends there and starts len(attr) characters before.
-        end_line = base_node.end_lineno or base_node.lineno
-        end_col = base_node.end_col_offset or 0
-        return end_line, max(0, end_col - len(base_node.attr))
-    # ast.Name or any other node type — use the node's own start position.
-    return base_node.lineno, base_node.col_offset
-
-
 def _resolve_base_class_via_jedi(
     file_str: str,
     base_node: ast.expr,
@@ -730,58 +691,70 @@ async def _measure_with_budget(
 async def _count_class_members(handle: str, jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count direct class members for a class handle.
 
-    Walks the class definition's file via Jedi and counts names whose
-    ``full_name`` has exactly one more dotted component than the class handle.
+    Delegates to :func:`edges.resolve_members` — the single enumeration source
+    for member counts since Phase 5.  Member counts are now driven by
+    ``jedi_name.full_name`` (inside ``edges.resolve_members``) rather than the
+    inbound ``handle``; for re-exported symbols these agree (both resolve to the
+    definition site), so counts are unchanged, but the source-of-truth shifted.
+
+    **Why ``async def`` with no ``await``**: ``_build_edge_counts`` gathers
+    coroutines as ``Awaitable[int]`` and wraps each in ``asyncio.wait_for``
+    (via ``_measure_with_budget``).  The coroutine protocol is required by that
+    budget/gather contract — removing ``async`` would break the gather at runtime.
+
+    **Why two separate named functions** (``_count_class_members`` vs
+    ``_count_module_members``) rather than one: ``_build_edge_counts`` dispatches
+    by kind to these exact names, and the per-edge budget isolation test patches
+    ``_count_class_members`` by name (``monkeypatch`` / ``unittest.mock.patch``).
+    Collapsing them into one function would break that dispatch and test seam.
+
+    The ``handle`` parameter is retained for **call-site stability**:
+    ``_build_edge_counts`` calls this function positionally as
+    ``_count_class_members(handle, jedi_name, analyzer)``.  The timeout test uses
+    ``side_effect=AsyncMock(*args, **kwargs)`` and does not depend on the parameter
+    by name, but the positional signature must remain unchanged so existing call
+    sites continue to work without modification.
 
     Args:
-        handle: The class's canonical dotted-name string.
+        handle: The class's canonical dotted-name string (retained for
+            call-site positional-signature stability; not forwarded to the delegate).
         jedi_name: Jedi ``Name`` for the class.
-        analyzer: Active analyzer (unused here, but consistent with API).
+        analyzer: Active analyzer.
 
     Returns:
         Count of direct class members.
     """
-    _ = analyzer
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-        prefix = handle + "."
-        handle_depth = len(handle.split("."))
-        count = 0
-        for n in names:
-            fn = n.full_name or ""
-            if fn.startswith(prefix) and len(fn.split(".")) == handle_depth + 1:
-                count += 1
-        return count
-    except Exception:
-        return 0
+    _ = handle
+    return len(resolve_members(jedi_name, analyzer).handles)
 
 
 async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count top-level definitions in a module.
 
-    Uses Jedi's ``get_names(all_scopes=False)`` on the module file to find all
-    top-level definitions.
+    Delegates to :func:`edges.resolve_members` — the single enumeration source
+    for member counts since Phase 5.  Unlike the former flat ``get_names``
+    approach, this **excludes import-bound names** (spec §3.3 correctness fix),
+    so the count may be lower than before for modules with top-level imports.
+
+    **Why ``async def`` with no ``await``**: ``_build_edge_counts`` gathers
+    coroutines as ``Awaitable[int]`` and wraps each in ``asyncio.wait_for``
+    (via ``_measure_with_budget``).  The coroutine protocol is required by that
+    budget/gather contract — removing ``async`` would break the gather at runtime.
+
+    **Why two separate named functions** (``_count_class_members`` vs
+    ``_count_module_members``) rather than one: ``_build_edge_counts`` dispatches
+    by kind to these exact names, and the per-edge budget isolation test patches
+    ``_count_class_members`` by name (``monkeypatch`` / ``unittest.mock.patch``).
+    Collapsing them into one function would break that dispatch and test seam.
 
     Args:
         jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.
         analyzer: Active analyzer.
 
     Returns:
-        Count of top-level module members.
+        Count of top-level module members (imports excluded).
     """
-    file_path: Path | None = jedi_name.module_path
-    if file_path is None:
-        return 0
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=False, definitions=True, references=False)
-        return len(names)
-    except Exception:
-        return 0
+    return len(resolve_members(jedi_name, analyzer).handles)
 
 
 async def _count_superclasses(
