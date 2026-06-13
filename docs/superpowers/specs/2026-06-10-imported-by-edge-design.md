@@ -82,8 +82,9 @@ that import a target **module** — reusing the existing reverse-scan logic (and
    - kind ≠ module → return `None`.
    - kind == module → `pairs = await analyzer.find_importers("pkg.mod",
      sentinel.module_path, scope="all")` → for each `(importer_module, importer_file)`:
-     `Handle(importer_module)` + `_ModuleSentinel(importer_file, handle, analyzer)` →
-     dedup by handle (keep first) → `EdgeResult(adjacents=sorted(...))`.
+     `h = Handle(importer_module)` + `_ModuleSentinel(importer_file, str(h), analyzer)`
+     (the sentinel takes the canonical handle as a **string**, matching its existing
+     `inspect` call site) → dedup by handle (keep first) → `EdgeResult(adjacents=sorted(...))`.
 4. `expand`: `None` → unsupported `not_yet_implemented`; otherwise
    `stubs = [build_stub(name, str(h), analyzer) for (h, name) in result.adjacents]` →
    `{source, edge, stubs}`.
@@ -146,6 +147,11 @@ returning `EdgeResult([])` for the wrong kind (honest measured-empty) and never 
 `None`. Only `imported_by` uses the `None` path. When the future symbol-level slice
 lands, `resolve_imported_by` stops returning `None` for symbol kinds — a clean flip with
 no shape change.
+
+Note: the wrong-kind `detail` is **kind-specific** (it names the handle's kind), so
+`expand` synthesises it on the `None` branch rather than routing through the generic
+status-keyed `_unsupported_detail` helper (which produces the fixed per-`reason` text for
+status-derived unsupported results). `reason` is still `"not_yet_implemented"`.
 
 ### 4.2 Async accommodation
 
