@@ -2,7 +2,8 @@
 
 ``expand`` is the user-facing primitive that walks ONE edge from a canonical
 source handle and returns the adjacent symbols as lightweight stubs.  It is the
-composition layer over the Phase-2/3 edge resolvers (``members``, ``callees``)
+composition layer over the Phase-2/3 edge resolvers (``members``, ``callees``,
+``imported_by``)
 and the Phase-1 stub builder — it adds NO new resolution logic of its own.
 
 Discriminated union (spec §4.2)
@@ -54,6 +55,7 @@ synchronous.
 
 from __future__ import annotations
 
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import (
@@ -64,6 +66,7 @@ from pyeye.mcp.operations.edges import (
     edge_status,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.resolve import _normalise_kind
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -115,13 +118,21 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at)
             for the source symbol.
-        edge: The traversal edge to walk (e.g. ``"members"``, ``"callees"``).
+        edge: The traversal edge to walk
+            (e.g. ``"members"``, ``"callees"``, ``"imported_by"``).
         analyzer: Configured ``JediAnalyzer`` for the project.
 
     Returns:
         Either the supported branch (``source``/``edge``/``stubs`` and, for
         ``callees`` only, ``unresolved_call_sites``) or the unsupported branch
-        (``unsupported``/``reason``/``detail``).  Never raises.
+        (``unsupported``/``reason``/``detail``).  The unsupported branch is
+        also returned for an *implemented* edge when its resolver returns
+        ``None`` — the wrong-kind signal meaning the edge does not apply to
+        this handle's kind (e.g. ``imported_by`` on a non-module).  That case
+        is distinct from both a source-not-found unresolvable handle (which
+        yields a graceful supported empty result) and a measured-empty
+        ``EdgeResult`` (resolver matched the kind but found no adjacents →
+        supported ``stubs: []``).  Never raises.
     """
     status = edge_status(edge)
 
@@ -161,7 +172,39 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # The resolver carries the Jedi Name so builtin/stdlib callee stubs build
     # without re-resolution (the load-bearing reason EdgeResult carries Names).
     # ------------------------------------------------------------------
-    edge_result = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+    # A resolver may be sync (members/callees → EdgeResult) or async
+    # (imported_by → Awaitable[EdgeResult | None]); await any awaitable result.
+    # A ``None`` result is the WRONG-KIND signal: the edge genuinely does not
+    # apply to this handle's kind (e.g. ``imported_by`` on a class — a symbol
+    # CAN be imported, so claiming ``stubs: []`` would be the #332 measured-zero
+    # lie).  Surface it as the UNSUPPORTED branch with a KIND-SPECIFIC detail
+    # (synthesized inline — the generic _unsupported_detail can't name the kind).
+    # This is DISTINCT from the source-not-found path above (jedi_name is None →
+    # graceful supported-empty) and from a measured-empty EdgeResult (the
+    # resolver matched the kind but found no adjacents → supported ``stubs: []``).
+    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+    edge_result = await raw if isawaitable(raw) else raw
+
+    if edge_result is None:
+        kind = _normalise_kind(getattr(jedi_name, "type", None))
+        # NOTE: The detail message below uses affirmative "supported for modules
+        # only" wording as required by spec §4.1 for the ``imported_by`` edge.
+        # This phrasing assumes that ``imported_by`` is the ONLY resolver that
+        # ever returns ``None`` (i.e. every wrong-kind resolver is module-only).
+        # If a future edge adds a ``None``-returning resolver for a different
+        # kind restriction, this branch must be revisited to generate an
+        # edge-specific detail rather than the hardcoded module-only hint.
+        return {
+            "source": source,
+            "edge": edge,
+            "unsupported": True,
+            "reason": STATUS_NOT_YET_IMPLEMENTED,
+            "detail": (
+                f"Edge '{edge}' does not apply to a {kind} handle; it is "
+                f"supported for modules only in this slice."
+            ),
+        }
+
     stubs = [
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
     ]

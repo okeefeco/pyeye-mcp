@@ -382,3 +382,254 @@ class TestExpandPlainDictContract:
         assert (
             type(result) is dict
         ), f"unsupported result must be exact dict; got {type(result)!r}"  # noqa: E721
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: imported_by edge — module (supported) and non-module (unsupported)
+# ---------------------------------------------------------------------------
+
+
+class TestExpandImportedByModuleEndToEnd:
+    """End-to-end tests for the ``imported_by`` edge on a MODULE handle over the wire.
+
+    ``mypackage._core.widgets`` is a module that has known importers — the result
+    must be the supported branch with non-empty stubs, each of kind ``"module"``.
+    No ``unresolved_call_sites`` (``imported_by`` is an inbound scan, not callees).
+    """
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_returns_supported_branch(self) -> None:
+        """expand(widgets module, 'imported_by') returns the supported branch (no 'unsupported')."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "unsupported" not in result, (
+            "supported result must not carry 'unsupported'; " f"got result={result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_has_required_fields(self) -> None:
+        """expand(widgets module, 'imported_by') returns source/edge/stubs."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert "source" in result, f"'source' missing from result: {result!r}"
+        assert "edge" in result, f"'edge' missing from result: {result!r}"
+        assert "stubs" in result, f"'stubs' missing from result: {result!r}"
+        assert result["edge"] == "imported_by"
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_stubs_non_empty(self) -> None:
+        """widgets has known importers — stubs must be a non-empty list."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        stubs = result["stubs"]
+        assert isinstance(stubs, list), f"stubs must be a list; got {type(stubs)!r}"
+        assert len(stubs) > 0, "widgets has known importers — stubs must be non-empty"
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_stubs_have_required_fields(self) -> None:
+        """Each stub in the imported_by result has handle/kind/scope/line_start/line_end."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        for i, stub in enumerate(result["stubs"]):
+            assert isinstance(stub, dict), f"stub[{i}] must be a plain dict; got {type(stub)!r}"
+            for field in ("handle", "kind", "scope", "line_start", "line_end"):
+                assert field in stub, f"stub[{i}] missing required field '{field}'; stub={stub!r}"
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_stubs_are_module_kind(self) -> None:
+        """Each importer stub must have kind == 'module' (importers are always modules)."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        for i, stub in enumerate(result["stubs"]):
+            assert stub["kind"] == "module", (
+                f"stub[{i}] must have kind='module'; "
+                f"got kind={stub.get('kind')!r}; stub={stub!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_no_unresolved_call_sites(self) -> None:
+        """imported_by must NOT include 'unresolved_call_sites' (callees-only field)."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert "unresolved_call_sites" not in result, (
+            "'unresolved_call_sites' must be absent for imported_by edge; "
+            f"got result keys: {list(result.keys())!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_result_is_json_serialisable(self) -> None:
+        """The imported_by module result round-trips through json.dumps without error."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        # Must not raise — ensures no custom types leak across the wire
+        serialised = json.dumps(result)
+        roundtripped = json.loads(serialised)
+        assert isinstance(roundtripped, dict)
+        assert isinstance(roundtripped["stubs"], list)
+
+    @pytest.mark.asyncio
+    async def test_imported_by_module_result_is_plain_dict_with_plain_stubs(self) -> None:
+        """All nested values in the supported imported_by result are plain Python primitives."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert (
+            type(result) is dict
+        ), f"result must be exact dict (not subclass); got {type(result)!r}"  # noqa: E721
+        for i, stub in enumerate(result["stubs"]):
+            assert (
+                type(stub) is dict
+            ), f"stub[{i}] must be exact dict; got {type(stub)!r}"  # noqa: E721
+
+
+class TestExpandImportedByNonModuleEndToEnd:
+    """End-to-end tests for the ``imported_by`` edge on a NON-MODULE handle over the wire.
+
+    ``mypackage._core.widgets.Widget`` is a class — ``imported_by`` does not
+    apply to non-module kinds.  The resolver returns ``None`` (the wrong-kind
+    signal); ``expand`` must surface this as the unsupported branch with
+    ``reason == "not_yet_implemented"``, not as an empty supported result
+    (which would be the #332 measured-zero lie).
+    """
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_returns_unsupported_branch(self) -> None:
+        """expand(Widget class, 'imported_by') returns the unsupported branch."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert result.get("unsupported") is True, (
+            "'unsupported' must be True for non-module imported_by; " f"got result={result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_reason_is_not_yet_implemented(self) -> None:
+        """Non-module imported_by reason must be 'not_yet_implemented'."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert (
+            result["reason"] == "not_yet_implemented"
+        ), f"expected reason='not_yet_implemented'; got {result.get('reason')!r}"
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_has_non_empty_detail(self) -> None:
+        """The unsupported branch must include a non-empty 'detail' string."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert "detail" in result, f"'detail' missing from unsupported result: {result!r}"
+        assert (
+            isinstance(result["detail"], str) and len(result["detail"]) > 0
+        ), f"'detail' must be a non-empty string; got {result.get('detail')!r}"
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_has_no_stubs(self) -> None:
+        """The unsupported branch must NOT include 'stubs'."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert "stubs" not in result, (
+            "'stubs' must be absent from unsupported branch; "
+            f"got result keys: {list(result.keys())!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_result_is_json_serialisable(self) -> None:
+        """The unsupported branch round-trips through json.dumps without error."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        serialised = json.dumps(result)
+        roundtripped = json.loads(serialised)
+        assert isinstance(roundtripped, dict)
+        assert roundtripped.get("unsupported") is True
+
+    @pytest.mark.asyncio
+    async def test_imported_by_non_module_result_is_plain_dict(self) -> None:
+        """The unsupported branch result is an exact plain dict."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="mypackage._core.widgets.Widget",
+            edge="imported_by",
+            project_path=str(_FIXTURE),
+        )
+
+        assert (
+            type(result) is dict
+        ), f"unsupported result must be exact dict; got {type(result)!r}"  # noqa: E721

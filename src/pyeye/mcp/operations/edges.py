@@ -7,23 +7,26 @@ This module is the **single source of truth** for which traversal edges
    machine-distinguishable statuses.  The status string IS the ``reason``
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
-   names (``members``, ``callees``) to their resolver callables.  Each resolver
-   is synchronous and returns an :class:`EdgeResult` (adjacent canonical handles
-   plus, for ``callees`` only, the count of unresolved call sites).
+   names (``members``, ``callees``, ``imported_by``) to their resolver
+   callables.  ``members``/``callees`` are synchronous and always return an
+   :class:`EdgeResult`; ``imported_by`` is **async** (it awaits the reverse
+   import scan) and returns ``EdgeResult | None`` — ``None`` is the wrong-kind
+   signal (the handle is not a module).  An :class:`EdgeResult` carries the
+   adjacent canonical handles plus, for ``callees`` only, the count of
+   unresolved call sites.  ``expand`` awaits any awaitable resolver result.
 
 Status model (spec §4.3)
 ------------------------
 ==============================  =========================================
 status                          edges
 ==============================  =========================================
-``"implemented"``               ``members``, ``callees``
+``"implemented"``               ``members``, ``callees``, ``imported_by``
 ``"not_yet_implemented"``       ``superclasses``, ``subclasses``,
                                 ``imports``, ``enclosing_scope``
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
                                 ``written_by``, ``passed_by``,
-                                ``imported_by``, ``overrides``,
-                                ``overridden_by``, ``decorated_by``,
-                                ``decorates``
+                                ``overrides``, ``overridden_by``,
+                                ``decorated_by``, ``decorates``
 (unrecognised name)             ``"unknown_edge"``
 ==============================  =========================================
 
@@ -47,13 +50,14 @@ from the legacy count is import exclusion (spec §3.3).
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
+from pyeye._module_sentinel import ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
 
@@ -113,7 +117,7 @@ STATUS_DEFERRED_REFERENCE_BACKEND = "deferred_reference_backend"
 STATUS_UNKNOWN_EDGE = "unknown_edge"
 
 #: Edges with a working (or Phase-3-bound) resolver.
-_IMPLEMENTED_EDGES = frozenset({"members", "callees"})
+_IMPLEMENTED_EDGES = frozenset({"members", "callees", "imported_by"})
 
 #: Edges recognised by the matrix but not yet built (no reference backend needed).
 _NOT_YET_IMPLEMENTED_EDGES = frozenset({"superclasses", "subclasses", "imports", "enclosing_scope"})
@@ -126,7 +130,6 @@ _DEFERRED_REFERENCE_BACKEND_EDGES = frozenset(
         "read_by",
         "written_by",
         "passed_by",
-        "imported_by",
         "overrides",
         "overridden_by",
         "decorated_by",
@@ -185,7 +188,7 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     is fine).
 
     Args:
-        jedi_name: Resolved Jedi ``Name`` (or ``_ModuleSentinel``) for the
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
             container.  Container-ness is derived from its normalised kind.
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
@@ -290,7 +293,7 @@ def _module_members(
     neither included nor excluded (rare in well-typed codebases).
 
     Args:
-        jedi_name: Resolved Jedi ``Name`` (or ``_ModuleSentinel``) for the
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
             module — its ``module_path`` is the module file.
         handle: The module's canonical dotted-name handle.
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
@@ -533,13 +536,90 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
 
 
 # ---------------------------------------------------------------------------
+# imported_by resolver (spec §5.3) — pure-AST reverse import scan
+# ---------------------------------------------------------------------------
+
+
+async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
+    """Return the modules that import a target module as canonical handles.
+
+    The inbound ``imported_by`` edge for a **module** handle.  Reuses
+    :meth:`JediAnalyzer.find_importers` — a pure-AST reverse import scan (no
+    ``get_references`` / ``find_references``, the same load-bearing trust
+    constraint as ``callees``).  ``find_importers`` already dedups by importer
+    module and returns a deterministic sorted order, so the adjacents are unique
+    and stable across runs and platforms without further processing here.
+
+    Each adjacent's ``Name`` is built as a :class:`ModuleSentinel` from the
+    importer's OWN FILE — never by re-resolving the importer handle.  That is
+    deliberate: a non-package importer (a standalone ``script_importer.py`` at a
+    project root) has no importable dotted path to re-resolve, so handle-based
+    re-resolution would drop it.  Constructing the sentinel from the file the
+    scan already returned keeps that breadth (#345).
+
+    Kind gate (the load-bearing #332 distinction):
+
+    - **module** → measured: ``EdgeResult`` with the importer handles (possibly
+      empty if nobody imports it — a genuine measured "none", NOT an error).
+    - **non-module** (class / function / variable / …) → ``None``.  A *symbol*
+      CAN be imported, so returning ``EdgeResult([])`` would be the "measured
+      zero" lie; ``None`` signals "this edge does not apply to this kind" and
+      becomes ``not_yet_implemented`` downstream in ``expand`` (Phase 4).  The
+      caller MUST distinguish ``None`` from ``EdgeResult([])``.
+
+    Asynchronous: ``find_importers`` reads project files asynchronously, so this
+    resolver is ``async``.  ``expand`` awaits awaitable resolver results; the
+    sync ``members``/``callees`` resolvers are unaffected.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
+            target.  Module-ness is derived from its normalised kind; the
+            ``full_name`` / ``module_path`` are the dotted handle and file.
+        analyzer: Active analyzer (provides ``find_importers``).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` are the importer
+        ``(canonical Handle, ModuleSentinel)`` pairs (kind module) for a module
+        target, or ``None`` for a non-module target.  ``unresolved_call_sites``
+        is always ``None`` — that notion is callees-only.
+    """
+    if _normalise_kind(getattr(jedi_name, "type", None)) != "module":
+        return None
+
+    module_path = getattr(jedi_name, "full_name", None)
+    target_file = getattr(jedi_name, "module_path", None)
+    if not module_path or target_file is None:
+        return EdgeResult(adjacents=[])
+
+    importer_pairs = await analyzer.find_importers(module_path, Path(target_file), scope="all")
+
+    adjacents: list[tuple[Handle, Any]] = []
+    for importer_module, importer_file in importer_pairs:
+        h = _try_handle(importer_module)
+        if h is None:
+            continue
+        # Build the Name from the importer's FILE, not by re-resolving the
+        # handle — re-resolution drops non-package scripts (see docstring).
+        name = ModuleSentinel(importer_file, str(h), analyzer)
+        adjacents.append((h, name))
+
+    return EdgeResult(adjacents=adjacents)
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
-#: Maps *implemented* edge names → resolver callables.  Each resolver is
-#: synchronous and returns an :class:`EdgeResult` (uniform across edges so
-#: ``expand`` stays edge-agnostic).
-EDGE_RESOLVERS: dict[str, Callable[[Any, JediAnalyzer], EdgeResult]] = {
+#: Maps *implemented* edge names → resolver callables.  ``members``/``callees``
+#: are synchronous and always return an :class:`EdgeResult`; ``imported_by`` is
+#: async and may return ``None`` (wrong-kind signal).  The value type therefore
+#: admits a sync-or-async resolver returning ``EdgeResult | None`` so ``expand``
+#: can stay edge-agnostic (awaiting awaitable results, treating ``None`` as
+#: not-yet-implemented).
+EDGE_RESOLVERS: dict[
+    str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
+] = {
     "members": resolve_members,
     "callees": resolve_callees,
+    "imported_by": resolve_imported_by,
 }

@@ -44,6 +44,7 @@ from pyeye._ast_targets import (
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
+from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members
@@ -546,7 +547,7 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
             # We'll return None here and handle module specially below.
         except Exception:
             pass
-        return _ModuleSentinel(mod_file, handle, analyzer)
+        return ModuleSentinel(mod_file, handle, analyzer)
 
     # Case 2: leaf symbol inside a module
     if len(parts) < 2:
@@ -594,48 +595,6 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
         pass
 
     return None
-
-
-class _ModuleSentinel:
-    """Lightweight stand-in for a Jedi Name when the handle *is* a module.
-
-    Stores the module file path and enough info for ``inspect`` to build the
-    location and docstring without a real ``Name`` object.
-    """
-
-    def __init__(self, mod_file: Path, handle: str, analyzer: JediAnalyzer) -> None:
-        self.mod_file = mod_file
-        self.handle = handle
-        self._analyzer = analyzer
-
-        # Populate Jedi-Name-like attributes from the module file
-        self.module_path: Path | None = mod_file
-        self.type = "module"
-        self.full_name: str = handle
-        self.name: str = handle.split(".")[-1]
-        self.line: int = 1
-        self.column: int = 0
-
-        # Read docstring from module-level AST
-        self.docstring_text: str = ""
-        try:
-            source = mod_file.read_text(encoding="utf-8", errors="replace")
-            tree = ast.parse(source)
-            ds = ast.get_docstring(tree)
-            if ds:
-                self.docstring_text = ds
-        except Exception:
-            pass
-
-    def docstring(self, **kwargs: object) -> str:
-        _ = kwargs  # accepted-and-ignored for Jedi Name.docstring() signature compat
-        return self.docstring_text
-
-    def get_signatures(self) -> list:
-        return []
-
-    def infer(self) -> list:
-        return []
 
 
 # ---------------------------------------------------------------------------
@@ -748,7 +707,7 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     Collapsing them into one function would break that dispatch and test seam.
 
     Args:
-        jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.
+        jedi_name: Jedi ``Name`` or ``ModuleSentinel`` for the module.
         analyzer: Active analyzer.
 
     Returns:
@@ -848,7 +807,7 @@ async def _build_edge_counts(
     Args:
         handle: Canonical dotted-name string.
         kind: Normalised kind string (``"class"``, ``"function"``, etc.).
-        jedi_name: Jedi ``Name`` (or ``_ModuleSentinel``) for the symbol.
+        jedi_name: Jedi ``Name`` (or ``ModuleSentinel``) for the symbol.
         analyzer: Active analyzer.
         budget_seconds: Per-edge time budget in seconds.
 
@@ -1118,7 +1077,7 @@ def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
     ``__init__.py``) and the parent package handle.
 
     Args:
-        jedi_name: Jedi Name (or ``_ModuleSentinel``) for the module.
+        jedi_name: Jedi Name (or ``ModuleSentinel``) for the module.
         handle: Canonical dotted-name string of the module.
 
     Returns:
