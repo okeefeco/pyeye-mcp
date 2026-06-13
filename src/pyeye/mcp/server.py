@@ -508,12 +508,20 @@ async def expand(
         with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
         not yet implemented).  Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
+      - ``subclasses``  — class → the project classes that subclass it (class
+        Stubs), computed by an AST class-graph walk + forward ``goto`` (no
+        reverse symbol search).  Returns the full project subclass closure
+        (direct + indirect), so ``len(stubs) == inspect(handle).edge_counts``
+        ``.subclasses``.  ``stubs: []`` means the class has no project
+        subclasses (measured-none).  A non-class handle also returns the
+        supported branch with ``stubs: []`` — only a class CAN be subclassed,
+        so ``[]`` is true by definition, not an absence-vs-zero lie.
 
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Other structural edges (``superclasses``, ``subclasses``, ``imports``,
+      - Other structural edges (``superclasses``, ``imports``,
         ``enclosing_scope``) are planned but not yet implemented in this slice;
         they return ``reason: "not_yet_implemented"``.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
