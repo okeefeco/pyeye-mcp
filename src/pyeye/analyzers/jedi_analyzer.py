@@ -1937,12 +1937,19 @@ class JediAnalyzer:
 
         Returns:
             ``(importer_dotted_module, importer_file)`` pairs, deduped by
-            importer module (first occurrence wins) and sorted by module name.
+            importer module (first occurrence wins, in sorted file path order)
+            and sorted by module name.  Files are iterated in POSIX-sorted
+            order so "first occurrence wins" is deterministic across runs and
+            platforms — the per-module ``Path`` selection does not depend on
+            filesystem or scan order.
         """
         target_root = module_path.split(".")[0]
         importers: dict[str, Path] = {}
 
-        py_files = await self.get_project_files("*.py", scope)
+        py_files = sorted(
+            await self.get_project_files("*.py", scope),
+            key=lambda p: p.as_posix(),
+        )
         for py_file in py_files:
             if py_file == target_file:
                 continue
