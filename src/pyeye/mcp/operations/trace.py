@@ -68,27 +68,35 @@ async def _single_hop(jedi_name: Any, edge: str, analyzer: JediAnalyzer) -> list
     return [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
 
 
-def _stops_at(handle: str, stop_when: dict[str, Any] | None) -> bool:
-    """Return True if *handle* is a traversal boundary under *stop_when*.
+def _stops_at(handle: str, scope: str, stop_when: dict[str, Any] | None) -> bool:
+    """Return True if an adjacent is a traversal boundary under *stop_when*.
 
     Honoured ``StopPredicate`` keys (spec §``trace``):
 
+    - ``exclude_external``: stop at external (stdlib / site-packages) nodes —
+      keeps a trace inside the project and frees the ``max_nodes`` budget for
+      project nodes (#351).
     - ``module_pattern``: stop when the pattern appears in the handle (substring).
     - ``exclude_tests``: stop at test modules — any dotted segment equal to
       ``tests`` or beginning ``test_``.
 
-    A missing/empty predicate never stops.  The predicate is kind-agnostic: it
-    matches on the handle string alone, so it composes with any edge.
+    A missing/empty predicate never stops.  ``module_pattern`` / ``exclude_tests``
+    match on the handle string; ``exclude_external`` matches on *scope* (which is
+    NOT derivable from the handle), so the caller passes the adjacent's resolved
+    scope.
 
     Args:
         handle: Canonical handle of a candidate adjacent.
+        scope: The adjacent's resolved scope (``"project"`` / ``"external"``).
         stop_when: The predicate dict, or ``None``.
 
     Returns:
-        ``True`` if traversal should treat *handle* as a boundary (prune it).
+        ``True`` if traversal should treat the adjacent as a boundary (prune it).
     """
     if not stop_when:
         return False
+    if stop_when.get("exclude_external") and scope == "external":
+        return True
     pattern = stop_when.get("module_pattern")
     if pattern and pattern in handle:
         return True
@@ -117,9 +125,11 @@ async def trace(
             non-expanded frontier leaf (default 3).
         max_nodes: Maximum number of distinct nodes in the subgraph; reaching it
             stops adding new nodes and sets ``truncated`` (default 50).
-        stop_when: Optional ``StopPredicate`` (``module_pattern`` /
-            ``exclude_tests``).  An adjacent matching it is a boundary — pruned
-            (never added, edged, or expanded).  Roots are never pruned.
+        stop_when: Optional ``StopPredicate`` (``exclude_external`` /
+            ``module_pattern`` / ``exclude_tests``).  An adjacent matching it is a
+            boundary — pruned (never added, edged, expanded, or counted against
+            ``max_nodes``).  Roots are never pruned.  ``exclude_external`` keeps a
+            trace inside the project (the common ``callees`` case).
 
     Returns:
         A ``Subgraph`` dict: ``nodes`` (handle → Stub), ``edges`` (``from``/``to``/
@@ -169,25 +179,32 @@ async def trace(
         can_expand = depth < max_depth
         for edge in supported_follow:
             for adj_handle, adj_name in await _single_hop(jedi_name, edge, analyzer):
-                if _stops_at(adj_handle, stop_when):
-                    # Boundary: prune entirely — no node, no edge, no expansion.
-                    continue
                 if adj_handle in nodes:
                     # Already in the closure: record the (possibly cyclic) edge so
                     # it stays visible, but never re-expand — this bounds the walk.
                     edges.append({"from": handle, "to": adj_handle, "kind": edge})
-                elif can_expand:
-                    if len(nodes) >= max_nodes:
-                        # Node budget exhausted: this reachable handle is cut off.
-                        truncated = True
-                        continue
-                    nodes[adj_handle] = build_stub(adj_name, adj_handle, analyzer)
-                    edges.append({"from": handle, "to": adj_handle, "kind": edge})
-                    queue.append((adj_handle, adj_name, depth + 1))
-                else:
+                    continue
+                # New adjacent — build its stub once.  The stub carries the
+                # resolved ``scope`` that the boundary predicate needs, and is
+                # reused as the node value when the adjacent is kept.
+                stub = build_stub(adj_name, adj_handle, analyzer)
+                if _stops_at(adj_handle, stub["scope"], stop_when):
+                    # Boundary: prune entirely — no node, no edge, no expansion.
+                    # NOT truncation: a deliberately-excluded handle (e.g. an
+                    # external node) is not a cap cutoff, so it never sets
+                    # ``truncated`` and never consumes the ``max_nodes`` budget.
+                    continue
+                if not can_expand:
                     # A reachable handle one hop past the depth frontier: cut off.
-                    # Don't add a node or a dangling edge — just flag truncation.
                     truncated = True
+                    continue
+                if len(nodes) >= max_nodes:
+                    # Node budget exhausted: this reachable handle is cut off.
+                    truncated = True
+                    continue
+                nodes[adj_handle] = stub
+                edges.append({"from": handle, "to": adj_handle, "kind": edge})
+                queue.append((adj_handle, adj_name, depth + 1))
 
     return {
         "nodes": nodes,

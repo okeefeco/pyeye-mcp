@@ -33,6 +33,9 @@ _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
 #: A MODULE whose members include the ``Widget`` class, which itself has members
 #: (methods) — a genuine two-level ``members`` tree for depth/truncation tests.
 _WIDGETS_MODULE_HANDLE = "mypackage._core.widgets"
+#: A function whose ``callees`` mix project (``make_widget``) and external
+#: (``math.sqrt``, ``builtins.float``) nodes — for scope-filter tests (#351).
+_ORCHESTRATE_HANDLE = "mypackage._core.callees_fixture.orchestrate"
 
 #: Stub keys always present (spec §4.1; ``signature`` is callable-only).
 _STUB_REQUIRED_KEYS = {"handle", "kind", "scope", "line_start", "line_end"}
@@ -185,20 +188,81 @@ class TestTraceDeferredEdgeInFollow:
 
 
 class TestStopsAtPredicate:
-    """Unit tests for the ``_stops_at`` boundary predicate (kind-agnostic)."""
+    """Unit tests for the ``_stops_at`` boundary predicate.
+
+    Signature is ``_stops_at(handle, scope, stop_when)`` — scope is needed for the
+    ``exclude_external`` key (scope is not derivable from the handle string).
+    """
 
     def test_module_pattern_substring_match(self) -> None:
-        assert _stops_at("mypackage._core.widgets", {"module_pattern": "_core"}) is True
-        assert _stops_at("mypackage.usage", {"module_pattern": "_core"}) is False
+        assert _stops_at("mypackage._core.widgets", "project", {"module_pattern": "_core"}) is True
+        assert _stops_at("mypackage.usage", "project", {"module_pattern": "_core"}) is False
 
     def test_exclude_tests_matches_test_modules(self) -> None:
-        assert _stops_at("tests.unit.test_thing", {"exclude_tests": True}) is True
-        assert _stops_at("pkg.test_helpers", {"exclude_tests": True}) is True
-        assert _stops_at("mypackage.usage", {"exclude_tests": True}) is False
+        assert _stops_at("tests.unit.test_thing", "project", {"exclude_tests": True}) is True
+        assert _stops_at("pkg.test_helpers", "project", {"exclude_tests": True}) is True
+        assert _stops_at("mypackage.usage", "project", {"exclude_tests": True}) is False
+
+    def test_exclude_external_matches_external_scope(self) -> None:
+        # scope-aware: external adjacents are a boundary; project ones are not.
+        assert _stops_at("math.sqrt", "external", {"exclude_external": True}) is True
+        assert _stops_at("builtins.float", "external", {"exclude_external": True}) is True
+        assert _stops_at("mypackage.usage", "project", {"exclude_external": True}) is False
 
     def test_no_predicate_never_stops(self) -> None:
-        assert _stops_at("anything.at.all", None) is False
-        assert _stops_at("anything.at.all", {}) is False
+        assert _stops_at("anything.at.all", "external", None) is False
+        assert _stops_at("anything.at.all", "external", {}) is False
+
+
+class TestTraceExcludeExternal:
+    """``stop_when={'exclude_external': True}`` prunes external nodes and frees
+    the node budget for project nodes (#351)."""
+
+    @pytest.mark.asyncio
+    async def test_drops_external_nodes(self, analyzer: JediAnalyzer) -> None:
+        # Baseline: orchestrate's callees include external nodes.
+        full = await trace(_ORCHESTRATE_HANDLE, ["callees"], analyzer, max_depth=1)
+        assert any(
+            n["scope"] == "external" for n in full["nodes"].values()
+        ), "fixture must have external callees to prune"
+
+        pruned = await trace(
+            _ORCHESTRATE_HANDLE,
+            ["callees"],
+            analyzer,
+            max_depth=1,
+            stop_when={"exclude_external": True},
+        )
+        externals = [h for h, n in pruned["nodes"].items() if n["scope"] == "external"]
+        assert externals == [], f"exclude_external left external nodes: {externals}"
+        # Project callees still present; graph stays closed.
+        assert any(n["scope"] == "project" for n in pruned["nodes"].values())
+        for edge in pruned["edges"]:
+            assert edge["from"] in pruned["nodes"], f"edge from-handle not a node: {edge}"
+            assert edge["to"] in pruned["nodes"], f"edge to-handle not a node: {edge}"
+
+    @pytest.mark.asyncio
+    async def test_external_nodes_do_not_consume_budget(self, analyzer: JediAnalyzer) -> None:
+        # The budget-starvation fix: pruned externals never count against
+        # max_nodes, so the whole cap is spent on project nodes.
+        cap = 3
+        without = await trace(
+            _ORCHESTRATE_HANDLE, ["callees"], analyzer, max_depth=2, max_nodes=cap
+        )
+        with_excl = await trace(
+            _ORCHESTRATE_HANDLE,
+            ["callees"],
+            analyzer,
+            max_depth=2,
+            max_nodes=cap,
+            stop_when={"exclude_external": True},
+        )
+        proj_without = sum(1 for n in without["nodes"].values() if n["scope"] == "project")
+        proj_with = sum(1 for n in with_excl["nodes"].values() if n["scope"] == "project")
+        # Freeing externals can only help project nodes fit under the cap.
+        assert proj_with >= proj_without
+        # And the cap is now spent entirely on project nodes.
+        assert all(n["scope"] == "project" for n in with_excl["nodes"].values())
 
 
 class TestTraceStopWhen:
