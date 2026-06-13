@@ -102,6 +102,10 @@ OutlineTree = {
 
 `node` is exactly the §4.1 `Stub` (`handle`, `kind`, `scope`, optional
 `signature`, `line_start`, `line_end`) — no new fields, no source content.
+Implementation note: `Stub` is a *shape*, not a class — `stubs.build_stub`
+returns a plain `dict[str, Any]` (the established "widen to plain-dict wire
+shape" pattern). There is no `Stub` class to import; `outline` builds each
+`node` by calling `build_stub` and nests it.
 
 ### 4.2 The two absence contracts (load-bearing)
 
@@ -265,6 +269,12 @@ When both a depth/external cap *and* the node budget could apply to the same nod
 `max_nodes` takes precedence in `truncation_reason` (the budget is the harder
 global bound). This is a reporting tiebreaker only; in all cases `children` is
 omitted and the node is honestly marked cut-off.
+
+`truncation_reason` is deliberately a **single string** (one node has exactly
+one cut-off cause), unlike `trace`'s `truncation_reasons` **list** (one BFS can
+hit several caps across different frontier nodes). This divergence is
+intentional — do not "harmonise" `outline` to a list for false symmetry with
+`trace`.
 
 ### 5.5 Cycles / termination
 
