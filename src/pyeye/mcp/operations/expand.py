@@ -117,13 +117,21 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at)
             for the source symbol.
-        edge: The traversal edge to walk (e.g. ``"members"``, ``"callees"``).
+        edge: The traversal edge to walk
+            (e.g. ``"members"``, ``"callees"``, ``"imported_by"``).
         analyzer: Configured ``JediAnalyzer`` for the project.
 
     Returns:
         Either the supported branch (``source``/``edge``/``stubs`` and, for
         ``callees`` only, ``unresolved_call_sites``) or the unsupported branch
-        (``unsupported``/``reason``/``detail``).  Never raises.
+        (``unsupported``/``reason``/``detail``).  The unsupported branch is
+        also returned for an *implemented* edge when its resolver returns
+        ``None`` — the wrong-kind signal meaning the edge does not apply to
+        this handle's kind (e.g. ``imported_by`` on a non-module).  That case
+        is distinct from both a source-not-found unresolvable handle (which
+        yields a graceful supported empty result) and a measured-empty
+        ``EdgeResult`` (resolver matched the kind but found no adjacents →
+        supported ``stubs: []``).  Never raises.
     """
     status = edge_status(edge)
 
@@ -178,6 +186,13 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
 
     if edge_result is None:
         kind = _normalise_kind(getattr(jedi_name, "type", None))
+        # NOTE: The detail message below uses affirmative "supported for modules
+        # only" wording as required by spec §4.1 for the ``imported_by`` edge.
+        # This phrasing assumes that ``imported_by`` is the ONLY resolver that
+        # ever returns ``None`` (i.e. every wrong-kind resolver is module-only).
+        # If a future edge adds a ``None``-returning resolver for a different
+        # kind restriction, this branch must be revisited to generate an
+        # edge-specific detail rather than the hardcoded module-only hint.
         return {
             "source": source,
             "edge": edge,

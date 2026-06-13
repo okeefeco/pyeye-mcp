@@ -616,7 +616,9 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 #: admits a sync-or-async resolver returning ``EdgeResult | None`` so ``expand``
 #: can stay edge-agnostic (awaiting awaitable results, treating ``None`` as
 #: not-yet-implemented).
-EDGE_RESOLVERS: dict[str, Callable[..., EdgeResult | None | Awaitable[EdgeResult | None]]] = {
+EDGE_RESOLVERS: dict[
+    str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
+] = {
     "members": resolve_members,
     "callees": resolve_callees,
     "imported_by": resolve_imported_by,
