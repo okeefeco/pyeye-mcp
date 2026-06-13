@@ -907,3 +907,54 @@ class TestExpandSubclassesNonClassEndToEnd:
         assert (
             type(result) is dict
         ), f"result must be exact dict (not subclass); got {type(result)!r}"  # noqa: E721
+
+
+class TestExpandSubclassesEmptyClassEndToEnd:
+    """End-to-end test for the ``subclasses`` edge on a CLASS with NO subclasses.
+
+    ``pkg.base.Loner`` is a class that nobody subclasses.  This is a DISTINCT
+    branch from the non-class case (``TestExpandSubclassesNonClassEndToEnd``):
+    the kind gate matches (it IS a class), the resolver runs ``find_subclasses``
+    and genuinely MEASURES zero subclasses — so the empty ``[]`` is produced by a
+    different code path than the wrong-kind short-circuit.  Both surface as the
+    same SUPPORTED measured-empty shape, and this pins the class-zero path over
+    the wire (the fixture docstring advertises ``Loner`` for exactly this case).
+    """
+
+    @pytest.mark.asyncio
+    async def test_subclasses_empty_class_returns_supported_measured_empty(self) -> None:
+        """expand(pkg.base.Loner, 'subclasses') is the SUPPORTED branch with stubs: []."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Loner",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "unsupported" not in result, (
+            "a class with no subclasses must be the SUPPORTED measured-empty branch, "
+            f"not unsupported; got result={result!r}"
+        )
+        assert "reason" not in result
+        assert result["edge"] == "subclasses"
+        assert result["stubs"] == [], (
+            "a class measured to have no subclasses must yield 'stubs': []; "
+            f"got stubs={result.get('stubs')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_empty_class_result_is_json_serialisable(self) -> None:
+        """The empty-class measured-empty result round-trips through json.dumps."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Loner",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        roundtripped = json.loads(json.dumps(result))
+        assert isinstance(roundtripped, dict)
+        assert roundtripped["stubs"] == []
