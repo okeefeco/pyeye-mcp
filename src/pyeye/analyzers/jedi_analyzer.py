@@ -1913,6 +1913,90 @@ class JediAnalyzer:
         combined = base + suffix
         return ".".join(combined) if combined else None
 
+    async def find_importers(
+        self, module_path: str, target_file: Path, scope: Scope = "all"
+    ) -> list[tuple[str, Path]]:
+        """Find project files that import ``module_path`` (reverse import scan).
+
+        Scans every project file in *scope* for an import of the target module,
+        using a textual pre-filter followed by an authoritative AST check. This
+        is the reusable extraction of the reverse-scan formerly inlined in
+        :meth:`analyze_dependencies`; a later ``expand(handle, edge="imported_by")``
+        edge can build on it without depending on the deprecated method.
+
+        The scan is purely AST-based (no Jedi reference resolution), which is
+        what gives it breadth: standalone scripts and test files that import the
+        target are reported, even when they live outside an importable package
+        root.
+
+        Args:
+            module_path: Absolute dotted path of the target module.
+            target_file: The target module's own file, skipped during the scan
+                so a module never reports itself.
+            scope: Search scope (see :meth:`analyze_dependencies`).
+
+        Returns:
+            ``(importer_dotted_module, importer_file)`` pairs, deduped by
+            importer module (first occurrence wins) and sorted by module name.
+        """
+        target_root = module_path.split(".")[0]
+        importers: dict[str, Path] = {}
+
+        py_files = await self.get_project_files("*.py", scope)
+        for py_file in py_files:
+            if py_file == target_file:
+                continue
+
+            try:
+                importer_module = self._get_import_path_for_file(py_file)
+                # Pre-filter (avoids AST parse for unrelated files; the AST
+                # check below is authoritative).  Parse when EITHER the
+                # absolute path appears textually (absolute imports) OR the
+                # file shares the target's top-level package — a relative
+                # import (`from .x import y`) can resolve into the target
+                # without ever spelling its absolute path (#343).  Source is
+                # read but not cached or returned — a heuristic, not content.
+                source = await read_file_async(py_file)
+                shares_package = bool(
+                    importer_module and importer_module.split(".")[0] == target_root
+                )
+                if (
+                    module_path in source
+                    or module_path.replace(".", "/") in source
+                    or shares_package
+                ):
+                    importer_is_package = py_file.name == "__init__.py"
+                    # Bucket 1: AST for the precise check comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            if any(
+                                alias.name == module_path
+                                or alias.name.startswith(module_path + ".")
+                                for alias in node.names
+                            ):
+                                if importer_module and importer_module not in importers:
+                                    importers[importer_module] = py_file
+                                break
+                        elif isinstance(node, ast.ImportFrom):
+                            resolved = self._resolve_relative_import(
+                                node.level,
+                                node.module,
+                                importer_module or "",
+                                importer_is_package,
+                            )
+                            if resolved and (
+                                resolved == module_path or resolved.startswith(module_path + ".")
+                            ):
+                                if importer_module and importer_module not in importers:
+                                    importers[importer_module] = py_file
+                                break
+            except Exception as e:
+                logger.warning(f"Could not analyze {py_file} for imports: {e}")
+                continue
+
+        return [(module, importers[module]) for module in sorted(importers)]
+
     async def analyze_dependencies(
         self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
@@ -2087,63 +2171,10 @@ class JediAnalyzer:
             result["imports"]["internal"] = sorted(set(internal_imports))
             result["imports"]["external"] = sorted(set(external_imports))
 
-            # Find what imports this module
-            target_root = module_path.split(".")[0]
-            py_files = await self.get_project_files("*.py", scope)
-            for py_file in py_files:
-                if py_file == module_file:
-                    continue
-
-                try:
-                    importer_module = self._get_import_path_for_file(py_file)
-                    # Pre-filter (avoids AST parse for unrelated files; the AST
-                    # check below is authoritative).  Parse when EITHER the
-                    # absolute path appears textually (absolute imports) OR the
-                    # file shares the target's top-level package — a relative
-                    # import (`from .x import y`) can resolve into the target
-                    # without ever spelling its absolute path (#343).  Source is
-                    # read but not cached or returned — a heuristic, not content.
-                    source = await read_file_async(py_file)
-                    shares_package = bool(
-                        importer_module and importer_module.split(".")[0] == target_root
-                    )
-                    if (
-                        module_path in source
-                        or module_path.replace(".", "/") in source
-                        or shares_package
-                    ):
-                        importer_is_package = py_file.name == "__init__.py"
-                        # Bucket 1: AST for the precise check comes from cache.
-                        tree = file_artifact_cache.get_ast(py_file)
-                        for node in ast.walk(tree):
-                            if isinstance(node, ast.Import):
-                                if any(
-                                    alias.name == module_path
-                                    or alias.name.startswith(module_path + ".")
-                                    for alias in node.names
-                                ):
-                                    if importer_module:
-                                        result["imported_by"].append(importer_module)
-                                    break
-                            elif isinstance(node, ast.ImportFrom):
-                                resolved = self._resolve_relative_import(
-                                    node.level,
-                                    node.module,
-                                    importer_module or "",
-                                    importer_is_package,
-                                )
-                                if resolved and (
-                                    resolved == module_path
-                                    or resolved.startswith(module_path + ".")
-                                ):
-                                    if importer_module:
-                                        result["imported_by"].append(importer_module)
-                                    break
-                except Exception as e:
-                    logger.warning(f"Could not analyze {py_file} for imports: {e}")
-                    continue
-
-            result["imported_by"] = sorted(set(result["imported_by"]))
+            # Find what imports this module (reverse scan extracted to
+            # find_importers so a future imported_by edge can reuse it).
+            importer_pairs = await self.find_importers(module_path, module_file, scope)
+            result["imported_by"] = sorted({module for module, _ in importer_pairs})
 
             # Check for circular dependencies
             # Use visited set to prevent infinite recursion
