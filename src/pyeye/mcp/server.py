@@ -612,8 +612,11 @@ async def trace(
             non-expanded frontier leaf (default 3).
         max_nodes: Maximum number of distinct nodes in the subgraph; reaching it
             sets ``truncated`` (default 50).
-        stop_when: Optional StopPredicate (``module_pattern`` / ``exclude_tests``);
-            a matching adjacent is a pruned boundary.  Roots are never pruned.
+        stop_when: Optional StopPredicate (``exclude_external`` /
+            ``module_pattern`` / ``exclude_tests``); a matching adjacent is a
+            pruned boundary.  Roots are never pruned.  ``exclude_external`` stops
+            at stdlib/site-packages nodes — keeps a trace inside the project (the
+            common ``callees`` case).
 
     Returns:
         A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
