@@ -322,6 +322,17 @@ Used for refactor closures, call chains, bug-tracing — anywhere the agent need
 
 **Aggregate edges in `follow`.** When `follow` includes an aggregate edge (currently only `references`), trace expands it to the underlying specific edges (`read_by`, `written_by`, `passed_by`) at traversal time. Returned `Subgraph.edges` always carry specific (non-aggregate) `kind` values — never `references`. This means trace's edge metadata always tells the agent the precise relationship, and `Subgraph` nodes never need a subkind field (the kind is on the edge, not the node).
 
+> **Implementation status (2026-06): `trace` traverses the supported edges only.**
+> `trace` composes the same edge registry as `expand`. It walks the edges that
+> are implemented today — `members`, `callees`, `imported_by` (#345) — and any
+> other edge named in `follow` (deferred reference edges requiring the Pyright
+> backend, not-yet-implemented structural edges, or unknown names) is reported in
+> an additive `Subgraph.unsupported_edges: [{edge, reason, detail}]` list rather
+> than silently dropped — silently omitting it would falsely read as "no such
+> neighbours" (the same absence-vs-zero guard as `edge_counts`). As more edges
+> become supported (e.g. `subclasses`, #348), `trace` picks them up automatically
+> with no shape change. See issues #332/#333 for the reference-backend edges.
+
 ## Return Shape: The Typed Property Graph
 
 Pyeye returns nodes from a typed property graph. The schema:
