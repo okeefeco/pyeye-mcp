@@ -521,3 +521,61 @@ class TestOutlineCountConsistencyEndToEnd:
         assert "children" in roundtripped
         # Children survive round-trip.
         assert isinstance(roundtripped["children"], list)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: unresolvable-handle contract — "never raises" guarantee
+# ---------------------------------------------------------------------------
+
+
+class TestOutlineUnresolvableHandleEndToEnd:
+    """Calling outline with a bogus handle must never raise and must return
+    a minimal single-node OutlineTree with children: [].
+
+    This is the docstring's "never raises" guarantee tested at the wire
+    boundary (through the full decorator stack), not just the unit layer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_handle_does_not_raise(self) -> None:
+        """outline with a bogus handle returns without raising."""
+        from pyeye.mcp.server import outline
+
+        # Must not raise any exception.
+        result = await outline(
+            handle="does.not.exist.Nope",
+            project_path=str(_FIXTURE),
+        )
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_handle_returns_dict_with_required_keys(self) -> None:
+        """outline with a bogus handle returns a plain dict with 'node' and 'children'."""
+        from pyeye.mcp.server import outline
+
+        result = await outline(
+            handle="does.not.exist.Nope",
+            project_path=str(_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "node" in result, f"'node' missing from minimal-fallback result: {result!r}"
+        assert "children" in result, (
+            "'children' must be present on the minimal single-node fallback "
+            f"(docstring guarantee); got keys={list(result.keys())!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_handle_returns_empty_children(self) -> None:
+        """The minimal fallback OutlineTree has children: [] (no members to walk)."""
+        from pyeye.mcp.server import outline
+
+        result = await outline(
+            handle="does.not.exist.Nope",
+            project_path=str(_FIXTURE),
+        )
+
+        assert result["children"] == [], (
+            f"Minimal fallback must have children=[] (docstring guarantee); "
+            f"got children={result['children']!r}"
+        )
