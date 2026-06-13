@@ -21,9 +21,11 @@ nested_class_inspect (primary — has the nesting the outline tests need)::
         outer_method      ← method (line 20) — genuine leaf
         Inner             ← nested class (line 24) — has members
           inner_method    ← method (line 27) — genuine leaf
+      Empty               ← class (line 35) — no members at all
 
 resolve_project (supplementary — Widget has alphabetically-out-of-source-order
-members, needed for the source-ordering test)::
+members, needed for the source-ordering test; xml.etree.ElementTree is used for
+the external nested-container truncation test)::
 
     mypackage._core.widgets.Widget
       __init__   (line 34)   — method
@@ -33,6 +35,11 @@ members, needed for the source-ordering test)::
       default    (line 50)   — method
       normalize  (line 55)   — method
       color      (line 29)   — attribute  ← alphabetically-earlier, line-earlier
+
+    xml.etree.ElementTree  ← external module with nested class children
+      ParseError            ← external class child → truncated: "external"
+      Element               ← external class child → truncated: "external"
+      … (9 container children total, all truncated: "external")
 
 Note: source order diverges from alphabetical (e.g. ``color`` at line 29 comes
 first in source but "c" sorts before "__"), so the ordering test verifies the
@@ -60,13 +67,17 @@ _OUTER_HANDLE = "pkg.mod.Outer"
 _OUTER_METHOD_HANDLE = "pkg.mod.Outer.outer_method"
 _INNER_HANDLE = "pkg.mod.Outer.Inner"
 _INNER_METHOD_HANDLE = "pkg.mod.Outer.Inner.inner_method"
+_EMPTY_HANDLE = "pkg.mod.Empty"
 
 # Canonical handles — resolve_project (for source-order test)
 _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
-_WIDGETS_MODULE_HANDLE = "mypackage._core.widgets"
 
-# External stdlib handle — scope="external"
+# External stdlib handles — scope="external"
 _PATHLIB_PATH_HANDLE = "pathlib.Path"
+# xml.etree.ElementTree is an external module whose direct children include
+# several classes (ParseError, Element, QName, …) — container children that
+# must be truncated: "external" at depth ≥ 1 (spec §5.4).
+_XML_ET_HANDLE = "xml.etree.ElementTree"
 
 
 @pytest.fixture
@@ -557,6 +568,174 @@ class TestOutlineExternalCap:
             )
             assert container["truncation_reason"] == "external"
             assert "children" not in container
+
+
+class TestOutlineEmptyContainerPeek:
+    """At the ``max_depth`` frontier, the peek distinguishes a genuine-empty
+    container (→ ``children: []``) from a non-empty cut-off one (→ truncated).
+
+    This test exercises outline.py line 192 — the branch that fires when
+    ``resolve_members`` returns [] for a container at the depth frontier.
+
+    The Empty class in the nested_class_inspect fixture has no members;
+    top_level_function is a non-container; Outer has members.  At max_depth=1:
+    - top_level_function: non-container → short-circuits before peek → children: []
+    - Outer: container, peek finds members → truncated: "max_depth"
+    - Empty: container, peek finds NO members → children: []  ← line 192
+    """
+
+    @pytest.mark.asyncio
+    async def test_empty_class_at_frontier_receives_children_not_truncated(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        """Empty at the max_depth frontier must carry ``children: []`` (genuine
+        empty container), NOT ``truncated: "max_depth"``.
+
+        An implementation that skips the peek and always emits ``truncated`` for
+        container nodes at the frontier would fail this test.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        # max_depth=1 puts all module children (including Empty) at the frontier.
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1)
+        _assert_contract1(tree)
+        empty_node = _find_child(tree, _EMPTY_HANDLE)
+        assert empty_node is not None, (
+            f"Empty class not found as direct child of {_MOD_HANDLE}; "
+            f"available: {[c['node']['handle'] for c in tree.get('children', [])]}"
+        )
+        # Empty is a class (container) with zero members — peek finds []:
+        # it must receive children: [], NOT be truncated.
+        assert "children" in empty_node, (
+            "Empty at max_depth frontier: peek finds no members → "
+            "must carry children: [] (genuine empty container), NOT be truncated"
+        )
+        assert (
+            empty_node["children"] == []
+        ), "Empty has no members — children must be the empty list"
+        assert (
+            "truncated" not in empty_node
+        ), "Empty is a genuine empty container — must NOT carry truncated"
+
+    @pytest.mark.asyncio
+    async def test_empty_container_peek_both_sides_at_once(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        """Simultaneous check: at max_depth=1, Outer (non-empty container at
+        frontier) is truncated AND Empty (empty container at frontier) carries
+        children: [].
+
+        This pins both sides of the spec §5.3 peek distinction in one test so
+        neither side can pass vacuously.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1)
+        _assert_contract1(tree)
+        outer_node = _find_child(tree, _OUTER_HANDLE)
+        empty_node = _find_child(tree, _EMPTY_HANDLE)
+        assert outer_node is not None, "Outer must be a child of the module"
+        assert empty_node is not None, "Empty must be a child of the module"
+
+        # Non-empty container at frontier: truncated.
+        assert "truncated" in outer_node
+        assert outer_node["truncation_reason"] == "max_depth"
+        assert "children" not in outer_node
+
+        # Empty container at frontier: genuine empty (children: []).
+        assert "children" in empty_node
+        assert empty_node["children"] == []
+        assert "truncated" not in empty_node
+
+
+class TestOutlineExternalNestedContainerTruncation:
+    """External nested containers (depth ≥ 1) are truncated: "external" with
+    no ``children`` key (outline.py lines 182-184).
+
+    This test exercises the branch that fires when an external container is
+    encountered at depth ≥ 1 during the BFS walk.
+
+    ``xml.etree.ElementTree`` is an external module whose direct members
+    include several class children (ParseError, Element, QName, ElementTree,
+    …).  When we outline the module, those class children are at depth 1 with
+    scope="external" → they must each be truncated: "external", no children.
+
+    The root module itself (depth 0) must NOT be truncated — the external cap
+    only applies at depth ≥ 1 (spec §5.4 asymmetry).
+    """
+
+    @pytest.mark.asyncio
+    async def test_external_module_root_walked_container_children_truncated(
+        self, resolve_analyzer: JediAnalyzer
+    ) -> None:
+        """The external module root (depth 0) is walked; its class children
+        (depth 1, scope=external) are each truncated: "external", no children.
+
+        This directly exercises lines 182-184 of outline.py.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_XML_ET_HANDLE, resolve_analyzer)
+        _assert_contract1(tree)
+
+        # Root: external module, depth 0 — must be walked (one level).
+        assert tree["node"]["scope"] == "external"
+        assert "children" in tree, "external module root must have its children walked"
+        assert "truncated" not in tree, "root at depth 0 must NOT be truncated by external cap"
+
+        # Collect children whose kind is a container.
+        children = tree["children"]
+        assert children, "xml.etree.ElementTree must have at least one child"
+        container_children = [c for c in children if c["node"]["kind"] in ("class", "module")]
+
+        # xml.etree.ElementTree has at least 4 class children (ParseError, Element,
+        # QName, ElementTree) — we assert there are some so the loop below runs.
+        assert container_children, (
+            "xml.etree.ElementTree must have at least one class/module child "
+            "so that the external-cap branch (outline.py 182-184) is exercised"
+        )
+
+        # Each external container child at depth 1 must be truncated: "external",
+        # with no children key (absence contract).
+        for container in container_children:
+            node = container["node"]
+            assert "truncated" in container, (
+                f"external nested container {node['handle']!r} at depth 1 "
+                f"must be truncated (scope={node['scope']!r})"
+            )
+            assert container["truncated"] is True
+            assert container["truncation_reason"] == "external", (
+                f"{node['handle']!r}: expected truncation_reason='external', "
+                f"got {container['truncation_reason']!r}"
+            )
+            assert "children" not in container, (
+                f"truncated external container {node['handle']!r} "
+                f"must NOT carry children (absence contract)"
+            )
+
+    @pytest.mark.asyncio
+    async def test_external_root_vs_nested_asymmetry(self, resolve_analyzer: JediAnalyzer) -> None:
+        """Assert the root-vs-nested asymmetry explicitly: root is walked,
+        nested containers are not.  This pins spec §5.4 in a single focused test.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_XML_ET_HANDLE, resolve_analyzer)
+        _assert_contract1(tree)
+
+        # Root: walked (children present, no truncated key).
+        assert "children" in tree
+        assert "truncated" not in tree
+
+        # At least one container child exists and is truncated: "external".
+        container_children = [
+            c for c in tree["children"] if c["node"]["kind"] in ("class", "module")
+        ]
+        assert container_children, "need at least one container child for asymmetry test"
+        first = container_children[0]
+        assert first.get("truncated") is True
+        assert first.get("truncation_reason") == "external"
+        assert "children" not in first
 
 
 class TestOutlineSourceOrder:

@@ -153,7 +153,7 @@ async def outline(
     # 3. BFS — decide whether to expand each node, build children.
     # ------------------------------------------------------------------
     while queue:
-        jedi_name, node_handle, depth, tree_node = queue.popleft()
+        jedi_name, _, depth, tree_node = queue.popleft()
         stub = tree_node["node"]
         kind = stub["kind"]
         scope = stub["scope"]

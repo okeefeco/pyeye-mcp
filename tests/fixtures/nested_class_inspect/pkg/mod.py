@@ -6,6 +6,9 @@
   This is the case ``_is_method`` previously misclassified as "function",
   because it re-derived the parent by dotted-name string arithmetic + a
   filesystem module lookup, which can't see that ``Outer`` is a class.
+- ``Empty`` is a class with no members; used to test the max_depth frontier
+  peek branch (outline.py §5.3): at the frontier, a genuine empty container
+  must receive ``children: []``, not ``truncated: "max_depth"``.
 """
 
 
@@ -27,3 +30,12 @@ class Outer:
         def inner_method(self) -> int:
             """A method on a nested class — the #337 misclassification case."""
             return 3
+
+
+class Empty:
+    """A class with no members.
+
+    Used to drive the genuine-empty-container peek branch in outline (spec
+    §5.3): when ``Empty`` is at the ``max_depth`` frontier, ``resolve_members``
+    returns [] → the node receives ``children: []`` (NOT ``truncated``).
+    """
