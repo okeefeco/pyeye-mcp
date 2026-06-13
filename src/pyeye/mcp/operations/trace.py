@@ -12,7 +12,14 @@ Return shape — ``Subgraph`` (spec §``trace``)::
     { "nodes": { handle: Stub, ... },               # deduped by handle
       "edges": [ {"from": h, "to": h, "kind": edge}, ... ],  # NOT deduped across kinds
       "truncated": bool,                             # caps hit before natural termination
+      "truncation_reasons": ["max_depth"? , "max_nodes"?],  # WHICH cap(s) fired
       "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
+
+``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
+which cap to raise: ``"max_depth"`` (a reachable node was cut at the depth
+frontier) and/or ``"max_nodes"`` (the node budget filled).  Both can fire in one
+walk.  ``truncated`` is derived — true iff ``truncation_reasons`` is non-empty —
+and kept for back-compat.
 
 ``unsupported_edges`` is an additive honesty field (beyond the spec's bare
 ``Subgraph`` triple): any edge in ``follow`` that is not an implemented edge
@@ -140,7 +147,10 @@ async def trace(
 
     nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, str]] = []
-    truncated = False
+    # Distinct truncation causes accumulate here (#352): "max_depth" when the
+    # depth frontier cuts a reachable node, "max_nodes" when the node budget
+    # fills.  ``truncated`` is derived (true iff any cause fired).
+    truncation_reasons: set[str] = set()
 
     # Partition the requested edges: traverse only the implemented ones.  Every
     # other edge (deferred reference-backend, not-yet-implemented, unknown) is
@@ -196,11 +206,11 @@ async def trace(
                     continue
                 if not can_expand:
                     # A reachable handle one hop past the depth frontier: cut off.
-                    truncated = True
+                    truncation_reasons.add("max_depth")
                     continue
                 if len(nodes) >= max_nodes:
                     # Node budget exhausted: this reachable handle is cut off.
-                    truncated = True
+                    truncation_reasons.add("max_nodes")
                     continue
                 nodes[adj_handle] = stub
                 edges.append({"from": handle, "to": adj_handle, "kind": edge})
@@ -209,6 +219,7 @@ async def trace(
     return {
         "nodes": nodes,
         "edges": edges,
-        "truncated": truncated,
+        "truncated": bool(truncation_reasons),
+        "truncation_reasons": sorted(truncation_reasons),
         "unsupported_edges": unsupported_edges,
     }

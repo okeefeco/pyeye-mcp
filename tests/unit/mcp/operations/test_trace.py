@@ -151,6 +151,44 @@ class TestTraceMaxNodes:
         assert result["truncated"] is False
 
 
+class TestTraceTruncationReasons:
+    """``truncation_reasons`` distinguishes the depth frontier from the node
+    budget so the agent knows which cap to raise (#352)."""
+
+    @pytest.mark.asyncio
+    async def test_depth_cut_reports_max_depth(self, analyzer: JediAnalyzer) -> None:
+        # Module members at depth 1: Widget's methods are cut by depth, not budget.
+        result = await trace(_WIDGETS_MODULE_HANDLE, ["members"], analyzer, max_depth=1)
+        assert result["truncated"] is True
+        assert result["truncation_reasons"] == ["max_depth"]
+
+    @pytest.mark.asyncio
+    async def test_node_budget_cut_reports_max_nodes(self, analyzer: JediAnalyzer) -> None:
+        # Generous depth, tight node budget: only the budget fires.
+        result = await trace(
+            _WIDGETS_MODULE_HANDLE, ["members"], analyzer, max_depth=5, max_nodes=2
+        )
+        assert result["truncated"] is True
+        assert result["truncation_reasons"] == ["max_nodes"]
+
+    @pytest.mark.asyncio
+    async def test_both_caps_report_both(self, analyzer: JediAnalyzer) -> None:
+        # Shallow depth AND a tight budget on the multi-path imported_by graph:
+        # the budget fills during root expansion, and frontier nodes still have
+        # unvisited importers cut by depth — both causes fire.
+        result = await trace(
+            _WIDGETS_MODULE_HANDLE, ["imported_by"], analyzer, max_depth=1, max_nodes=3
+        )
+        assert result["truncated"] is True
+        assert set(result["truncation_reasons"]) == {"max_depth", "max_nodes"}
+
+    @pytest.mark.asyncio
+    async def test_no_truncation_empty_reasons(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=5)
+        assert result["truncated"] is False
+        assert result["truncation_reasons"] == []
+
+
 class TestTraceDeferredEdgeInFollow:
     """A deferred/unsupported edge in ``follow`` is surfaced explicitly — never
     silently dropped (which would falsely imply "no such neighbours")."""

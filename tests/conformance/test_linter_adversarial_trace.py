@@ -51,6 +51,7 @@ _VALID_SUBGRAPH: dict = {
         },
     ],
     "truncated": False,
+    "truncation_reasons": [],
     "unsupported_edges": [],
 }
 
@@ -105,6 +106,33 @@ class TestTraceStructuralFloor:
         del sg["unsupported_edges"]
         with pytest.raises(ConformanceViolation, match="unsupported_edges"):
             lint_response(sg, "trace")
+
+    def test_missing_truncation_reasons_rejected(self) -> None:
+        sg = _clone()
+        del sg["truncation_reasons"]
+        with pytest.raises(ConformanceViolation, match="truncation_reasons"):
+            lint_response(sg, "trace")
+
+    def test_unknown_truncation_reason_rejected(self) -> None:
+        sg = _clone()
+        sg["truncated"] = True
+        sg["truncation_reasons"] = ["max_galaxies"]
+        with pytest.raises(ConformanceViolation, match="truncation_reasons"):
+            lint_response(sg, "trace")
+
+    def test_truncated_inconsistent_with_reasons_rejected(self) -> None:
+        # truncated True but no reasons listed — the back-compat invariant breaks.
+        sg = _clone()
+        sg["truncated"] = True
+        sg["truncation_reasons"] = []
+        with pytest.raises(ConformanceViolation, match="consistency"):
+            lint_response(sg, "trace")
+
+    def test_valid_truncated_with_reason_passes(self) -> None:
+        sg = _clone()
+        sg["truncated"] = True
+        sg["truncation_reasons"] = ["max_depth"]
+        lint_response(sg, "trace")  # must not raise
 
     def test_node_key_must_match_stub_handle(self) -> None:
         sg = _clone()

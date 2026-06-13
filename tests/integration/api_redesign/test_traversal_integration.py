@@ -671,8 +671,8 @@ class TestTraceEndToEnd:
             max_depth=1,
         )
         assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
-        # Subgraph quad.
-        for key in ("nodes", "edges", "truncated", "unsupported_edges"):
+        # Subgraph keys.
+        for key in ("nodes", "edges", "truncated", "truncation_reasons", "unsupported_edges"):
             assert key in result, f"'{key}' missing from Subgraph: {result!r}"
         assert isinstance(result["nodes"], dict)
         assert isinstance(result["edges"], list)

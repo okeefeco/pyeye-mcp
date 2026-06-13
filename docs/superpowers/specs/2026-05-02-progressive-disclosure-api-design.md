@@ -303,9 +303,12 @@ type Subgraph = {
   nodes: Map<Handle, Stub>
   edges: { from: Handle, to: Handle, kind: EdgeType }[]
   truncated: boolean   // true if max_depth or max_nodes was hit before natural termination
+  truncation_reasons: ("max_depth" | "max_nodes")[]   // WHICH cap(s) fired (#352); [] when not truncated
+  unsupported_edges: { edge: string, reason: string, detail: string }[]   // deferred/unknown edges in `follow` (#349); never silently dropped
 }
 
 type StopPredicate = {
+  exclude_external?: boolean  // stop at external (stdlib/site-packages) nodes (#351)
   module_pattern?: string  // stop when entering matching module
   exclude_tests?: boolean
   // ... extensible

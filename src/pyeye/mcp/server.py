@@ -594,6 +594,7 @@ async def trace(
         { "nodes": { handle: Stub, ... },        # deduped by canonical handle
           "edges": [ {"from": h, "to": h, "kind": edge}, ... ],
           "truncated": bool,                     # a cap cut off reachable nodes
+          "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
 
     Edges are NOT deduped across kinds; edges to already-visited handles are

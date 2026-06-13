@@ -74,6 +74,8 @@ T.2 Each node value passes the Stub floor (S.*); the node KEY equals the stub's
 T.3 Each edge is ``{from, to, kind}`` of single-line strs.
 T.4 Each ``unsupported_edges`` entry is ``{edge, reason, detail}`` with ``reason``
     ∈ the valid unsupported reasons and a non-empty ``detail`` (mirrors E.2).
+T.5 ``truncation_reasons`` is a list of valid causes (``max_depth`` / ``max_nodes``)
+    and is consistent with ``truncated`` (true iff the list is non-empty).
 
 Usage
 -----
@@ -638,6 +640,9 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
 # S.1 — Valid scope values for a Stub.
 _VALID_STUB_SCOPES: frozenset[str] = frozenset({"project", "external"})
 
+# T.1 — Valid trace truncation-cause values.
+_VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
+
 # ---------------------------------------------------------------------------
 # Check S — Stub structural-floor helpers
 # ---------------------------------------------------------------------------
@@ -1071,13 +1076,44 @@ def _check_trace_structural_floor(
             _check_trace_edge(edge, f"edges[{idx}]", violations)
 
     # T.1 — truncated: required bool (exactly bool, not truthy)
+    truncated = response.get("truncated")
     if "truncated" not in response:
         violations.append("[T.1 trace required key] 'truncated' is missing.")
-    elif type(response.get("truncated")) is not bool:
+    elif type(truncated) is not bool:
         violations.append(
             f"[T.1 trace field type] 'truncated' must be a bool; "
-            f"got {type(response.get('truncated')).__name__!r}."
+            f"got {type(truncated).__name__!r}."
         )
+
+    # T.5 — truncation_reasons: required list of valid causes; must be consistent
+    # with the derived ``truncated`` boolean (true iff reasons non-empty).
+    reasons = response.get("truncation_reasons")
+    if "truncation_reasons" not in response:
+        violations.append(
+            "[T.5 trace required key] 'truncation_reasons' is missing. It is [] when "
+            "the trace terminated naturally, or lists the cap(s) that fired "
+            f"({sorted(_VALID_TRUNCATION_REASONS)})."
+        )
+    elif not isinstance(reasons, list):
+        violations.append(
+            f"[T.5 trace field type] 'truncation_reasons' must be a list; "
+            f"got {type(reasons).__name__!r}."
+        )
+    else:
+        for idx, item in enumerate(reasons):
+            if item not in _VALID_TRUNCATION_REASONS:
+                violations.append(
+                    f"[T.5 trace truncation_reasons value] truncation_reasons[{idx}]: "
+                    f"value {item!r} is not recognised; must be one of "
+                    f"{sorted(_VALID_TRUNCATION_REASONS)}."
+                )
+        # Consistency with the back-compat boolean.
+        if type(truncated) is bool and truncated != bool(reasons):
+            violations.append(
+                f"[T.5 trace truncation consistency] 'truncated' is {truncated} but "
+                f"'truncation_reasons' is {_truncate(reasons)}; 'truncated' must be "
+                "true iff 'truncation_reasons' is non-empty."
+            )
 
     # T.1 / T.4 — unsupported_edges
     unsupported = response.get("unsupported_edges")
