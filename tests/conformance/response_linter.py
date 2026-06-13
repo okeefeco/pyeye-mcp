@@ -77,6 +77,24 @@ T.4 Each ``unsupported_edges`` entry is ``{edge, reason, detail}`` with ``reason
 T.5 ``truncation_reasons`` is a list of valid causes (``max_depth`` / ``max_nodes``)
     and is consistent with ``truncated`` (true iff the list is non-empty).
 
+Check O — outline OutlineTree structural floors (operation == "outline")
+------------------------------------------------------------------------
+O.1 ``node`` is REQUIRED and passes the Stub structural floor (S.*).
+O.2 ``truncated`` present ⇒ value is exactly ``true`` (absent-not-false contract),
+    ``truncation_reason`` present and in the outline enum
+    {``max_depth``, ``max_nodes``, ``external``}, and ``children`` ABSENT.
+    ``truncated: false`` is rejected.  A truncated node carrying ``children``
+    (even ``children: []``) is rejected (Contract 1 — absent ⇔ not expanded).
+O.3 ``truncated`` absent ⇒ ``truncation_reason`` absent.
+O.4 ``children`` present ⇒ it is a list (possibly empty) of OutlineTree; each
+    item is validated recursively (applies the same O.* + A.* rules at every
+    depth).
+
+Note: Check A layering (no source content) is applied to the whole tree by
+``_check_layering`` / ``_walk``, which already recurses into nested dicts and
+lists.  No second traversal is needed in Check O — the existing walk reaches
+``node`` Stubs and ``children`` items at any depth automatically.
+
 Usage
 -----
 ::
@@ -641,7 +659,16 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
 _VALID_STUB_SCOPES: frozenset[str] = frozenset({"project", "external"})
 
 # T.1 — Valid trace truncation-cause values.
+# IMPORTANT: This is TRACE's enum only.  Do NOT extend it with "external" — that
+# would silently loosen trace validation.  Outline uses a separate constant below.
 _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
+
+# O.2 — Valid outline truncation_reason values (superset of trace's: adds "external").
+# Outline's external cap fires when a subtree of an external node is not walked;
+# trace never emits "external" as a per-node reason, so the two enums are kept apart.
+_VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
+    {"max_depth", "max_nodes", "external"}
+)
 
 # ---------------------------------------------------------------------------
 # Check S — Stub structural-floor helpers
@@ -1133,6 +1160,147 @@ def _check_trace_structural_floor(
 
 
 # ---------------------------------------------------------------------------
+# Check O — OutlineTree structural-floor helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_outline_tree_node(
+    tree: Any,
+    path: str,
+    violations: list[str],
+) -> None:
+    """O.1–O.4 — Validate one OutlineTree node recursively.
+
+    Layering (A.*) is run separately by ``_check_layering`` which already
+    recurses into the whole response dict/list tree, so every ``node`` Stub
+    and every ``children`` list item is covered automatically.
+
+    O.1 ``node`` is REQUIRED and passes the Stub structural floor (S.*).
+    O.2 ``truncated`` present ⇒ value is exactly ``True`` (not false, not a
+        string), ``truncation_reason`` is present and in the outline enum,
+        and ``children`` is ABSENT.  ``truncated: False`` is rejected.
+    O.3 ``truncated`` absent ⇒ ``truncation_reason`` absent.
+    O.4 ``children`` present ⇒ it is a list (possibly empty) of OutlineTree;
+        each item is validated recursively.
+
+    Args:
+        tree: The candidate OutlineTree value (should be a dict).
+        path: Path prefix for error messages (e.g. ``"children[0]"``).
+        violations: Mutable list to append violation messages to.
+    """
+    if not isinstance(tree, dict):
+        violations.append(
+            f"[O.1 outline tree type] {path!r}: expected a dict (OutlineTree); "
+            f"got {type(tree).__name__!r}."
+        )
+        return
+
+    # O.1 — node: REQUIRED, must pass Stub structural floor
+    if "node" not in tree:
+        violations.append(
+            f"[O.1 outline required key] {path!r}: missing required key 'node'. "
+            "Every OutlineTree must carry a 'node' (Stub) identifying the scope."
+        )
+    else:
+        _check_stub_structural_floor(tree["node"], f"{path}.node", violations)
+
+    has_truncated = "truncated" in tree
+    has_truncation_reason = "truncation_reason" in tree
+    has_children = "children" in tree
+
+    # O.2 — truncated: if present, must be exactly True (absent-not-false contract)
+    if has_truncated:
+        truncated_val = tree["truncated"]
+        if truncated_val is False:
+            violations.append(
+                f"[O.2 outline truncated absent-not-false] {path}.truncated: "
+                "value is False, which is forbidden. "
+                "The absence-not-false contract requires fully-walked nodes to OMIT "
+                "'truncated' entirely — never set it to false. "
+                "See spec §4.2: truncated is present ONLY on cut-off nodes."
+            )
+        elif truncated_val is not True:
+            violations.append(
+                f"[O.2 outline truncated type] {path}.truncated: "
+                f"value must be exactly True (boolean); got {_truncate(truncated_val)} "
+                f"(type={type(truncated_val).__name__!r})."
+            )
+        else:
+            # truncated is True — validate co-occurring fields
+            if not has_truncation_reason:
+                violations.append(
+                    f"[O.2 outline truncated co-occurrence] {path}: "
+                    "'truncated': true requires 'truncation_reason' to be present. "
+                    f"Valid reasons: {sorted(_VALID_OUTLINE_TRUNCATION_REASONS)}."
+                )
+            if has_children:
+                violations.append(
+                    f"[O.2 outline truncated no-children] {path}: "
+                    "'truncated': true must NOT carry 'children'. "
+                    "A cut-off node's members were not walked; emitting 'children' "
+                    "(even []) would falsely read as 'measured-empty'. "
+                    "See spec §4.2 Contract 1."
+                )
+
+    # O.2 — truncation_reason: validate if present
+    if has_truncation_reason:
+        reason_val = tree["truncation_reason"]
+        if not isinstance(reason_val, str):
+            violations.append(
+                f"[O.2 outline truncation_reason type] {path}.truncation_reason: "
+                f"expected str; got {type(reason_val).__name__!r} ({_truncate(reason_val)})."
+            )
+        elif reason_val not in _VALID_OUTLINE_TRUNCATION_REASONS:
+            violations.append(
+                f"[O.2 outline truncation_reason value] {path}.truncation_reason: "
+                f"value {reason_val!r} is not recognised. "
+                f"Must be one of {sorted(_VALID_OUTLINE_TRUNCATION_REASONS)}."
+            )
+
+    # O.3 — truncation_reason without truncated is forbidden
+    if has_truncation_reason and not has_truncated:
+        violations.append(
+            f"[O.3 outline truncation_reason without truncated] {path}: "
+            "'truncation_reason' is present but 'truncated' is absent. "
+            "'truncation_reason' must only appear alongside 'truncated': true. "
+            "See spec §4.2 Contract 2."
+        )
+
+    # O.4 — children: if present, must be a list of OutlineTree
+    if has_children:
+        children_val = tree["children"]
+        if not isinstance(children_val, list):
+            violations.append(
+                f"[O.4 outline children type] {path}.children: "
+                f"expected a list (possibly empty) of OutlineTree; "
+                f"got {type(children_val).__name__!r} ({_truncate(children_val)})."
+            )
+        else:
+            for idx, child in enumerate(children_val):
+                _check_outline_tree_node(child, f"{path}.children[{idx}]", violations)
+
+
+def _check_outline_structural_floor(
+    response: dict[str, Any],
+    violations: list[str],
+) -> None:
+    """O.1–O.4 — Validate the structural floor of an ``OutlineTree`` response.
+
+    Entry point for the ``outline`` operation.  Delegates to
+    ``_check_outline_tree_node`` which recurses through the whole tree.
+
+    Layering (A.*) is run separately by ``_check_layering`` and already
+    reaches every nested dict/list via ``_walk``, so all ``node`` Stubs and
+    ``children`` items at any depth are covered without duplication.
+
+    Args:
+        response: The OutlineTree dict returned by the ``outline`` operation.
+        violations: Mutable list to append violation messages to.
+    """
+    _check_outline_tree_node(response, "", violations)
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1144,14 +1312,15 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
     at once.  The linter is pure (no I/O, no analyzer instantiation).
 
     Args:
-        response: The dict returned by resolve / resolve_at / inspect / expand,
-            or a standalone Stub dict.
+        response: The dict returned by resolve / resolve_at / inspect / expand /
+            outline, or a standalone Stub dict.
         operation: One of ``"resolve"``, ``"resolve_at"``, ``"inspect"``,
-            ``"expand"``, ``"trace"``, ``"stub"`` — used in error messages and for
-            operation-specific contract checks:
+            ``"expand"``, ``"trace"``, ``"outline"``, ``"stub"`` — used in error
+            messages and for operation-specific contract checks:
             - ``inspect``  gets B.3 Phase 4 cross-check
             - ``expand``   gets E.1–E.4 structural-floor + top-level source exemption
             - ``trace``    gets T.1–T.4 Subgraph structural-floor
+            - ``outline``  gets O.1–O.4 OutlineTree structural-floor (recursive)
             - ``stub``     gets S.1–S.2 structural-floor
             - others don't get operation-specific checks
 
@@ -1169,6 +1338,8 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
         _check_trace_structural_floor(response, violations)
     elif operation == "stub":
         _check_stub_structural_floor(response, "", violations)
+    elif operation == "outline":
+        _check_outline_structural_floor(response, violations)
     else:
         _check_absence_vs_zero(response, operation, violations)
 
