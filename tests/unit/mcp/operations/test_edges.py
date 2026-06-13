@@ -54,6 +54,7 @@ from pyeye.mcp.operations.edges import (
     resolve_callees,
     resolve_imported_by,
     resolve_members,
+    resolve_subclasses,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 
@@ -77,6 +78,16 @@ _SCRIPT_IMPORTER_HANDLE = "script_importer"
 _DIRECT_IMPORTER_HANDLE = "mypackage._core.direct_importer"
 _REL_IMPORTER_HANDLE = "mypackage._core.rel_importer"
 _USAGE_IMPORTER_HANDLE = "mypackage.usage"
+
+# subclasses fixtures (issue #348): a dedicated fixture project with a known
+# direct + indirect + non-importable-file topology. ``Animal`` is the base under
+# test; ``Loner`` is a sibling base nobody subclasses (measured-empty case).
+_SUBCLASSES_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "subclasses_edge"
+_ANIMAL_HANDLE = "pkg.base.Animal"
+_LONER_HANDLE = "pkg.base.Loner"
+_MAMMAL_HANDLE = "pkg.middle.Mammal"  # direct subclass (importable module)
+_DOG_HANDLE = "pkg.middle.Dog"  # indirect (grandchild) subclass
+_LIZARD_HANDLE = "script_animal.Lizard"  # direct subclass in a non-importable script
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +140,7 @@ class TestEdgeStatusModel:
 
     @pytest.mark.parametrize(
         "edge",
-        ["superclasses", "subclasses", "imports", "enclosing_scope"],
+        ["superclasses", "imports", "enclosing_scope"],
     )
     def test_not_yet_implemented_edges(self, edge: str) -> None:
         assert edge_status(edge) == "not_yet_implemented"
@@ -139,6 +150,13 @@ class TestEdgeStatusModel:
         # Phase 3: its resolver (resolve_imported_by) builds on the pure-AST
         # find_importers scan — no indexed reference backend needed.
         assert edge_status("imported_by") == "implemented"
+
+    def test_subclasses_is_implemented(self) -> None:
+        # subclasses moves from not_yet_implemented to implemented (#348): its
+        # resolver (resolve_subclasses) reuses the forward-only AST class-graph
+        # walk in find_subclasses — no reverse symbol search, so it belongs with
+        # members/callees/imported_by.
+        assert edge_status("subclasses") == "implemented"
 
     @pytest.mark.parametrize(
         "edge",
@@ -634,4 +652,182 @@ class TestResolveImportedByNeverReverseSearch:
             result = await _imported_by_for(_MODULE_HANDLE, analyzer)
         assert result is not None
         assert _SCRIPT_IMPORTER_HANDLE in {str(h) for h in result.handles}
+        spy.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 1.1/1.2 — subclasses resolver (#348): forward AST class-graph walk
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def subclasses_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the dedicated subclasses_edge fixture."""
+    return JediAnalyzer(str(_SUBCLASSES_FIXTURE))
+
+
+async def _subclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
+    """Resolve *handle* to a Jedi name and await its ``subclasses`` result.
+
+    Unlike ``imported_by``, ``subclasses`` NEVER returns ``None`` — a non-class
+    handle yields a measured-empty ``EdgeResult([])`` (only a class CAN be
+    subclassed, so ``[]`` for the wrong kind is true by definition, not the
+    absence-vs-zero lie that forced imported_by's None path).
+    """
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return await resolve_subclasses(jedi_name, analyzer)
+
+
+class TestResolveSubclassesClass:
+    """``subclasses`` = the project classes that subclass a base, as canonical handles.
+
+    The resolver reuses ``find_subclasses(scope="main", include_indirect=True)``,
+    so the result is the full project subclass closure (direct + indirect). The
+    dedicated fixture pins a known topology:
+
+    - ``pkg.middle.Mammal``     — DIRECT subclass (importable module)
+    - ``pkg.middle.Dog``        — INDIRECT (grandchild) via Mammal
+    - ``script_animal.Lizard``  — DIRECT subclass in a NON-importable root script
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_edgeresult(self, subclasses_analyzer: JediAnalyzer) -> None:
+        result = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    @pytest.mark.asyncio
+    async def test_direct_subclass_present(self, subclasses_analyzer: JediAnalyzer) -> None:
+        handles = {
+            str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
+        }
+        assert _MAMMAL_HANDLE in handles, f"direct subclass Mammal missing; got {handles}"
+
+    @pytest.mark.asyncio
+    async def test_indirect_grandchild_subclass_present(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        # Dog(Mammal) is a grandchild of Animal — include_indirect=True must
+        # surface it (the single-hop edge intentionally returns the full closure
+        # so len(stubs) == inspect.edge_counts.subclasses).
+        handles = {
+            str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
+        }
+        assert _DOG_HANDLE in handles, f"indirect subclass Dog missing; got {handles}"
+
+    @pytest.mark.asyncio
+    async def test_non_importable_file_subclass_present(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        # Lizard lives in script_animal.py at the project root (no importable
+        # dotted path). scope="main" finds it, and file-based Name production
+        # (not handle re-resolution) is what keeps it in the result.
+        handles = {
+            str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
+        }
+        assert (
+            _LIZARD_HANDLE in handles
+        ), f"non-importable-file subclass Lizard missing; got {handles}"
+
+    @pytest.mark.asyncio
+    async def test_exact_subclass_handle_set(self, subclasses_analyzer: JediAnalyzer) -> None:
+        # The full project subclass closure of Animal is exactly these three.
+        handles = {
+            str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
+        }
+        assert handles == {_MAMMAL_HANDLE, _DOG_HANDLE, _LIZARD_HANDLE}, f"got {handles}"
+
+    @pytest.mark.asyncio
+    async def test_adjacents_are_handle_name_pairs_building_class_stubs(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        # Each adjacent is a (Handle, Jedi Name) pair whose Name is a real class
+        # name built from the subclass's OWN file, so expand can build a class
+        # stub without re-resolving. The Name's full_name matches the handle.
+        result = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        assert result.adjacents, "Animal should have subclasses"
+        for handle, name in result.adjacents:
+            assert isinstance(handle, Handle)
+            assert name.type == "class"
+            assert name.full_name == str(handle)
+
+    @pytest.mark.asyncio
+    async def test_unresolved_call_sites_is_none(self, subclasses_analyzer: JediAnalyzer) -> None:
+        # The unresolved-call-site notion is callees-only; subclasses never reports it.
+        result = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        assert result.unresolved_call_sites is None
+
+    @pytest.mark.asyncio
+    async def test_deterministic_across_runs(self, subclasses_analyzer: JediAnalyzer) -> None:
+        first = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        second = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
+
+
+class TestResolveSubclassesMeasuredEmpty:
+    """A class with NO project subclasses → ``EdgeResult([])`` (measured none)."""
+
+    @pytest.mark.asyncio
+    async def test_class_with_no_subclasses_is_measured_empty(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        result = await _subclasses_for(_LONER_HANDLE, subclasses_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert result.handles == [], f"Loner is subclassed by nobody; got {result.handles}"
+
+
+class TestResolveSubclassesNonClass:
+    """A non-class handle → measured-empty ``EdgeResult([])`` — NEVER ``None``.
+
+    This is the defining decision of the slice: only a class CAN be subclassed,
+    so ``[]`` for a function/variable/module is true BY DEFINITION (the
+    members/callees case), NOT the absence-vs-zero lie that forced imported_by's
+    ``None`` path. Returning ``EdgeResult([])`` (not ``None``) is what keeps
+    ``expand.py`` untouched.
+    """
+
+    @pytest.mark.asyncio
+    async def test_function_handle_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        result = await _subclasses_for(_MAKE_WIDGET_HANDLE, analyzer)
+        assert result is not None, "non-class must NOT be wrong-kind None"
+        assert isinstance(result, EdgeResult)
+        assert result.handles == []
+
+    @pytest.mark.asyncio
+    async def test_variable_handle_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        result = await _subclasses_for(f"{_MODULE_HANDLE}.DEFAULT_NAME", analyzer)
+        assert result is not None
+        assert result.handles == []
+
+    @pytest.mark.asyncio
+    async def test_module_handle_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        result = await _subclasses_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        assert result.handles == []
+
+    @pytest.mark.asyncio
+    async def test_non_class_is_not_none(self, analyzer: JediAnalyzer) -> None:
+        # The load-bearing distinction: subclasses never uses the None wrong-kind
+        # signal, so expand.py's hardcoded module-only None branch stays correct.
+        result = await _subclasses_for(_MAKE_WIDGET_HANDLE, analyzer)
+        assert result is not None
+        assert result == EdgeResult(adjacents=[])
+
+
+class TestResolveSubclassesNeverReverseSearch:
+    """subclasses NEVER calls Jedi reverse search (it is forward AST + goto only).
+
+    Mirrors the callees/imported_by spies: patch ``get_references`` to explode if
+    touched, await the resolver over the fixture, then assert it completed (real
+    subclasses present) AND the spy was never called.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_references_not_called(self, subclasses_analyzer: JediAnalyzer) -> None:
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on subclasses path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            result = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
+        assert _MAMMAL_HANDLE in {str(h) for h in result.handles}
         spy.assert_not_called()
