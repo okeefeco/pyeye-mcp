@@ -692,3 +692,76 @@ class TestRealExpandOutputConforms:
 
         assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
         lint_response(result, "expand")  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_real_imported_by_module_output_conforms(self) -> None:
+        """Real expand(widgets module, imported_by) supported branch passes the linter.
+
+        The supported ``imported_by`` result carries ``source``/``edge``/``stubs``
+        with no ``unresolved_call_sites`` — the existing E.3 rule must accept it
+        (because E.3 only requires the field for ``edge == "callees"``).
+        """
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.expand import expand
+
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        result = await expand("mypackage._core.widgets", "imported_by", analyzer)
+
+        assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
+        # Supported branch — stubs present, no unsupported key.
+        assert "stubs" in result, f"expected supported branch with stubs; got {result!r}"
+        assert "unsupported" not in result
+        lint_response(result, "expand")  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_real_imported_by_non_module_output_conforms(self) -> None:
+        """Real expand(Widget class, imported_by) unsupported branch passes the linter.
+
+        The ``not_yet_implemented`` reason is already in the linter's
+        ``_VALID_UNSUPPORTED_REASONS`` set — no linter change needed.
+        """
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.expand import expand
+
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        result = await expand("mypackage._core.widgets.Widget", "imported_by", analyzer)
+
+        assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
+        # Unsupported branch — reason=not_yet_implemented.
+        assert result.get("unsupported") is True
+        assert result.get("reason") == "not_yet_implemented"
+        lint_response(result, "expand")  # must not raise
+
+
+# ===========================================================================
+# imported_by remains in _PHASE4_UNMEASURED_EDGES (inspect edge_counts guard)
+# ===========================================================================
+
+
+class TestImportedByRemainsInUnmeasuredEdges:
+    """Read-only assertion: imported_by is still forbidden in inspect edge_counts.
+
+    ``imported_by`` is now a supported ``expand`` edge, but ``inspect`` does NOT
+    measure it in ``edge_counts`` (that would require a separate inspection pass
+    per module).  It must therefore remain in ``_PHASE4_UNMEASURED_EDGES`` so
+    that B.3 continues to reject any inspect response that fraudulently claims to
+    have measured it.
+
+    This test is a READ-ONLY assertion on the constant — it does NOT modify the
+    linter.  If this test fails it means ``imported_by`` was removed from
+    ``_PHASE4_UNMEASURED_EDGES`` without a corresponding ``inspect`` measurement
+    implementation, which would allow the B.3 false-measurement guard to be
+    silently bypassed.
+    """
+
+    def test_imported_by_is_in_phase4_unmeasured_edges(self) -> None:
+        """``imported_by`` must be in ``_PHASE4_UNMEASURED_EDGES`` (read-only assertion)."""
+        from tests.conformance.response_linter import _PHASE4_UNMEASURED_EDGES
+
+        assert "imported_by" in _PHASE4_UNMEASURED_EDGES, (
+            "'imported_by' was removed from _PHASE4_UNMEASURED_EDGES without adding "
+            "a corresponding measurement to inspect.py.  The B.3 guard would then silently "
+            "accept inspect responses that fraudulently claim a measured imported_by count. "
+            "Either restore the entry or add the inspect measurement and update the expected "
+            "edges for module/class kinds in _PHASE4_EXPECTED_EDGES."
+        )
