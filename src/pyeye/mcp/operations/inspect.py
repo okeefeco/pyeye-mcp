@@ -44,6 +44,7 @@ from pyeye._ast_targets import (
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
+from pyeye._module_sentinel import ModuleSentinel as _ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members
@@ -594,48 +595,6 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
         pass
 
     return None
-
-
-class _ModuleSentinel:
-    """Lightweight stand-in for a Jedi Name when the handle *is* a module.
-
-    Stores the module file path and enough info for ``inspect`` to build the
-    location and docstring without a real ``Name`` object.
-    """
-
-    def __init__(self, mod_file: Path, handle: str, analyzer: JediAnalyzer) -> None:
-        self.mod_file = mod_file
-        self.handle = handle
-        self._analyzer = analyzer
-
-        # Populate Jedi-Name-like attributes from the module file
-        self.module_path: Path | None = mod_file
-        self.type = "module"
-        self.full_name: str = handle
-        self.name: str = handle.split(".")[-1]
-        self.line: int = 1
-        self.column: int = 0
-
-        # Read docstring from module-level AST
-        self.docstring_text: str = ""
-        try:
-            source = mod_file.read_text(encoding="utf-8", errors="replace")
-            tree = ast.parse(source)
-            ds = ast.get_docstring(tree)
-            if ds:
-                self.docstring_text = ds
-        except Exception:
-            pass
-
-    def docstring(self, **kwargs: object) -> str:
-        _ = kwargs  # accepted-and-ignored for Jedi Name.docstring() signature compat
-        return self.docstring_text
-
-    def get_signatures(self) -> list:
-        return []
-
-    def infer(self) -> list:
-        return []
 
 
 # ---------------------------------------------------------------------------
