@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=a52285f3"></script>
+      <script src="../../../_static/documentation_options.js?v=de6ba0fb"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -866,9 +866,16 @@
 <span class="sd">        project symbols and stdlib/external symbols reachable via Jedi&#39;s goto.</span>
 <span class="sd">        Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are</span>
 <span class="sd">        counted in ``unresolved_call_sites`` rather than invented.</span>
+<span class="sd">      - ``imported_by``  — module → the project modules that import it (module</span>
+<span class="sd">        Stubs), computed by static AST import-graph reversal (no reverse symbol</span>
+<span class="sd">        search).  Covers importers anywhere in the project including tests and</span>
+<span class="sd">        standalone scripts.  Non-module handles return the unsupported branch</span>
+<span class="sd">        with ``reason: &quot;not_yet_implemented&quot;`` (symbol-level ``imported_by`` is</span>
+<span class="sd">        not yet implemented).  Ceiling: runtime-dynamic imports</span>
+<span class="sd">        (``importlib``/``__import__`` with computed targets) are not detected.</span>
 
 <span class="sd">    Unsupported edges return the unsupported branch (never raise):</span>
-<span class="sd">      - Inbound/reference edges (``callers``, ``references``, ``imported_by``,</span>
+<span class="sd">      - Inbound/reference edges (``callers``, ``references``,</span>
 <span class="sd">        ``overrides``, …) require the Pyright reference backend (#333) and return</span>
 <span class="sd">        ``unsupported: true, reason: &quot;deferred_reference_backend&quot;``.</span>
 <span class="sd">      - Other structural edges (``superclasses``, ``subclasses``, ``imports``,</span>
