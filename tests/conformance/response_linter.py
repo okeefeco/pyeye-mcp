@@ -64,6 +64,19 @@ S.2 ``signature`` is optional; when present it must be a single-line str
     (no ``\\n`` characters).
 S.3 No source-content keys (reuses A.2 / A.1 / A.4 layering checks).
 
+Check T — trace Subgraph structural floors (operation == "trace")
+-----------------------------------------------------------------
+T.1 Required keys with correct types: ``nodes`` (dict Map<Handle, Stub>),
+    ``edges`` (list), ``truncated`` (bool, not truthy), ``unsupported_edges``
+    (list).
+T.2 Each node value passes the Stub floor (S.*); the node KEY equals the stub's
+    ``handle`` (the dedup-by-handle invariant).
+T.3 Each edge is ``{from, to, kind}`` of single-line strs.
+T.4 Each ``unsupported_edges`` entry is ``{edge, reason, detail}`` with ``reason``
+    ∈ the valid unsupported reasons and a non-empty ``detail`` (mirrors E.2).
+T.5 ``truncation_reasons`` is a list of valid causes (``max_depth`` / ``max_nodes``)
+    and is consistent with ``truncated`` (true iff the list is non-empty).
+
 Usage
 -----
 ::
@@ -72,6 +85,7 @@ Usage
 
     lint_response(result, "inspect")  # raises ConformanceViolation on failure
     lint_response(result, "expand")   # raises ConformanceViolation on failure
+    lint_response(result, "trace")    # raises ConformanceViolation on failure
     lint_response(stub,   "stub")     # raises ConformanceViolation on failure
 """
 
@@ -626,6 +640,9 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
 # S.1 — Valid scope values for a Stub.
 _VALID_STUB_SCOPES: frozenset[str] = frozenset({"project", "external"})
 
+# T.1 — Valid trace truncation-cause values.
+_VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
+
 # ---------------------------------------------------------------------------
 # Check S — Stub structural-floor helpers
 # ---------------------------------------------------------------------------
@@ -927,6 +944,195 @@ def _check_expand_structural_floor(
 
 
 # ---------------------------------------------------------------------------
+# Check T — trace Subgraph structural-floor helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_trace_edge(edge: Any, path: str, violations: list[str]) -> None:
+    """T.3 — Validate one Subgraph edge: ``{from, to, kind}`` single-line strs."""
+    if not isinstance(edge, dict):
+        violations.append(
+            f"[T.3 trace edge type] {path}: expected a dict; got {type(edge).__name__!r}."
+        )
+        return
+    for field in ("from", "to", "kind"):
+        if field not in edge:
+            violations.append(
+                f"[T.3 trace edge required key] {path}: missing required key {field!r}."
+            )
+            continue
+        value = edge[field]
+        if not isinstance(value, str):
+            violations.append(
+                f"[T.3 trace edge field type] {path}.{field}: expected str; "
+                f"got {type(value).__name__!r} ({_truncate(value)})."
+            )
+        elif "\n" in value:
+            violations.append(
+                f"[T.3 trace edge single-line] {path}.{field}: must be single-line; "
+                f"value={_truncate(value)}."
+            )
+
+
+def _check_trace_unsupported_edge(item: Any, path: str, violations: list[str]) -> None:
+    """T.4 — Validate one ``unsupported_edges`` entry: ``{edge, reason, detail}``.
+
+    Mirrors the ExpandResult unsupported branch: ``reason`` must be one of
+    :data:`_VALID_UNSUPPORTED_REASONS`, and ``detail`` must be a non-empty str.
+    """
+    if not isinstance(item, dict):
+        violations.append(
+            f"[T.4 trace unsupported_edge type] {path}: expected a dict; "
+            f"got {type(item).__name__!r}."
+        )
+        return
+
+    if "edge" not in item:
+        violations.append(f"[T.4 trace unsupported_edge required key] {path}: missing 'edge'.")
+    elif not isinstance(item["edge"], str):
+        violations.append(
+            f"[T.4 trace unsupported_edge field type] {path}.edge: expected str; "
+            f"got {type(item['edge']).__name__!r}."
+        )
+
+    reason = item.get("reason")
+    if "reason" not in item:
+        violations.append(f"[T.4 trace unsupported_edge required key] {path}: missing 'reason'.")
+    elif not isinstance(reason, str):
+        violations.append(
+            f"[T.4 trace unsupported_edge field type] {path}.reason: expected str; "
+            f"got {type(reason).__name__!r}."
+        )
+    elif reason not in _VALID_UNSUPPORTED_REASONS:
+        violations.append(
+            f"[T.4 trace unsupported_edge unknown reason] {path}.reason: value {reason!r} "
+            f"is not recognised; must be one of {sorted(_VALID_UNSUPPORTED_REASONS)}."
+        )
+
+    detail = item.get("detail")
+    if "detail" not in item:
+        violations.append(f"[T.4 trace unsupported_edge required key] {path}: missing 'detail'.")
+    elif not isinstance(detail, str) or not detail:
+        violations.append(
+            f"[T.4 trace unsupported_edge detail] {path}.detail: must be a non-empty str; "
+            f"got {_truncate(detail)} (type={type(detail).__name__!r})."
+        )
+
+
+def _check_trace_structural_floor(
+    response: dict[str, Any],
+    violations: list[str],
+) -> None:
+    """T.1–T.4 — Validate the structural floor of a trace ``Subgraph`` dict.
+
+    Layering (A.*) is run separately by ``_check_layering``.
+
+    T.1 ``nodes`` (dict), ``edges`` (list), ``truncated`` (bool, not truthy), and
+        ``unsupported_edges`` (list) are present with correct types.
+    T.2 Each node value passes the Stub floor (S.*), and the node KEY equals the
+        stub's ``handle`` (the dedup-by-handle invariant).
+    T.3 Each edge is ``{from, to, kind}`` of single-line strs.
+    T.4 Each ``unsupported_edges`` entry is ``{edge, reason ∈ valid, detail}``.
+    """
+    # T.1 / T.2 — nodes
+    nodes = response.get("nodes")
+    if "nodes" not in response:
+        violations.append(
+            "[T.1 trace required key] 'nodes' is missing. A Subgraph must carry "
+            "'nodes', 'edges', 'truncated', and 'unsupported_edges'."
+        )
+    elif not isinstance(nodes, dict):
+        violations.append(
+            f"[T.1 trace field type] 'nodes' must be a dict (Map<Handle, Stub>); "
+            f"got {type(nodes).__name__!r}."
+        )
+    else:
+        for key, stub in nodes.items():
+            node_path = f"nodes[{key!r}]"
+            if not isinstance(key, str):
+                violations.append(
+                    f"[T.2 trace node key] {node_path}: node key must be a str handle; "
+                    f"got {type(key).__name__!r}."
+                )
+            _check_stub_structural_floor(stub, node_path, violations)
+            if isinstance(key, str) and isinstance(stub, dict):
+                handle = stub.get("handle")
+                if isinstance(handle, str) and handle != key:
+                    violations.append(
+                        f"[T.2 trace node key/handle] {node_path}.handle is {handle!r}; "
+                        "the node key must equal the stub handle (dedup-by-handle)."
+                    )
+
+    # T.1 / T.3 — edges
+    edges = response.get("edges")
+    if "edges" not in response:
+        violations.append("[T.1 trace required key] 'edges' is missing.")
+    elif not isinstance(edges, list):
+        violations.append(
+            f"[T.1 trace field type] 'edges' must be a list; got {type(edges).__name__!r}."
+        )
+    else:
+        for idx, edge in enumerate(edges):
+            _check_trace_edge(edge, f"edges[{idx}]", violations)
+
+    # T.1 — truncated: required bool (exactly bool, not truthy)
+    truncated = response.get("truncated")
+    if "truncated" not in response:
+        violations.append("[T.1 trace required key] 'truncated' is missing.")
+    elif type(truncated) is not bool:
+        violations.append(
+            f"[T.1 trace field type] 'truncated' must be a bool; "
+            f"got {type(truncated).__name__!r}."
+        )
+
+    # T.5 — truncation_reasons: required list of valid causes; must be consistent
+    # with the derived ``truncated`` boolean (true iff reasons non-empty).
+    reasons = response.get("truncation_reasons")
+    if "truncation_reasons" not in response:
+        violations.append(
+            "[T.5 trace required key] 'truncation_reasons' is missing. It is [] when "
+            "the trace terminated naturally, or lists the cap(s) that fired "
+            f"({sorted(_VALID_TRUNCATION_REASONS)})."
+        )
+    elif not isinstance(reasons, list):
+        violations.append(
+            f"[T.5 trace field type] 'truncation_reasons' must be a list; "
+            f"got {type(reasons).__name__!r}."
+        )
+    else:
+        for idx, item in enumerate(reasons):
+            if item not in _VALID_TRUNCATION_REASONS:
+                violations.append(
+                    f"[T.5 trace truncation_reasons value] truncation_reasons[{idx}]: "
+                    f"value {item!r} is not recognised; must be one of "
+                    f"{sorted(_VALID_TRUNCATION_REASONS)}."
+                )
+        # Consistency with the back-compat boolean.
+        if type(truncated) is bool and truncated != bool(reasons):
+            violations.append(
+                f"[T.5 trace truncation consistency] 'truncated' is {truncated} but "
+                f"'truncation_reasons' is {_truncate(reasons)}; 'truncated' must be "
+                "true iff 'truncation_reasons' is non-empty."
+            )
+
+    # T.1 / T.4 — unsupported_edges
+    unsupported = response.get("unsupported_edges")
+    if "unsupported_edges" not in response:
+        violations.append(
+            "[T.1 trace required key] 'unsupported_edges' is missing. Use [] when every "
+            "edge in 'follow' is supported."
+        )
+    elif not isinstance(unsupported, list):
+        violations.append(
+            f"[T.1 trace field type] 'unsupported_edges' must be a list; "
+            f"got {type(unsupported).__name__!r}."
+        )
+    else:
+        for idx, item in enumerate(unsupported):
+            _check_trace_unsupported_edge(item, f"unsupported_edges[{idx}]", violations)
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -941,10 +1147,11 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
         response: The dict returned by resolve / resolve_at / inspect / expand,
             or a standalone Stub dict.
         operation: One of ``"resolve"``, ``"resolve_at"``, ``"inspect"``,
-            ``"expand"``, ``"stub"`` — used in error messages and for
+            ``"expand"``, ``"trace"``, ``"stub"`` — used in error messages and for
             operation-specific contract checks:
             - ``inspect``  gets B.3 Phase 4 cross-check
             - ``expand``   gets E.1–E.4 structural-floor + top-level source exemption
+            - ``trace``    gets T.1–T.4 Subgraph structural-floor
             - ``stub``     gets S.1–S.2 structural-floor
             - others don't get operation-specific checks
 
@@ -958,6 +1165,8 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
 
     if operation == "expand":
         _check_expand_structural_floor(response, violations)
+    elif operation == "trace":
+        _check_trace_structural_floor(response, violations)
     elif operation == "stub":
         _check_stub_structural_floor(response, "", violations)
     else:

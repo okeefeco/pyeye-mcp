@@ -57,6 +57,7 @@ from .operations.resolve import (
     resolve as _resolve_impl,
     resolve_at as _resolve_at_impl,
 )
+from .operations.trace import trace as _trace_impl
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -568,6 +569,79 @@ async def expand(
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
     return dict(await _expand_impl(handle, edge, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("trace")
+@track_mcp_operation("trace")
+async def trace(
+    start: str | list[str],
+    follow: list[str],
+    project_path: str = ".",
+    max_depth: int = 3,
+    max_nodes: int = 50,
+    stop_when: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Python: Bounded multi-hop BFS traversal — returns a typed Subgraph.
+
+    The composition primitive: it walks the ``follow`` edges outward from
+    ``start`` across multiple hops, deduping by canonical handle, and returns a
+    ``Subgraph`` of the reachable structure.  Use resolve()/inspect() to obtain
+    canonical handles first, then trace() to see structure across hops (call
+    chains, reverse-import closures, member trees).
+
+    Composes the same edge registry as ``expand``; only the implemented edges
+    (``members``, ``callees``, ``imported_by``) are traversed.  Any other edge
+    named in ``follow`` (deferred reference edges, not-yet-implemented structural
+    edges, unknown names) is reported in ``unsupported_edges`` rather than
+    silently dropped — a silent drop would falsely read as "no such neighbours".
+
+    Response shape — ``Subgraph``::
+
+        { "nodes": { handle: Stub, ... },        # deduped by canonical handle
+          "edges": [ {"from": h, "to": h, "kind": edge}, ... ],
+          "truncated": bool,                     # a cap cut off reachable nodes
+          "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
+          "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
+
+    Edges are NOT deduped across kinds; edges to already-visited handles are
+    recorded (so cycles stay visible) but never re-expanded, guaranteeing
+    termination on cyclic graphs.  ``truncated`` is true ONLY when ``max_depth``
+    or ``max_nodes`` cut off reachable handles before natural termination — not
+    merely because a cap was set.
+
+    Args:
+        start: One canonical handle, or a list of them, as BFS roots.
+        follow: Edge names to traverse at every hop (e.g. ``["members"]``,
+            ``["callees"]``, ``["imported_by"]``).
+        project_path: Project root path (default: current directory).
+        max_depth: Maximum hop distance from a root before a node becomes a
+            non-expanded frontier leaf (default 3).
+        max_nodes: Maximum number of distinct nodes in the subgraph; reaching it
+            sets ``truncated`` (default 50).
+        stop_when: Optional StopPredicate (``exclude_external`` /
+            ``module_pattern`` / ``exclude_tests``); a matching adjacent is a
+            pruned boundary.  Roots are never pruned.  ``exclude_external`` stops
+            at stdlib/site-packages nodes — keeps a trace inside the project (the
+            common ``callees`` case).
+
+    Returns:
+        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
+        unresolvable root simply contributes no node.
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(
+        await _trace_impl(
+            start,
+            follow,
+            analyzer,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+            stop_when=stop_when,
+        )
+    )
 
 
 # NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.

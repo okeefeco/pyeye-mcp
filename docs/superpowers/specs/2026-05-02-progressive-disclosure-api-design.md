@@ -303,9 +303,12 @@ type Subgraph = {
   nodes: Map<Handle, Stub>
   edges: { from: Handle, to: Handle, kind: EdgeType }[]
   truncated: boolean   // true if max_depth or max_nodes was hit before natural termination
+  truncation_reasons: ("max_depth" | "max_nodes")[]   // WHICH cap(s) fired (#352); [] when not truncated
+  unsupported_edges: { edge: string, reason: string, detail: string }[]   // deferred/unknown edges in `follow` (#349); never silently dropped
 }
 
 type StopPredicate = {
+  exclude_external?: boolean  // stop at external (stdlib/site-packages) nodes (#351)
   module_pattern?: string  // stop when entering matching module
   exclude_tests?: boolean
   // ... extensible
@@ -321,6 +324,17 @@ Used for refactor closures, call chains, bug-tracing — anywhere the agent need
 **Edge deduplication.** Nodes are deduped by handle (each handle appears once in `Subgraph.nodes`). Edges are *not* deduped across types — if A → B exists via both `callers` and `references`, both appear in `Subgraph.edges` with their respective `kind` values. Cycles and multi-edge-type relationships are both faithfully represented.
 
 **Aggregate edges in `follow`.** When `follow` includes an aggregate edge (currently only `references`), trace expands it to the underlying specific edges (`read_by`, `written_by`, `passed_by`) at traversal time. Returned `Subgraph.edges` always carry specific (non-aggregate) `kind` values — never `references`. This means trace's edge metadata always tells the agent the precise relationship, and `Subgraph` nodes never need a subkind field (the kind is on the edge, not the node).
+
+> **Implementation status (2026-06): `trace` traverses the supported edges only.**
+> `trace` composes the same edge registry as `expand`. It walks the edges that
+> are implemented today — `members`, `callees`, `imported_by` (#345) — and any
+> other edge named in `follow` (deferred reference edges requiring the Pyright
+> backend, not-yet-implemented structural edges, or unknown names) is reported in
+> an additive `Subgraph.unsupported_edges: [{edge, reason, detail}]` list rather
+> than silently dropped — silently omitting it would falsely read as "no such
+> neighbours" (the same absence-vs-zero guard as `edge_counts`). As more edges
+> become supported (e.g. `subclasses`, #348), `trace` picks them up automatically
+> with no shape change. See issues #332/#333 for the reference-backend edges.
 
 ## Return Shape: The Typed Property Graph
 

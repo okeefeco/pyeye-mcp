@@ -958,3 +958,83 @@ class TestExpandSubclassesEmptyClassEndToEnd:
         roundtripped = json.loads(json.dumps(result))
         assert isinstance(roundtripped, dict)
         assert roundtripped["stubs"] == []
+
+
+# ---------------------------------------------------------------------------
+# trace tool — registration + end-to-end over the wire
+# ---------------------------------------------------------------------------
+
+
+class TestTraceToolRegistered:
+    """Verify trace is importable from pyeye.mcp.server and is an async callable."""
+
+    def test_trace_is_importable(self) -> None:
+        from pyeye.mcp.server import trace  # noqa: F401
+
+    def test_trace_is_callable(self) -> None:
+        from pyeye.mcp.server import trace
+
+        assert callable(trace)
+
+    def test_trace_is_async(self) -> None:
+        from pyeye.mcp.server import trace
+
+        assert _inspect_stdlib.iscoroutinefunction(trace)
+
+
+class TestTraceEndToEnd:
+    """End-to-end Subgraph contract for the trace tool over the wire."""
+
+    @pytest.mark.asyncio
+    async def test_members_trace_returns_subgraph(self) -> None:
+        from pyeye.mcp.server import trace
+
+        result = await trace(
+            start="mypackage._core.widgets.Widget",
+            follow=["members"],
+            project_path=str(_FIXTURE),
+            max_depth=1,
+        )
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        # Subgraph keys.
+        for key in ("nodes", "edges", "truncated", "truncation_reasons", "unsupported_edges"):
+            assert key in result, f"'{key}' missing from Subgraph: {result!r}"
+        assert isinstance(result["nodes"], dict)
+        assert isinstance(result["edges"], list)
+        assert isinstance(result["truncated"], bool)
+        # The start is a node and its members produced edges.
+        assert "mypackage._core.widgets.Widget" in result["nodes"]
+        assert any(e["kind"] == "members" for e in result["edges"])
+        assert result["unsupported_edges"] == []
+
+    @pytest.mark.asyncio
+    async def test_deferred_edge_in_follow_surfaced_over_wire(self) -> None:
+        from pyeye.mcp.server import trace
+
+        result = await trace(
+            start="mypackage._core.widgets.Widget",
+            follow=["members", "callers"],
+            project_path=str(_FIXTURE),
+            max_depth=1,
+        )
+        # The supported edge still traverses; the deferred edge is surfaced.
+        assert any(e["kind"] == "members" for e in result["edges"])
+        callers = next((u for u in result["unsupported_edges"] if u["edge"] == "callers"), None)
+        assert callers is not None, f"'callers' not surfaced: {result['unsupported_edges']}"
+        assert callers["reason"] == "deferred_reference_backend"
+
+    @pytest.mark.asyncio
+    async def test_trace_result_is_json_serialisable(self) -> None:
+        from pyeye.mcp.server import trace
+
+        result = await trace(
+            start="mypackage._core.widgets",
+            follow=["imported_by"],
+            project_path=str(_FIXTURE),
+            max_depth=2,
+        )
+        # Plain dict, fully JSON round-trippable — no custom types leak the wire.
+        assert (
+            type(result) is dict
+        ), f"result must be exact dict; got {type(result)!r}"  # noqa: E721
+        json.loads(json.dumps(result))
