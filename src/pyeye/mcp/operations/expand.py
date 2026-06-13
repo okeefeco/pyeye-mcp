@@ -54,6 +54,7 @@ synchronous.
 
 from __future__ import annotations
 
+from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import (
@@ -161,7 +162,17 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # The resolver carries the Jedi Name so builtin/stdlib callee stubs build
     # without re-resolution (the load-bearing reason EdgeResult carries Names).
     # ------------------------------------------------------------------
-    edge_result = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+    # A resolver may be sync (members/callees → EdgeResult) or async
+    # (imported_by → Awaitable[EdgeResult | None]); await any awaitable result.
+    # A ``None`` result is the wrong-kind signal — Phase 4 will surface that as a
+    # distinct discriminator; for now a missing edge_result yields the graceful
+    # supported-empty shape (no stubs), consistent with the source-not-found path.
+    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+    edge_result = await raw if isawaitable(raw) else raw
+
+    if edge_result is None:
+        return {"source": source, "edge": edge, "stubs": []}
+
     stubs = [
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
     ]
