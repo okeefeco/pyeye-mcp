@@ -65,6 +65,7 @@ from pyeye.mcp.operations.edges import (
     edge_status,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.resolve import _normalise_kind
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -164,14 +165,29 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # ------------------------------------------------------------------
     # A resolver may be sync (members/callees → EdgeResult) or async
     # (imported_by → Awaitable[EdgeResult | None]); await any awaitable result.
-    # A ``None`` result is the wrong-kind signal — Phase 4 will surface that as a
-    # distinct discriminator; for now a missing edge_result yields the graceful
-    # supported-empty shape (no stubs), consistent with the source-not-found path.
+    # A ``None`` result is the WRONG-KIND signal: the edge genuinely does not
+    # apply to this handle's kind (e.g. ``imported_by`` on a class — a symbol
+    # CAN be imported, so claiming ``stubs: []`` would be the #332 measured-zero
+    # lie).  Surface it as the UNSUPPORTED branch with a KIND-SPECIFIC detail
+    # (synthesized inline — the generic _unsupported_detail can't name the kind).
+    # This is DISTINCT from the source-not-found path above (jedi_name is None →
+    # graceful supported-empty) and from a measured-empty EdgeResult (the
+    # resolver matched the kind but found no adjacents → supported ``stubs: []``).
     raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
     edge_result = await raw if isawaitable(raw) else raw
 
     if edge_result is None:
-        return {"source": source, "edge": edge, "stubs": []}
+        kind = _normalise_kind(getattr(jedi_name, "type", None))
+        return {
+            "source": source,
+            "edge": edge,
+            "unsupported": True,
+            "reason": STATUS_NOT_YET_IMPLEMENTED,
+            "detail": (
+                f"Edge '{edge}' does not apply to a {kind} handle; it is "
+                f"supported for modules only in this slice."
+            ),
+        }
 
     stubs = [
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
