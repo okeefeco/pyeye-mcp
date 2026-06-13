@@ -19,12 +19,13 @@ Fixture facts (``tests/fixtures/resolve_project``):
 - ``mypackage._core.widgets`` — a module imported by several other modules.
 """
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.mcp.operations.trace import trace
+from pyeye.mcp.operations.trace import _stops_at, trace
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -181,3 +182,103 @@ class TestTraceDeferredEdgeInFollow:
     ) -> None:
         result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
         assert result["unsupported_edges"] == []
+
+
+class TestStopsAtPredicate:
+    """Unit tests for the ``_stops_at`` boundary predicate (kind-agnostic)."""
+
+    def test_module_pattern_substring_match(self) -> None:
+        assert _stops_at("mypackage._core.widgets", {"module_pattern": "_core"}) is True
+        assert _stops_at("mypackage.usage", {"module_pattern": "_core"}) is False
+
+    def test_exclude_tests_matches_test_modules(self) -> None:
+        assert _stops_at("tests.unit.test_thing", {"exclude_tests": True}) is True
+        assert _stops_at("pkg.test_helpers", {"exclude_tests": True}) is True
+        assert _stops_at("mypackage.usage", {"exclude_tests": True}) is False
+
+    def test_no_predicate_never_stops(self) -> None:
+        assert _stops_at("anything.at.all", None) is False
+        assert _stops_at("anything.at.all", {}) is False
+
+
+class TestTraceStopWhen:
+    """``stop_when`` prunes the traversal at the predicate boundary."""
+
+    @pytest.mark.asyncio
+    async def test_module_pattern_prunes_matching_adjacents(self, analyzer: JediAnalyzer) -> None:
+        # Baseline: importers of widgets include several ``_core.*`` modules.
+        full = await trace(_WIDGETS_MODULE_HANDLE, ["imported_by"], analyzer, max_depth=1)
+        core_importers = [h for h in full["nodes"] if "_core" in h and h != _WIDGETS_MODULE_HANDLE]
+        assert core_importers, "fixture should have _core importers to prune"
+
+        # With module_pattern '_core', those adjacents are pruned at the boundary;
+        # the start (itself a _core module) is a root and is never pruned.
+        pruned = await trace(
+            _WIDGETS_MODULE_HANDLE,
+            ["imported_by"],
+            analyzer,
+            max_depth=1,
+            stop_when={"module_pattern": "_core"},
+        )
+        leaked = [h for h in pruned["nodes"] if "_core" in h and h != _WIDGETS_MODULE_HANDLE]
+        assert leaked == [], f"module_pattern did not prune _core adjacents: {leaked}"
+        # Non-matching importers survive (e.g. mypackage.usage / use_widget).
+        assert any(h.startswith("mypackage.") and "_core" not in h for h in pruned["nodes"])
+        # The graph stays closed — no edge points at a pruned (absent) node.
+        for edge in pruned["edges"]:
+            assert edge["from"] in pruned["nodes"], f"edge from-handle not a node: {edge}"
+            assert edge["to"] in pruned["nodes"], f"edge to-handle not a node: {edge}"
+
+
+class TestTraceMultiHopAndMultiEdge:
+    """Regression locks for multi-hop depth and multi-edge ``follow``."""
+
+    @pytest.mark.asyncio
+    async def test_two_hop_members_reaches_second_level(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(_WIDGETS_MODULE_HANDLE, ["members"], analyzer, max_depth=2)
+        # Widget is a depth-1 member of the module...
+        assert _WIDGET_HANDLE in result["nodes"]
+        # ...and the 2nd hop expanded it: members edges originate FROM Widget.
+        second_hop = [
+            e for e in result["edges"] if e["from"] == _WIDGET_HANDLE and e["kind"] == "members"
+        ]
+        assert second_hop, "expected 2nd-hop members edges from Widget"
+        for edge in second_hop:
+            assert edge["to"] in result["nodes"], f"2nd-hop target not a node: {edge}"
+
+    @pytest.mark.asyncio
+    async def test_multi_edge_follow_labels_each_kind(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(
+            _WIDGETS_MODULE_HANDLE, ["members", "imported_by"], analyzer, max_depth=1
+        )
+        kinds = {e["kind"] for e in result["edges"]}
+        # Both edge types are present and correctly labelled (not deduped across kinds).
+        assert "members" in kinds
+        assert "imported_by" in kinds
+        assert result["unsupported_edges"] == []
+        for edge in result["edges"]:
+            assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"
+            assert edge["to"] in result["nodes"], f"edge to-handle not a node: {edge}"
+
+
+class TestTraceCycleSafe:
+    """Cycle-safe termination + dedup on a fan-in / multi-path graph."""
+
+    @pytest.mark.asyncio
+    async def test_terminates_dedups_and_records_fanin_edges(self, analyzer: JediAnalyzer) -> None:
+        # The imported_by closure is a multi-path graph (more edges than a tree).
+        result = await trace(_WIDGETS_MODULE_HANDLE, ["imported_by"], analyzer, max_depth=10)
+        # Natural termination despite the cyclic/multi-path structure.
+        assert result["truncated"] is False
+        # Fan-in: more edges than a spanning tree (nodes - 1) would have.
+        assert len(result["edges"]) > len(result["nodes"]) - 1
+        # A fan-in target is reached by multiple edges but appears as ONE node
+        # (dedup), and every edge endpoint is a node (cycle edges stay visible).
+        incoming = Counter(e["to"] for e in result["edges"])
+        fan_in = [target for target, count in incoming.items() if count > 1]
+        assert fan_in, "expected at least one fan-in target"
+        for target in fan_in:
+            assert target in result["nodes"], "fan-in target must be a single deduped node"
+        for edge in result["edges"]:
+            assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"
+            assert edge["to"] in result["nodes"], f"edge to-handle not a node: {edge}"

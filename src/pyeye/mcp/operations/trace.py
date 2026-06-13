@@ -68,18 +68,46 @@ async def _single_hop(jedi_name: Any, edge: str, analyzer: JediAnalyzer) -> list
     return [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
 
 
+def _stops_at(handle: str, stop_when: dict[str, Any] | None) -> bool:
+    """Return True if *handle* is a traversal boundary under *stop_when*.
+
+    Honoured ``StopPredicate`` keys (spec §``trace``):
+
+    - ``module_pattern``: stop when the pattern appears in the handle (substring).
+    - ``exclude_tests``: stop at test modules — any dotted segment equal to
+      ``tests`` or beginning ``test_``.
+
+    A missing/empty predicate never stops.  The predicate is kind-agnostic: it
+    matches on the handle string alone, so it composes with any edge.
+
+    Args:
+        handle: Canonical handle of a candidate adjacent.
+        stop_when: The predicate dict, or ``None``.
+
+    Returns:
+        ``True`` if traversal should treat *handle* as a boundary (prune it).
+    """
+    if not stop_when:
+        return False
+    pattern = stop_when.get("module_pattern")
+    if pattern and pattern in handle:
+        return True
+    if stop_when.get("exclude_tests"):
+        segments = handle.split(".")
+        if any(seg == "tests" or seg.startswith("test_") for seg in segments):
+            return True
+    return False
+
+
 async def trace(
     start: str | list[str],
     follow: list[str],
     analyzer: JediAnalyzer,
     max_depth: int = 3,
     max_nodes: int = 50,
+    stop_when: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Walk *follow* edges from *start* via bounded BFS, returning a ``Subgraph``.
-
-    The spec signature also carries ``stop_when``; that lands in its own TDD
-    cycle (a traversal-boundary predicate) and is deliberately omitted here
-    until a test drives it.
 
     Args:
         start: One canonical handle or a list of them (the BFS roots).
@@ -89,6 +117,9 @@ async def trace(
             non-expanded frontier leaf (default 3).
         max_nodes: Maximum number of distinct nodes in the subgraph; reaching it
             stops adding new nodes and sets ``truncated`` (default 50).
+        stop_when: Optional ``StopPredicate`` (``module_pattern`` /
+            ``exclude_tests``).  An adjacent matching it is a boundary — pruned
+            (never added, edged, or expanded).  Roots are never pruned.
 
     Returns:
         A ``Subgraph`` dict: ``nodes`` (handle → Stub), ``edges`` (``from``/``to``/
@@ -138,6 +169,9 @@ async def trace(
         can_expand = depth < max_depth
         for edge in supported_follow:
             for adj_handle, adj_name in await _single_hop(jedi_name, edge, analyzer):
+                if _stops_at(adj_handle, stop_when):
+                    # Boundary: prune entirely — no node, no edge, no expansion.
+                    continue
                 if adj_handle in nodes:
                     # Already in the closure: record the (possibly cyclic) edge so
                     # it stays visible, but never re-expand — this bounds the walk.
