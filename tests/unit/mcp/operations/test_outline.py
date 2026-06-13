@@ -433,11 +433,17 @@ class TestOutlineMaxNodes:
         self, nested_analyzer: JediAnalyzer
     ) -> None:
         """When the budget is exhausted, not-yet-expanded containers carry
-        ``truncated: "max_nodes"`` with ``children`` absent (no peek)."""
+        ``truncated: "max_nodes"`` with ``children`` absent (no peek).
+
+        Budget=3: root (1) + top_level_function (2) + Outer (3). When Outer is
+        processed, the budget is full → Outer is truncated: "max_nodes" without
+        any peek into its members.
+        """
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        # Budget 2: root (1) + first child (2). Second child must be cut off.
-        tree = await outline(_MOD_HANDLE, nested_analyzer, max_nodes=2)
+        # Budget 3 puts Outer in the tree (node 3) but exhausts the budget before
+        # Outer can be expanded — so Outer gets truncated: "max_nodes", no peek.
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_nodes=3)
         _assert_contract1(tree)
 
         # Find any truncated-by-max_nodes node — must have no children key.
@@ -450,7 +456,7 @@ class TestOutlineMaxNodes:
             return found
 
         cut_off = _find_max_nodes_truncated(tree)
-        assert cut_off, "expected at least one max_nodes-truncated node"
+        assert cut_off, "expected at least one max_nodes-truncated node at budget=3"
         for node in cut_off:
             assert "children" not in node, "max_nodes truncated node must NOT carry children"
 
@@ -468,39 +474,46 @@ class TestOutlineMaxNodesTiebreaker:
     async def test_max_nodes_wins_over_max_depth_tiebreaker(
         self, nested_analyzer: JediAnalyzer
     ) -> None:
-        """Set max_depth=1 (Outer would be truncated "max_depth") AND max_nodes=2
-        so the budget fires first on the same node.
+        """Set max_depth=1 (Outer would be truncated "max_depth") AND max_nodes=3
+        so both caps apply to Outer simultaneously.
 
-        Structure at budget=2, depth=1:
-          root (node 1): walked
-          top_level_function (node 2): admitted — budget now full
+        Structure at budget=3, depth=1:
+          root (node 1): walked (depth 0)
+          top_level_function (node 2): depth 1 = frontier, non-container → children: []
+          Outer (node 3): depth 1 = frontier, container, budget now full
 
-        Outer would be cut off by BOTH max_depth (it's at depth 1, the frontier,
-        and has non-empty members) AND max_nodes (budget is full). The tiebreaker
-        rule says max_nodes wins in truncation_reason.
+        Outer is at the depth frontier (has non-empty members → would be
+        truncated: "max_depth") AND the budget is full (node_count == max_nodes →
+        would be truncated: "max_nodes").  Both caps could fire.  The tiebreaker
+        rule (spec §5.4) says max_nodes wins: truncation_reason must be "max_nodes".
         """
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        # Budget 2: root + top_level_function fills the budget (BFS level order).
-        # Outer is the second sibling; by BFS it's at the same level. The
-        # implementation may expand top_level_function first (source order within
-        # BFS) — either top_level_function or Outer gets the second slot; the other
-        # is cut off by the budget.
-        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1, max_nodes=2)
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1, max_nodes=3)
         _assert_contract1(tree)
-        assert _count_nodes(tree) == 2
+        assert _count_nodes(tree) == 3
 
-        # The child that was cut off (whichever one didn't get the budget slot)
-        # must report max_nodes (not max_depth) as truncation_reason.
-        all_children = tree.get("children", [])
-        # There will be one walked child and potentially more that are cut.
-        # All truncated children must have max_nodes as reason.
-        for child in all_children:
-            if "truncated" in child:
-                assert child["truncation_reason"] == "max_nodes", (
-                    f"budget+depth tiebreaker: expected 'max_nodes', "
-                    f"got {child['truncation_reason']!r}"
-                )
+        # Both func and Outer are children of root (3 nodes total).
+        func_node = _find_child(tree, _TOP_LEVEL_FUNC_HANDLE)
+        outer_node = _find_child(tree, _OUTER_HANDLE)
+        assert func_node is not None, "top_level_function must be a child"
+        assert outer_node is not None, "Outer must be a child"
+
+        # func (non-container, depth frontier): genuine leaf.
+        assert func_node.get("children") == [], "top_level_function must be a genuine leaf"
+        assert "truncated" not in func_node
+
+        # Outer: BOTH depth-frontier (has members → would be max_depth) AND
+        # budget-full (node 3 = max_nodes → would be max_nodes).
+        # Tiebreaker: max_nodes must win.
+        assert (
+            "truncated" in outer_node
+        ), "Outer at depth frontier with full budget must be truncated"
+        assert outer_node["truncation_reason"] == "max_nodes", (
+            f"budget+depth tiebreaker: expected 'max_nodes', "
+            f"got {outer_node['truncation_reason']!r}"
+        )
+        assert "children" not in outer_node
 
 
 class TestOutlineExternalCap:
