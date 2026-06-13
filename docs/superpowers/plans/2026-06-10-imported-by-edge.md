@@ -4,7 +4,7 @@
 
 **Goal:** Promote `imported_by` from a deferred reference-backend edge to a supported Jedi/AST-backed `expand` edge — `expand(handle, "imported_by")` returns the project modules that import a target module — with no `ExpandResult` shape change.
 
-**Architecture:** Reuse the deterministic AST import-graph reversal that already lives inside `JediAnalyzer.analyze_dependencies` (no `get_references`), by extracting it into a stable `find_importers` method and extracting `_ModuleSentinel` into a shared leaf so the `edges` resolver can build module stubs without importing `inspect`. A new module-only `resolve_imported_by` resolver plugs into the existing `expand` registry; non-module handles return the honest `not_yet_implemented` branch rather than a misleading measured-empty result.
+**Architecture:** Reuse the deterministic AST import-graph reversal that already lives inside `JediAnalyzer.analyze_dependencies` (no `get_references`), by extracting it into a stable `find_importers` method and extracting `ModuleSentinel` into a shared leaf so the `edges` resolver can build module stubs without importing `inspect`. A new module-only `resolve_imported_by` resolver plugs into the existing `expand` registry; non-module handles return the honest `not_yet_implemented` branch rather than a misleading measured-empty result.
 
 **Tech Stack:** Python, FastMCP, Jedi (local AST ops only — `file_artifact_cache.get_ast`, `get_project_files`, `_resolve_relative_import`), pytest. Reuses `pyeye.handle.Handle`, the `edges` registry / `EdgeResult` / `build_stub` / `expand` foundation from #340 (#342), and `_resolve_relative_import` from #343.
 
@@ -19,7 +19,7 @@
 - **No reverse symbol search.** No path for `imported_by` may call `get_references`/`find_references`. The reverse scan is a deterministic AST walk + `_resolve_relative_import` only. This is grep-verified and asserted by a spy test, exactly as `callees` is. This is the load-bearing reason the edge can be promoted at all.
 - **No `ExpandResult` / linter shape change.** `imported_by` is a normal member of the existing discriminated union — module → supported `{source, edge, stubs}`; non-module → unsupported `{…, reason: "not_yet_implemented", detail}`. No new fields. The conformance linter should need no code change (its E.* rules already cover any `edge` string and a stub-only supported result).
 - **Module-only; non-module → `not_yet_implemented`, never `[]`.** Because a symbol genuinely *can* be imported by name, a measured-empty `[]` for a non-module would be the #332 absence-vs-zero lie. The resolver signals wrong-kind with `None`; `expand` maps that to the unsupported `not_yet_implemented` branch with a kind-specific `detail`.
-- **Behavior-preserving extractions.** The `_ModuleSentinel` move and the `find_importers` extraction must not change observable behavior: the existing `inspect` tests AND the existing `analyze_dependencies` tests must pass **unmodified**. If one breaks on something other than the move, stop and reconsider — the extraction changed behavior beyond intent.
+- **Behavior-preserving extractions.** The `ModuleSentinel` move and the `find_importers` extraction must not change observable behavior: the existing `inspect` tests AND the existing `analyze_dependencies` tests must pass **unmodified**. If one breaks on something other than the move, stop and reconsider — the extraction changed behavior beyond intent.
 - **Reuse, don't duplicate.** `resolve_imported_by` consumes `find_importers`; it must not reimplement the scan. The legacy `analyze_dependencies` is rewired to consume the same `find_importers` — both share one implementation. New code must not depend on the deprecated `analyze_dependencies` method directly.
 - **Canonical handles throughout.** Every importer adjacency is a canonical module `Handle`; each module stub is built from the importer's own file (via the shared sentinel), so tests/standalone scripts — which are not importable via `find_module_file` — still produce stubs.
 - **One intended observable registry change (with one intended test edit).** Moving `imported_by` from the deferred set to the implemented set flips `edge_status("imported_by")`. The existing status-matrix test that parametrizes `imported_by` under `deferred_reference_backend` (`tests/unit/mcp/operations/test_edges.py`) **must** be updated to reflect the new bucket — this is the *intended* test change, distinct from the behavior-preserving guardrails above. `imported_by` stays in the linter's `_PHASE4_UNMEASURED_EDGES` because `inspect.edge_counts.imported_by` is **not** restored in this slice.
@@ -30,8 +30,8 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/pyeye/_module_sentinel.py` | Create | Shared leaf home for `_ModuleSentinel` (moved from `inspect`). Pure `ast`/`Path` deps; importable by both `inspect` and `edges` without a cycle. |
-| `src/pyeye/mcp/operations/inspect.py` | Modify | Import `_ModuleSentinel` from the shared leaf under its existing private alias; remove the local class definition. No other change. |
+| `src/pyeye/_module_sentinel.py` | Create | Shared leaf home for `ModuleSentinel` (moved from `inspect`). Pure `ast`/`Path` deps; importable by both `inspect` and `edges` without a cycle. |
+| `src/pyeye/mcp/operations/inspect.py` | Modify | Import the public `ModuleSentinel` from the shared leaf; remove the local class definition. (The class was extracted under the public name `ModuleSentinel` rather than the original private `_ModuleSentinel`, so both `inspect` and `edges` import the same canonical name directly — no private alias.) |
 | `src/pyeye/analyzers/jedi_analyzer.py` | Modify | Extract the reverse-scan into a stable `find_importers` returning `(importer_module, importer_file)` pairs; rewire `analyze_dependencies` to consume it for its `imported_by` field. |
 | `src/pyeye/mcp/operations/edges.py` | Modify | Move `imported_by` from the deferred set to the implemented set; add the async `resolve_imported_by` (module → `EdgeResult`; non-module → `None`) to the resolver registry. |
 | `src/pyeye/mcp/operations/expand.py` | Modify | Await resolver results that are awaitable; treat a resolver `None` as the `not_yet_implemented` unsupported branch with a synthesized kind-specific `detail`. No change to the `members`/`callees` outcomes. |
@@ -44,19 +44,19 @@
 
 ---
 
-## Phase 1: Extract `_ModuleSentinel` to a shared leaf
+## Phase 1: Extract `ModuleSentinel` to a shared leaf
 
 The prerequisite that lets `edges` build module stubs without importing `inspect`.
 
-### Task 1.1: Move `_ModuleSentinel` into `src/pyeye/_module_sentinel.py`
+### Task 1.1: Move `ModuleSentinel` into `src/pyeye/_module_sentinel.py`
 
-- [ ] Move the `_ModuleSentinel` class out of `inspect.py` into a new shared leaf module, and have `inspect.py` import it back under its existing private name so every existing call site is unchanged — because `edges` (which must not import `inspect`) needs to construct module Names, and a shared leaf is the cycle-free home (mirroring the `_ast_targets.py` extraction from #340).
+- [ ] Move the `ModuleSentinel` class out of `inspect.py` into a new shared leaf module under the public name `ModuleSentinel`, and have both `inspect.py` and `edges.py` import it directly from the leaf — because `edges` (which must not import `inspect`) needs to construct module Names, and a shared leaf is the cycle-free home (mirroring the `_ast_targets.py` extraction from #340). (As-built: extracted public, no private alias; `inspect`'s call sites were updated to the canonical name.)
 - [ ] Confirm the existing `inspect` test suite passes **unmodified** (the move is behavior-preserving) and that the new module can be imported from `edges` without a circular import.
 - [ ] Commit.
 
 **Files:** `src/pyeye/_module_sentinel.py`, `src/pyeye/mcp/operations/inspect.py`.
-**Constraints:** The shared module must depend only on `ast`/`Path` (no `inspect`/`edges`/`expand` imports), so it stays a true leaf. Preserve the class's public surface exactly — its constructor takes the canonical handle as a **string**. Check for any `isinstance(..., _ModuleSentinel)` uses and ensure they still resolve through the re-imported name.
-**Acceptance:** Existing `inspect` tests green unmodified; `_ModuleSentinel` importable from a leaf module with no cycle.
+**Constraints:** The shared module must depend only on `ast`/`Path` (no `inspect`/`edges`/`expand` imports), so it stays a true leaf. Preserve the class's public surface exactly — its constructor takes the canonical handle as a **string**. Check for any `isinstance(..., ModuleSentinel)` uses and ensure they still resolve through the re-imported name.
+**Acceptance:** Existing `inspect` tests green unmodified; `ModuleSentinel` importable from a leaf module with no cycle.
 **Risks:** A hidden dependency on an `inspect`-internal symbol would break the leaf property — if found, that symbol must move too or be passed in, not imported back from `inspect`.
 
 ---

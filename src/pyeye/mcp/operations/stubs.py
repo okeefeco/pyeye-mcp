@@ -87,7 +87,7 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
     or Phase-4 expand supply it).  ``build_stub`` does NOT canonicalize.
 
     Args:
-        jedi_name: A Jedi ``Name`` object (or ``_ModuleSentinel``-compatible
+        jedi_name: A Jedi ``Name`` object (or ``ModuleSentinel``-compatible
             object) for the symbol.
         handle: The already-canonical dotted-name handle for the symbol.
         analyzer: Active analyzer for scope classification.

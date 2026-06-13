@@ -44,7 +44,7 @@ from pyeye._ast_targets import (
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
-from pyeye._module_sentinel import ModuleSentinel as _ModuleSentinel
+from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members
@@ -547,7 +547,7 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
             # We'll return None here and handle module specially below.
         except Exception:
             pass
-        return _ModuleSentinel(mod_file, handle, analyzer)
+        return ModuleSentinel(mod_file, handle, analyzer)
 
     # Case 2: leaf symbol inside a module
     if len(parts) < 2:
@@ -707,7 +707,7 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     Collapsing them into one function would break that dispatch and test seam.
 
     Args:
-        jedi_name: Jedi ``Name`` or ``_ModuleSentinel`` for the module.
+        jedi_name: Jedi ``Name`` or ``ModuleSentinel`` for the module.
         analyzer: Active analyzer.
 
     Returns:
@@ -807,7 +807,7 @@ async def _build_edge_counts(
     Args:
         handle: Canonical dotted-name string.
         kind: Normalised kind string (``"class"``, ``"function"``, etc.).
-        jedi_name: Jedi ``Name`` (or ``_ModuleSentinel``) for the symbol.
+        jedi_name: Jedi ``Name`` (or ``ModuleSentinel``) for the symbol.
         analyzer: Active analyzer.
         budget_seconds: Per-edge time budget in seconds.
 
@@ -1077,7 +1077,7 @@ def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
     ``__init__.py``) and the parent package handle.
 
     Args:
-        jedi_name: Jedi Name (or ``_ModuleSentinel``) for the module.
+        jedi_name: Jedi Name (or ``ModuleSentinel``) for the module.
         handle: Canonical dotted-name string of the module.
 
     Returns:

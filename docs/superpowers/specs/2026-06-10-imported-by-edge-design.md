@@ -39,7 +39,7 @@ that import a target **module** — reusing the existing reverse-scan logic (and
   the unsupported `not_yet_implemented` branch (see §4).
 - Extract the reverse-scan into a stable `JediAnalyzer.find_importers(...)` (used by
   both the new edge and the legacy `analyze_dependencies`), and extract
-  `_ModuleSentinel` into a shared leaf module so `edges` can build module stubs without
+  `ModuleSentinel` into a shared leaf module so `edges` can build module stubs without
   importing `inspect`.
 - Conformance + unit + integration coverage mirroring the `members`/`callees` edges.
 
@@ -63,8 +63,8 @@ that import a target **module** — reusing the existing reverse-scan logic (and
 | `src/pyeye/mcp/operations/edges.py` | Modify | Move `imported_by` to the implemented set; add `resolve_imported_by` (module-only) to `EDGE_RESOLVERS`. Returns `EdgeResult` for modules, `None` for non-modules (the per-kind not-supported signal). |
 | `src/pyeye/mcp/operations/expand.py` | Modify | Treat a `None` resolver result as the `not_yet_implemented` unsupported branch; await resolver results that are awaitable (so an async resolver composes with the existing sync ones). |
 | `src/pyeye/analyzers/jedi_analyzer.py` | Modify | Extract the reverse-scan from `analyze_dependencies` into a stable `find_importers(module_path, target_file, scope) -> list[tuple[str, Path]]`; rewire the (deprecated) `analyze_dependencies` to consume it. Behaviour-preserving. |
-| `src/pyeye/_module_sentinel.py` | Create | Shared leaf home for `_ModuleSentinel` (moved out of `inspect.py`). Deps: `ast`, `Path` only. |
-| `src/pyeye/mcp/operations/inspect.py` | Modify | Import `_ModuleSentinel` from the shared module under its existing private alias (zero call-site churn). Behaviour-preserving. |
+| `src/pyeye/_module_sentinel.py` | Create | Shared leaf home for `ModuleSentinel` (moved out of `inspect.py`). Deps: `ast`, `Path` only. |
+| `src/pyeye/mcp/operations/inspect.py` | Modify | Import the public `ModuleSentinel` from the shared module directly (as-built: extracted under the public name, no private alias). Behaviour-preserving. |
 | `tests/unit/mcp/operations/test_edges.py` | Modify | `resolve_imported_by` adjacency, measured-empty, non-module → `None`, and the no-`get_references` spy. |
 | `tests/unit/.../test_jedi_analyzer*.py` | Modify | `find_importers` unit tests + `analyze_dependencies["imported_by"]` extraction-parity. |
 | `tests/integration/api_redesign/test_traversal_integration.py` | Modify | `imported_by` over the wire (module supported; non-module unsupported). |
@@ -76,13 +76,13 @@ that import a target **module** — reusing the existing reverse-scan logic (and
 `expand("pkg.mod", "imported_by", analyzer)`:
 
 1. `edge_status("imported_by")` → `"implemented"` (after the registry move).
-2. `inspect._find_jedi_name_for_handle("pkg.mod")` → `_ModuleSentinel` (kind module,
+2. `inspect._find_jedi_name_for_handle("pkg.mod")` → `ModuleSentinel` (kind module,
    carries `.module_path`).
 3. `await resolve_imported_by(sentinel, analyzer)`:
    - kind ≠ module → return `None`.
    - kind == module → `pairs = await analyzer.find_importers("pkg.mod",
      sentinel.module_path, scope="all")` → for each `(importer_module, importer_file)`:
-     `h = Handle(importer_module)` + `_ModuleSentinel(importer_file, str(h), analyzer)`
+     `h = Handle(importer_module)` + `ModuleSentinel(importer_file, str(h), analyzer)`
      (the sentinel takes the canonical handle as a **string**, matching its existing
      `inspect` call site) → dedup by handle (keep first) → `EdgeResult(adjacents=sorted(...))`.
 4. `expand`: `None` → unsupported `not_yet_implemented`; otherwise
@@ -98,7 +98,7 @@ that import a target **module** — reusing the existing reverse-scan logic (and
   (#343). It takes `target_file` (the resolver already holds it via the source
   sentinel), avoiding a re-location of the target module. `analyze_dependencies` is
   rewired to `imported_by = sorted({m for m, _ in find_importers(...)})`.
-- **`_ModuleSentinel`** moves to `src/pyeye/_module_sentinel.py` (a self-contained
+- **`ModuleSentinel`** moves to `src/pyeye/_module_sentinel.py` (a self-contained
   ~30-line class with only `ast`/`Path` deps). `edges` imports it to build a module
   Name **from the importer file it already holds** — no re-resolution. This is load-
   bearing: tests/standalone scripts are **not** importable via `find_module_file`, so a
@@ -181,7 +181,7 @@ resolvers or the inspect count path.
 
 - kind ≠ `"module"` → `None`.
 - kind == `"module"` → `find_importers(jedi_name.full_name, jedi_name.module_path,
-  scope="all")` → build `(Handle, _ModuleSentinel)` per importer → `EdgeResult(adjacents)`.
+  scope="all")` → build `(Handle, ModuleSentinel)` per importer → `EdgeResult(adjacents)`.
 
 `scope` lives at the analyzer layer (`find_importers` keeps the param, as
 `analyze_dependencies` already does); `resolve_imported_by` fixes it to `"all"`. The
