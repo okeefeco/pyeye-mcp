@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=3adf7eb3"></script>
+      <script src="../../../_static/documentation_options.js?v=c1ba1d94"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -874,12 +874,20 @@
 <span class="sd">        with ``reason: &quot;not_yet_implemented&quot;`` (symbol-level ``imported_by`` is</span>
 <span class="sd">        not yet implemented).  Ceiling: runtime-dynamic imports</span>
 <span class="sd">        (``importlib``/``__import__`` with computed targets) are not detected.</span>
+<span class="sd">      - ``subclasses``  — class → the project classes that subclass it (class</span>
+<span class="sd">        Stubs), computed by an AST class-graph walk + forward ``goto`` (no</span>
+<span class="sd">        reverse symbol search).  Returns the full project subclass closure</span>
+<span class="sd">        (direct + indirect), so ``len(stubs) == inspect(handle).edge_counts``</span>
+<span class="sd">        ``.subclasses``.  ``stubs: []`` means the class has no project</span>
+<span class="sd">        subclasses (measured-none).  A non-class handle also returns the</span>
+<span class="sd">        supported branch with ``stubs: []`` — only a class CAN be subclassed,</span>
+<span class="sd">        so ``[]`` is true by definition, not an absence-vs-zero lie.</span>
 
 <span class="sd">    Unsupported edges return the unsupported branch (never raise):</span>
 <span class="sd">      - Inbound/reference edges (``callers``, ``references``,</span>
 <span class="sd">        ``overrides``, …) require the Pyright reference backend (#333) and return</span>
 <span class="sd">        ``unsupported: true, reason: &quot;deferred_reference_backend&quot;``.</span>
-<span class="sd">      - Other structural edges (``superclasses``, ``subclasses``, ``imports``,</span>
+<span class="sd">      - Other structural edges (``superclasses``, ``imports``,</span>
 <span class="sd">        ``enclosing_scope``) are planned but not yet implemented in this slice;</span>
 <span class="sd">        they return ``reason: &quot;not_yet_implemented&quot;``.</span>
 <span class="sd">      - Unrecognised edge names return ``reason: &quot;unknown_edge&quot;``.</span>
