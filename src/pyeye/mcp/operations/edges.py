@@ -188,7 +188,7 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     is fine).
 
     Args:
-        jedi_name: Resolved Jedi ``Name`` (or ``_ModuleSentinel``) for the
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
             container.  Container-ness is derived from its normalised kind.
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
@@ -293,7 +293,7 @@ def _module_members(
     neither included nor excluded (rare in well-typed codebases).
 
     Args:
-        jedi_name: Resolved Jedi ``Name`` (or ``_ModuleSentinel``) for the
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
             module — its ``module_path`` is the module file.
         handle: The module's canonical dotted-name handle.
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
