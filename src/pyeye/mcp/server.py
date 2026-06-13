@@ -501,9 +501,16 @@ async def expand(
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
         counted in ``unresolved_call_sites`` rather than invented.
+      - ``imported_by``  — module → the project modules that import it (module
+        Stubs), computed by static AST import-graph reversal (no reverse symbol
+        search).  Covers importers anywhere in the project including tests and
+        standalone scripts.  Non-module handles return the unsupported branch
+        with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
+        not yet implemented).  Ceiling: runtime-dynamic imports
+        (``importlib``/``__import__`` with computed targets) are not detected.
 
     Unsupported edges return the unsupported branch (never raise):
-      - Inbound/reference edges (``callers``, ``references``, ``imported_by``,
+      - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
       - Other structural edges (``superclasses``, ``subclasses``, ``imports``,
