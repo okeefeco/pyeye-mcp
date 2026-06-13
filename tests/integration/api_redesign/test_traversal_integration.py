@@ -28,6 +28,12 @@ import pytest
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
 
+#: Dedicated subclasses fixture project (#348): ``pkg.base.Animal`` has a known
+#: project subclass closure of {Mammal (direct), Dog (indirect grandchild),
+#: Lizard (non-importable root script)}; ``pkg.base.Loner`` is subclassed by
+#: nobody (measured-empty class case); ``pkg.base`` is a module (non-class).
+_SUBCLASSES_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "subclasses_edge"
+
 # ---------------------------------------------------------------------------
 # Tool-registration assertions
 # ---------------------------------------------------------------------------
@@ -633,6 +639,325 @@ class TestExpandImportedByNonModuleEndToEnd:
         assert (
             type(result) is dict
         ), f"unsupported result must be exact dict; got {type(result)!r}"  # noqa: E721
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: subclasses edge — class (supported, stubs) and non-class
+# (supported, measured-empty stubs) over the wire
+# ---------------------------------------------------------------------------
+
+
+class TestExpandSubclassesClassEndToEnd:
+    """End-to-end tests for the ``subclasses`` edge on a CLASS handle over the wire.
+
+    ``pkg.base.Animal`` has a known project subclass closure — the result must be
+    the supported branch with non-empty class stubs (direct + indirect, including
+    the non-importable root script subclass).  No ``unresolved_call_sites``
+    (``subclasses`` is a forward class-graph walk, not callees).
+    """
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_returns_supported_branch(self) -> None:
+        """expand(Animal, 'subclasses') returns the supported branch (no 'unsupported')."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "unsupported" not in result, (
+            "supported result must not carry 'unsupported'; " f"got result={result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_has_required_fields(self) -> None:
+        """expand(Animal, 'subclasses') returns source/edge/stubs."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert "source" in result, f"'source' missing from result: {result!r}"
+        assert "edge" in result, f"'edge' missing from result: {result!r}"
+        assert "stubs" in result, f"'stubs' missing from result: {result!r}"
+        assert result["edge"] == "subclasses"
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_stubs_non_empty(self) -> None:
+        """Animal has known project subclasses — stubs must be a non-empty list."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        stubs = result["stubs"]
+        assert isinstance(stubs, list), f"stubs must be a list; got {type(stubs)!r}"
+        assert len(stubs) > 0, "Animal has known project subclasses — stubs must be non-empty"
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_full_closure_present(self) -> None:
+        """The supported result carries the full direct+indirect closure over the wire.
+
+        The fixture's known closure is exactly {Mammal, Dog, Lizard} — including
+        ``script_animal.Lizard`` defined in a non-importable root script, proving
+        the file-based stub construction survives the wire.
+        """
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        handles = {stub["handle"] for stub in result["stubs"]}
+        assert handles == {
+            "pkg.middle.Mammal",
+            "pkg.middle.Dog",
+            "script_animal.Lizard",
+        }, f"expected the full Animal subclass closure; got {sorted(handles)!r}"
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_stubs_have_required_fields(self) -> None:
+        """Each subclass stub has handle/kind/scope/line_start/line_end."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        for i, stub in enumerate(result["stubs"]):
+            assert isinstance(stub, dict), f"stub[{i}] must be a plain dict; got {type(stub)!r}"
+            for field in ("handle", "kind", "scope", "line_start", "line_end"):
+                assert field in stub, f"stub[{i}] missing required field '{field}'; stub={stub!r}"
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_stubs_are_class_kind(self) -> None:
+        """Each subclass stub must have kind == 'class' (subclasses are always classes)."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        for i, stub in enumerate(result["stubs"]):
+            assert stub["kind"] == "class", (
+                f"stub[{i}] must have kind='class'; "
+                f"got kind={stub.get('kind')!r}; stub={stub!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_no_unresolved_call_sites(self) -> None:
+        """subclasses must NOT include 'unresolved_call_sites' (callees-only field)."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert "unresolved_call_sites" not in result, (
+            "'unresolved_call_sites' must be absent for subclasses edge; "
+            f"got result keys: {list(result.keys())!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_result_is_json_serialisable(self) -> None:
+        """The subclasses class result round-trips through json.dumps without error."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        # Must not raise — ensures no custom types leak across the wire
+        serialised = json.dumps(result)
+        roundtripped = json.loads(serialised)
+        assert isinstance(roundtripped, dict)
+        assert isinstance(roundtripped["stubs"], list)
+
+    @pytest.mark.asyncio
+    async def test_subclasses_class_result_is_plain_dict_with_plain_stubs(self) -> None:
+        """All nested values in the supported subclasses result are plain Python primitives."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Animal",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert (
+            type(result) is dict
+        ), f"result must be exact dict (not subclass); got {type(result)!r}"  # noqa: E721
+        for i, stub in enumerate(result["stubs"]):
+            assert (
+                type(stub) is dict
+            ), f"stub[{i}] must be exact dict; got {type(stub)!r}"  # noqa: E721
+
+
+class TestExpandSubclassesNonClassEndToEnd:
+    """End-to-end tests for the ``subclasses`` edge on a NON-CLASS handle over the wire.
+
+    ``pkg.base`` is a module — only a class CAN be subclassed, so ``[]`` for a
+    non-class is true BY DEFINITION.  Unlike ``imported_by`` (whose wrong-kind
+    result is the unsupported ``None`` branch), ``subclasses`` takes the
+    ``members``/``callees`` measured-empty route: the SUPPORTED branch with
+    ``stubs: []``.  This is the defining behavior of the slice (#348 decision 1).
+    """
+
+    @pytest.mark.asyncio
+    async def test_subclasses_non_class_returns_supported_branch(self) -> None:
+        """expand(pkg.base module, 'subclasses') returns the SUPPORTED branch."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "unsupported" not in result, (
+            "non-class subclasses must be the SUPPORTED measured-empty branch, "
+            f"not unsupported; got result={result!r}"
+        )
+        assert "reason" not in result, (
+            "non-class subclasses must NOT carry a 'reason' (supported branch); "
+            f"got result={result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_non_class_has_empty_stubs(self) -> None:
+        """The non-class result is measured-empty: stubs present and empty."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert "stubs" in result, f"'stubs' missing from supported result: {result!r}"
+        assert result["stubs"] == [], (
+            "non-class subclasses must be measured-empty ('stubs': []); "
+            f"got stubs={result.get('stubs')!r}"
+        )
+        assert result["edge"] == "subclasses"
+
+    @pytest.mark.asyncio
+    async def test_subclasses_non_class_no_unresolved_call_sites(self) -> None:
+        """The non-class subclasses result must NOT include 'unresolved_call_sites'."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert "unresolved_call_sites" not in result, (
+            "'unresolved_call_sites' must be absent for subclasses edge; "
+            f"got result keys: {list(result.keys())!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_non_class_result_is_json_serialisable(self) -> None:
+        """The non-class measured-empty result round-trips through json.dumps."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        serialised = json.dumps(result)
+        roundtripped = json.loads(serialised)
+        assert isinstance(roundtripped, dict)
+        assert roundtripped["stubs"] == []
+
+    @pytest.mark.asyncio
+    async def test_subclasses_non_class_result_is_plain_dict(self) -> None:
+        """The non-class measured-empty result is an exact plain dict."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert (
+            type(result) is dict
+        ), f"result must be exact dict (not subclass); got {type(result)!r}"  # noqa: E721
+
+
+class TestExpandSubclassesEmptyClassEndToEnd:
+    """End-to-end test for the ``subclasses`` edge on a CLASS with NO subclasses.
+
+    ``pkg.base.Loner`` is a class that nobody subclasses.  This is a DISTINCT
+    branch from the non-class case (``TestExpandSubclassesNonClassEndToEnd``):
+    the kind gate matches (it IS a class), the resolver runs ``find_subclasses``
+    and genuinely MEASURES zero subclasses — so the empty ``[]`` is produced by a
+    different code path than the wrong-kind short-circuit.  Both surface as the
+    same SUPPORTED measured-empty shape, and this pins the class-zero path over
+    the wire (the fixture docstring advertises ``Loner`` for exactly this case).
+    """
+
+    @pytest.mark.asyncio
+    async def test_subclasses_empty_class_returns_supported_measured_empty(self) -> None:
+        """expand(pkg.base.Loner, 'subclasses') is the SUPPORTED branch with stubs: []."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Loner",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
+        assert "unsupported" not in result, (
+            "a class with no subclasses must be the SUPPORTED measured-empty branch, "
+            f"not unsupported; got result={result!r}"
+        )
+        assert "reason" not in result
+        assert result["edge"] == "subclasses"
+        assert result["stubs"] == [], (
+            "a class measured to have no subclasses must yield 'stubs': []; "
+            f"got stubs={result.get('stubs')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_subclasses_empty_class_result_is_json_serialisable(self) -> None:
+        """The empty-class measured-empty result round-trips through json.dumps."""
+        from pyeye.mcp.server import expand
+
+        result = await expand(
+            handle="pkg.base.Loner",
+            edge="subclasses",
+            project_path=str(_SUBCLASSES_FIXTURE),
+        )
+
+        roundtripped = json.loads(json.dumps(result))
+        assert isinstance(roundtripped, dict)
+        assert roundtripped["stubs"] == []
 
 
 # ---------------------------------------------------------------------------
