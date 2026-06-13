@@ -1,9 +1,9 @@
 # Outline design — `outline(handle)` structural skeleton
 
 **Date:** 2026-06-13
-**Issue:** TBD (to be filed before implementation)
+**Issue:** #355
 **Status:** design (pre-implementation)
-**Branch:** TBD (`feat/<issue>-outline`)
+**Branch:** `feat/355-outline`
 
 ## 1. Context & goal
 
