@@ -710,7 +710,7 @@ async def outline(
         ``OutlineTree`` dict — ``{"node": Stub, "children": [OutlineTree, ...]}``.
         Never raises; an unresolvable handle yields a minimal single-node tree
         with ``children: []``.  Children within each parent are in source order
-        (sorted by ``line_start``); BFS inclusion order bounds the budget
+        (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget
         gracefully (all of depth 1 before any of depth 2, etc.).
     """
     analyzer = get_analyzer(project_path)
