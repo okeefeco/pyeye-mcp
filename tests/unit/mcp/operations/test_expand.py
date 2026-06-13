@@ -52,6 +52,13 @@ _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
 _MAKE_WIDGET_HANDLE = "mypackage._core.widgets.make_widget"
 _ORCHESTRATE_HANDLE = "mypackage._core.callees_fixture.orchestrate"
 
+#: imported_by fixtures (Phase 4): ``widgets`` is a module imported by several
+#: other modules (supported, non-empty); ``module_forms`` is a leaf module that
+#: nobody imports (supported, measured ``stubs: []``); ``Widget`` is a CLASS — a
+#: non-module handle for which ``imported_by`` does not apply (unsupported).
+_MODULE_WITH_IMPORTERS_HANDLE = "mypackage._core.widgets"
+_MODULE_NO_IMPORTERS_HANDLE = "mypackage._core.module_forms"
+
 #: The Phase-1 Stub keys that are ALWAYS present (spec §4.1; ``signature`` is
 #: callable-only and therefore not asserted as universally present).
 _STUB_REQUIRED_KEYS = {"handle", "kind", "scope", "line_start", "line_end"}
@@ -300,3 +307,104 @@ class TestExpandBranchesMutuallyExclusive:
         assert result["unsupported"] is True
         assert "stubs" not in result
         assert "unresolved_call_sites" not in result
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1 — imported_by wiring (the three distinct paths, #345/#332)
+# ---------------------------------------------------------------------------
+
+
+class TestExpandImportedBySupported:
+    """``expand`` over ``imported_by`` for a MODULE returns the supported shape.
+
+    The resolver (Phase 3 ``resolve_imported_by``) is async and returns an
+    ``EdgeResult`` for a module handle.  ``expand`` awaits it and builds a stub
+    per importer; every importer stub is a module (``kind == "module"``).  This
+    is the callees-free supported branch — ``unresolved_call_sites`` is ABSENT
+    (the resolver carries it as ``None`` for this edge).
+    """
+
+    @pytest.mark.asyncio
+    async def test_module_imported_by_supported_shape(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_MODULE_WITH_IMPORTERS_HANDLE, "imported_by", analyzer)
+        # Supported branch — never unsupported.
+        assert "unsupported" not in result
+        assert "reason" not in result
+        assert result["edge"] == "imported_by"
+        assert isinstance(result["source"], str)
+        assert isinstance(result["stubs"], list)
+        # imported_by is an inbound edge, NOT callees — no unresolved_call_sites.
+        assert "unresolved_call_sites" not in result
+        assert "cursor" not in result
+
+    @pytest.mark.asyncio
+    async def test_module_imported_by_stubs_are_module_stubs(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_MODULE_WITH_IMPORTERS_HANDLE, "imported_by", analyzer)
+        assert result["stubs"], "widgets module has known importers → non-empty stubs"
+        for stub in result["stubs"]:
+            _assert_is_stub(stub)
+            # Each importer is itself a module.
+            assert stub["kind"] == "module", f"importer stub should be a module: {stub}"
+
+
+class TestExpandImportedByNonModuleUnsupported:
+    """A NON-MODULE handle → unsupported ``not_yet_implemented`` (NOT empty).
+
+    The resolver returns ``None`` for a non-module handle (a class/function CAN
+    be imported, so claiming ``stubs: []`` would be the #332 "measured zero"
+    lie).  ``expand`` must surface that ``None`` as the UNSUPPORTED branch with a
+    KIND-SPECIFIC ``detail`` — distinct from the source-not-found graceful-empty
+    path and from the module measured-empty path.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_imported_by_is_unsupported(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
+        # Unsupported branch — wrong kind for this edge.
+        assert result["unsupported"] is True
+        assert result["reason"] == "not_yet_implemented"
+        assert result["edge"] == "imported_by"
+        # Mutually exclusive: an unsupported result NEVER carries stubs.
+        assert "stubs" not in result
+        assert "unresolved_call_sites" not in result
+
+    @pytest.mark.asyncio
+    async def test_class_imported_by_detail_names_kind(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
+        detail = result["detail"]
+        assert isinstance(detail, str) and detail, "detail must be a non-empty str"
+        # Kind-specific: Widget is a class, so the detail must name the kind.
+        assert "class" in detail, f"detail must name the handle's kind (class): {detail!r}"
+        assert "imported_by" in detail, f"detail should name the edge: {detail!r}"
+
+
+class TestExpandImportedByModuleNoImportersSupported:
+    """A MODULE that nobody imports → supported ``stubs: []`` (measured none).
+
+    This pins the #332 distinction at the operation layer: ``module_forms`` IS a
+    module (the edge applies), so the resolver returns ``EdgeResult([])`` — a
+    MEASURED empty — and ``expand`` returns the SUPPORTED branch with
+    ``stubs: []``.  This is DISTINCT from the non-module unsupported branch.
+    """
+
+    @pytest.mark.asyncio
+    async def test_module_no_importers_is_supported_empty(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_MODULE_NO_IMPORTERS_HANDLE, "imported_by", analyzer)
+        assert result["stubs"] == [], "module_forms is imported by nobody → measured []"
+        # Supported branch — measured-empty is NOT unsupported (the #332 line).
+        assert "unsupported" not in result
+        assert "reason" not in result
+        assert result["edge"] == "imported_by"
+        assert "unresolved_call_sites" not in result
+
+    @pytest.mark.asyncio
+    async def test_no_importers_distinct_from_non_module(self, analyzer: JediAnalyzer) -> None:
+        # The crux of #332: module-with-no-importers (supported empty) and
+        # non-module (unsupported) must be DIFFERENT shapes.
+        empty_module = await expand(_MODULE_NO_IMPORTERS_HANDLE, "imported_by", analyzer)
+        non_module = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
+        assert "unsupported" not in empty_module
+        assert non_module["unsupported"] is True
+        # And they are genuinely different shapes (stubs vs reason).
+        assert "stubs" in empty_module and "stubs" not in non_module
+        assert "reason" not in empty_module and "reason" in non_module
