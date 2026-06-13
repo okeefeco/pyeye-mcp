@@ -2,7 +2,8 @@
 
 ``expand`` is the user-facing primitive that walks ONE edge from a canonical
 source handle and returns the adjacent symbols as lightweight stubs.  It is the
-composition layer over the Phase-2/3 edge resolvers (``members``, ``callees``)
+composition layer over the Phase-2/3 edge resolvers (``members``, ``callees``,
+``imported_by``)
 and the Phase-1 stub builder — it adds NO new resolution logic of its own.
 
 Discriminated union (spec §4.2)
