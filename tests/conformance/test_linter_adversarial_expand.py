@@ -39,6 +39,11 @@ from tests.conformance.response_linter import ConformanceViolation, lint_respons
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "resolve_project"
 
+#: Dedicated subclasses fixture (#348): ``pkg.base.Animal`` has a known project
+#: subclass closure {Mammal, Dog, Lizard}; ``pkg.base`` is a module (non-class →
+#: measured-empty supported result).
+_SUBCLASSES_FIXTURE = Path(__file__).parent.parent / "fixtures" / "subclasses_edge"
+
 # ---------------------------------------------------------------------------
 # Minimal valid objects (used as starting points; mutate via _clone)
 # ---------------------------------------------------------------------------
@@ -730,6 +735,54 @@ class TestRealExpandOutputConforms:
         # Unsupported branch — reason=not_yet_implemented.
         assert result.get("unsupported") is True
         assert result.get("reason") == "not_yet_implemented"
+        lint_response(result, "expand")  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_real_subclasses_class_output_conforms(self) -> None:
+        """Real expand(Animal, subclasses) supported branch passes the linter.
+
+        ``subclasses`` is a class-only edge that IS measured in
+        ``inspect.edge_counts`` (unlike ``imported_by``).  Its supported result
+        carries ``source``/``edge``/``stubs`` with no ``unresolved_call_sites`` —
+        the existing E.* rules already accept any ``edge`` string and a stub-only
+        supported result, so NO linter change is needed.
+        """
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.expand import expand
+
+        analyzer = JediAnalyzer(str(_SUBCLASSES_FIXTURE))
+        result = await expand("pkg.base.Animal", "subclasses", analyzer)
+
+        assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
+        # Supported branch — non-empty stubs, no unsupported key.
+        assert "stubs" in result, f"expected supported branch with stubs; got {result!r}"
+        assert result["stubs"], "Animal has known project subclasses → non-empty stubs"
+        assert "unsupported" not in result
+        lint_response(result, "expand")  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_real_subclasses_non_class_output_conforms(self) -> None:
+        """Real expand(pkg.base module, subclasses) measured-empty branch passes the linter.
+
+        A non-class handle yields the SUPPORTED measured-empty result
+        (``stubs: []``) — NOT the unsupported branch (decision 1, #348).  The
+        existing rule that accepts ``stubs=[]`` as a valid supported result
+        (``test_supported_members_empty_stubs_passes``) covers this with NO
+        linter change.
+        """
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.expand import expand
+
+        analyzer = JediAnalyzer(str(_SUBCLASSES_FIXTURE))
+        result = await expand("pkg.base", "subclasses", analyzer)
+
+        assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
+        # Supported measured-empty branch — stubs present and empty, no unsupported.
+        assert (
+            result.get("stubs") == []
+        ), f"expected measured-empty supported branch; got {result!r}"
+        assert "unsupported" not in result
+        assert "reason" not in result
         lint_response(result, "expand")  # must not raise
 
 
