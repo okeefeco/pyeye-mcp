@@ -128,7 +128,6 @@ async def outline(
 
     if root_jedi_name is None:
         # Unresolvable — return minimal single-node fallback (mirrors inspect).
-        # We need a minimal stub; build a placeholder with what we know.
         stub = _make_fallback_stub(handle)
         return {"node": stub, "children": []}
 
@@ -143,17 +142,17 @@ async def outline(
     # The root always counts as node 1.
     node_count: int = 1
 
-    # BFS queue entries: (jedi_name, handle_str, depth, tree_node_dict)
+    # BFS queue entries: (jedi_name, depth, tree_node_dict)
     # tree_node_dict is the MUTABLE dict for this node — we fill in "children"
     # or "truncated"/"truncation_reason" as we process it.
-    queue: deque[tuple[Any, str, int, dict[str, Any]]] = deque()
-    queue.append((root_jedi_name, handle, 0, root_tree))
+    queue: deque[tuple[Any, int, dict[str, Any]]] = deque()
+    queue.append((root_jedi_name, 0, root_tree))
 
     # ------------------------------------------------------------------
     # 3. BFS — decide whether to expand each node, build children.
     # ------------------------------------------------------------------
     while queue:
-        jedi_name, _, depth, tree_node = queue.popleft()
+        jedi_name, depth, tree_node = queue.popleft()
         stub = tree_node["node"]
         kind = stub["kind"]
         scope = stub["scope"]
@@ -216,7 +215,7 @@ async def outline(
             child_tree: dict[str, Any] = {"node": child_stub}
             children.append(child_tree)
             node_count += 1
-            queue.append((child_jedi_name, child_handle_str, depth + 1, child_tree))
+            queue.append((child_jedi_name, depth + 1, child_tree))
 
         # Sort children by (line_start, handle) — source order (spec §5.2).
         # BFS inclusion order is independent of presentation order: BFS decides
