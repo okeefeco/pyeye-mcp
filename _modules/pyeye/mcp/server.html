@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=de6ba0fb"></script>
+      <script src="../../../_static/documentation_options.js?v=3adf7eb3"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -413,6 +413,7 @@
     <span class="n">resolve</span> <span class="k">as</span> <span class="n">_resolve_impl</span><span class="p">,</span>
     <span class="n">resolve_at</span> <span class="k">as</span> <span class="n">_resolve_at_impl</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.operations.trace</span><span class="w"> </span><span class="kn">import</span> <span class="n">trace</span> <span class="k">as</span> <span class="n">_trace_impl</span>
 
 <span class="c1"># Logger — configured by __main__.py or caller; fallback to basic stderr.</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -925,6 +926,79 @@
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
     <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_expand_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">edge</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">))</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;trace&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;trace&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">trace</span><span class="p">(</span>
+    <span class="n">start</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">follow</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">max_nodes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="n">stop_when</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Bounded multi-hop BFS traversal — returns a typed Subgraph.</span>
+
+<span class="sd">    The composition primitive: it walks the ``follow`` edges outward from</span>
+<span class="sd">    ``start`` across multiple hops, deduping by canonical handle, and returns a</span>
+<span class="sd">    ``Subgraph`` of the reachable structure.  Use resolve()/inspect() to obtain</span>
+<span class="sd">    canonical handles first, then trace() to see structure across hops (call</span>
+<span class="sd">    chains, reverse-import closures, member trees).</span>
+
+<span class="sd">    Composes the same edge registry as ``expand``; only the implemented edges</span>
+<span class="sd">    (``members``, ``callees``, ``imported_by``) are traversed.  Any other edge</span>
+<span class="sd">    named in ``follow`` (deferred reference edges, not-yet-implemented structural</span>
+<span class="sd">    edges, unknown names) is reported in ``unsupported_edges`` rather than</span>
+<span class="sd">    silently dropped — a silent drop would falsely read as &quot;no such neighbours&quot;.</span>
+
+<span class="sd">    Response shape — ``Subgraph``::</span>
+
+<span class="sd">        { &quot;nodes&quot;: { handle: Stub, ... },        # deduped by canonical handle</span>
+<span class="sd">          &quot;edges&quot;: [ {&quot;from&quot;: h, &quot;to&quot;: h, &quot;kind&quot;: edge}, ... ],</span>
+<span class="sd">          &quot;truncated&quot;: bool,                     # a cap cut off reachable nodes</span>
+<span class="sd">          &quot;truncation_reasons&quot;: [&quot;max_depth&quot;?, &quot;max_nodes&quot;?],  # which cap(s) fired</span>
+<span class="sd">          &quot;unsupported_edges&quot;: [ {&quot;edge&quot;, &quot;reason&quot;, &quot;detail&quot;}, ... ] }</span>
+
+<span class="sd">    Edges are NOT deduped across kinds; edges to already-visited handles are</span>
+<span class="sd">    recorded (so cycles stay visible) but never re-expanded, guaranteeing</span>
+<span class="sd">    termination on cyclic graphs.  ``truncated`` is true ONLY when ``max_depth``</span>
+<span class="sd">    or ``max_nodes`` cut off reachable handles before natural termination — not</span>
+<span class="sd">    merely because a cap was set.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        start: One canonical handle, or a list of them, as BFS roots.</span>
+<span class="sd">        follow: Edge names to traverse at every hop (e.g. ``[&quot;members&quot;]``,</span>
+<span class="sd">            ``[&quot;callees&quot;]``, ``[&quot;imported_by&quot;]``).</span>
+<span class="sd">        project_path: Project root path (default: current directory).</span>
+<span class="sd">        max_depth: Maximum hop distance from a root before a node becomes a</span>
+<span class="sd">            non-expanded frontier leaf (default 3).</span>
+<span class="sd">        max_nodes: Maximum number of distinct nodes in the subgraph; reaching it</span>
+<span class="sd">            sets ``truncated`` (default 50).</span>
+<span class="sd">        stop_when: Optional StopPredicate (``exclude_external`` /</span>
+<span class="sd">            ``module_pattern`` / ``exclude_tests``); a matching adjacent is a</span>
+<span class="sd">            pruned boundary.  Roots are never pruned.  ``exclude_external`` stops</span>
+<span class="sd">            at stdlib/site-packages nodes — keeps a trace inside the project (the</span>
+<span class="sd">            common ``callees`` case).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an</span>
+<span class="sd">        unresolvable root simply contributes no node.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="k">await</span> <span class="n">_trace_impl</span><span class="p">(</span>
+            <span class="n">start</span><span class="p">,</span>
+            <span class="n">follow</span><span class="p">,</span>
+            <span class="n">analyzer</span><span class="p">,</span>
+            <span class="n">max_depth</span><span class="o">=</span><span class="n">max_depth</span><span class="p">,</span>
+            <span class="n">max_nodes</span><span class="o">=</span><span class="n">max_nodes</span><span class="p">,</span>
+            <span class="n">stop_when</span><span class="o">=</span><span class="n">stop_when</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
 
 
 <span class="c1"># NOTE: superseded by future expand(handle, edge=&quot;references&quot;); kept until Phase B migration.</span>
