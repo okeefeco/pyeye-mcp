@@ -45,12 +45,14 @@ from unittest.mock import Mock, patch
 import jedi
 import pytest
 
+from pyeye._module_sentinel import ModuleSentinel
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
     EdgeResult,
     edge_status,
     resolve_callees,
+    resolve_imported_by,
     resolve_members,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
@@ -67,6 +69,14 @@ _MODULE_FORMS_HANDLE = "mypackage._core.module_forms"
 _CALLEES_MODULE_HANDLE = "mypackage._core.callees_fixture"
 _ORCHESTRATE_HANDLE = "mypackage._core.callees_fixture.orchestrate"
 _PROCESSOR_RUN_HANDLE = "mypackage._core.callees_fixture.Processor.run"
+
+# imported_by fixtures: ``widgets`` is imported by several mypackage modules
+# AND by the non-package ``script_importer`` (a standalone script at the
+# fixture root). ``module_forms`` is a leaf module that nobody imports.
+_SCRIPT_IMPORTER_HANDLE = "script_importer"
+_DIRECT_IMPORTER_HANDLE = "mypackage._core.direct_importer"
+_REL_IMPORTER_HANDLE = "mypackage._core.rel_importer"
+_USAGE_IMPORTER_HANDLE = "mypackage.usage"
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +134,12 @@ class TestEdgeStatusModel:
     def test_not_yet_implemented_edges(self, edge: str) -> None:
         assert edge_status(edge) == "not_yet_implemented"
 
+    def test_imported_by_is_implemented(self) -> None:
+        # imported_by moves from deferred_reference_backend to implemented in
+        # Phase 3: its resolver (resolve_imported_by) builds on the pure-AST
+        # find_importers scan — no indexed reference backend needed.
+        assert edge_status("imported_by") == "implemented"
+
     @pytest.mark.parametrize(
         "edge",
         [
@@ -132,7 +148,6 @@ class TestEdgeStatusModel:
             "read_by",
             "written_by",
             "passed_by",
-            "imported_by",
             "overrides",
             "overridden_by",
             "decorated_by",
@@ -469,4 +484,154 @@ class TestResolveCalleesNeverReverseSearch:
             result = _callees_for(_ORCHESTRATE_HANDLE, analyzer)
         # Resolver completed without touching reverse search.
         assert _MAKE_WIDGET_HANDLE in {str(h) for h in result.handles}
+        spy.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 3.1/3.2 — imported_by resolver (pure-AST reverse import scan, async)
+# ---------------------------------------------------------------------------
+
+
+async def _imported_by_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
+    """Resolve *handle* to a Jedi name and await its ``imported_by`` result.
+
+    Returns the raw resolver result so tests can distinguish ``None`` (wrong
+    kind — a non-module handle) from ``EdgeResult([])`` (a module nobody
+    imports — measured none).
+    """
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return await resolve_imported_by(jedi_name, analyzer)
+
+
+class TestResolveImportedByModule:
+    """``imported_by`` = the modules that import a target module (reverse scan).
+
+    Contract is "≥ these known importers" — a SUBSET assertion, not exact
+    equality — so the test stays robust as the fixture grows. The non-package
+    ``script_importer`` is pinned explicitly: it lives outside ``mypackage`` and
+    is the case that the file-based scan (not Jedi reference resolution) buys.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_edgeresult(self, analyzer: JediAnalyzer) -> None:
+        result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    @pytest.mark.asyncio
+    async def test_known_importers_present(self, analyzer: JediAnalyzer) -> None:
+        result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        importers = {str(h) for h in result.handles}
+        expected_present = {
+            _DIRECT_IMPORTER_HANDLE,
+            _REL_IMPORTER_HANDLE,
+            _USAGE_IMPORTER_HANDLE,
+        }
+        missing = expected_present - importers
+        assert not missing, f"expected importers missing: {missing}; got {importers}"
+
+    @pytest.mark.asyncio
+    async def test_non_package_script_importer_present(self, analyzer: JediAnalyzer) -> None:
+        # script_importer.py lives at the fixture root, OUTSIDE mypackage, so its
+        # handle is the path-derived ``script_importer``. Building the importer's
+        # Name from its FILE (not by re-resolving the handle) is what makes this
+        # case work — re-resolution fails for non-package scripts.
+        result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        importers = {str(h) for h in result.handles}
+        assert (
+            _SCRIPT_IMPORTER_HANDLE in importers
+        ), f"non-package script importer missing; got {importers}"
+
+    @pytest.mark.asyncio
+    async def test_adjacents_are_handle_name_pairs_building_module_stubs(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        # Each adjacent is a (Handle, Name) pair whose Name is a module
+        # sentinel (kind == "module") built from the importer's own file.
+        result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        assert result.adjacents, "widgets should have importers"
+        for handle, name in result.adjacents:
+            assert isinstance(handle, Handle)
+            assert isinstance(name, ModuleSentinel)
+            assert name.type == "module"
+            # The Name's handle matches the adjacent handle (built from file).
+            assert name.full_name == str(handle)
+
+    @pytest.mark.asyncio
+    async def test_unresolved_call_sites_is_none(self, analyzer: JediAnalyzer) -> None:
+        # The unresolved-call-site notion is callees-only; imported_by never
+        # reports it.
+        result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        assert result.unresolved_call_sites is None
+
+
+class TestResolveImportedByMeasuredEmpty:
+    """A module that nobody imports → ``EdgeResult([])`` (measured none).
+
+    This is the absence-vs-zero invariant: ``module_forms`` IS a module (the
+    kind is correct, so the edge applies), but no other file imports it, so the
+    measured result is an empty adjacency — NOT the wrong-kind ``None`` signal.
+    """
+
+    @pytest.mark.asyncio
+    async def test_leaf_module_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        result = await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer)
+        assert result is not None, "module_forms is a module — must NOT be wrong-kind None"
+        assert isinstance(result, EdgeResult)
+        assert result.handles == [], f"module_forms is imported by nobody; got {result.handles}"
+
+
+class TestResolveImportedByNonModule:
+    """A non-module handle → wrong-kind ``None`` (NOT ``EdgeResult([])``).
+
+    This is the load-bearing #332 distinction: a class/function CAN be imported,
+    so returning ``[]`` would be the "measured zero" lie. ``None`` signals "this
+    edge does not apply to this kind" and becomes ``not_yet_implemented``
+    downstream in Phase 4 — it must be distinguishable from the measured-empty
+    module case above.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        # Widget is a class — imported_by does not apply to a symbol kind.
+        result = await _imported_by_for(_WIDGET_HANDLE, analyzer)
+        assert result is None, f"non-module handle must return None, got {result!r}"
+
+    @pytest.mark.asyncio
+    async def test_function_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        # make_widget is a function — also a symbol kind, also None.
+        result = await _imported_by_for(_MAKE_WIDGET_HANDLE, analyzer)
+        assert result is None, f"non-module handle must return None, got {result!r}"
+
+    @pytest.mark.asyncio
+    async def test_none_is_distinct_from_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        # The two empty-looking outcomes must be machine-distinguishable.
+        wrong_kind = await _imported_by_for(_WIDGET_HANDLE, analyzer)
+        measured_empty = await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer)
+        assert wrong_kind is None
+        assert measured_empty == EdgeResult(adjacents=[])
+        assert wrong_kind != measured_empty
+
+
+class TestResolveImportedByNeverReverseSearch:
+    """imported_by NEVER calls Jedi reverse search (it is pure-AST).
+
+    Mirrors ``TestResolveCalleesNeverReverseSearch``: patch ``get_references`` to
+    explode if touched, await the resolver over the fixture, then assert it
+    completed (real importers present) AND the spy was never called.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_references_not_called(self, analyzer: JediAnalyzer) -> None:
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on imported_by path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            result = await _imported_by_for(_MODULE_HANDLE, analyzer)
+        assert result is not None
+        assert _SCRIPT_IMPORTER_HANDLE in {str(h) for h in result.handles}
         spy.assert_not_called()
