@@ -3,13 +3,11 @@
 The edge registry is the single source of truth for which edges ``expand``
 supports.  Every edge name MUST classify into exactly one status:
 
-- ``"implemented"`` — ``members``, ``callees``
-- ``"not_yet_implemented"`` — ``superclasses``, ``subclasses``, ``imports``,
-  ``enclosing_scope``
+- ``"implemented"`` — ``members``, ``callees``, ``imported_by``, ``subclasses``
+- ``"not_yet_implemented"`` — ``superclasses``, ``imports``, ``enclosing_scope``
 - ``"deferred_reference_backend"`` — the inbound / reference edges
   (``callers``, ``references``, ``read_by``, ``written_by``, ``passed_by``,
-  ``imported_by``, ``overrides``, ``overridden_by``, ``decorated_by``,
-  ``decorates``)
+  ``overrides``, ``overridden_by``, ``decorated_by``, ``decorates``)
 - ``"unknown_edge"`` — any unrecognised name
 
 The status string values ARE the ``reason`` strings ``expand`` emits, so the
@@ -760,9 +758,18 @@ class TestResolveSubclassesClass:
 
     @pytest.mark.asyncio
     async def test_deterministic_across_runs(self, subclasses_analyzer: JediAnalyzer) -> None:
+        # find_subclasses iterates a Python set, so its order is
+        # PYTHONHASHSEED-dependent. The resolver sorts adjacents by canonical
+        # handle string, so the ORDERED list must equal the sorted FQNs of the
+        # fixture's subclasses — pin that exact order (a same-process re-run
+        # comparison would pass even with the bug, since set order is fixed
+        # within a process). Run under multiple PYTHONHASHSEED values to prove
+        # cross-process stability.
+        expected_order = sorted([_MAMMAL_HANDLE, _DOG_HANDLE, _LIZARD_HANDLE])
         first = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
         second = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
-        assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
+        assert [str(h) for h in first.handles] == expected_order
+        assert [str(h) for h in second.handles] == expected_order
 
 
 class TestResolveSubclassesMeasuredEmpty:

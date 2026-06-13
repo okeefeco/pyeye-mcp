@@ -742,6 +742,14 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
         seen.add(key)
         adjacents.append((h, name))
 
+    # find_subclasses builds its result by iterating a Python set, so
+    # result["subclasses"] arrives in PYTHONHASHSEED-dependent order; the
+    # first-seen dedup above inherits that instability.  The edge contract
+    # requires deterministic order (identical subclass set AND order every run),
+    # so sort by the canonical handle string here — mirroring how
+    # resolve_imported_by relies on find_importers' already-sorted output.
+    adjacents.sort(key=lambda pair: str(pair[0]))
+
     return EdgeResult(adjacents=adjacents)
 
 
