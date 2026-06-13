@@ -45,6 +45,7 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
+from pyeye.mcp.operations.inspect import inspect
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -573,8 +574,6 @@ class TestExpandSubclassesCountListConsistency:
 
     @pytest.mark.asyncio
     async def test_expand_len_equals_inspect_count(self, subclasses_analyzer: JediAnalyzer) -> None:
-        from pyeye.mcp.operations.inspect import inspect
-
         expand_result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
         inspect_result = await inspect(_ANIMAL_HANDLE, subclasses_analyzer)
 
@@ -593,8 +592,6 @@ class TestExpandSubclassesCountListConsistency:
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
         # The contract also holds for the measured-empty class case: 0 == 0.
-        from pyeye.mcp.operations.inspect import inspect
-
         expand_result = await expand(_LONER_HANDLE, "subclasses", subclasses_analyzer)
         inspect_result = await inspect(_LONER_HANDLE, subclasses_analyzer)
         assert len(expand_result["stubs"]) == inspect_result["edge_counts"]["subclasses"] == 0
