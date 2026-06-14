@@ -3,8 +3,9 @@
 The edge registry is the single source of truth for which edges ``expand``
 supports.  Every edge name MUST classify into exactly one status:
 
-- ``"implemented"`` — ``members``, ``callees``, ``imported_by``, ``subclasses``
-- ``"not_yet_implemented"`` — ``superclasses``, ``imports``, ``enclosing_scope``
+- ``"implemented"`` — ``members``, ``callees``, ``imported_by``, ``subclasses``,
+  ``superclasses``
+- ``"not_yet_implemented"`` — ``imports``, ``enclosing_scope``
 - ``"deferred_reference_backend"`` — the inbound / reference edges
   (``callers``, ``references``, ``read_by``, ``written_by``, ``passed_by``,
   ``overrides``, ``overridden_by``, ``decorated_by``, ``decorates``)
@@ -53,6 +54,7 @@ from pyeye.mcp.operations.edges import (
     resolve_imported_by,
     resolve_members,
     resolve_subclasses,
+    resolve_superclasses,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 
@@ -86,6 +88,19 @@ _LONER_HANDLE = "pkg.base.Loner"
 _MAMMAL_HANDLE = "pkg.middle.Mammal"  # direct subclass (importable module)
 _DOG_HANDLE = "pkg.middle.Dog"  # indirect (grandchild) subclass
 _LIZARD_HANDLE = "script_animal.Lizard"  # direct subclass in a non-importable script
+
+# superclasses fixtures (issue #361): a dedicated fixture project with a known
+# direct-base topology. Tests cover single/multiple/external/no-base class cases.
+_SUPERCLASSES_FIXTURE = (
+    Path(__file__).parent.parent.parent.parent / "fixtures" / "superclasses_edge"
+)
+_BASE_HANDLE = "pkg.bases.Base"  # class with NO superclasses (measured-empty)
+_MIXIN_HANDLE = "pkg.bases.Mixin"  # second project base (measured-empty superclasses)
+_CHILD_HANDLE = "pkg.derived.Child"  # one project superclass: pkg.bases.Base
+_MULTI_CHILD_HANDLE = "pkg.derived.MultiChild"  # two project superclasses
+_EXTERNAL_CHILD_HANDLE = "pkg.derived.ExternalChild"  # one external superclass
+_FUNCTION_HANDLE = "pkg.derived.function_in_module"  # function (wrong-kind)
+_VAR_HANDLE = "pkg.derived.VAR_IN_MODULE"  # variable (wrong-kind)
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +151,15 @@ class TestEdgeStatusModel:
         # Phase 3 — status and resolver-registry are deliberately separate.
         assert edge_status("callees") == "implemented"
 
+    def test_superclasses_is_implemented(self) -> None:
+        # superclasses moves from not_yet_implemented to implemented (#361): its
+        # resolver (resolve_superclasses) uses AST ClassDef.bases + forward goto —
+        # no reverse symbol search, so it belongs with members/callees/subclasses.
+        assert edge_status("superclasses") == "implemented"
+
     @pytest.mark.parametrize(
         "edge",
-        ["superclasses", "imports", "enclosing_scope"],
+        ["imports", "enclosing_scope"],
     )
     def test_not_yet_implemented_edges(self, edge: str) -> None:
         assert edge_status(edge) == "not_yet_implemented"
@@ -838,3 +859,234 @@ class TestResolveSubclassesNeverReverseSearch:
             result = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
         assert _MAMMAL_HANDLE in {str(h) for h in result.handles}
         spy.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Issue #361 — superclasses resolver: direct-base AST + forward goto
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def superclasses_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the dedicated superclasses_edge fixture."""
+    return JediAnalyzer(str(_SUPERCLASSES_FIXTURE))
+
+
+def _superclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
+    """Resolve *handle* to a Jedi name and return its ``superclasses`` result.
+
+    ``superclasses`` is synchronous (AST walk + goto are sync) and NEVER
+    returns ``None`` — a non-class handle yields a measured-empty
+    ``EdgeResult([])`` (only a class CAN have superclasses, so ``[]`` for the
+    wrong kind is true by definition — the ``members``/``callees`` case).
+    """
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return resolve_superclasses(jedi_name, analyzer)
+
+
+class TestResolveSuperclassesSingleProjectBase:
+    """``superclasses`` = the DIRECT base classes of a class, as canonical handles.
+
+    ``Child`` has exactly one project-internal superclass: ``pkg.bases.Base``.
+    """
+
+    def test_returns_edgeresult(self, superclasses_analyzer: JediAnalyzer) -> None:
+        result = _superclasses_for(_CHILD_HANDLE, superclasses_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    def test_project_base_present(self, superclasses_analyzer: JediAnalyzer) -> None:
+        handles = {str(h) for h in _superclasses_for(_CHILD_HANDLE, superclasses_analyzer).handles}
+        assert _BASE_HANDLE in handles, f"expected {_BASE_HANDLE!r} in superclasses; got {handles}"
+
+    def test_exact_superclass_set_single(self, superclasses_analyzer: JediAnalyzer) -> None:
+        handles = {str(h) for h in _superclasses_for(_CHILD_HANDLE, superclasses_analyzer).handles}
+        assert handles == {_BASE_HANDLE}, f"expected exactly {{Base}}; got {handles}"
+
+    def test_adjacents_are_handle_name_pairs(self, superclasses_analyzer: JediAnalyzer) -> None:
+        # Each adjacent is a (Handle, Jedi Name) pair whose Name is the goto def.
+        result = _superclasses_for(_CHILD_HANDLE, superclasses_analyzer)
+        assert result.adjacents, "Child should have superclasses"
+        for handle, name in result.adjacents:
+            assert isinstance(handle, Handle)
+            # The goto def has a full_name matching the handle
+            assert name.full_name == str(handle)
+
+    def test_unresolved_call_sites_is_none(self, superclasses_analyzer: JediAnalyzer) -> None:
+        # The unresolved-call-site notion is callees-only; superclasses never reports it.
+        result = _superclasses_for(_CHILD_HANDLE, superclasses_analyzer)
+        assert result.unresolved_call_sites is None
+
+
+class TestResolveSuperclassesMultipleBases:
+    """``MultiChild`` has two project-internal superclasses: ``Base`` and ``Mixin``."""
+
+    def test_both_bases_present(self, superclasses_analyzer: JediAnalyzer) -> None:
+        handles = {
+            str(h) for h in _superclasses_for(_MULTI_CHILD_HANDLE, superclasses_analyzer).handles
+        }
+        assert _BASE_HANDLE in handles, f"Base missing from MultiChild superclasses: {handles}"
+        assert _MIXIN_HANDLE in handles, f"Mixin missing from MultiChild superclasses: {handles}"
+
+    def test_exact_superclass_set_multiple(self, superclasses_analyzer: JediAnalyzer) -> None:
+        handles = {
+            str(h) for h in _superclasses_for(_MULTI_CHILD_HANDLE, superclasses_analyzer).handles
+        }
+        assert handles == {_BASE_HANDLE, _MIXIN_HANDLE}, f"got {handles}"
+
+    def test_deduplicated(self, superclasses_analyzer: JediAnalyzer) -> None:
+        # No handle should appear twice, even if the AST has a duplicate base (edge case).
+        handles = [
+            str(h) for h in _superclasses_for(_MULTI_CHILD_HANDLE, superclasses_analyzer).handles
+        ]
+        assert len(handles) == len(set(handles)), f"duplicates found: {handles}"
+
+    def test_deterministic_order(self, superclasses_analyzer: JediAnalyzer) -> None:
+        # Order must be stable across repeated calls (sorted by handle string).
+        first = _superclasses_for(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        second = _superclasses_for(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
+        # Verify it's the sorted order (the resolver sorts by handle string).
+        handles = [str(h) for h in first.handles]
+        assert handles == sorted(handles), f"not sorted by handle string: {handles}"
+
+
+class TestResolveSuperclassesExternalBase:
+    """``ExternalChild`` extends ``pathlib.PurePosixPath`` — an external stdlib class.
+
+    External bases must be INCLUDED in the ``superclasses`` edge result.
+    The handle is the resolved canonical dotted name of the external class.
+    """
+
+    def test_external_base_present(self, superclasses_analyzer: JediAnalyzer) -> None:
+        handles = {
+            str(h) for h in _superclasses_for(_EXTERNAL_CHILD_HANDLE, superclasses_analyzer).handles
+        }
+        # pathlib.PurePosixPath is the external superclass
+        assert any(
+            "PurePosixPath" in h for h in handles
+        ), f"PurePosixPath external base missing; got {handles}"
+
+    def test_external_base_is_handle_instance(self, superclasses_analyzer: JediAnalyzer) -> None:
+        result = _superclasses_for(_EXTERNAL_CHILD_HANDLE, superclasses_analyzer)
+        assert result.handles, "ExternalChild must have at least one superclass"
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+
+class TestResolveSuperclassesMeasuredEmpty:
+    """A class with NO bases → ``EdgeResult([])`` (measured none).
+
+    ``pkg.bases.Base`` has no explicit superclasses — the empty list is the
+    correct measured result (NOT wrong-kind ``None``).
+    """
+
+    def test_class_with_no_bases_is_measured_empty(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        result = _superclasses_for(_BASE_HANDLE, superclasses_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert result.handles == [], f"Base has no superclasses; got {result.handles}"
+
+    def test_measured_empty_is_not_none(self, superclasses_analyzer: JediAnalyzer) -> None:
+        result = _superclasses_for(_BASE_HANDLE, superclasses_analyzer)
+        assert result is not None
+        assert result == EdgeResult(adjacents=[])
+
+
+class TestResolveSuperclassesNonClass:
+    """A non-class handle → measured-empty ``EdgeResult([])`` — NEVER ``None``.
+
+    Only a class CAN have superclasses, so ``[]`` for a function/variable is
+    true BY DEFINITION (the ``members``/``callees`` case, NOT the
+    absence-vs-zero lie that forced ``imported_by``'s ``None`` path).
+    Because this resolver never returns ``None``, ``expand.py`` needs no change.
+    """
+
+    def test_function_handle_is_measured_empty(self, superclasses_analyzer: JediAnalyzer) -> None:
+        result = _superclasses_for(_FUNCTION_HANDLE, superclasses_analyzer)
+        assert result is not None, "non-class must NOT be wrong-kind None"
+        assert isinstance(result, EdgeResult)
+        assert result.handles == []
+
+    def test_variable_handle_is_measured_empty(self, superclasses_analyzer: JediAnalyzer) -> None:
+        result = _superclasses_for(_VAR_HANDLE, superclasses_analyzer)
+        assert result is not None
+        assert result.handles == []
+
+    def test_non_class_is_not_none(self, superclasses_analyzer: JediAnalyzer) -> None:
+        # The load-bearing distinction: superclasses never uses the None wrong-kind
+        # signal, so expand.py's hardcoded module-only None branch stays correct.
+        result = _superclasses_for(_FUNCTION_HANDLE, superclasses_analyzer)
+        assert result is not None
+        assert result == EdgeResult(adjacents=[])
+
+
+class TestResolveSuperclassesNeverReverseSearch:
+    """superclasses NEVER calls Jedi reverse search (it is forward AST + goto only).
+
+    Mirrors the callees/subclasses spies: patch ``get_references`` to explode if
+    touched, run the resolver over the fixture, then assert it completed (real
+    superclass present) AND the spy was never called.
+    """
+
+    def test_get_references_not_called(self, superclasses_analyzer: JediAnalyzer) -> None:
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on superclasses path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            result = _superclasses_for(_CHILD_HANDLE, superclasses_analyzer)
+        assert _BASE_HANDLE in {str(h) for h in result.handles}
+        spy.assert_not_called()
+
+
+class TestResolveSuperclassesCountConsistency:
+    """Count-consistency: ``len(expand stubs) == inspect.edge_counts.superclasses``.
+
+    The progressive-disclosure contract requires the edge resolver count and the
+    ``inspect`` edge_counts value to agree.  ``_count_superclasses`` now delegates
+    to ``resolve_superclasses`` so equality holds BY CONSTRUCTION (the same
+    resolver runs for both).  This test pins that contract as an integration check.
+    """
+
+    @pytest.mark.asyncio
+    async def test_single_base_count_equals_resolve_count(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``Child`` has one resolvable base: resolver count == 1."""
+        from pyeye.mcp.operations.inspect import _count_superclasses
+
+        jedi_name = _find_jedi_name_for_handle(_CHILD_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None
+        resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
+        counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
+        assert (
+            resolver_count == counter_count == 1
+        ), f"resolver={resolver_count}, counter={counter_count}; expected both == 1"
+
+    @pytest.mark.asyncio
+    async def test_multi_base_count_equals_resolve_count(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``MultiChild`` has two resolvable bases: resolver count == 2."""
+        from pyeye.mcp.operations.inspect import _count_superclasses
+
+        jedi_name = _find_jedi_name_for_handle(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None
+        resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
+        counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
+        assert (
+            resolver_count == counter_count == 2
+        ), f"resolver={resolver_count}, counter={counter_count}; expected both == 2"
+
+    @pytest.mark.asyncio
+    async def test_no_base_count_is_zero(self, superclasses_analyzer: JediAnalyzer) -> None:
+        """``Base`` has no superclasses: both resolver count and counter are 0."""
+        from pyeye.mcp.operations.inspect import _count_superclasses
+
+        jedi_name = _find_jedi_name_for_handle(_BASE_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None
+        resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
+        counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
+        assert (
+            resolver_count == counter_count == 0
+        ), f"resolver={resolver_count}, counter={counter_count}; expected both == 0"

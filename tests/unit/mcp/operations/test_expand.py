@@ -252,10 +252,12 @@ class TestExpandUnsupported:
 
     @pytest.mark.asyncio
     async def test_not_yet_implemented(self, analyzer: JediAnalyzer) -> None:
-        result = await expand(_WIDGET_HANDLE, "superclasses", analyzer)
+        # Use ``imports`` — the remaining not_yet_implemented structural edge
+        # (superclasses moved to implemented in #361).
+        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
         assert result["unsupported"] is True
         assert result["reason"] == "not_yet_implemented"
-        assert result["edge"] == "superclasses"
+        assert result["edge"] == "imports"
         assert result["source"] == _WIDGET_HANDLE
         assert isinstance(result["detail"], str) and result["detail"]
         # Mutually exclusive: an unsupported result NEVER carries stubs.
@@ -315,7 +317,9 @@ class TestExpandBranchesMutuallyExclusive:
     @pytest.mark.parametrize(
         ("handle", "edge"),
         [
-            (_WIDGET_HANDLE, "superclasses"),
+            # superclasses is now implemented (#361) — replaced with ``imports``
+            # as the representative not_yet_implemented structural edge.
+            (_WIDGET_HANDLE, "imports"),
             (_ORCHESTRATE_HANDLE, "callers"),
             (_WIDGET_HANDLE, "bogus_edge"),
         ],
