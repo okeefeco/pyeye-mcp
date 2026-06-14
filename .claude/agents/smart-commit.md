@@ -34,6 +34,7 @@ cd "$CLAUDE_WORKING_DIR" && git commit
 5. **Auto-fix & Retry**: Re-stage ONLY files in the initial stage set that hooks modified; never blanket-stage
 6. **Iterate Smart**: May take 2-3 cycles (format → type fix → commit)
 7. **Validate Success**: Ensure commit created and coverage gate met
+8. **Decision-Note Checkpoint**: If the committed diff touched a contract surface, invoke the `decision-log` skill to propose ONE entry — see step 6 below
 
 ### Staging Strategy (MANDATORY)
 
@@ -153,6 +154,20 @@ Flag any untracked files that:
 If any are found, **stage them and commit immediately** with a follow-up commit message like `fix(fixtures): stage <X> referenced by committed tests`. Don't report DONE until `git status` shows only files that genuinely don't belong to this work (modified `.mcp.json`, untracked plan/scratch files, npm artifacts unrelated to the task, etc.).
 
 **Why this matters:** local tests pass because the unstaged files exist in the working tree. A fresh clone fails. The gap is silent until the user pushes and someone else (or CI on a fresh checkout) hits the broken state. Confirmed instance 2026-05-04: two fixture files referenced by committed tests sat untracked across multiple commits before being caught.
+
+### 6. Decision-Note Checkpoint (contract-touching diffs)
+
+The commit is the deterministic pause where the diff is already on the table — the right moment to capture *why* a contract-significant change was made, before the reasoning evaporates.
+
+After the commit succeeds, inspect the committed diff. If it touched a **contract surface** — a public/exported signature, a documented invariant or guarantee, a predicate/schema/config contract, an edge/API contract, or a non-obvious "why" decided in the working conversation — invoke the `decision-log` skill to propose ONE entry for `docs/decisions/DECISIONS.md`.
+
+```bash
+# What did this commit actually change? (contract-surface check)
+git show --stat HEAD
+git show HEAD -- '*.py' | grep -E '^[-+](def |class |    def |async def )' | head -20
+```
+
+Delegate the judgement and the entry format to the `decision-log` skill — do NOT inline its rules here. Honour its discipline: propose in one line, never nag, `Verify` honestly tiered, `Anchor` by stable reference (not bare `file:line`). Pure bugfix / rename / formatting / dependency-bump diffs get NO entry. When unsure it clears the contract-significant bar, stay silent.
 
 ## Output Format Standards
 
