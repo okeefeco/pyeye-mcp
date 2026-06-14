@@ -140,26 +140,11 @@ For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --bo
 
 ## Special Cases
 
-### Claude Development Branch
-
-For the persistent `claude/development` branch:
-
-- PRs should NOT delete the branch after merge — use `gh pr merge <N> --merge` WITHOUT `--delete-branch`
-- After merge, update the branch instead of removing worktree:
-
-  ```bash
-  cd "$CLAUDE_LEARNING_HUB"   # or the claude/development worktree path
-  git checkout main && git pull origin main
-  git checkout claude/development
-  git merge main --no-edit -m "Merge main into claude/development after PR merge"
-  git push origin claude/development
-  ```
-
 ### Release Branches
 
 For release branches:
 
-- Create new worktree (don't reuse claude-development)
+- Create a new worktree (don't reuse an existing feature worktree)
 - Follow semantic versioning
 - Include changelog updates
 - Tag after merge

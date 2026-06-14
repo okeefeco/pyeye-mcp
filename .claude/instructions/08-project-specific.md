@@ -12,7 +12,7 @@ This is the PyEye Server - an extensible MCP (Model Context Protocol) server tha
 
 ## Development Environment
 
-- **Working Directory**: /home/mark/GitHub/pyeye-mcp-work
+- **Working Directory**: `/home/mark/GitHub/pyeye-mcp` (worktrees under `.claude/worktrees`, created via the `using-git-worktrees` skill)
 - **Python Environment**: uv managed
 - **Package Manager**: `uv` (ALWAYS use `uv run` prefix)
 

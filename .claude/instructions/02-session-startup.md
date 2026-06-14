@@ -1,136 +1,28 @@
 <!--
 Audience: Claude Code
-Purpose: Define session startup procedures and working directory management
-When to update: When startup workflow or worktree management changes
+Purpose: Session startup and working-directory expectations
+When to update: When startup or worktree conventions change
 -->
 
-# Session Startup and Working Directory Management
+# Session Startup
 
-## 🎯 SESSION STARTUP: Claude Development as Learning Hub
+## Where to start
 
-**MANDATORY at session start - Run immediately:**
+Start in the main repo checkout (`/home/mark/GitHub/pyeye-mcp`) or in an existing worktree. There is no special "hub" worktree — Claude configuration (`.claude/`, `CLAUDE.md`) is read from whichever checkout you start in.
 
-```bash
-# Claude should ALWAYS start in the claude-development worktree (learning hub)
-# This is where agent improvements and feedback are collected
-cd /home/mark/GitHub/pyeye-mcp-work/claude-development
+## Isolated workspaces (worktrees)
 
-# Store learning hub location
-export CLAUDE_STARTUP_DIR=$(pwd)
-export CLAUDE_LEARNING_HUB=$(pwd)
-export CLAUDE_FEEDBACK_DIR="$CLAUDE_LEARNING_HUB/.claude/feedback"
-export CLAUDE_IS_WORKTREE=$(git worktree list | grep -q "$(pwd)" && echo "true" || echo "false")
-export CLAUDE_WORKTREE_BRANCH=$(git branch --show-current 2>/dev/null || echo "none")
+For feature work that needs isolation, create a worktree via native tooling — the superpowers `using-git-worktrees` skill (which uses `EnterWorktree`). Worktrees live under `.claude/worktrees` (gitignored) and the harness manages their lifecycle. Set up each worktree's environment with `uv sync --all-extras`. See `04-agent-triggers.md` → Worktrees for the full trigger map.
 
-# Initialize working directory tracking
-export CLAUDE_WORKING_DIR=$(pwd)  # This can change when switching to issue worktrees
+## Working directory
 
-# Report context
-echo "Claude Learning Hub: $CLAUDE_LEARNING_HUB"
-echo "Feedback Directory: $CLAUDE_FEEDBACK_DIR"
-echo "Current Branch: $CLAUDE_WORKTREE_BRANCH"
-echo "Ready for continuous learning and improvement!"
-```
+The harness persists the working directory between Bash calls. Prefer absolute paths for clarity, but no manual `CLAUDE_WORKING_DIR` bookkeeping is needed.
 
-**Why claude-development?** This persistent worktree serves as:
+## Context-loss recovery
 
-- **Learning Hub**: All agent feedback is collected here
-- **Evolution Lab**: Improvements are tested and refined here
-- **Knowledge Base**: Learning accumulates across sessions
-- **Agent HQ**: Agents evolve based on real-world usage
+If context is lost:
 
-**This determines:**
-
-- Where Claude configuration files (.claude/) are read from (CLAUDE_LEARNING_HUB)
-- Where agent/instruction edits should be saved (CLAUDE_LEARNING_HUB)
-- Where feedback is logged ($CLAUDE_FEEDBACK_DIR)
-- Where actual work happens (CLAUDE_WORKING_DIR - updates when switching worktrees)
-- How to create new worktrees (sibling vs child)
-
-## 🔄 CRITICAL: Working Directory Management
-
-### The Shell Reset Problem
-
-**Issue**: After each command, the shell working directory resets to CLAUDE_STARTUP_DIR (usually claude-development).
-
-### Solution: Update CLAUDE_WORKING_DIR When Switching Worktrees
-
-**When switching to work on an issue:**
-
-```bash
-# After creating/switching to issue worktree
-cd ../pyeye-mcp-work/fix-123-issue-name
-export CLAUDE_WORKING_DIR=$(pwd)
-
-# Now prefix subsequent commands with cd to stay in context
-cd $CLAUDE_WORKING_DIR && git status
-cd $CLAUDE_WORKING_DIR && uv run pytest
-```
-
-**Better: Use a worktree switch function:**
-
-```bash
-switch_worktree() {
-    local WORKTREE_PATH=$1
-    cd "$WORKTREE_PATH"
-    export CLAUDE_WORKING_DIR=$(pwd)
-    echo "Switched working context to: $CLAUDE_WORKING_DIR"
-    echo "Claude home remains: $CLAUDE_STARTUP_DIR"
-}
-
-# Usage when switching to issue worktree
-switch_worktree "../pyeye-mcp-work/fix-123-issue-name"
-```
-
-### Best Practices
-
-1. **Always update CLAUDE_WORKING_DIR** when switching to issue worktrees
-2. **Prefix commands with `cd $CLAUDE_WORKING_DIR &&`** to maintain context
-3. **Use absolute paths** in worktree operations to avoid confusion
-4. **Check current context** with `echo $CLAUDE_WORKING_DIR` if uncertain
-
-### Special Workflow: Claude Development Branch (Learning Hub)
-
-The `claude-development` worktree is the **persistent learning hub** with special characteristics:
-
-#### Standard Issue Workflow (Delete After Merge)
-
-```bash
-# Normal issue branches:
-1. Create PR from feat/123-feature → main
-2. Merge PR
-3. Delete remote branch
-4. Remove worktree (worktree-manager does this)
-```
-
-#### Claude Development Workflow (Keep and Update)
-
-```bash
-# For claude/development branch:
-1. Create PR from claude/development → main
-2. Merge PR (keeps branch)
-3. DO NOT delete remote branch
-4. DO NOT remove worktree
-5. Update local branch:
-   cd /home/mark/GitHub/pyeye-mcp-work/claude-development
-   git checkout main
-   git pull origin main
-   git checkout claude/development
-   git merge main  # or rebase if preferred
-   git push origin claude/development
-```
-
-**Important for Agents**:
-
-- When merging claude/development PRs, use `gh pr merge <N> --merge` WITHOUT `--delete-branch` (the branch is persistent — see 06-workflow-commits.md "Special Cases")
-- When "merge and cleanup" is requested for claude/development, only merge - skip cleanup
-- The worktree at `/home/mark/GitHub/pyeye-mcp-work/claude-development` is **persistent**
-- **NEVER switch this worktree to other branches** - always create new worktrees for releases, features, etc.
-
-**As Learning Hub**:
-
-- **Feedback Collection**: All agent logs go to `.claude/feedback/logs/`
-- **Learning Accumulation**: Patterns extracted to `.claude/feedback/learnings/`
-- **Agent Evolution**: Improvements tested here before merging to main
-- **Knowledge Persistence**: Never deleted, knowledge grows over time
-- **Session Home**: All Claude sessions should start here
+1. Check the GitHub issue — `gh issue view <number>` (the branch name carries the issue number).
+2. Your TodoWrite list persists across resets.
+3. Inspect git state — `git status`, `git log --oneline -5`, `git diff`.
+4. Resume from your todo list.
