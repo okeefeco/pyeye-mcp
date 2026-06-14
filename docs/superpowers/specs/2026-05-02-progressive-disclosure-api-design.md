@@ -253,6 +253,17 @@ Returns the structural skeleton of a module or class. No bodies. No metrics.
 
 **External-scope cap.** `outline(external_handle, max_depth=N)` treats `max_depth` as `min(N, 1)` — the immediate members of the external class or module are returned, but deeper nesting inside third-party code is not walked even if requested. This is consistent with the lazy-resolution principle for external symbols: agents wanting to walk deeper into installed packages call `inspect` per-member, which lazily resolves through Jedi/Pyright on demand. Predictable behavior; no eager dep-tree indexing.
 
+> **Implementation status (2026-06): `outline` is implemented.** The refined
+> `OutlineTree` shape — including the `max_nodes` budget, the depth-frontier
+> peek, and the two absence contracts (`children` absent ⇔ not-walked;
+> `truncated` absent-not-false) — is defined and governs in
+> `docs/superpowers/specs/2026-06-13-outline-design.md` (§4.2). This spec's
+> original `OutlineTree` type sketch above should be read as the initial design
+> intent; the 2026-06-13 spec resolves all open questions (node budget, external
+> cap, BFS inclusion vs. source-order presentation, linter invariants). The
+> conformance linter enforces both contracts in both directions (Check O). Issue:
+> #355.
+
 ### `expand(handle, edge, ...) → ExpandResult`
 
 Single-hop walk along one edge type. Paginated.

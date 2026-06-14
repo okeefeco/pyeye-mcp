@@ -53,6 +53,7 @@ from ..validation import validate_mcp_inputs
 from .lookup import lookup as _lookup_impl
 from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
+from .operations.outline import outline as _outline_impl
 from .operations.resolve import (
     resolve as _resolve_impl,
     resolve_at as _resolve_at_impl,
@@ -642,6 +643,79 @@ async def trace(
             stop_when=stop_when,
         )
     )
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("outline")
+@track_mcp_operation("outline")
+async def outline(
+    handle: str,
+    project_path: str = ".",
+    max_depth: int | None = None,
+    max_nodes: int = 200,
+) -> dict[str, Any]:
+    """Python: Structural skeleton of a module or class — names, kinds, signatures, line spans.
+
+    Returns a nested ``OutlineTree`` — the ``members`` hierarchy of *handle* as a
+    tree of lightweight structural nodes (``Stub``).  Each node carries
+    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``, and
+    ``signature`` when Jedi yields one.  No source content anywhere in the tree.
+
+    Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
+    ``outline()`` to see the complete structural skeleton in one call — the
+    single-call answer to "show me the structure of this scope."
+
+    **Absence contracts — an agent MUST read these before consuming the tree.**
+
+    *Contract 1 — ``children`` absent ⇔ not expanded.*
+
+    ``children`` present (including ``children: []``) means *measured*: the
+    complete set of direct members of this node.  ``children: []`` is a genuine
+    leaf — a container with no members, or a non-container (function/method/
+    variable).  ``children`` **absent** means a cap fired and this node was not
+    walked — treat it as "unknown," **never as empty.**
+
+    *Contract 2 — ``truncated`` absent-not-false.*
+
+    ``truncated: true`` is present **only** on a node that a cap cut off; it
+    always co-occurs with ``truncation_reason`` and an **absent** ``children``.
+    Fully-walked nodes omit ``truncated`` entirely — ``truncated: false`` never
+    appears.
+
+    **Truncation reasons (one string per node — not a list):**
+
+    - ``"max_depth"`` — at the depth frontier; ``resolve_members`` was peeked
+      once and found members (a genuine empty container at the frontier gets
+      ``children: []`` instead).
+    - ``"max_nodes"`` — total-node budget exhausted; no peek performed.
+    - ``"external"`` — external-scope container at depth ≥ 1; no deeper walk
+      into third-party code.
+
+    When both ``max_nodes`` AND a depth/external cap could apply to the same
+    node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/inspect).
+        project_path: Project root path (default: current directory).
+        max_depth: Maximum depth from the root (root is depth 0).  ``None``
+            means unbounded within scope; the external cap and ``max_nodes``
+            still apply.  At the frontier, ``resolve_members`` is peeked once
+            to distinguish a genuine empty container from a cut-off one.
+        max_nodes: Total-node budget for the tree (root counts as 1, default
+            200).  Containers that exceed the budget are marked
+            ``truncated: "max_nodes"`` without peeking.
+
+    Returns:
+        ``OutlineTree`` dict — ``{"node": Stub, "children": [OutlineTree, ...]}``.
+        Never raises; an unresolvable handle yields a minimal single-node tree
+        with ``children: []``.  Children within each parent are in source order
+        (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget
+        gracefully (all of depth 1 before any of depth 2, etc.).
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
 
 
 # NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.
