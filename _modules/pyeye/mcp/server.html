@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=0b546ff8"></script>
+      <script src="../../../_static/documentation_options.js?v=3496caa8"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -409,6 +409,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">.lookup</span><span class="w"> </span><span class="kn">import</span> <span class="n">lookup</span> <span class="k">as</span> <span class="n">_lookup_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.expand</span><span class="w"> </span><span class="kn">import</span> <span class="n">expand</span> <span class="k">as</span> <span class="n">_expand_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.inspect</span><span class="w"> </span><span class="kn">import</span> <span class="n">inspect</span> <span class="k">as</span> <span class="n">_inspect_impl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.operations.outline</span><span class="w"> </span><span class="kn">import</span> <span class="n">outline</span> <span class="k">as</span> <span class="n">_outline_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.resolve</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">resolve</span> <span class="k">as</span> <span class="n">_resolve_impl</span><span class="p">,</span>
     <span class="n">resolve_at</span> <span class="k">as</span> <span class="n">_resolve_at_impl</span><span class="p">,</span>
@@ -1007,6 +1008,79 @@
             <span class="n">stop_when</span><span class="o">=</span><span class="n">stop_when</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="p">)</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
+<span class="nd">@validate_mcp_inputs</span>
+<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;outline&quot;</span><span class="p">)</span>
+<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;outline&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">outline</span><span class="p">(</span>
+    <span class="n">handle</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_nodes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Structural skeleton of a module or class — names, kinds, signatures, line spans.</span>
+
+<span class="sd">    Returns a nested ``OutlineTree`` — the ``members`` hierarchy of *handle* as a</span>
+<span class="sd">    tree of lightweight structural nodes (``Stub``).  Each node carries</span>
+<span class="sd">    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``, and</span>
+<span class="sd">    ``signature`` when Jedi yields one.  No source content anywhere in the tree.</span>
+
+<span class="sd">    Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then</span>
+<span class="sd">    ``outline()`` to see the complete structural skeleton in one call — the</span>
+<span class="sd">    single-call answer to &quot;show me the structure of this scope.&quot;</span>
+
+<span class="sd">    **Absence contracts — an agent MUST read these before consuming the tree.**</span>
+
+<span class="sd">    *Contract 1 — ``children`` absent ⇔ not expanded.*</span>
+
+<span class="sd">    ``children`` present (including ``children: []``) means *measured*: the</span>
+<span class="sd">    complete set of direct members of this node.  ``children: []`` is a genuine</span>
+<span class="sd">    leaf — a container with no members, or a non-container (function/method/</span>
+<span class="sd">    variable).  ``children`` **absent** means a cap fired and this node was not</span>
+<span class="sd">    walked — treat it as &quot;unknown,&quot; **never as empty.**</span>
+
+<span class="sd">    *Contract 2 — ``truncated`` absent-not-false.*</span>
+
+<span class="sd">    ``truncated: true`` is present **only** on a node that a cap cut off; it</span>
+<span class="sd">    always co-occurs with ``truncation_reason`` and an **absent** ``children``.</span>
+<span class="sd">    Fully-walked nodes omit ``truncated`` entirely — ``truncated: false`` never</span>
+<span class="sd">    appears.</span>
+
+<span class="sd">    **Truncation reasons (one string per node — not a list):**</span>
+
+<span class="sd">    - ``&quot;max_depth&quot;`` — at the depth frontier; ``resolve_members`` was peeked</span>
+<span class="sd">      once and found members (a genuine empty container at the frontier gets</span>
+<span class="sd">      ``children: []`` instead).</span>
+<span class="sd">    - ``&quot;max_nodes&quot;`` — total-node budget exhausted; no peek performed.</span>
+<span class="sd">    - ``&quot;external&quot;`` — external-scope container at depth ≥ 1; no deeper walk</span>
+<span class="sd">      into third-party code.</span>
+
+<span class="sd">    When both ``max_nodes`` AND a depth/external cap could apply to the same</span>
+<span class="sd">    node, ``truncation_reason`` is ``&quot;max_nodes&quot;`` (the harder global bound).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        handle: Canonical Python dotted-name string (from resolve/inspect).</span>
+<span class="sd">        project_path: Project root path (default: current directory).</span>
+<span class="sd">        max_depth: Maximum depth from the root (root is depth 0).  ``None``</span>
+<span class="sd">            means unbounded within scope; the external cap and ``max_nodes``</span>
+<span class="sd">            still apply.  At the frontier, ``resolve_members`` is peeked once</span>
+<span class="sd">            to distinguish a genuine empty container from a cut-off one.</span>
+<span class="sd">        max_nodes: Total-node budget for the tree (root counts as 1, default</span>
+<span class="sd">            200).  Containers that exceed the budget are marked</span>
+<span class="sd">            ``truncated: &quot;max_nodes&quot;`` without peeking.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ``OutlineTree`` dict — ``{&quot;node&quot;: Stub, &quot;children&quot;: [OutlineTree, ...]}``.</span>
+<span class="sd">        Never raises; an unresolvable handle yields a minimal single-node tree</span>
+<span class="sd">        with ``children: []``.  Children within each parent are in source order</span>
+<span class="sd">        (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget</span>
+<span class="sd">        gracefully (all of depth 1 before any of depth 2, etc.).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
+    <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_outline_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">,</span> <span class="n">max_depth</span><span class="o">=</span><span class="n">max_depth</span><span class="p">,</span> <span class="n">max_nodes</span><span class="o">=</span><span class="n">max_nodes</span><span class="p">))</span>
 
 
 <span class="c1"># NOTE: superseded by future expand(handle, edge=&quot;references&quot;); kept until Phase B migration.</span>
