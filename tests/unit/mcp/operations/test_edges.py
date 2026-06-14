@@ -99,6 +99,7 @@ _MIXIN_HANDLE = "pkg.bases.Mixin"  # second project base (measured-empty supercl
 _CHILD_HANDLE = "pkg.derived.Child"  # one project superclass: pkg.bases.Base
 _MULTI_CHILD_HANDLE = "pkg.derived.MultiChild"  # two project superclasses
 _EXTERNAL_CHILD_HANDLE = "pkg.derived.ExternalChild"  # one external superclass
+_GRANDCHILD_HANDLE = "pkg.derived.GrandChild"  # one direct superclass: Child (not Base)
 _FUNCTION_HANDLE = "pkg.derived.function_in_module"  # function (wrong-kind)
 _VAR_HANDLE = "pkg.derived.VAR_IN_MODULE"  # variable (wrong-kind)
 
@@ -1090,3 +1091,107 @@ class TestResolveSuperclassesCountConsistency:
         assert (
             resolver_count == counter_count == 0
         ), f"resolver={resolver_count}, counter={counter_count}; expected both == 0"
+
+
+# ---------------------------------------------------------------------------
+# Gap 1 — direct-bases-not-MRO regression guard
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSuperclassesDirectNotMRO:
+    """``resolve_superclasses`` returns DIRECT bases only — NOT the full MRO/ancestor closure.
+
+    Topology: ``GrandChild(Child)`` → ``Child(Base)`` → ``Base``
+
+    When ``resolve_superclasses(GrandChild)`` is called it MUST return only
+    ``Child`` (the one direct parent).  ``Base`` is an ancestor via the MRO but
+    is NOT a direct base of ``GrandChild`` and therefore MUST NOT appear.
+
+    This test class is the load-bearing guard against a future regression that
+    accidentally walks the full MRO instead of reading ``ast.ClassDef.bases``.
+    """
+
+    def test_grandchild_direct_base_is_child(self, superclasses_analyzer: JediAnalyzer) -> None:
+        """``GrandChild`` has exactly one direct superclass: ``pkg.derived.Child``."""
+        handles = {
+            str(h) for h in _superclasses_for(_GRANDCHILD_HANDLE, superclasses_analyzer).handles
+        }
+        assert (
+            _CHILD_HANDLE in handles
+        ), f"direct base Child missing from GrandChild superclasses; got {handles}"
+
+    def test_grandchild_does_not_include_grandparent(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``Base`` is a transitive ancestor but NOT a direct base — must be absent."""
+        handles = {
+            str(h) for h in _superclasses_for(_GRANDCHILD_HANDLE, superclasses_analyzer).handles
+        }
+        assert (
+            _BASE_HANDLE not in handles
+        ), f"transitive ancestor Base must NOT appear in GrandChild superclasses; got {handles}"
+
+    def test_grandchild_exact_superclass_set(self, superclasses_analyzer: JediAnalyzer) -> None:
+        """Exact set check: ``GrandChild`` → exactly ``{pkg.derived.Child}``."""
+        handles = {
+            str(h) for h in _superclasses_for(_GRANDCHILD_HANDLE, superclasses_analyzer).handles
+        }
+        assert handles == {_CHILD_HANDLE}, f"expected exactly {{pkg.derived.Child}}; got {handles}"
+
+
+# ---------------------------------------------------------------------------
+# Gap 2 — count-consistency through the full public inspect() path
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSuperclassesCountConsistencyViaInspect:
+    """Count-consistency via the FULL public ``inspect()`` API (not just the helper).
+
+    This exercises the real production path:
+        ``inspect(handle, analyzer)`` → ``_build_edge_counts``
+        → ``_count_superclasses`` → ``resolve_superclasses``
+
+    The assertion is non-vacuous: it uses a class with a positive base count
+    (``Child`` has 1 base, ``MultiChild`` has 2) so an accidentally zero count
+    would be caught.  The private-helper tests in
+    ``TestResolveSuperclassesCountConsistency`` already cover the helpers in
+    isolation; these tests cover the public surface.
+    """
+
+    @pytest.mark.asyncio
+    async def test_child_count_via_inspect_matches_resolver(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``Child`` has 1 direct base: inspect edge_counts and resolver agree."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        jedi_name = _find_jedi_name_for_handle(_CHILD_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None
+        resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
+        node = await inspect(_CHILD_HANDLE, superclasses_analyzer)
+        inspect_count = node["edge_counts"]["superclasses"]
+        assert resolver_count == inspect_count, (
+            f"resolver={resolver_count}, inspect.edge_counts.superclasses={inspect_count}; "
+            "must agree"
+        )
+        assert (
+            inspect_count > 0
+        ), "non-vacuous: Child has bases, so the count must be > 0 for this test to be meaningful"
+
+    @pytest.mark.asyncio
+    async def test_multi_child_count_via_inspect_matches_resolver(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``MultiChild`` has 2 direct bases: inspect edge_counts and resolver agree."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        jedi_name = _find_jedi_name_for_handle(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None
+        resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
+        node = await inspect(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        inspect_count = node["edge_counts"]["superclasses"]
+        assert resolver_count == inspect_count, (
+            f"resolver={resolver_count}, inspect.edge_counts.superclasses={inspect_count}; "
+            "must agree"
+        )
+        assert inspect_count > 0, "non-vacuous: MultiChild has bases, so the count must be > 0"

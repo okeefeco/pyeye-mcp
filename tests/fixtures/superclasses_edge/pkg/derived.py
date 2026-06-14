@@ -37,6 +37,17 @@ class ExternalChild(PurePosixPath):
         return super().__new__(cls, *args)
 
 
+class GrandChild(Child):
+    """Has exactly one direct superclass: ``pkg.derived.Child``.
+
+    Exercises the direct-bases-not-MRO contract: ``resolve_superclasses`` must
+    return only ``Child`` (the immediate parent), NOT the transitive ancestor
+    ``pkg.bases.Base``.  The chain is ``GrandChild -> Child -> Base``.
+    """
+
+    extra2: str = "grandchild"
+
+
 def function_in_module() -> None:
     """A plain function — non-class, wrong-kind case for superclasses tests."""
 
