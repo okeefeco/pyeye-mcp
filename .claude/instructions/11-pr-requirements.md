@@ -49,19 +49,17 @@ pytest --cov=src/pyeye --cov-fail-under=85
 
 ## Development Setup Reminders
 
-### Virtual Environment Per Worktree
+### Environment Per Worktree
 
-**Each worktree MUST have its own `.venv`:**
+**Each worktree needs its own environment** — set it up with `uv sync --all-extras` (this is a `uv` project; `uv sync` creates/uses the worktree's `.venv`):
 
 ```bash
-# After creating worktree
-cd ../pyeye-mcp-work/feat-42-new-feature
-uv venv
-uv pip install -e ".[dev]"
+# In the new worktree (created via the using-git-worktrees skill / EnterWorktree, under .claude/worktrees)
+uv sync --all-extras
 # Pre-commit hooks work automatically - no installation needed!
 ```
 
-**NEVER copy or symlink venvs between worktrees** - this defeats isolation.
+**NEVER copy or symlink environments between worktrees** - this defeats isolation.
 
 ## Branch Protection Rules
 

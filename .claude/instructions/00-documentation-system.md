@@ -122,7 +122,7 @@ Files are numbered for load order priority:
 |-------------|---------|-----------------|
 | Claude must never force-delete | Enforcement rule | `.claude/instructions/01-core-rules.md` |
 | How MCP server works | Explanation | `docs/architecture.md` or `README.md` |
-| When to use worktree-manager agent | Trigger pattern | `.claude/instructions/04-agent-triggers.md` |
+| When to use the smart-commit agent | Trigger pattern | `.claude/instructions/04-agent-triggers.md` |
 | Project setup guide | Tutorial | `docs/setup.md` or `README.md` |
 | Commit message format | Both (rule + example) | `.claude/instructions/06-workflow-commits.md` with examples |
 | API endpoint documentation | Reference | `docs/api/` |
