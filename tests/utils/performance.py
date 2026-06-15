@@ -105,9 +105,12 @@ class CommonThresholds:
         windows_ci=15.0,  # 15ms for Windows CI (very lenient)
     )
 
-    # Symbol search performance
+    # Symbol search performance.
+    # p95 over only ~10 warm samples is effectively the slowest single call, so a single
+    # GC/disk hiccup can spike it (~98ms observed locally against the old 100ms base).
+    # These tiers carry headroom for that jitter; macOS/Windows runners get a 3x margin.
     SYMBOL_SEARCH_P95 = PerformanceThresholds(
-        base=100.0, linux_ci=150.0, macos_ci=300.0, windows_ci=300.0
+        base=150.0, linux_ci=225.0, macos_ci=450.0, windows_ci=450.0
     )
 
     SYMBOL_SEARCH_P50 = PerformanceThresholds(
