@@ -95,13 +95,16 @@ _SUPERCLASSES_FIXTURE = (
     Path(__file__).parent.parent.parent.parent / "fixtures" / "superclasses_edge"
 )
 _BASE_HANDLE = "pkg.bases.Base"  # class with NO superclasses (measured-empty)
-_MIXIN_HANDLE = "pkg.bases.Mixin"  # second project base (measured-empty superclasses)
+_MIXIN_HANDLE = (
+    "pkg.bases.Mixin"  # second project-internal base; used for multiple-inheritance tests
+)
 _CHILD_HANDLE = "pkg.derived.Child"  # one project superclass: pkg.bases.Base
 _MULTI_CHILD_HANDLE = "pkg.derived.MultiChild"  # two project superclasses
 _EXTERNAL_CHILD_HANDLE = "pkg.derived.ExternalChild"  # one external superclass
 _GRANDCHILD_HANDLE = "pkg.derived.GrandChild"  # one direct superclass: Child (not Base)
 _FUNCTION_HANDLE = "pkg.derived.function_in_module"  # function (wrong-kind)
 _VAR_HANDLE = "pkg.derived.VAR_IN_MODULE"  # variable (wrong-kind)
+_WEIRD_HANDLE = "pkg.derived.Weird"  # class with unresolvable base (drop-and-diverge path)
 
 
 # ---------------------------------------------------------------------------
@@ -1195,3 +1198,67 @@ class TestResolveSuperclassesCountConsistencyViaInspect:
             "must agree"
         )
         assert inspect_count > 0, "non-vacuous: MultiChild has bases, so the count must be > 0"
+
+
+# ---------------------------------------------------------------------------
+# Gap 3 — unresolvable-base field-vs-count divergence
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSuperclassesUnresolvableBaseDivergence:
+    """``Weird(NotDefinedAnywhere)`` exercises the drop-and-diverge path.
+
+    ``resolve_superclasses`` drops bases that goto cannot resolve (no
+    ``full_name`` → can't build an expand stub), so ``edge_counts.superclasses``
+    is 0.  ``_get_superclasses`` / the ``superclasses`` field keeps ALL declared
+    bases via ``ast.unparse`` fallback, so ``"NotDefinedAnywhere"`` still appears
+    in the field.
+
+    This is the intentional field-vs-count divergence documented in
+    ``_get_superclasses`` and ``_count_superclasses``.
+    """
+
+    def test_unresolvable_base_dropped_by_resolver(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``resolve_superclasses(Weird)`` must return an empty handle list.
+
+        Confirms that goto genuinely cannot resolve ``NotDefinedAnywhere`` in
+        this fixture, making the test non-vacuous.
+        """
+        jedi_name = _find_jedi_name_for_handle(_WEIRD_HANDLE, superclasses_analyzer)
+        assert jedi_name is not None, f"Could not find Jedi name for {_WEIRD_HANDLE!r}"
+        result = resolve_superclasses(jedi_name, superclasses_analyzer)
+        assert result.handles == [], (
+            f"unresolvable base must be dropped; got {result.handles}. "
+            "If Jedi resolves NotDefinedAnywhere, use a more unresolvable construct."
+        )
+
+    @pytest.mark.asyncio
+    async def test_field_vs_count_divergence_end_to_end(
+        self, superclasses_analyzer: JediAnalyzer
+    ) -> None:
+        """``Weird`` divergence via the full public ``inspect()`` path.
+
+        Asserts all three aspects of the documented divergence:
+        - ``edge_counts.superclasses == 0``  (resolver dropped the unresolvable base)
+        - ``"NotDefinedAnywhere" in node["superclasses"]``  (field kept the fallback string)
+        - ``len(node["superclasses"]) >= 1``  (non-vacuous: the field is not empty)
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        node = await inspect(_WEIRD_HANDLE, superclasses_analyzer)
+        edge_count = node["edge_counts"]["superclasses"]
+        field = node["superclasses"]
+
+        assert edge_count == 0, (
+            f"edge_counts.superclasses must be 0 for Weird (unresolvable base dropped); "
+            f"got {edge_count}"
+        )
+        assert "NotDefinedAnywhere" in field, (
+            f"superclasses field must contain the ast.unparse fallback 'NotDefinedAnywhere'; "
+            f"got {field!r}"
+        )
+        assert (
+            len(field) >= 1
+        ), "non-vacuous: the superclasses field must be non-empty (contains the fallback string)"

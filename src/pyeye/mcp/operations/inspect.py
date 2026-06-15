@@ -429,6 +429,12 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
     then jedi script.goto() per base to resolve to canonical handles.
     Falls back to ast.unparse of the base expression when goto fails.
 
+    NOTE — field-vs-count divergence: this function keeps ALL declared bases
+    (including raw ``ast.unparse`` fallback strings when goto fails).  Such
+    fallback entries appear in the ``superclasses`` field but are EXCLUDED from
+    ``edge_counts.superclasses``, which counts only goto-resolvable bases
+    (see ``_count_superclasses``).
+
     Args:
         jedi_name: A Jedi ``Name`` object for a class.
         analyzer: Active analyzer for file-level Jedi access.
@@ -734,7 +740,7 @@ async def _count_superclasses(
     with the expandable edge, at the cost of a rare class with an unresolvable
     base showing that base in the ``superclasses`` FIELD but not in
     ``edge_counts.superclasses``.  This intentional divergence is acceptable
-    (and documented in ``_build_class_fields`` / ``_get_superclasses``).
+    (documented here, and in the ``_get_superclasses`` docstring).
 
     The ``superclasses`` parameter is RETAINED for call-site stability:
     ``_build_edge_counts`` passes it positionally as
@@ -949,9 +955,12 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     # ------------------------------------------------------------------
     kind_fields: dict[str, Any] = {}
 
-    # Issue #339: resolve a class's superclasses once and reuse the same list for
-    # the `superclasses` field and `edge_counts.superclasses` (each resolution
-    # is read+parse + a Jedi goto() per base).
+    # The resolved-bases list feeds the `superclasses` FIELD only.
+    # `edge_counts.superclasses` is derived independently via `resolve_superclasses`
+    # (delegated through `_count_superclasses`) — changed in #361 so that the count
+    # matches the expandable edge (which drops unresolvable bases) rather than the
+    # field (which keeps them as ast.unparse fallbacks).  The two values can therefore
+    # diverge for classes whose bases cannot be resolved via goto.
     superclasses: list[str] | None = None
     if kind == "class":
         superclasses = _get_superclasses(jedi_name, analyzer)
@@ -978,7 +987,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     }
     node.update(kind_fields)
     # Phase 4: edge_counts populated with per-measurement budgeted counts.
-    # Reuse the already-resolved superclasses list (issue #339).
+    # `superclasses` is passed for call-site stability but is unused by
+    # `_count_superclasses` (which derives the count from `resolve_superclasses`).
     node["edge_counts"] = await _build_edge_counts(
         handle, kind, jedi_name, analyzer, superclasses=superclasses
     )

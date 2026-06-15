@@ -48,6 +48,17 @@ class GrandChild(Child):
     extra2: str = "grandchild"
 
 
+class Weird(
+    NotDefinedAnywhere  # noqa: F821 — intentionally undefined to test goto-failure drop path
+):  # base intentionally undefined — exercises the drop-and-diverge path
+    # This file is only statically analyzed, never executed, so an undefined
+    # name in the class header is safe.  The class tests that `resolve_superclasses`
+    # drops unresolvable bases (edge_counts.superclasses == 0) while
+    # `_get_superclasses` still records them as ast.unparse fallback strings
+    # (superclasses field contains "NotDefinedAnywhere").
+    pass
+
+
 def function_in_module() -> None:
     """A plain function — non-class, wrong-kind case for superclasses tests."""
 
