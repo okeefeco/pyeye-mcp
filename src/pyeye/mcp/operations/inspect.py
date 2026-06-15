@@ -2,7 +2,7 @@
 
 The canonical "what is this?" operation.  Returns kind, signature, location,
 docstring, plus kind-dependent fields.  No source content.  No edge expansions
-beyond the 5 Phase 4 edge types in edge_counts.
+beyond the edge types measured in edge_counts.
 
 Public API
 ----------
@@ -13,10 +13,11 @@ Public API
 
 Design notes
 ------------
-- ``edge_counts`` is ALWAYS present.  Phase 4 populates 5 edge types:
-  ``members`` (class/module), ``superclasses`` (class), ``subclasses`` (class,
-  project-scoped), ``callers`` (function/method), ``references`` (all kinds,
-  excludes call sites).  Unmeasured edge types are ABSENT (not 0).
+- ``edge_counts`` is ALWAYS present.  It measures 3 edge types: ``members``
+  (class/module), ``superclasses`` (class), and ``subclasses`` (class,
+  project-scoped).  ``callers`` and ``references`` are intentionally OMITTED —
+  they are deferred to the Pyright reference backend (#333) per the
+  absence-vs-zero invariant.  Unmeasured edge types are ABSENT (not 0).
 - ``re_exports``, ``highlights``, ``tags``, ``properties`` are ABSENT in Phase 4.
 - ``Param.kind`` values: lowercase 5-value enum
   (``"positional"``, ``"positional_or_keyword"``, ``"keyword_only"``,
@@ -888,9 +889,10 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     returns source content — signatures are single-line strings; ``location``
     is a pointer dict only; ``default`` fields are simple literals only.
 
-    Always includes ``edge_counts`` (Phase 4 measures: members, superclasses,
-    subclasses, callers, references — for relevant kinds).  Edges that exceed
-    their per-measurement budget are OMITTED, not zero.
+    Always includes ``edge_counts`` (measures: members, superclasses,
+    subclasses — for relevant kinds).  ``callers`` and ``references`` are
+    intentionally OMITTED (deferred to the Pyright reference backend, #333).
+    Edges that exceed their per-measurement budget are OMITTED, not zero.
     Phase 6 adds ``re_exports`` for non-module kinds (class, function, method,
     property, variable, attribute).  For module kind, ``re_exports`` is ABSENT
     (not computed in Phase 6 — per the absence-vs-zero spec invariant: absent
