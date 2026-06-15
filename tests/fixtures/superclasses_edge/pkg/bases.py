@@ -3,7 +3,6 @@
 Canonical handles:
 - ``pkg.bases.Base``      — a project-defined base class (no own superclasses)
 - ``pkg.bases.Mixin``     — a second project-defined base class (no own superclasses)
-- ``pkg.bases.Loner``     — a class with NO superclasses (measured-empty case)
 
 Topology exercised by the superclasses resolver tests:
 
