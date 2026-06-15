@@ -63,9 +63,18 @@ tool list and `src/pyeye/mcp/operations/`:
   (their only edges were the deferred reference ones). It does **NOT** measure
   `callers` / `references`. (Note: some `inspect.py` *docstrings* still claim it
   measures `callers`/`references` — those are stale; the implementation is the source of
-  truth. Out of scope to fix here.)
-- **`resolve` success returns** `{found, handle, kind, scope}` — handle + kind +
-  `project`/`external` scope. Location and structure come from `inspect`.
+  truth. Filed as follow-up issue #377; out of scope for this PR.)
+- **`resolve` success returns** `{found, handle, kind, scope, location}` — handle +
+  kind + `project`/`external` scope **and a `location` pointer** (verified against
+  `_SuccessResult`, `src/pyeye/mcp/operations/resolve.py:92`). So resolve already answers
+  "where is this defined?" — you do **not** need a follow-up `inspect` just for location;
+  `inspect` adds signature / docstring / `edge_counts`. (Note: resolve.py's own docstring
+  example omits `location`; the TypedDict is the source of truth.)
+- **`resolve` can return an ambiguous result.** `_AmbiguousResult`
+  (`resolve.py:100`) is `{found: true, ambiguous: true, candidates: [...]}`, each
+  candidate `{handle, kind, scope, location}`. A bare name (`"Config"`) matching several
+  symbols commonly returns this — the agent picks from `candidates` or re-resolves with
+  the full dotted handle.
 - **No source content** in any response — pyeye returns pointers (`file`,
   `line_start`, `line_end`) + structured facts; `Read` is the content layer.
 
@@ -123,8 +132,14 @@ tool list and `src/pyeye/mcp/operations/`:
 
 4. **The primitives (the toolkit).** Table of `resolve` / `resolve_at` / `inspect` /
    `outline` / `expand` / `trace` with one-line purpose, accurate return summary, and the
-   cheap→rich ordering. Emphasise: no source content — `Read` with the returned
-   `file:line` pointers when you need the actual code.
+   cheap→rich ordering. Emphasise: `resolve` returns `handle` + `kind` + `scope` +
+   `location` (so it answers "where?" without a second call); no source content anywhere
+   — `Read` with the returned `file:line` pointers when you need the actual code.
+   - **Resolving ambiguity.** A bare name can match several symbols — `resolve` then
+     returns `{ambiguous: true, candidates: [...]}`. The agent picks the right candidate
+     (each has `handle` / `kind` / `scope` / `location`) or re-resolves with the full
+     dotted handle. This replaces the old skill's "use the full dotted path" advice with
+     the canonical-handle version.
 
 5. **Supported edges.** Table of the seven live `expand`/`trace` edges with
    direction + meaning: `members`, `callees`, `imported_by`, `subclasses`,
@@ -150,6 +165,10 @@ tool list and `src/pyeye/mcp/operations/`:
      → use it) → orient → drill / trace as needed → act.
    - Examples use generic placeholders **plus one stdlib** scope example. Coverage:
      - "What is this class?" → `resolve` → `inspect` (kind, location, `edge_counts`).
+     - **Ambiguity** → `resolve("Settings")` returns `{ambiguous: true, candidates}`;
+       pick the candidate (or re-resolve with the full handle), then continue.
+     - **Position → handle** → `resolve_at(file, line, column)` for "I'm looking at this
+       line / stack-trace frame — what is it?" (the coordinate-first intake path).
      - "What's inside this module?" → `outline`.
      - "What does this function call?" → `expand(edge="callees")`.
      - "Who imports this module?" → `expand(edge="imported_by")`.
@@ -191,13 +210,42 @@ Replace:
   honest-limits rule — the `python-explore` skill is the single canonical reference.
   Don't restate tool usage here."**
 
+## Anti-drift conformance guard
+
+`03` happened because the skill drifted from the edge registry; "the skill is the single
+source of truth" is an organisational defence only. Add a **mechanical** guard so the
+next edge change can't silently re-rot the skill:
+
+- The skill embeds a machine-readable anchor — an HTML comment listing the edges it
+  documents as supported, e.g.
+  `<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope -->`
+  (kept adjacent to the human-readable supported-edges table so they're edited together).
+- A small test (`tests/test_python_explore_skill_conformance.py`) parses that anchor and
+  asserts the documented set **equals** `_IMPLEMENTED_EDGES` from
+  `src/pyeye/mcp/operations/edges.py`, and asserts the skill names **no**
+  `_DEFERRED_REFERENCE_BACKEND_EDGES` member as supported/recommended. If the registry
+  changes, this test fails until the skill is updated — converting drift from a silent
+  rot into a CI failure.
+
+This is the one piece of Python in an otherwise docs-only change; it exists specifically
+to prevent a recurrence of the bug this issue fixes.
+
 ## Out of scope
 
-- Any change to the pyeye Python implementation or the MCP tools themselves.
-- Fixing the stale `callers`/`references` docstrings inside `inspect.py` (noted above;
-  separate concern).
+- Any change to the pyeye Python implementation or the MCP tools themselves (the
+  conformance test above only *reads* the registry; it does not change behaviour).
+- Fixing the stale `callers`/`references` docstrings inside `inspect.py` — **filed as
+  #377**.
 - The `decision-log` skill.
 - Retiring the legacy tools (tracked elsewhere; the skill just stops recommending them).
+
+## Testing posture
+
+This is a docs-mostly change: the repo's "all code changes need tests / 85% coverage"
+gates don't meaningfully apply to the markdown. The relevant gates are **markdownlint**
+(pre-commit) and the **conformance guard** test above. Run the full suite
+(`uv run pytest`) before pushing anyway, per repo convention, to confirm the new test
+passes and nothing else regressed.
 
 ## Acceptance
 
@@ -209,5 +257,8 @@ Replace:
 - `03-mcp-dogfooding.md` defers tool mechanics to the skill (no parallel copy that can
   drift).
 - Skill description/triggers updated; the skill loads and triggers correctly.
+- `resolve` guidance is accurate: success returns `location`; the ambiguous-result path
+  (`candidates`) is covered with an example.
+- `resolve_at` (position → handle) is demonstrated, not just listed.
 - Every supported-edge and deferred-edge claim in the skill matches
-  `src/pyeye/mcp/operations/edges.py`.
+  `src/pyeye/mcp/operations/edges.py` — enforced mechanically by the conformance test.
