@@ -8,19 +8,19 @@ This module is the **single source of truth** for which traversal edges
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
    names (``members``, ``callees``, ``imported_by``, ``subclasses``,
-   ``superclasses``) to their resolver callables.  ``members``/``callees``/
-   ``superclasses``/``imports`` are synchronous and always return an
+   ``superclasses``, ``imports``, ``enclosing_scope``) to their resolver
+   callables.  ``members``/``callees``/``superclasses``/``imports``/
+   ``enclosing_scope`` are synchronous and always return an
    :class:`EdgeResult` or ``None``; ``imported_by`` and ``subclasses`` are
    **async**.  ``imported_by`` and ``imports`` return ``EdgeResult | None``
    — ``None`` is their wrong-kind signal (the handle is not a module).
-   ``subclasses`` and ``superclasses`` ALWAYS return an :class:`EdgeResult`
-   (never ``None``): a non-class handle yields ``EdgeResult([])`` because
-   only a class CAN be subclassed/have superclasses, so ``[]`` for the wrong
-   kind is true by definition (the ``members``/``callees`` case), not the
-   absence-vs-zero lie that forces ``imported_by``'s and ``imports``'s
-   ``None`` paths.  An :class:`EdgeResult` carries the adjacent canonical
-   handles plus, for ``callees`` only, the count of unresolved call sites.
-   ``expand`` awaits any awaitable resolver result.
+   ``subclasses``, ``superclasses``, and ``enclosing_scope`` ALWAYS return an
+   :class:`EdgeResult` (never ``None``): a module handle yields
+   ``EdgeResult([])`` for ``enclosing_scope`` because modules have no lexical
+   enclosing scope; non-class handles yield ``EdgeResult([])`` for
+   ``subclasses``/``superclasses``.  An :class:`EdgeResult` carries the
+   adjacent canonical handles plus, for ``callees`` only, the count of
+   unresolved call sites.  ``expand`` awaits any awaitable resolver result.
 
 Status model (spec §4.3)
 ------------------------
@@ -29,8 +29,9 @@ status                          edges
 ==============================  =========================================
 ``"implemented"``               ``members``, ``callees``, ``imported_by``,
                                 ``subclasses``, ``superclasses``,
-                                ``imports``
-``"not_yet_implemented"``       ``enclosing_scope``
+                                ``imports``, ``enclosing_scope``
+``"not_yet_implemented"``       *(currently empty — all recognised edges
+                                are implemented)*
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
                                 ``written_by``, ``passed_by``,
                                 ``overrides``, ``overridden_by``,
@@ -125,11 +126,21 @@ STATUS_UNKNOWN_EDGE = "unknown_edge"
 
 #: Edges with a working (or Phase-3-bound) resolver.
 _IMPLEMENTED_EDGES = frozenset(
-    {"members", "callees", "imported_by", "subclasses", "superclasses", "imports"}
+    {
+        "members",
+        "callees",
+        "imported_by",
+        "subclasses",
+        "superclasses",
+        "imports",
+        "enclosing_scope",
+    }
 )
 
 #: Edges recognised by the matrix but not yet built (no reference backend needed).
-_NOT_YET_IMPLEMENTED_EDGES = frozenset({"enclosing_scope"})
+#: Currently empty — all recognised structural edges are implemented.  The set
+#: is retained so the 4-status taxonomy remains consistent for future additions.
+_NOT_YET_IMPLEMENTED_EDGES: frozenset[str] = frozenset()
 
 #: Inbound / reference edges deferred until an indexed reference backend lands.
 _DEFERRED_REFERENCE_BACKEND_EDGES = frozenset(
@@ -1020,20 +1031,90 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
 
 
 # ---------------------------------------------------------------------------
+# enclosing_scope resolver (#370) — Jedi parent() navigation, sync
+# ---------------------------------------------------------------------------
+
+
+def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:  # noqa: ARG001
+    """Return the immediate lexical enclosing scope of a symbol as a canonical handle.
+
+    The inverse of ``members``: where ``members`` enumerates a container's
+    direct children, ``enclosing_scope`` returns the one parent scope.  At most
+    ONE adjacent is returned:
+
+    - **method** → its class.
+    - **nested class** → its enclosing class.
+    - **nested function** → its enclosing function.
+    - **top-level def/class/variable** → its module.
+    - **module** → ``EdgeResult([])`` (a module has no enclosing LEXICAL scope;
+      Python packages are NOT lexical scopes — that is the ``package`` concept).
+
+    Resolution uses ``jedi_name.parent()`` — the Jedi ``Name`` for the adjacent
+    scope — NOT dotted-name string arithmetic.  String arithmetic cannot see
+    class nesting (the #337 lesson applied here): for ``pkg.Outer.Inner.method``
+    the arithmetic would mis-identify ``Outer`` as a module, failing to find it.
+    ``parent()`` returns the true lexical parent at any nesting depth.
+
+    Synchronous: ``parent()`` is a pure Jedi API call (no file I/O); ``Handle``
+    construction is synchronous.  No ``get_references`` / ``find_references`` is
+    ever called.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
+            target.  Module-ness is derived from its normalised kind; for a
+            module the resolver returns immediately with ``EdgeResult([])``.
+        analyzer: Active analyzer (unused except for structural consistency with
+            all other resolver signatures — the parent() API is self-contained).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` is a single-element list
+        ``[(Handle, parent_Name)]`` for any non-module symbol, or ``[]`` for a
+        module handle or any symbol whose parent cannot be resolved (defensive
+        empty — callers can rely on the absence-vs-zero invariant).
+        ``unresolved_call_sites`` is always ``None`` — that notion is
+        callees-only.  NEVER returns ``None``.
+    """
+    # Module gate: a module has no lexical enclosing scope.  Gate on kind BEFORE
+    # calling parent() — a ModuleSentinel may not have a parent() method at all.
+    if _normalise_kind(getattr(jedi_name, "type", None)) == "module":
+        return EdgeResult(adjacents=[])
+
+    # Retrieve the parent Jedi Name via the Jedi API (not dotted-name arithmetic).
+    try:
+        parent = jedi_name.parent()
+    except Exception:
+        return EdgeResult(adjacents=[])
+
+    if parent is None:
+        return EdgeResult(adjacents=[])
+
+    # Build the Handle from the parent's full_name.
+    full_name = getattr(parent, "full_name", None)
+    if not full_name:
+        return EdgeResult(adjacents=[])
+
+    h = _try_handle(full_name)
+    if h is None:
+        return EdgeResult(adjacents=[])
+
+    return EdgeResult(adjacents=[(h, parent)])
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
 #: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
-#: ``superclasses``/``imports`` are synchronous; ``members``/``callees``/
-#: ``superclasses`` always return an :class:`EdgeResult`; ``imports`` returns
-#: ``EdgeResult | None`` (``None`` for non-module handles, mirroring
-#: ``imported_by``).  ``imported_by`` and ``subclasses`` are async.
-#: ``imported_by`` may return ``None`` (its wrong-kind signal); ``subclasses``
-#: and ``superclasses`` always return an :class:`EdgeResult` (non-class →
-#: ``EdgeResult([])``, never ``None``).  The value type therefore admits a
-#: sync-or-async resolver returning ``EdgeResult | None`` so ``expand`` can
-#: stay edge-agnostic (awaiting awaitable results, treating ``None`` as
-#: not-yet-implemented).
+#: ``superclasses``/``imports``/``enclosing_scope`` are synchronous;
+#: ``members``/``callees``/``superclasses``/``enclosing_scope`` always return an
+#: :class:`EdgeResult`; ``imports`` returns ``EdgeResult | None`` (``None`` for
+#: non-module handles, mirroring ``imported_by``).  ``imported_by`` and
+#: ``subclasses`` are async.  ``imported_by`` may return ``None`` (its
+#: wrong-kind signal); ``subclasses``, ``superclasses``, and ``enclosing_scope``
+#: always return an :class:`EdgeResult` (non-applicable kind → ``EdgeResult([])``,
+#: never ``None``).  The value type therefore admits a sync-or-async resolver
+#: returning ``EdgeResult | None`` so ``expand`` can stay edge-agnostic
+#: (awaiting awaitable results, treating ``None`` as not-yet-implemented).
 EDGE_RESOLVERS: dict[
     str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
 ] = {
@@ -1043,4 +1124,5 @@ EDGE_RESOLVERS: dict[
     "subclasses": resolve_subclasses,
     "superclasses": resolve_superclasses,
     "imports": resolve_imports,
+    "enclosing_scope": resolve_enclosing_scope,
 }

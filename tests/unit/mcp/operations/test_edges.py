@@ -4,8 +4,9 @@ The edge registry is the single source of truth for which edges ``expand``
 supports.  Every edge name MUST classify into exactly one status:
 
 - ``"implemented"`` — ``members``, ``callees``, ``imported_by``, ``subclasses``,
-  ``superclasses``, ``imports``
-- ``"not_yet_implemented"`` — ``enclosing_scope``
+  ``superclasses``, ``imports``, ``enclosing_scope``
+- ``"not_yet_implemented"`` — *(currently empty — all recognised edges are now
+  implemented, as of #370 / enclosing_scope)*
 - ``"deferred_reference_backend"`` — the inbound / reference edges
   (``callers``, ``references``, ``read_by``, ``written_by``, ``passed_by``,
   ``overrides``, ``overridden_by``, ``decorated_by``, ``decorates``)
@@ -168,12 +169,21 @@ class TestEdgeStatusModel:
         # goto — no reverse symbol search, so it belongs with the other implemented edges.
         assert edge_status("imports") == "implemented"
 
-    @pytest.mark.parametrize(
-        "edge",
-        ["enclosing_scope"],
-    )
-    def test_not_yet_implemented_edges(self, edge: str) -> None:
-        assert edge_status(edge) == "not_yet_implemented"
+    def test_enclosing_scope_is_implemented(self) -> None:
+        # enclosing_scope moves from not_yet_implemented to implemented (#370):
+        # its resolver (resolve_enclosing_scope) uses Jedi parent() — no reverse
+        # symbol search, so it belongs with the other implemented edges.
+        assert edge_status("enclosing_scope") == "implemented"
+
+    def test_not_yet_implemented_category_is_empty(self) -> None:
+        # All recognised structural edges are now implemented.  The
+        # _NOT_YET_IMPLEMENTED_EDGES set is retained for the 4-status taxonomy
+        # but is intentionally empty after #370.
+        from pyeye.mcp.operations.edges import _NOT_YET_IMPLEMENTED_EDGES
+
+        assert (
+            frozenset() == _NOT_YET_IMPLEMENTED_EDGES
+        ), f"_NOT_YET_IMPLEMENTED_EDGES must be empty; got {_NOT_YET_IMPLEMENTED_EDGES!r}"
 
     def test_imported_by_is_implemented(self) -> None:
         # imported_by moves from deferred_reference_backend to implemented in
@@ -1524,3 +1534,175 @@ class TestResolveImportsWildcard:
         assert result is not None
         handles = {str(h) for h in result.handles}
         assert _OS_MODULE_HANDLE in handles, f"ordinary import dropped; got {handles}"
+
+
+# ---------------------------------------------------------------------------
+# enclosing_scope resolver (#370) — Jedi parent() navigation, sync
+# ---------------------------------------------------------------------------
+
+# Fixture: nested_class_inspect/pkg/mod.py
+# Topology:
+#   pkg.mod (module)
+#   pkg.mod.top_level_function    → enclosing scope: pkg.mod (module)
+#   pkg.mod.Outer                 → enclosing scope: pkg.mod (module)
+#   pkg.mod.Outer.outer_method    → enclosing scope: pkg.mod.Outer (class)
+#   pkg.mod.Outer.Inner           → enclosing scope: pkg.mod.Outer (class)
+#   pkg.mod.Outer.Inner.inner_method → enclosing scope: pkg.mod.Outer.Inner (class)
+_NESTED_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "nested_class_inspect"
+
+_TOP_LEVEL_FUNC_HANDLE = "pkg.mod.top_level_function"
+_OUTER_CLASS_HANDLE = "pkg.mod.Outer"
+_OUTER_METHOD_HANDLE = "pkg.mod.Outer.outer_method"
+_INNER_CLASS_HANDLE = "pkg.mod.Outer.Inner"
+_INNER_METHOD_HANDLE = "pkg.mod.Outer.Inner.inner_method"
+_NESTED_MODULE_HANDLE = "pkg.mod"
+
+
+@pytest.fixture
+def nested_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the nested_class_inspect fixture."""
+    return JediAnalyzer(str(_NESTED_FIXTURE))
+
+
+def _enclosing_scope_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
+    """Resolve *handle* to a Jedi name and return its ``enclosing_scope`` result.
+
+    ``enclosing_scope`` is synchronous (Jedi ``parent()`` + ``Handle`` construction
+    are sync) and NEVER returns ``None`` — a non-module has a lexical enclosing
+    scope; a module has none (``EdgeResult([])``) but still not ``None``.
+    """
+    from pyeye.mcp.operations.edges import resolve_enclosing_scope
+
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return resolve_enclosing_scope(jedi_name, analyzer)
+
+
+class TestResolveEnclosingScopeEdgeStatus:
+    """Edge-status model: enclosing_scope must be 'implemented' (#370)."""
+
+    def test_enclosing_scope_is_implemented(self) -> None:
+        """After #370, enclosing_scope is implemented — NOT not_yet_implemented."""
+        assert edge_status("enclosing_scope") == "implemented"
+
+    def test_not_yet_implemented_category_is_empty(self) -> None:
+        """_NOT_YET_IMPLEMENTED_EDGES is empty: all recognised edges are now handled.
+
+        The category is retained in the module for the 4-status taxonomy; it is
+        intentionally empty after #370 ships enclosing_scope.
+        """
+        from pyeye.mcp.operations.edges import _NOT_YET_IMPLEMENTED_EDGES
+
+        assert frozenset() == _NOT_YET_IMPLEMENTED_EDGES, (
+            "_NOT_YET_IMPLEMENTED_EDGES must be empty after enclosing_scope is promoted; "
+            f"got {_NOT_YET_IMPLEMENTED_EDGES!r}"
+        )
+
+
+class TestResolveEnclosingScopeMethod:
+    """A method → its enclosing class handle (the direct lexical parent)."""
+
+    def test_outer_method_scope_is_outer_class(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod.Outer.outer_method → enclosing scope pkg.mod.Outer."""
+        result = _enclosing_scope_for(_OUTER_METHOD_HANDLE, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _OUTER_CLASS_HANDLE
+
+    def test_inner_method_scope_is_inner_class(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod.Outer.Inner.inner_method → enclosing scope pkg.mod.Outer.Inner."""
+        result = _enclosing_scope_for(_INNER_METHOD_HANDLE, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _INNER_CLASS_HANDLE
+
+    def test_adjacent_is_handle_name_pair(self, nested_analyzer: JediAnalyzer) -> None:
+        """The adjacent must be a (Handle, Name) pair (not just a handle)."""
+        result = _enclosing_scope_for(_OUTER_METHOD_HANDLE, nested_analyzer)
+        assert len(result.adjacents) == 1
+        h, name = result.adjacents[0]
+        assert isinstance(h, Handle)
+        # The Jedi Name must carry a type attribute (it's a real Name, not a stub).
+        assert getattr(name, "type", None) is not None
+
+
+class TestResolveEnclosingScopeNestedClass:
+    """A nested class → its enclosing class handle."""
+
+    def test_inner_class_scope_is_outer_class(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod.Outer.Inner → enclosing scope pkg.mod.Outer (its parent class)."""
+        result = _enclosing_scope_for(_INNER_CLASS_HANDLE, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _OUTER_CLASS_HANDLE
+
+
+class TestResolveEnclosingScopeTopLevel:
+    """A top-level def/class → its enclosing module handle."""
+
+    def test_top_level_function_scope_is_module(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod.top_level_function → enclosing scope pkg.mod (the module)."""
+        result = _enclosing_scope_for(_TOP_LEVEL_FUNC_HANDLE, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _NESTED_MODULE_HANDLE
+
+    def test_outer_class_scope_is_module(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod.Outer → enclosing scope pkg.mod (the module)."""
+        result = _enclosing_scope_for(_OUTER_CLASS_HANDLE, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _NESTED_MODULE_HANDLE
+
+
+class TestResolveEnclosingScopeModule:
+    """A module → EdgeResult([]) (no enclosing lexical scope)."""
+
+    def test_module_has_no_enclosing_scope(self, nested_analyzer: JediAnalyzer) -> None:
+        """pkg.mod has no lexical enclosing scope → EdgeResult([])."""
+        from pyeye._module_sentinel import ModuleSentinel
+        from pyeye.mcp.operations.edges import resolve_enclosing_scope
+
+        # Build a ModuleSentinel for the module handle — the resolver gates on
+        # _normalise_kind, which returns "module" for a sentinel.
+        fixture_file = _NESTED_FIXTURE / "pkg" / "mod.py"
+        sentinel = ModuleSentinel(fixture_file, _NESTED_MODULE_HANDLE, nested_analyzer)
+        result = resolve_enclosing_scope(sentinel, nested_analyzer)
+        assert isinstance(result, EdgeResult)
+        assert (
+            result.handles == []
+        ), f"module has no enclosing lexical scope → EdgeResult([]); got {result.handles}"
+
+    def test_module_returns_edgeresult_not_none(self, nested_analyzer: JediAnalyzer) -> None:
+        """resolver NEVER returns None — module yields EdgeResult([]), not None."""
+        from pyeye._module_sentinel import ModuleSentinel
+        from pyeye.mcp.operations.edges import resolve_enclosing_scope
+
+        fixture_file = _NESTED_FIXTURE / "pkg" / "mod.py"
+        sentinel = ModuleSentinel(fixture_file, _NESTED_MODULE_HANDLE, nested_analyzer)
+        result = resolve_enclosing_scope(sentinel, nested_analyzer)
+        assert result is not None, "resolver must never return None"
+
+
+class TestResolveEnclosingScopeNeverReverseSearch:
+    """enclosing_scope NEVER calls Jedi reverse search (parent() only).
+
+    Mirrors the callees/imported_by/subclasses/superclasses/imports spies:
+    patch ``get_references`` to explode if touched, run the resolver on a
+    method (which has a real enclosing scope), then assert it completed AND the
+    spy was never called.
+    """
+
+    def test_get_references_not_called(self, nested_analyzer: JediAnalyzer) -> None:
+        from pyeye.mcp.operations.edges import resolve_enclosing_scope
+
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on enclosing_scope path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            jedi_name = _find_jedi_name_for_handle(_OUTER_METHOD_HANDLE, nested_analyzer)
+            assert jedi_name is not None
+            result = resolve_enclosing_scope(jedi_name, nested_analyzer)
+        # The resolver must have run (method → its class) and never touched reverse search.
+        assert len(result.handles) == 1
+        assert str(result.handles[0]) == _OUTER_CLASS_HANDLE
+        spy.assert_not_called()

@@ -523,9 +523,9 @@ async def expand(
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Other structural edges (``superclasses``, ``imports``,
-        ``enclosing_scope``) are planned but not yet implemented in this slice;
-        they return ``reason: "not_yet_implemented"``.
+      - Wrong-kind handles for certain edges (e.g. ``imported_by`` on a
+        non-module) return ``reason: "not_yet_implemented"`` via their ``None``
+        resolver signal.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union:
