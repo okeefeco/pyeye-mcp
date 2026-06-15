@@ -1461,3 +1461,66 @@ class TestResolveImportsMembersDisjoint:
         member_handles = {str(h) for h in members_result.handles}
         overlap = import_handles & member_handles
         assert not overlap, f"imports and members overlap for imports_fixture: {overlap}"
+
+
+# ``direct_importer`` does ``import mypackage._core.widgets`` — a 3-component
+# dotted import that exercises the rightmost-identifier column arithmetic.
+_DIRECT_IMPORTER_HANDLE = "mypackage._core.direct_importer"
+_WIDGETS_MODULE_HANDLE = "mypackage._core.widgets"
+
+# ``wildcard_fixture`` pairs ``from .widgets import *`` (skipped) with
+# ``import os`` (kept) — see its module docstring.
+_WILDCARD_FIXTURE_HANDLE = "mypackage._core.wildcard_fixture"
+
+
+class TestResolveImportsDottedPath:
+    """``import a.b.c`` resolves to the RIGHTMOST module, not the top package.
+
+    ``direct_importer`` does ``import mypackage._core.widgets`` (a 3-component
+    dotted import).  The resolver's column arithmetic must land goto on the
+    rightmost identifier (``widgets``) so it resolves to the full module path —
+    a naive ``alias.col_offset`` would land on ``mypackage`` and resolve to the
+    top package instead.
+    """
+
+    def test_dotted_resolves_to_rightmost_module(self, analyzer: JediAnalyzer) -> None:
+        """The dotted import yields the FULL module handle, not the top package."""
+        result = _imports_for(_DIRECT_IMPORTER_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            _WIDGETS_MODULE_HANDLE in handles
+        ), f"dotted import must resolve to full module path; got {handles}"
+
+    def test_dotted_not_top_package(self, analyzer: JediAnalyzer) -> None:
+        """Broken column arithmetic would land on ``mypackage`` (the first component)."""
+        result = _imports_for(_DIRECT_IMPORTER_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            "mypackage" not in handles
+        ), f"dotted import wrongly resolved to top package; got {handles}"
+
+
+class TestResolveImportsWildcard:
+    """``from x import *`` is SKIPPED — wildcard targets are not enumerable.
+
+    Pinned against ``wildcard_fixture``, which has ONE wildcard import and ONE
+    ordinary import so both halves of the contract are checkable: the wildcard
+    contributes nothing, yet the ordinary import is still measured.
+    """
+
+    def test_wildcard_targets_absent(self, analyzer: JediAnalyzer) -> None:
+        """None of the names ``from .widgets import *`` binds appear as handles."""
+        result = _imports_for(_WILDCARD_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        leaked = {h for h in handles if h.startswith(f"{_WIDGETS_MODULE_HANDLE}.")}
+        assert not leaked, f"wildcard target leaked into imports: {leaked}"
+
+    def test_nonwildcard_import_still_resolved(self, analyzer: JediAnalyzer) -> None:
+        """The ordinary ``import os`` proves the resolver ran past the wildcard."""
+        result = _imports_for(_WILDCARD_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _OS_MODULE_HANDLE in handles, f"ordinary import dropped; got {handles}"
