@@ -4,8 +4,8 @@ The edge registry is the single source of truth for which edges ``expand``
 supports.  Every edge name MUST classify into exactly one status:
 
 - ``"implemented"`` — ``members``, ``callees``, ``imported_by``, ``subclasses``,
-  ``superclasses``
-- ``"not_yet_implemented"`` — ``imports``, ``enclosing_scope``
+  ``superclasses``, ``imports``
+- ``"not_yet_implemented"`` — ``enclosing_scope``
 - ``"deferred_reference_backend"`` — the inbound / reference edges
   (``callers``, ``references``, ``read_by``, ``written_by``, ``passed_by``,
   ``overrides``, ``overridden_by``, ``decorated_by``, ``decorates``)
@@ -52,6 +52,7 @@ from pyeye.mcp.operations.edges import (
     edge_status,
     resolve_callees,
     resolve_imported_by,
+    resolve_imports,
     resolve_members,
     resolve_subclasses,
     resolve_superclasses,
@@ -161,9 +162,15 @@ class TestEdgeStatusModel:
         # no reverse symbol search, so it belongs with members/callees/subclasses.
         assert edge_status("superclasses") == "implemented"
 
+    def test_imports_is_implemented(self) -> None:
+        # imports moves from not_yet_implemented to implemented (#367): its
+        # resolver (resolve_imports) uses top-level AST import nodes + forward
+        # goto — no reverse symbol search, so it belongs with the other implemented edges.
+        assert edge_status("imports") == "implemented"
+
     @pytest.mark.parametrize(
         "edge",
-        ["imports", "enclosing_scope"],
+        ["enclosing_scope"],
     )
     def test_not_yet_implemented_edges(self, edge: str) -> None:
         assert edge_status(edge) == "not_yet_implemented"
@@ -1262,3 +1269,258 @@ class TestResolveSuperclassesUnresolvableBaseDivergence:
         assert (
             len(field) >= 1
         ), "non-vacuous: the superclasses field must be non-empty (contains the fallback string)"
+
+
+# ---------------------------------------------------------------------------
+# Issue #367 — imports resolver: top-level AST import nodes + forward goto
+# ---------------------------------------------------------------------------
+
+# Fixture: ``mypackage._core.imports_fixture`` (added for this edge)
+# Top-level imports:
+#   import os                          → module ``os`` (stdlib, ast.Import form)
+#   from .widgets import make_widget   → function ``mypackage._core.widgets.make_widget``
+#                                        (project symbol, ast.ImportFrom form)
+# No top-level function/class definitions → members edge returns [] (disjoint from imports).
+_IMPORTS_FIXTURE_HANDLE = "mypackage._core.imports_fixture"
+_OS_MODULE_HANDLE = "os"
+_MAKE_WIDGET_FROM_IMPORTS_HANDLE = "mypackage._core.widgets.make_widget"
+
+# ``mypackage.helpers`` has NO top-level imports — only a class definition.
+# Verified: helpers.py body starts with ``class Widget:``; no import statements.
+_HELPERS_MODULE_HANDLE = "mypackage.helpers"
+
+
+def _imports_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
+    """Resolve *handle* to a Jedi name and return its ``imports`` result.
+
+    Returns the raw resolver result so tests can distinguish ``None`` (wrong
+    kind — a non-module handle) from ``EdgeResult([])`` (a module that has no
+    top-level imports — measured none).
+    """
+    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
+    return resolve_imports(jedi_name, analyzer)
+
+
+class TestResolveImportsModule:
+    """``imports`` = the top-level imports of a module as canonical handles.
+
+    The fixture ``mypackage._core.imports_fixture`` imports:
+    - ``import os``                        → adjacent module ``os``
+    - ``from .widgets import make_widget`` → adjacent function handle
+    """
+
+    def test_returns_edgeresult(self, analyzer: JediAnalyzer) -> None:
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert isinstance(result, EdgeResult)
+        assert all(isinstance(h, Handle) for h in result.handles)
+
+    def test_stdlib_import_present(self, analyzer: JediAnalyzer) -> None:
+        """``import os`` resolves to the ``os`` module handle."""
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _OS_MODULE_HANDLE in handles, f"stdlib import 'os' missing; got {handles}"
+
+    def test_project_from_import_present(self, analyzer: JediAnalyzer) -> None:
+        """``from .widgets import make_widget`` resolves to the function handle."""
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            _MAKE_WIDGET_FROM_IMPORTS_HANDLE in handles
+        ), f"project symbol make_widget missing; got {handles}"
+
+    def test_adjacents_are_handle_name_pairs(self, analyzer: JediAnalyzer) -> None:
+        """Each adjacent is a (Handle, Jedi Name) pair — the Name carries goto info."""
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        assert result.adjacents, "imports_fixture should have adjacents"
+        for handle, name in result.adjacents:
+            assert isinstance(handle, Handle)
+            # The goto def has a full_name matching the handle
+            assert name.full_name == str(handle)
+
+    def test_unresolved_call_sites_is_none(self, analyzer: JediAnalyzer) -> None:
+        """The unresolved-call-site notion is callees-only; imports never reports it."""
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        assert result.unresolved_call_sites is None
+
+    def test_deterministic_across_runs(self, analyzer: JediAnalyzer) -> None:
+        """Results are deduplicated and sorted by handle string for stability."""
+        first = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        second = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert first is not None and second is not None
+        assert [str(h) for h in first.handles] == [str(h) for h in second.handles]
+        # Verify it is the SORTED order (resolver sorts by handle string).
+        handles = [str(h) for h in first.handles]
+        assert handles == sorted(handles), f"not sorted by handle string: {handles}"
+
+    def test_no_duplicates(self, analyzer: JediAnalyzer) -> None:
+        """Dedup is enforced: no handle appears twice."""
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = [str(h) for h in result.handles]
+        assert len(handles) == len(set(handles)), f"duplicates found: {handles}"
+
+
+class TestResolveImportsMeasuredEmpty:
+    """A module with NO top-level imports → ``EdgeResult([])`` (measured none).
+
+    This is the absence-vs-zero invariant: a module IS the right kind for this
+    edge, but if it has no top-level imports the measured result is an empty
+    adjacency — NOT the wrong-kind ``None`` signal.
+    """
+
+    def test_no_imports_module_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        # ``mypackage.helpers`` has NO top-level imports — only a class definition.
+        # Verified by reading helpers.py: no ``import`` or ``from ... import`` lines.
+        # This is the absence-vs-zero invariant: the module IS the right kind for
+        # the ``imports`` edge, so we get a MEASURED empty ``EdgeResult([])`` — NOT
+        # the wrong-kind ``None`` sentinel.
+        result = _imports_for(_HELPERS_MODULE_HANDLE, analyzer)
+        assert result is not None, "helpers module (right kind) must return EdgeResult, not None"
+        assert (
+            result.handles == []
+        ), f"helpers has no top-level imports → measured empty; got {result.handles}"
+
+    def test_measured_empty_is_not_none(self, analyzer: JediAnalyzer) -> None:
+        """A module handle (even with imports) returns EdgeResult, NOT None."""
+        # The critical distinction: any module must return an EdgeResult (not None).
+        result = _imports_for(_MODULE_HANDLE, analyzer)
+        assert result is not None, "module handle must NOT return wrong-kind None"
+        assert isinstance(result, EdgeResult)
+
+
+class TestResolveImportsNonModule:
+    """A non-module handle → wrong-kind ``None`` (NOT ``EdgeResult([])``).
+
+    This is the load-bearing #332 distinction (mirroring ``imported_by``): a
+    function/class CAN have local imports, so returning ``EdgeResult([])`` would
+    be the "measured zero" lie.  ``None`` signals "this edge does not apply to
+    this kind" and becomes ``not_yet_implemented`` downstream in ``expand``.
+    """
+
+    def test_class_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A class handle returns ``None`` (wrong kind for the imports edge)."""
+        result = _imports_for(_WIDGET_HANDLE, analyzer)
+        assert result is None, f"non-module handle must return None, got {result!r}"
+
+    def test_function_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A function handle returns ``None`` (wrong kind for the imports edge)."""
+        result = _imports_for(_MAKE_WIDGET_HANDLE, analyzer)
+        assert result is None, f"non-module handle must return None, got {result!r}"
+
+    def test_none_is_distinct_from_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        """The two empty-looking outcomes must be machine-distinguishable."""
+        wrong_kind = _imports_for(_WIDGET_HANDLE, analyzer)
+        # widgets module itself IS a module — returns EdgeResult (possibly with imports)
+        module_result = _imports_for(_MODULE_HANDLE, analyzer)
+        assert wrong_kind is None
+        assert module_result is not None
+        # They must differ: None vs EdgeResult
+        assert wrong_kind != module_result
+
+
+class TestResolveImportsNeverReverseSearch:
+    """imports NEVER calls Jedi reverse search (forward goto only).
+
+    Mirrors the callees/imported_by/subclasses/superclasses spies: patch
+    ``get_references`` to explode if touched, run the resolver, then assert it
+    completed (real imports present) AND the spy was never called.
+    """
+
+    def test_get_references_not_called(self, analyzer: JediAnalyzer) -> None:
+        assert hasattr(jedi.Script, "get_references")
+        spy = Mock(side_effect=AssertionError("get_references called on imports path"))
+        with patch.object(jedi.Script, "get_references", spy):
+            result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        assert _OS_MODULE_HANDLE in {str(h) for h in result.handles}
+        spy.assert_not_called()
+
+
+class TestResolveImportsMembersDisjoint:
+    """The ``imports`` and ``members`` edges are disjoint for a module.
+
+    ``_module_members`` deliberately excludes import-bound names (spec §3.3) so
+    that ``members`` and ``imports`` don't overlap.  This test pins that contract
+    for the ``imports_fixture`` module.
+    """
+
+    def test_imports_and_members_have_no_overlap(self, analyzer: JediAnalyzer) -> None:
+        """No handle appears in BOTH the imports and members edge for the same module."""
+        import_result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        members_result = resolve_members(
+            _find_jedi_name_for_handle(_IMPORTS_FIXTURE_HANDLE, analyzer),
+            analyzer,
+        )
+        assert import_result is not None
+        import_handles = {str(h) for h in import_result.handles}
+        member_handles = {str(h) for h in members_result.handles}
+        overlap = import_handles & member_handles
+        assert not overlap, f"imports and members overlap for imports_fixture: {overlap}"
+
+
+# ``direct_importer`` does ``import mypackage._core.widgets`` — a 3-component
+# dotted import that exercises the rightmost-identifier column arithmetic.
+_DIRECT_IMPORTER_HANDLE = "mypackage._core.direct_importer"
+_WIDGETS_MODULE_HANDLE = "mypackage._core.widgets"
+
+# ``wildcard_fixture`` pairs ``from .widgets import *`` (skipped) with
+# ``import os`` (kept) — see its module docstring.
+_WILDCARD_FIXTURE_HANDLE = "mypackage._core.wildcard_fixture"
+
+
+class TestResolveImportsDottedPath:
+    """``import a.b.c`` resolves to the RIGHTMOST module, not the top package.
+
+    ``direct_importer`` does ``import mypackage._core.widgets`` (a 3-component
+    dotted import).  The resolver's column arithmetic must land goto on the
+    rightmost identifier (``widgets``) so it resolves to the full module path —
+    a naive ``alias.col_offset`` would land on ``mypackage`` and resolve to the
+    top package instead.
+    """
+
+    def test_dotted_resolves_to_rightmost_module(self, analyzer: JediAnalyzer) -> None:
+        """The dotted import yields the FULL module handle, not the top package."""
+        result = _imports_for(_DIRECT_IMPORTER_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            _WIDGETS_MODULE_HANDLE in handles
+        ), f"dotted import must resolve to full module path; got {handles}"
+
+    def test_dotted_not_top_package(self, analyzer: JediAnalyzer) -> None:
+        """Broken column arithmetic would land on ``mypackage`` (the first component)."""
+        result = _imports_for(_DIRECT_IMPORTER_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            "mypackage" not in handles
+        ), f"dotted import wrongly resolved to top package; got {handles}"
+
+
+class TestResolveImportsWildcard:
+    """``from x import *`` is SKIPPED — wildcard targets are not enumerable.
+
+    Pinned against ``wildcard_fixture``, which has ONE wildcard import and ONE
+    ordinary import so both halves of the contract are checkable: the wildcard
+    contributes nothing, yet the ordinary import is still measured.
+    """
+
+    def test_wildcard_targets_absent(self, analyzer: JediAnalyzer) -> None:
+        """None of the names ``from .widgets import *`` binds appear as handles."""
+        result = _imports_for(_WILDCARD_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        leaked = {h for h in handles if h.startswith(f"{_WIDGETS_MODULE_HANDLE}.")}
+        assert not leaked, f"wildcard target leaked into imports: {leaked}"
+
+    def test_nonwildcard_import_still_resolved(self, analyzer: JediAnalyzer) -> None:
+        """The ordinary ``import os`` proves the resolver ran past the wildcard."""
+        result = _imports_for(_WILDCARD_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _OS_MODULE_HANDLE in handles, f"ordinary import dropped; got {handles}"
