@@ -218,14 +218,15 @@ class TestWorkflowIntegration:
 
         workflows_dir = Path(__file__).parent.parent / "src" / "pyeye" / "workflows"
 
-        # Tools that should exist
+        # Tools that should exist (progressive-disclosure surface + kept tools)
         expected_tools = [
-            "find_symbol",
-            "get_type_info",
+            "resolve",
+            "inspect",
+            "expand",
+            "trace",
+            "outline",
             "find_references",
-            "find_subclasses",
             "analyze_dependencies",
-            "list_modules",
             "get_call_hierarchy",
         ]
 

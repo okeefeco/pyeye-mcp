@@ -6,12 +6,7 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import FileAccessError
-from pyeye.mcp.server import (
-    analyze_dependencies,
-    get_module_info,
-    list_modules,
-    list_packages,
-)
+from pyeye.mcp.server import analyze_dependencies
 
 
 class TestListPackages:
@@ -20,7 +15,7 @@ class TestListPackages:
     @pytest.mark.asyncio
     async def test_list_packages_empty_project(self, tmp_path):
         """Test listing packages in an empty project."""
-        result = await list_packages(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_packages()
         assert result == []
 
     @pytest.mark.asyncio
@@ -33,7 +28,7 @@ class TestListPackages:
         (package_dir / "module1.py").write_text("def foo(): pass")
         (package_dir / "module2.py").write_text("class Bar: pass")
 
-        result = await list_packages(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_packages()
         assert len(result) == 1
         assert result[0]["name"] == "mypackage"
         assert result[0]["path"] == package_dir.as_posix()
@@ -55,7 +50,7 @@ class TestListPackages:
         (child_dir / "__init__.py").write_text("")
         (child_dir / "module.py").write_text("def func(): pass")
 
-        result = await list_packages(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_packages()
         assert len(result) == 2
 
         # Find parent package
@@ -79,16 +74,24 @@ class TestListPackages:
         hidden_dir.mkdir()
         (hidden_dir / "__init__.py").write_text("")
 
-        result = await list_packages(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_packages()
         assert len(result) == 1
         assert result[0]["name"] == "visible"
 
-    @pytest.mark.asyncio
-    async def test_list_packages_project_not_found(self):
-        """Test error handling for non-existent project."""
-        with pytest.raises(FileAccessError) as exc_info:
-            await list_packages("/non/existent/path")
-        assert "Project path not found" in str(exc_info.value)
+    def test_list_packages_project_not_found(self):
+        """Test error handling for non-existent project.
+
+        The deleted ``list_packages`` tool wrapper used to validate the path
+        and raise ``FileAccessError``; that path validation now lives in the
+        kept ``JediAnalyzer`` constructor, which raises ``ProjectNotFoundError``
+        for a non-existent project. The behavior (error on bad project path) is
+        preserved at the construction site.
+        """
+        from pyeye.exceptions import ProjectNotFoundError
+
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            JediAnalyzer("/non/existent/path")
+        assert "Project not found" in str(exc_info.value)
 
 
 class TestListModules:
@@ -97,7 +100,7 @@ class TestListModules:
     @pytest.mark.asyncio
     async def test_list_modules_empty_project(self, tmp_path):
         """Test listing modules in an empty project."""
-        result = await list_modules(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_modules()
         assert result == []
 
     @pytest.mark.asyncio
@@ -120,7 +123,7 @@ class MyClass:
     pass
 ''')
 
-        result = await list_modules(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_modules()
         assert len(result) == 1
         module = result[0]
         assert module["name"] == "module"
@@ -145,7 +148,7 @@ def process_file(path: Path) -> List[str]:
     return []
 """)
 
-        result = await list_modules(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_modules()
         assert len(result) == 1
         module = result[0]
         assert "os" in module["imports_from"]
@@ -162,7 +165,7 @@ def process_file(path: Path) -> List[str]:
         (package_dir / "module1.py").write_text("def func1(): pass")
         (package_dir / "module2.py").write_text("def func2(): pass")
 
-        result = await list_modules(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_modules()
         assert len(result) == 3  # __init__ + 2 modules
 
         # Check import paths
@@ -182,7 +185,7 @@ def process_file(path: Path) -> List[str]:
         test_dir.mkdir()
         (test_dir / "test_module.py").write_text("def test_func(): pass")
 
-        result = await list_modules(str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).list_modules()
         assert len(result) == 1
         assert result[0]["name"] == "module"
 
@@ -333,7 +336,7 @@ class MyClass:
         pass
 ''')
 
-        result = await get_module_info("module", str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
         assert result["module"] == "module"
         assert result["file"] == module_file.as_posix()
         assert result["docstring"] == "Module documentation."
@@ -378,7 +381,7 @@ import json as j
 from typing import List, Dict
 """)
 
-        result = await get_module_info("module", str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
 
         # Check imports
         imports = result["imports"]
@@ -414,7 +417,7 @@ def complex_function(x):
             print(i)
 """)
 
-        result = await get_module_info("module", str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
         # Base complexity + if/elif/else + for + nested ifs
         assert result["metrics"]["complexity"] > 1
 
@@ -422,7 +425,7 @@ def complex_function(x):
     async def test_get_module_info_module_not_found(self, tmp_path):
         """Test error when module doesn't exist."""
         with pytest.raises(FileAccessError) as exc_info:
-            await get_module_info("nonexistent", str(tmp_path))
+            await JediAnalyzer(str(tmp_path)).get_module_info("nonexistent")
         assert "Module not found" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -430,7 +433,7 @@ def complex_function(x):
         """Test that module info includes dependency analysis."""
         (tmp_path / "module.py").write_text("import os")
 
-        result = await get_module_info("module", str(tmp_path))
+        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
         assert result["dependencies"] is not None
         assert result["dependencies"]["module"] == "module"
         assert "os" in result["dependencies"]["imports"]["stdlib"]

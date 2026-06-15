@@ -475,18 +475,33 @@ end-to-end conformance tests are in
 
 ## Migration note
 
-The new operations (`resolve`, `resolve_at`, `inspect`) are **additive**.
-The existing tools (`find_symbol`, `goto_definition`, `get_type_info`, etc.)
-continue to work. They have been marked deprecated in source but are not
-removed; removal is planned once the migration completes.
+The clearly-replaced legacy navigation tools have been **removed** from the
+MCP surface (issue #376). The progressive-disclosure operations are their
+replacements. Use this table to migrate existing agent code:
 
-**Prefer the new operations** for new agent code:
-
-| Old tool | New operation | Why |
+| Removed tool | Replacement | Why |
 |----------|---------------|-----|
 | `find_symbol(name)` | `resolve(name)` | Canonical handle + ambiguity surfaced |
 | `goto_definition(file, line, col)` | `resolve_at(file, line, col)` | Returns canonical handle directly |
 | `get_type_info(file, line, col)` | `inspect(handle)` | Richer Node, no source content |
+| `get_module_info(module)` | `inspect(module_handle)` | Same Node contract; `edge_counts.members` |
+| `find_imports(module)` | `expand(handle, edge="imported_by")` | Stub-based, canonical handles |
+| `find_subclasses(class)` | `inspect(handle).edge_counts.subclasses` + `expand(handle, edge="subclasses")` | Count + full project subclass closure |
+| `list_packages` / `list_modules` | `outline` | One structural lister |
+| `list_project_structure` | `outline` | ″ |
+| `lookup(identifier)` | `resolve` → `inspect` | Progressive disclosure |
+
+**Still present** (no live replacement yet): `find_references` and
+`get_call_hierarchy` depend on the deferred Pyright reference backend (#333)
+for inbound/caller edges; `analyze_dependencies` is retained because `trace`
+does not yet emit a derived `circular_dependencies` summary. `configure_packages`
+and the framework plugin tools are orthogonal to the navigation redesign and
+are kept.
+
+The underlying `JediAnalyzer` methods of the same name (e.g.
+`analyzer.find_symbol`, `analyzer.list_modules`) are internal implementation
+and remain — they back the new operations. Only the MCP tool wrappers were
+removed.
 
 ---
 

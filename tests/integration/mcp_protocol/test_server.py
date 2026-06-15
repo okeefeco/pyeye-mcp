@@ -1,24 +1,65 @@
 """Tests for the MCP server and tools."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from pyeye.exceptions import AnalysisError, FileAccessError
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.exceptions import ValidationError
 from pyeye.mcp.server import (
     configure_packages,
-    find_imports,
     find_references,
-    find_subclasses,
-    find_symbol,
     get_call_hierarchy,
-    get_type_info,
-    goto_definition,
-    list_project_structure,
     mcp,
 )
+
+
+async def _find_subclasses_flat(
+    base_class: str,
+    project_path: str,
+    include_indirect: bool = True,
+    show_hierarchy: bool = False,
+) -> list[dict[str, Any]]:
+    """Flatten ``JediAnalyzer.find_subclasses`` to the legacy ``list[dict]`` contract.
+
+    The analyzer returns an ambiguity discriminated union
+    (``{"ambiguous": False, "subclasses": [...]}`` or
+    ``{"ambiguous": True, "candidates": [...]}``).  The now-deleted
+    ``find_subclasses`` MCP wrapper collapsed that to a flat list (issue #336);
+    this helper reproduces that behaviour so the real-fixture coverage is
+    preserved against the kept analyzer method.
+    """
+    analyzer = JediAnalyzer(project_path)
+    result = await analyzer.find_subclasses(
+        base_class=base_class,
+        include_indirect=include_indirect,
+        show_hierarchy=show_hierarchy,
+    )
+
+    if result.get("ambiguous", False):
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for candidate in result.get("candidates", []):
+            candidate_handle = candidate.get("handle")
+            if not candidate_handle:
+                continue
+            candidate_result = await analyzer.find_subclasses(
+                base_class=candidate_handle,
+                include_indirect=include_indirect,
+                show_hierarchy=show_hierarchy,
+            )
+            for subclass in candidate_result.get("subclasses", []):
+                key = subclass.get("full_name") or repr(subclass)
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(subclass)
+        return merged
+
+    subclasses: list[dict[str, Any]] = result.get("subclasses", [])
+    return subclasses
 
 
 class TestMCPServer:
@@ -151,80 +192,7 @@ class TestConfigurePackages:
 
 
 class TestFindSymbol:
-    """Test the find_symbol tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_symbol_basic(self, mock_get_analyzer):
-        """Test basic symbol finding."""
-        # Mock JediAnalyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the find_symbol method to return expected results
-        mock_analyzer.find_symbol.return_value = [
-            {
-                "name": "TestClass",
-                "file": "/project/test.py",
-                "line": 10,
-                "column": 0,
-                "type": "class",
-                "description": "class TestClass",
-                "full_name": "test.TestClass",
-            }
-        ]
-
-        result = await find_symbol("TestClass")
-
-        assert len(result) == 1
-        assert result[0]["name"] == "TestClass"
-        assert "test.py" in result[0]["file"]
-        mock_analyzer.find_symbol.assert_called_with(
-            "TestClass", fuzzy=False, include_import_paths=True, scope="all"
-        )
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_symbol_fuzzy(self, mock_get_analyzer):
-        """Test fuzzy symbol search."""
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the find_symbol method to return fuzzy matches
-        mock_analyzer.find_symbol.return_value = [
-            {
-                "name": "test_function",
-                "file": "/project/test.py",
-                "line": 5,
-                "column": 0,
-                "type": "function",
-                "description": "def test_function",
-                "full_name": "test.test_function",
-            }
-        ]
-
-        result = await find_symbol("test", fuzzy=True)
-
-        # With fuzzy=True, it should include partial matches
-        assert len(result) == 1
-        mock_analyzer.find_symbol.assert_called_with(
-            "test", fuzzy=True, include_import_paths=True, scope="all"
-        )
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_symbol_with_scope(self, mock_get_analyzer):
-        """Test symbol finding passes scope to analyzer."""
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-        mock_analyzer.find_symbol.return_value = []
-
-        await find_symbol("test", scope="main")
-
-        mock_get_analyzer.assert_called()
-        mock_analyzer.find_symbol.assert_called_with(
-            "test", fuzzy=False, include_import_paths=True, scope="main"
-        )
+    """Test the find_symbol analyzer method (re-export behavior)."""
 
     @pytest.mark.asyncio
     async def test_find_symbol_with_reexports(self):
@@ -233,7 +201,8 @@ class TestFindSymbol:
         fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the User symbol in the test fixture
-        results = await find_symbol("User", project_path=fixture_path, scope="main")
+        analyzer = JediAnalyzer(fixture_path)
+        results = await analyzer.find_symbol("User", include_import_paths=True, scope="main")
 
         # Should find at least one result
         assert len(results) > 0
@@ -259,7 +228,10 @@ class TestFindSymbol:
         fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
 
         # Find the Authenticator symbol
-        results = await find_symbol("Authenticator", project_path=fixture_path, scope="main")
+        analyzer = JediAnalyzer(fixture_path)
+        results = await analyzer.find_symbol(
+            "Authenticator", include_import_paths=True, scope="main"
+        )
 
         # Should find the Authenticator class
         assert len(results) > 0
@@ -282,52 +254,6 @@ class TestFindSymbol:
                 assert any("from core import Authenticator" in p for p in import_paths)
 
         assert auth_found, "Authenticator class not found in results"
-
-
-class TestGotoDefinition:
-    """Test the goto_definition tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_goto_definition(self, mock_get_analyzer):
-        """Test going to symbol definition."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = {
-            "name": "function",
-            "file": "/project/module.py",
-            "line": 42,
-            "column": 4,
-            "type": "function",
-            "description": "def function",
-            "docstring": "Function docstring",
-        }
-        mock_analyzer.goto_definition.return_value = expected_result
-
-        result = await goto_definition("test.py", 10, 5)
-
-        assert result["name"] == "function"
-        assert result["line"] == 42
-        mock_analyzer.goto_definition.assert_called_with("test.py", 10, 5)
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_goto_definition_not_found(self, mock_get_analyzer):
-        """Test goto definition when symbol not found."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock returning None (no definition found)
-        mock_analyzer.goto_definition.return_value = None
-
-        result = await goto_definition("test.py", 10, 5)
-
-        assert result is None
-        mock_analyzer.goto_definition.assert_called_with("test.py", 10, 5)
 
 
 class TestFindReferences:
@@ -395,82 +321,6 @@ class TestFindReferences:
         mock_analyzer.find_references.assert_called_with("test.py", 5, 0, False, False)
 
 
-class TestGetTypeInfo:
-    """Test the get_type_info tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_get_type_info(self, mock_get_analyzer):
-        """Test getting type information."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = {
-            "position": {"file": "test.py", "line": 10, "column": 5},
-            "inferred_types": [
-                {
-                    "name": "str",
-                    "type": "class",
-                    "description": "class str",
-                    "full_name": "builtins.str",
-                    "module_name": "builtins",
-                }
-            ],
-            "docstring": "String type",
-        }
-        mock_analyzer.get_type_info.return_value = expected_result
-
-        result = await get_type_info("test.py", 10, 5)
-
-        assert len(result["inferred_types"]) > 0
-        assert result["inferred_types"][0]["name"] == "str"
-        assert result["docstring"] == "String type"
-        mock_analyzer.get_type_info.assert_called_with(
-            "test.py", 10, 5, detailed=False, fields=None
-        )
-
-
-class TestFindImports:
-    """Test the find_imports tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_imports(self, mock_get_analyzer):
-        """Test finding module imports."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = [
-            {
-                "file": "/project/test.py",
-                "line": 1,
-                "column": 0,
-                "import_statement": "import os",
-                "type": "module",
-            },
-            {
-                "file": "/project/utils.py",
-                "line": 1,
-                "column": 0,
-                "import_statement": "from os import path",
-                "type": "import",
-            },
-        ]
-        mock_analyzer.find_imports.return_value = expected_result
-
-        result = await find_imports("os")
-
-        # Should find imports in both files
-        assert len(result) == 2
-        assert result[0]["file"] == "/project/test.py"
-        assert result[1]["file"] == "/project/utils.py"
-        mock_analyzer.find_imports.assert_called_with("os")
-
-
 class TestGetCallHierarchy:
     """Test the get_call_hierarchy tool."""
 
@@ -527,55 +377,8 @@ class TestGetCallHierarchy:
         mock_analyzer.get_call_hierarchy.assert_called_with("func", "test.py")
 
 
-class TestListProjectStructure:
-    """Test the list_project_structure tool."""
-
-    def test_list_project_structure(self, temp_project_dir):
-        """Test listing project structure."""
-        # Create project structure
-        (temp_project_dir / "src").mkdir()
-        (temp_project_dir / "src" / "main.py").write_text("# Main")
-        (temp_project_dir / "tests").mkdir()
-        (temp_project_dir / "tests" / "test_main.py").write_text("# Test")
-
-        result = list_project_structure(str(temp_project_dir))
-
-        # Should return a tree structure
-        assert "name" in result
-        assert "type" in result
-        assert result["type"] == "directory"
-        # Should have children (src and tests directories)
-        assert "children" in result
-        assert len(result["children"]) >= 2
-
-    def test_list_project_structure_max_depth(self, temp_project_dir):
-        """Test project structure with max depth limit."""
-        # Create deep structure
-        deep_path = temp_project_dir / "a" / "b" / "c" / "d" / "e"
-        deep_path.mkdir(parents=True)
-        (deep_path / "deep.py").write_text("# Deep file")
-
-        result = list_project_structure(str(temp_project_dir), max_depth=2)
-
-        # Result should be truncated at max depth
-        assert "name" in result
-        assert "type" in result
-        # Navigate to check truncation
-        if "children" in result:
-            for child in result["children"]:
-                if child["name"] == "a" and "children" in child:
-                    # Check that deep nesting is truncated
-                    for subchild in child["children"]:
-                        if subchild["name"] == "b":
-                            # Should be truncated here or at next level
-                            assert "truncated" in subchild or (
-                                "children" in subchild
-                                and any("truncated" in sc for sc in subchild["children"])
-                            )
-
-
 class TestFindSubclasses:
-    """Test the find_subclasses tool."""
+    """Test the kept ``JediAnalyzer.find_subclasses`` method (flat-list contract)."""
 
     @pytest.mark.asyncio
     async def test_find_subclasses_basic(self, temp_project_dir):
@@ -593,7 +396,7 @@ class Cat(Animal):
     pass
 """)
 
-        result = await find_subclasses("Animal", str(temp_project_dir))
+        result = await _find_subclasses_flat("Animal", str(temp_project_dir))
 
         # Should find both Dog and Cat
         assert len(result) == 2
@@ -617,12 +420,12 @@ class Leaf(Middle):
 """)
 
         # Test with indirect=False
-        result = await find_subclasses("Base", str(temp_project_dir), include_indirect=False)
+        result = await _find_subclasses_flat("Base", str(temp_project_dir), include_indirect=False)
         assert len(result) == 1
         assert result[0]["name"] == "Middle"
 
         # Test with indirect=True and hierarchy
-        result = await find_subclasses(
+        result = await _find_subclasses_flat(
             "Base", str(temp_project_dir), include_indirect=True, show_hierarchy=True
         )
         assert len(result) == 2
@@ -637,30 +440,18 @@ class Leaf(Middle):
     @pytest.mark.asyncio
     async def test_find_subclasses_not_found(self, temp_project_dir):
         """Test find_subclasses when base class doesn't exist."""
-        result = await find_subclasses("NonExistentClass", str(temp_project_dir))
+        result = await _find_subclasses_flat("NonExistentClass", str(temp_project_dir))
         assert result == []
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_subclasses_error_handling(self, mock_get_analyzer):
-        """Test error handling in find_subclasses."""
-        # Make analyzer's find_subclasses raise an exception
-        mock_analyzer = Mock()
-        mock_analyzer.find_subclasses.side_effect = Exception("Analysis error")
-        mock_get_analyzer.return_value = mock_analyzer
-
-        with pytest.raises(AnalysisError) as exc_info:
-            await find_subclasses("TestClass", "/test/path")
-        assert "Failed to find subclasses" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_ambiguous_bare_name_returns_flat_list_not_dict(self):
         """Issue #336: a bare colliding name returns a flat list, never a dict.
 
-        The exposed MCP tool must keep its original ``list[dict]`` contract even
-        though the internal analyzer now returns an ambiguity discriminated
-        union.  An existing consumer doing ``for sc in result: sc["name"]`` must
-        not break (a dict would yield string keys and raise TypeError).
+        The analyzer now returns an ambiguity discriminated union, but the legacy
+        ``list[dict]`` contract (flat union of every same-named class's
+        subclasses) must be preserved by the flattening helper.  An existing
+        consumer doing ``for sc in result: sc["name"]`` must not break (a dict
+        would yield string keys and raise TypeError).
 
         Uses the committed resolve_project fixture (real dir, not a tmp dir):
         ``Widget`` is defined in three modules, so the bare name is ambiguous,
@@ -668,7 +459,7 @@ class Leaf(Middle):
         path.
         """
         fixture = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
-        result = await find_subclasses("Widget", fixture.as_posix())
+        result = await _find_subclasses_flat("Widget", fixture.as_posix())
 
         # Old contract: always a list (never the ambiguity dict).
         assert isinstance(result, list), f"expected a list, got {type(result).__name__}: {result!r}"
@@ -707,43 +498,19 @@ class TestPluginActivation:
 class TestErrorHandling:
     """Test error handling in MCP tools."""
 
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_symbol_error(self, mock_get_analyzer):
-        """Test error handling in find_symbol."""
-        # Mock analyzer that raises error on find_symbol
-        mock_analyzer = AsyncMock()
-        mock_analyzer.find_symbol.side_effect = Exception("Search error")
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Should raise AnalysisError when search fails
-        with pytest.raises(AnalysisError) as exc_info:
-            await find_symbol("test")
-        assert "Failed to search for symbol" in str(exc_info.value)
-
-    @patch("pyeye.mcp.server.Path")
-    @pytest.mark.asyncio
-    async def test_file_not_found_error(self, mock_path_class):
-        """Test handling of file not found errors."""
-        mock_path = Mock()
-        mock_path.exists.return_value = False
-        mock_path_class.return_value = mock_path
-
-        # Should raise FileAccessError for non-existent file
-        with pytest.raises(FileAccessError) as exc_info:
-            await goto_definition("nonexistent.py", 1, 0)
-        assert "File not found" in str(exc_info.value)
-
 
 class TestInputValidation:
-    """Test input validation decorators."""
+    """Test the @validate_mcp_inputs decorator via a kept position-based tool.
+
+    The decorator is shared infrastructure; we exercise it through the kept
+    ``find_references`` tool (same ``file``/``line``/``column`` signature and the
+    same ``@validate_mcp_inputs`` decorator the deleted ``goto_definition`` used).
+    """
 
     @patch("pyeye.mcp.server.Path")
     @pytest.mark.asyncio
     async def test_validate_negative_line_number(self, mock_path_class):
         """Test that negative line numbers are rejected."""
-        from pyeye.exceptions import ValidationError
-
         # Mock file path exists
         mock_path = Mock()
         mock_path.exists.return_value = True
@@ -751,7 +518,7 @@ class TestInputValidation:
 
         # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
         with pytest.raises(ValidationError) as exc_info:
-            await goto_definition("test.py", -1, 0)
+            await find_references("test.py", -1, 0)
 
         assert "line number" in str(exc_info.value).lower()
 
@@ -759,8 +526,6 @@ class TestInputValidation:
     @pytest.mark.asyncio
     async def test_validate_negative_column_number(self, mock_path_class):
         """Test that negative column numbers are rejected."""
-        from pyeye.exceptions import ValidationError
-
         # Mock file path exists
         mock_path = Mock()
         mock_path.exists.return_value = True
@@ -768,7 +533,7 @@ class TestInputValidation:
 
         # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
         with pytest.raises(ValidationError) as exc_info:
-            await goto_definition("test.py", 10, -5)
+            await find_references("test.py", 10, -5)
 
         assert "column" in str(exc_info.value).lower()
 
