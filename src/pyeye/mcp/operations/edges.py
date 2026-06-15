@@ -7,18 +7,19 @@ This module is the **single source of truth** for which traversal edges
    machine-distinguishable statuses.  The status string IS the ``reason``
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
-   names (``members``, ``callees``, ``imported_by``, ``subclasses``) to their
-   resolver callables.  ``members``/``callees`` are synchronous and always
-   return an :class:`EdgeResult`; ``imported_by`` and ``subclasses`` are
-   **async**.  ``imported_by`` returns ``EdgeResult | None`` — ``None`` is its
-   wrong-kind signal (the handle is not a module).  ``subclasses`` ALWAYS
-   returns an :class:`EdgeResult` (never ``None``): a non-class handle yields
-   ``EdgeResult([])`` because only a class CAN be subclassed, so ``[]`` for the
-   wrong kind is true by definition (the ``members``/``callees`` case), not the
-   absence-vs-zero lie that forces ``imported_by``'s ``None`` path.  An
-   :class:`EdgeResult` carries the adjacent canonical handles plus, for
-   ``callees`` only, the count of unresolved call sites.  ``expand`` awaits any
-   awaitable resolver result.
+   names (``members``, ``callees``, ``imported_by``, ``subclasses``,
+   ``superclasses``) to their resolver callables.  ``members``/``callees``/
+   ``superclasses`` are synchronous and always return an :class:`EdgeResult`;
+   ``imported_by`` and ``subclasses`` are **async**.  ``imported_by`` returns
+   ``EdgeResult | None`` — ``None`` is its wrong-kind signal (the handle is
+   not a module).  ``subclasses`` and ``superclasses`` ALWAYS return an
+   :class:`EdgeResult` (never ``None``): a non-class handle yields
+   ``EdgeResult([])`` because only a class CAN be subclassed/have superclasses,
+   so ``[]`` for the wrong kind is true by definition (the
+   ``members``/``callees`` case), not the absence-vs-zero lie that forces
+   ``imported_by``'s ``None`` path.  An :class:`EdgeResult` carries the
+   adjacent canonical handles plus, for ``callees`` only, the count of
+   unresolved call sites.  ``expand`` awaits any awaitable resolver result.
 
 Status model (spec §4.3)
 ------------------------
@@ -26,9 +27,8 @@ Status model (spec §4.3)
 status                          edges
 ==============================  =========================================
 ``"implemented"``               ``members``, ``callees``, ``imported_by``,
-                                ``subclasses``
-``"not_yet_implemented"``       ``superclasses``, ``imports``,
-                                ``enclosing_scope``
+                                ``subclasses``, ``superclasses``
+``"not_yet_implemented"``       ``imports``, ``enclosing_scope``
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
                                 ``written_by``, ``passed_by``,
                                 ``overrides``, ``overridden_by``,
@@ -40,11 +40,10 @@ Architectural constraint
 -------------------------
 This module MUST NOT import from ``inspect.py``.  ``inspect`` imports
 :func:`resolve_members` to derive ``edge_counts.members`` (landed in Phase 5)
-— importing back from ``inspect`` here would create a circular import.
-``resolve_members`` is therefore the **sole** member-enumeration source;
-``inspect._count_class_members`` and ``inspect._count_module_members`` are now
-thin delegators into it (the duplication that existed before Phase 5 has been
-removed).
+and :func:`resolve_superclasses` to derive ``edge_counts.superclasses``
+(landed in Phase 6 / #361) — importing back from ``inspect`` here would
+create a circular import.  ``resolve_members`` and ``resolve_superclasses``
+are therefore the **sole** enumeration sources for their respective edges.
 
 The ``members`` resolver is pure structural enumeration — it never calls
 ``get_references`` / ``find_references``.  The module path uses Jedi
@@ -123,10 +122,10 @@ STATUS_DEFERRED_REFERENCE_BACKEND = "deferred_reference_backend"
 STATUS_UNKNOWN_EDGE = "unknown_edge"
 
 #: Edges with a working (or Phase-3-bound) resolver.
-_IMPLEMENTED_EDGES = frozenset({"members", "callees", "imported_by", "subclasses"})
+_IMPLEMENTED_EDGES = frozenset({"members", "callees", "imported_by", "subclasses", "superclasses"})
 
 #: Edges recognised by the matrix but not yet built (no reference backend needed).
-_NOT_YET_IMPLEMENTED_EDGES = frozenset({"superclasses", "imports", "enclosing_scope"})
+_NOT_YET_IMPLEMENTED_EDGES = frozenset({"imports", "enclosing_scope"})
 
 #: Inbound / reference edges deferred until an indexed reference backend lands.
 _DEFERRED_REFERENCE_BACKEND_EDGES = frozenset(
@@ -754,17 +753,150 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
 
 
 # ---------------------------------------------------------------------------
+# superclasses resolver (#361) — direct-base AST walk + forward goto, sync
+# ---------------------------------------------------------------------------
+
+
+def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
+    """Return the DIRECT superclasses of a class as canonical handles.
+
+    The inbound-but-reliably-static ``superclasses`` edge for a **class**
+    handle.  Returns only DIRECT bases (no MRO closure), mirroring the count
+    in ``inspect.edge_counts.superclasses``.  This is a deliberate asymmetry
+    with ``subclasses``, which returns the full project closure.
+
+    Mechanics:
+
+    1. Walk the class's cached AST to locate its ``ClassDef.bases`` — the
+       declared direct bases (source order).
+    2. For each base expression, call ``script.goto(line, col,
+       follow_imports=True)`` with the position from
+       :func:`attr_target_position`, preferring ``class``-kind results, so
+       ``pkg.sub.ClassName`` resolves to the class, not the package.
+    3. Keep the first goto def that has a ``full_name`` and builds a valid
+       :class:`Handle`.  The goto ``Name`` is carried directly as the
+       adjacent's ``Name`` (no re-resolution).
+    4. Dedup by canonical handle string; sort by handle string for
+       deterministic order (like ``resolve_subclasses``).
+    5. Bases that produce no goto result with a ``full_name`` are DROPPED
+       (can't build a valid stub without a ``Name``).  This is intentional —
+       the count derives from this resolver (see ``inspect._count_superclasses``)
+       so ``len(stubs) == inspect.edge_counts.superclasses`` is guaranteed by
+       construction.
+
+    Kind gate (the defining decision of this edge):
+
+    - **class** → measured: ``EdgeResult`` with the direct-base handles
+      (possibly empty if the class has no explicit bases — a genuine measured
+      "none").
+    - **non-class** (function / variable / module / …) → ``EdgeResult([])``,
+      NEVER ``None``.  Only a class CAN have superclasses, so ``[]`` for the
+      wrong kind is true by definition (exactly the ``members``/``callees``
+      case) — NOT the absence-vs-zero lie that forces ``imported_by``'s
+      ``None`` path.  Because this resolver never returns ``None``,
+      ``expand.py`` needs no change.
+
+    Synchronous: AST walk + per-base Jedi ``goto`` + ``Handle`` construction
+    are all sync, like ``resolve_members``/``resolve_callees``.  No
+    ``get_references`` / ``find_references`` is ever called.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` for the target.  Class-ness is
+            derived from its normalised kind; ``module_path`` and ``line``
+            are used to locate the ``ClassDef`` node.
+        analyzer: Active analyzer (for the Jedi project used by
+            ``get_script``).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` are the direct base-class
+        ``(canonical Handle, Jedi Name)`` pairs for a class target, sorted by
+        handle string; or ``EdgeResult([])`` for any non-class target.
+        ``unresolved_call_sites`` is always ``None`` — that notion is
+        callees-only.
+    """
+    if _normalise_kind(getattr(jedi_name, "type", None)) != "class":
+        return EdgeResult(adjacents=[])
+
+    file_path = getattr(jedi_name, "module_path", None)
+    line = getattr(jedi_name, "line", None)
+    if file_path is None or line is None:
+        return EdgeResult(adjacents=[])
+
+    try:
+        tree = file_artifact_cache.get_ast(file_path)
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+    except Exception:
+        return EdgeResult(adjacents=[])
+
+    # Locate the ClassDef at the class's definition line.
+    class_node: ast.ClassDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.lineno == line:
+            class_node = node
+            break
+    if class_node is None or not class_node.bases:
+        return EdgeResult(adjacents=[])
+
+    seen: set[str] = set()
+    adjacents: list[tuple[Handle, Any]] = []
+
+    for base in class_node.bases:
+        # Resolve the base AST node to a (line, col) position for goto.
+        # attr_target_position returns the rightmost identifier in an
+        # attribute chain (e.g. pkg.sub.ClassName → ClassName), so goto
+        # lands on the class definition, not the package.
+        try:
+            base_line, base_col = attr_target_position(base)
+        except Exception:
+            # Unresolvable base expression (e.g. complex subscript) — drop.
+            continue
+
+        try:
+            defs = script.goto(base_line, base_col, follow_imports=True)
+        except Exception:
+            continue
+
+        # Prefer class-kind results; fall back to any named result.
+        # This matches _resolve_base_class_via_jedi in inspect.py.
+        class_defs = [d for d in defs if d.type == "class" and d.full_name]
+        named_defs = [d for d in defs if d.full_name]
+        candidates = class_defs if class_defs else named_defs
+
+        for candidate in candidates:
+            full_name = candidate.full_name
+            if not full_name:
+                continue
+            h = _try_handle(full_name)
+            if h is None:
+                continue
+            key = str(h)
+            if key in seen:
+                break  # dedup: first occurrence wins; skip remaining candidates
+            seen.add(key)
+            adjacents.append((h, candidate))
+            break  # first valid candidate for this base is sufficient
+
+    # Sort by canonical handle string for deterministic order across runs
+    # (mirrors resolve_subclasses — set iteration order is PYTHONHASHSEED-
+    # dependent, but here we walk bases in source order, which IS deterministic;
+    # sorting is still applied for consistency with the subclasses contract).
+    adjacents.sort(key=lambda pair: str(pair[0]))
+
+    return EdgeResult(adjacents=adjacents)
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
-#: Maps *implemented* edge names → resolver callables.  ``members``/``callees``
-#: are synchronous and always return an :class:`EdgeResult`; ``imported_by`` and
-#: ``subclasses`` are async.  ``imported_by`` may return ``None`` (its wrong-kind
-#: signal); ``subclasses`` always returns an :class:`EdgeResult` (non-class →
-#: ``EdgeResult([])``, never ``None``).  The value type therefore admits a
-#: sync-or-async resolver returning ``EdgeResult | None`` so ``expand`` can stay
-#: edge-agnostic (awaiting awaitable results, treating ``None`` as
-#: not-yet-implemented).
+#: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
+#: ``superclasses`` are synchronous and always return an :class:`EdgeResult`;
+#: ``imported_by`` and ``subclasses`` are async.  ``imported_by`` may return
+#: ``None`` (its wrong-kind signal); ``subclasses`` and ``superclasses`` always
+#: return an :class:`EdgeResult`` (non-class → ``EdgeResult([])``, never ``None``).
+#: The value type therefore admits a sync-or-async resolver returning
+#: ``EdgeResult | None`` so ``expand`` can stay edge-agnostic (awaiting
+#: awaitable results, treating ``None`` as not-yet-implemented).
 EDGE_RESOLVERS: dict[
     str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
 ] = {
@@ -772,4 +904,5 @@ EDGE_RESOLVERS: dict[
     "callees": resolve_callees,
     "imported_by": resolve_imported_by,
     "subclasses": resolve_subclasses,
+    "superclasses": resolve_superclasses,
 }

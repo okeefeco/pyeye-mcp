@@ -47,7 +47,7 @@ from pyeye._jedi_location import location_from_name
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
-from pyeye.mcp.operations.edges import resolve_members
+from pyeye.mcp.operations.edges import resolve_members, resolve_superclasses
 from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
@@ -429,6 +429,12 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
     then jedi script.goto() per base to resolve to canonical handles.
     Falls back to ast.unparse of the base expression when goto fails.
 
+    NOTE — field-vs-count divergence: this function keeps ALL declared bases
+    (including raw ``ast.unparse`` fallback strings when goto fails).  Such
+    fallback entries appear in the ``superclasses`` field but are EXCLUDED from
+    ``edge_counts.superclasses``, which counts only goto-resolvable bases
+    (see ``_count_superclasses``).
+
     Args:
         jedi_name: A Jedi ``Name`` object for a class.
         analyzer: Active analyzer for file-level Jedi access.
@@ -719,25 +725,44 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
 async def _count_superclasses(
     jedi_name: Any, analyzer: JediAnalyzer, superclasses: list[str] | None = None
 ) -> int:
-    """Count direct superclasses of a class.
+    """Count direct superclasses of a class (resolvable via goto only).
 
-    Re-uses ``_get_superclasses`` (the AST + Jedi goto approach already
-    implemented for the ``superclasses`` kind-dependent field) and returns
-    the count of the resolved list.
+    Delegates to :func:`edges.resolve_superclasses` — the single enumeration
+    source for the ``superclasses`` expand edge since #361.  This guarantees
+    the progressive-disclosure contract:
+    ``len(expand(h, "superclasses").stubs) == inspect(h).edge_counts.superclasses``.
+
+    WHY count now derives from the resolver rather than ``_get_superclasses``:
+    The resolver drops bases that cannot be resolved to a valid Jedi ``Name``
+    via ``goto`` (no ``full_name`` → can't build a stub without a Name), while
+    ``_get_superclasses`` keeps ALL declared bases (incl. raw-string fallbacks).
+    Routing the count through the resolver guarantees equality BY CONSTRUCTION
+    with the expandable edge, at the cost of a rare class with an unresolvable
+    base showing that base in the ``superclasses`` FIELD but not in
+    ``edge_counts.superclasses``.  This intentional divergence is acceptable
+    (documented here, and in the ``_get_superclasses`` docstring).
+
+    The ``superclasses`` parameter is RETAINED for call-site stability:
+    ``_build_edge_counts`` passes it positionally as
+    ``_count_superclasses(jedi_name, analyzer, superclasses)``.  The parameter
+    is no longer used by the implementation (the count is now derived from the
+    resolver, not the pre-resolved list), but removing it would require touching
+    all callers with no safety benefit — the compiler/type-checker will simply
+    ignore the unused argument.
 
     Args:
         jedi_name: Jedi ``Name`` for the class.
         analyzer: Active analyzer.
-        superclasses: Pre-resolved superclass list, when the caller already
-            computed it for the ``superclasses`` field — avoids resolving the
-            bases a second time (issue #339).  Resolved on demand when omitted.
+        superclasses: Pre-resolved superclass list (retained for call-site
+            stability; no longer used by this implementation — the count is
+            derived from ``resolve_superclasses`` instead).
 
     Returns:
-        Count of direct superclasses.
+        Count of direct superclasses resolvable via goto (the same count as
+        the ``superclasses`` expand edge will return as stubs).
     """
-    if superclasses is None:
-        superclasses = _get_superclasses(jedi_name, analyzer)
-    return len(superclasses)
+    _ = superclasses  # retained for call-site stability; unused by this impl
+    return len(resolve_superclasses(jedi_name, analyzer).handles)
 
 
 async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
@@ -930,9 +955,12 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     # ------------------------------------------------------------------
     kind_fields: dict[str, Any] = {}
 
-    # Issue #339: resolve a class's superclasses once and reuse the same list for
-    # the `superclasses` field and `edge_counts.superclasses` (each resolution
-    # is read+parse + a Jedi goto() per base).
+    # The resolved-bases list feeds the `superclasses` FIELD only.
+    # `edge_counts.superclasses` is derived independently via `resolve_superclasses`
+    # (delegated through `_count_superclasses`) — changed in #361 so that the count
+    # matches the expandable edge (which drops unresolvable bases) rather than the
+    # field (which keeps them as ast.unparse fallbacks).  The two values can therefore
+    # diverge for classes whose bases cannot be resolved via goto.
     superclasses: list[str] | None = None
     if kind == "class":
         superclasses = _get_superclasses(jedi_name, analyzer)
@@ -959,7 +987,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     }
     node.update(kind_fields)
     # Phase 4: edge_counts populated with per-measurement budgeted counts.
-    # Reuse the already-resolved superclasses list (issue #339).
+    # `superclasses` is passed for call-site stability but is unused by
+    # `_count_superclasses` (which derives the count from `resolve_superclasses`).
     node["edge_counts"] = await _build_edge_counts(
         handle, kind, jedi_name, analyzer, superclasses=superclasses
     )
