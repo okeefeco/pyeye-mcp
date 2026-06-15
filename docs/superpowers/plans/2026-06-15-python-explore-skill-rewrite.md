@@ -103,6 +103,22 @@ def test_skill_name_is_stable() -> None:
 
 def test_skill_declares_a_description() -> None:
     assert re.search(r"^description:\s*\S", _skill_text(), re.MULTILINE)
+
+
+# Pure-legacy tools with NO legitimate reason to appear anywhere in the rewritten
+# skill. NOTE: find_references / get_call_hierarchy are deliberately NOT in this set —
+# they legitimately appear inside the honest-limits "do NOT use these to fake callers"
+# warning, so they cannot be blanket-banned. These four have no such excuse.
+_PURE_LEGACY_TOOLS = ("lookup", "find_symbol", "goto_definition", "get_type_info")
+
+
+def test_pure_legacy_tools_absent() -> None:
+    # Mechanical backstop for prose drift: catches a future "use find_symbol" sentence
+    # that the edge anchor alone would miss. Manual review remains the backstop for the
+    # contextual cases (find_references in the honest-limits warning).
+    text = _skill_text()
+    present = [t for t in _PURE_LEGACY_TOOLS if t in text]
+    assert not present, f"pure-legacy tools must not appear in the skill: {present}"
 ```
 
 **Constraints:**
@@ -140,11 +156,12 @@ def test_skill_declares_a_description() -> None:
 - IMPORTANT: do not recommend `lookup`, `find_symbol`, `find_references`, `get_call_hierarchy`, `find_subclasses`, `analyze_dependencies`, `goto_definition`, `get_type_info` as tools to use. The legacy reference tools (`find_references`, `get_call_hierarchy`) appear ONLY inside the honest-limits warning as "don't use these to fake callers".
 - Every edge named as supported must be in `_IMPLEMENTED_EDGES`; every deferred edge mentioned must be framed as NOT available.
 - Markdown must pass the repo's `markdownlint` pre-commit hook (mirror the formatting conventions of the existing skill — fenced code blocks, table syntax, heading levels).
+- **Confirm the `<!-- pyeye-supported-edges: … -->` anchor survives markdownlint EARLY** (the whole guard depends on it). Low risk — the repo already ships HTML comments in committed instruction files (e.g. `04-agent-triggers.md`) that lint clean — but run `uv run pre-commit run markdownlint --files skills/python-explore/SKILL.md` as soon as the anchor is in place rather than discovering a problem at commit time.
 - `dot` graph: keep it valid Graphviz like the current skill's block.
 
 **Acceptance criteria:**
 
-- `uv run pytest tests/test_python_explore_skill_conformance.py` passes (all five tests).
+- `uv run pytest tests/test_python_explore_skill_conformance.py` passes (all six tests, including `test_pure_legacy_tools_absent`).
 - Manual read-through confirms: no legacy tool recommended; honest-limits section present and prominent; examples localised; `resolve` location + ambiguity covered; `resolve_at` demonstrated.
 - Commit Task 1's test together with this rewrite (red+green in one commit), message scoped to the skill rewrite and `#374`.
 
@@ -161,7 +178,16 @@ def test_skill_declares_a_description() -> None:
 **Content contract (spec "`03-mcp-dogfooding.md` (internal) — slimmed shape"):**
 
 - **Keep:** "we build pyeye — we MUST use it" framing; semantic-over-text principle; the existing redesign "preferred operations" note (resolve/inspect/outline/expand/trace are the surface; legacy tools deprecated, backwards-compat only) — it already points at `docs/api-redesign.md`, which is confirmed present and current; metrics commands (`mcp-report`, `mcp-logs`, etc.) and a high-level "measuring success" note; repo-specific dogfooding context.
-- **Replace:** the entire "Pattern Replacements" legacy catalogue and the legacy "Required Workflow for Python Code Analysis" phases (`find_symbol`/`goto_definition`/`get_call_hierarchy`/`find_references`/…) and the legacy worked examples that call them, with a short pointer block: **"For tool mechanics — which primitive to call, the supported edges, and the honest-limits rule — the `python-explore` skill is the single canonical reference. Don't restate tool usage here."**
+- **Replace / remove — ALL sections that recommend legacy tools or the reverse-reference search, not just the obvious two.** IMPORTANT: a sweep of the *whole* file is required, because the legacy/honesty rot is spread across at least six sections (verified against `main`):
+  - "Required Workflow for Python Code Analysis" (the `find_symbol`/`goto_definition`/`get_call_hierarchy`/`find_references` phases)
+  - "Pattern Replacements (MANDATORY)" (the ❌grep→✅legacy-tool catalogue)
+  - "Real-World Usage Examples" (`find_symbol`/`get_type_info`/`find_references`/`find_subclasses`/`get_module_info` walkthroughs)
+  - "Troubleshooting Common Scenarios" (esp. *"I'm refactoring… Always start with `find_references` — NEVER skip this"*)
+  - "Measuring Success" (the metrics *"100% of refactoring should use `find_references` first"* and *"All inheritance checks should use `find_subclasses`"*)
+  - "Performance Tips" (`list_modules`/legacy-tool tips)
+
+  The Troubleshooting + Measuring-Success items are the **same honesty bug as #374 sitting internally** — they steer the agent to the exact unreliable reverse-reference search the redesign rejects; leaving them is not acceptable. Replace the removed mechanics with one short pointer block: **"For tool mechanics — which primitive to call, the supported edges, and the honest-limits rule — the `python-explore` skill is the single canonical reference. Don't restate tool usage here."** Where a section has reframeable value (e.g. a "measuring success" *idea* — we measure MCP adoption), keep the framing but drop the legacy-tool-specific metrics, or fold it into the kept metrics-commands note.
+- **Keep ONLY:** the framing + semantic-over-text principle + the redesign "preferred operations" note + metrics commands + the skill pointer. After the sweep, grep the file for `find_references`, `find_subclasses`, `get_call_hierarchy`, `find_symbol`, `goto_definition`, `get_type_info`, `lookup` — there should be **no remaining recommendation** of them (a single mention inside a "these are deprecated, use the skill" note is the only acceptable residue).
 
 **Constraints:**
 
@@ -169,7 +195,7 @@ def test_skill_declares_a_description() -> None:
 - Keep the file's numbered-instruction-file conventions and heading style; it's loaded via `CLAUDE.md`.
 - Must pass `markdownlint`.
 
-**Acceptance criteria:** `03-mcp-dogfooding.md` no longer presents legacy tools as the workflow; contains the deferral pointer to the skill; framing/metrics retained. Commit scoped to the `03` slim and `#374`.
+**Acceptance criteria:** `03-mcp-dogfooding.md` no longer presents legacy tools as the workflow **in any section** (Required Workflow, Pattern Replacements, Real-World Examples, Troubleshooting, Measuring Success, Performance Tips all swept); `grep -E 'find_references|find_subclasses|get_call_hierarchy|find_symbol|goto_definition|get_type_info|lookup' .claude/instructions/03-mcp-dogfooding.md` returns only deprecation-context residue, not recommendations; the deferral pointer to the skill is present; framing/metrics retained. Commit scoped to the `03` slim and `#374`.
 
 **Risks:** Accidentally removing the "preferred operations" redesign note (it's the bridge to the new API) — keep it.
 

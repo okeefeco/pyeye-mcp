@@ -202,13 +202,22 @@ Keep:
   note.
 - Repo-specific dogfooding context (we develop *in* this codebase).
 
-Replace:
-
-- The entire "Pattern Replacements" legacy catalogue and the legacy "Required Workflow"
-  phases (`find_symbol`, `goto_definition`, `get_call_hierarchy`, …) with a short
-  pointer: **"For tool mechanics — which primitive to call, the supported edges, and the
-  honest-limits rule — the `python-explore` skill is the single canonical reference.
-  Don't restate tool usage here."**
+Replace / remove — **all** sections that recommend legacy tools or the reverse-reference
+search, not just the obvious catalogue. The rot is spread across at least six sections
+(verified against `main`): "Required Workflow for Python Code Analysis", "Pattern
+Replacements (MANDATORY)", "Real-World Usage Examples", "Troubleshooting Common
+Scenarios", "Measuring Success", and "Performance Tips". The Troubleshooting metric
+(*"Always start with `find_references` — NEVER skip this"*) and the Measuring-Success
+metrics (*"100% of refactoring should use `find_references` first"*, *"All inheritance
+checks should use `find_subclasses`"*) are the **same honesty bug as #374, sitting
+internally** — they steer the agent to the exact unreliable reverse-reference search the
+redesign rejects, so they must go too. Replace the removed mechanics with a short
+pointer: **"For tool mechanics — which primitive to call, the supported edges, and the
+honest-limits rule — the `python-explore` skill is the single canonical reference. Don't
+restate tool usage here."** After the sweep, no legacy tool (`find_references`,
+`find_subclasses`, `get_call_hierarchy`, `find_symbol`, `goto_definition`,
+`get_type_info`, `lookup`) should remain as a *recommendation* — a bare mention inside a
+"these are deprecated, use the skill" note is the only acceptable residue.
 
 ## Anti-drift conformance guard
 
@@ -226,6 +235,13 @@ next edge change can't silently re-rot the skill:
   `_DEFERRED_REFERENCE_BACKEND_EDGES` member as supported/recommended. If the registry
   changes, this test fails until the skill is updated — converting drift from a silent
   rot into a CI failure.
+- The test also adds a **prose negative assertion**: the pure-legacy tools `lookup`,
+  `find_symbol`, `goto_definition`, `get_type_info` must appear **nowhere** in the skill
+  (they have no legitimate place in the rewrite). `find_references` /
+  `get_call_hierarchy` are deliberately excluded from this ban — they legitimately appear
+  inside the honest-limits "do NOT use these to fake callers" warning, so a blanket ban
+  would false-positive. This catches a future "use `find_symbol`" sentence the edge
+  anchor alone would miss; manual review remains the backstop for contextual cases.
 
 This is the one piece of Python in an otherwise docs-only change; it exists specifically
 to prevent a recurrence of the bug this issue fixes.
