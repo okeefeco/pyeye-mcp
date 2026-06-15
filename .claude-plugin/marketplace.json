@@ -26,6 +26,23 @@
       "license": "MIT",
       "name": "pyeye",
       "source": "./"
+    },
+    {
+      "author": {
+        "email": "mark_okeefe@mac.com",
+        "name": "Mark O'Keefe (O'Keefe & Co Consulting Pty Ltd)"
+      },
+      "description": "Augments native EnterWorktree with nested type-prefixed branch/dir naming, alias normalisation, re-entrancy, configurable location, and a literal-branch guard",
+      "homepage": "https://github.com/okeefeco/pyeye-mcp",
+      "keywords": [
+        "worktree",
+        "git",
+        "hook",
+        "workflow"
+      ],
+      "license": "MIT",
+      "name": "worktree-hook",
+      "source": "./plugins/worktree-hook"
     }
   ]
 }
