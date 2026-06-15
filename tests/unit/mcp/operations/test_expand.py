@@ -62,6 +62,11 @@ _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
 _MODULE_WITH_IMPORTERS_HANDLE = "mypackage._core.widgets"
 _MODULE_NO_IMPORTERS_HANDLE = "mypackage._core.module_forms"
 
+#: imports fixtures (#367): ``imports_fixture`` is a module with known top-level
+#: imports (supported, non-empty); ``Widget`` is a CLASS — a non-module handle
+#: for which ``imports`` does not apply (unsupported, not_yet_implemented).
+_IMPORTS_FIXTURE_MODULE_HANDLE = "mypackage._core.imports_fixture"
+
 #: subclasses fixtures (#348, Phase 2): a dedicated fixture project with a known
 #: direct + indirect + non-importable-file topology. ``Animal`` is the base whose
 #: full project subclass closure is exactly {Mammal, Dog, Lizard}; ``Loner`` is a
@@ -432,6 +437,47 @@ class TestExpandImportedByModuleNoImportersSupported:
         # And they are genuinely different shapes (stubs vs reason).
         assert "stubs" in empty_module and "stubs" not in non_module
         assert "reason" not in empty_module and "reason" in non_module
+
+
+# ---------------------------------------------------------------------------
+# Issue #367 — imports wiring: non-module → None → not_yet_implemented
+# ---------------------------------------------------------------------------
+
+
+class TestExpandImportsNonModuleUnsupported:
+    """A NON-MODULE handle → unsupported ``not_yet_implemented`` (NOT empty).
+
+    The resolver (``resolve_imports``) returns ``None`` for a non-module handle
+    (a class/function has no "top-level imports" concept, so returning
+    ``stubs: []`` would be the #332 "measured zero" lie).  ``expand`` must
+    surface that ``None`` as the UNSUPPORTED branch with a KIND-SPECIFIC
+    ``detail`` — distinct from the source-not-found graceful-empty path and
+    from the module measured-empty path.
+
+    This mirrors ``TestExpandImportedByNonModuleUnsupported`` and proves the
+    ``None`` → not_yet_implemented flow end-to-end through ``expand``, not just
+    at the resolver layer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_imports_is_unsupported(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
+        # Unsupported branch — wrong kind for this edge.
+        assert result["unsupported"] is True
+        assert result["reason"] == "not_yet_implemented"
+        assert result["edge"] == "imports"
+        # Mutually exclusive: an unsupported result NEVER carries stubs.
+        assert "stubs" not in result
+        assert "unresolved_call_sites" not in result
+
+    @pytest.mark.asyncio
+    async def test_class_imports_detail_names_kind(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
+        detail = result["detail"]
+        assert isinstance(detail, str) and detail, "detail must be a non-empty str"
+        # Kind-specific: Widget is a class, so the detail must name the kind.
+        assert "class" in detail, f"detail must name the handle's kind (class): {detail!r}"
+        assert "imports" in detail, f"detail should name the edge: {detail!r}"
 
 
 # ---------------------------------------------------------------------------

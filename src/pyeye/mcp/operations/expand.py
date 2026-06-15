@@ -188,12 +188,12 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     if edge_result is None:
         kind = _normalise_kind(getattr(jedi_name, "type", None))
         # NOTE: The detail message below uses affirmative "supported for modules
-        # only" wording as required by spec §4.1 for the ``imported_by`` edge.
-        # This phrasing assumes that ``imported_by`` is the ONLY resolver that
-        # ever returns ``None`` (i.e. every wrong-kind resolver is module-only).
-        # If a future edge adds a ``None``-returning resolver for a different
-        # kind restriction, this branch must be revisited to generate an
-        # edge-specific detail rather than the hardcoded module-only hint.
+        # only" wording. Both ``imported_by`` and ``imports`` are module-only
+        # edges whose resolvers return ``None`` for non-module handles; this
+        # branch handles them generically.  If a future edge adds a
+        # ``None``-returning resolver with a DIFFERENT kind restriction, this
+        # branch must be revisited to generate an edge-specific detail rather
+        # than the hardcoded module-only hint.
         return {
             "source": source,
             "edge": edge,

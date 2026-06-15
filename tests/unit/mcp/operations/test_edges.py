@@ -1285,15 +1285,9 @@ _IMPORTS_FIXTURE_HANDLE = "mypackage._core.imports_fixture"
 _OS_MODULE_HANDLE = "os"
 _MAKE_WIDGET_FROM_IMPORTS_HANDLE = "mypackage._core.widgets.make_widget"
 
-# A module with NO top-level imports (module_forms only defines things).
-# Actually module_forms has 'from typing import Final' — so use callees_fixture
-# which has no top-level imports at all? Let's check: direct_importer has 1 import.
-# We use module_forms which HAS imports (Final), so for a truly empty imports module
-# we use a module that has NO imports at the top level.
-# direct_importer.py has: import mypackage._core.widgets → not a zero-imports module.
-# We use the subclasses_edge fixture's base module? No, stay within resolve_project.
-# callees_fixture.py: let's check.
-_CALLEES_FIXTURE_HANDLE = "mypackage._core.callees_fixture"
+# ``mypackage.helpers`` has NO top-level imports — only a class definition.
+# Verified: helpers.py body starts with ``class Widget:``; no import statements.
+_HELPERS_MODULE_HANDLE = "mypackage.helpers"
 
 
 def _imports_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
@@ -1380,42 +1374,16 @@ class TestResolveImportsMeasuredEmpty:
     """
 
     def test_no_imports_module_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
-        # callees_fixture.py has top-level imports (math, make_widget).
-        # We use widget.py which imports ClassVar from typing — that gives 1 import.
-        # Use module_forms.py which imports Final from typing — gives 1 import.
-        # For the TRULY empty case we need a module with NO imports at all.
-        # direct_importer.py has 1 import. Let's use usage.py:
-        # Actually, check if there's a no-import module in the fixture.
-        # The test_widget module (Widget class definition) has 'from typing import ClassVar'.
-        # Simplest: use the mypackage/__init__.py which may have no imports.
-        # Let's check by resolving it.
-        #
-        # Actually the CORRECT "empty imports" test is for modules_forms.py which
-        # is a LEAF in the imported_by test. But it has 'from typing import Final'.
-        # So its imports edge would NOT be empty.
-        #
-        # The fixture module_forms.py → imports edge: {typing.Final}
-        # widgets.py → imports edge: {typing.ClassVar}
-        # The true empty-imports module would be one with no imports at all.
-        # mypackage/_core/direct_importer.py has import mypackage._core.widgets.
-        # Let's just use the mypackage.usage module which may have imports.
-        #
-        # The CORRECT approach: we test the measured-empty case by using a module
-        # that we KNOW has no top-level imports. Since the existing fixture modules
-        # all have at least one import, we rely on the kind-gate test (non-module → None)
-        # to prove the ≠ distinction, and test measured-empty via a module that has
-        # no RESOLVABLE imports (all unresolvable → adjacents=[]).
-        #
-        # For now, let's add a minimal zero-imports module to the fixture.
-        # BUT we note: the Widget class itself has no imports; the MODULE that
-        # defines Widget DOES have an import. There's no zero-imports module currently.
-        # The test below uses `mypackage._core.rel_importer` which imports make_widget
-        # from .widgets — that will have 1 adjacent. Not empty.
-        #
-        # A better approach: test the exact adjacents for a known module.
-        # The "measured empty" path is tested indirectly via non-module → None.
-        # A zero-imports module can be added as a fixture file.
-        pass
+        # ``mypackage.helpers`` has NO top-level imports — only a class definition.
+        # Verified by reading helpers.py: no ``import`` or ``from ... import`` lines.
+        # This is the absence-vs-zero invariant: the module IS the right kind for
+        # the ``imports`` edge, so we get a MEASURED empty ``EdgeResult([])`` — NOT
+        # the wrong-kind ``None`` sentinel.
+        result = _imports_for(_HELPERS_MODULE_HANDLE, analyzer)
+        assert result is not None, "helpers module (right kind) must return EdgeResult, not None"
+        assert (
+            result.handles == []
+        ), f"helpers has no top-level imports → measured empty; got {result.handles}"
 
     def test_measured_empty_is_not_none(self, analyzer: JediAnalyzer) -> None:
         """A module handle (even with imports) returns EdgeResult, NOT None."""
