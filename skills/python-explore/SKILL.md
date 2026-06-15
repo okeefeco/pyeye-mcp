@@ -57,7 +57,7 @@ code, `Read` the `file:line` it points you at.
 |-----------|-----------|---------|
 | `resolve(identifier)` | Turn a name, dotted path, or `file:line` into a canonical handle | `{handle, kind, scope, location}` — or `{ambiguous, candidates}` |
 | `resolve_at(file, line, column)` | Turn a position (stack frame, pasted line) into a handle | same shape as `resolve` |
-| `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node (no source) |
+| `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node, plus kind-dependent fields (e.g. `superclasses`, `re_exports`); no source |
 | `outline(handle)` | See the structural skeleton of a module or class in one call | a tree of member stubs |
 | `expand(handle, edge)` | Walk ONE edge to the immediate neighbours | a list of stubs |
 | `trace(start, follow, …)` | Walk edges across multiple hops | a subgraph (nodes + edges) |
