@@ -45,8 +45,10 @@ dev = [
     "black==26.3.1",  # Pinned to match .pre-commit-config.yaml
     "ruff==0.15.1",  # Pinned to avoid unexpected linting rule changes
     "mypy==1.19.1",  # Pinned to avoid type checking behavior changes
+    "types-aiofiles",  # mypy stubs for aiofiles
+    "types-PyYAML",  # mypy stubs for PyYAML (lazy-imported in config.py)
     "detect-secrets==1.5.0",  # Pinned to match current version
-    "bandit[toml]==1.9.3",  # Pinned for consistent security checks
+    "bandit[toml]==1.9.4",  # Pinned for consistent security checks
     "safety>=3.0.0",  # Dependency vulnerability scanning (Safety DB)
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
@@ -56,6 +58,9 @@ dev = [
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
+
+[project.scripts]
+pyeye-mcp = "pyeye.mcp.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/okeefeco/pyeye-mcp"

@@ -27,12 +27,27 @@ cd "$CLAUDE_WORKING_DIR" && git commit
 
 ### Complete Commit Workflow
 
-1. **Stage Changes**: Add files intelligently (modified, new, deleted)
-2. **Attempt Commit**: Run `git commit` (triggers pre-commit hooks)
-3. **Handle Failures**: When hooks fail, efficiently fix issues
-4. **Auto-fix & Retry**: Stage hook-modified files and retry commit
-5. **Iterate Smart**: May take 2-3 cycles (format → type fix → commit)
-6. **Validate Success**: Ensure commit created and tests pass
+1. **Stage Changes**: Add files intelligently (modified, new, deleted) — see Staging Strategy below; never `git add -A` or `git add .`
+2. **Capture Initial Stage Set**: Record `git diff --cached --name-only` BEFORE the first commit attempt — this is the authoritative list of "files in this commit"
+3. **Attempt Commit**: Run `git commit` (triggers pre-commit hooks)
+4. **Handle Failures**: When hooks fail, efficiently fix issues
+5. **Auto-fix & Retry**: Re-stage ONLY files in the initial stage set that hooks modified; never blanket-stage
+6. **Iterate Smart**: May take 2-3 cycles (format → type fix → commit)
+7. **Validate Success**: Ensure commit created and coverage gate met
+8. **Decision-Note Checkpoint**: If the committed diff touched a contract surface, invoke the `decision-log` skill to propose ONE entry — see step 6 below
+
+### Staging Strategy (MANDATORY)
+
+**NEVER use `git add -A` or `git add .`** — these sweep in:
+
+- Sensitive files (.env, credentials, debug configs)
+- Pre-existing WIP in unrelated files the user wasn't ready to commit
+- Files modified by background tools or other concurrent work
+- Stale debugging changes from other branches/sessions
+
+**DO stage explicitly by name.** When the user says "commit these changes," stage only the files relevant to the change being committed. If unclear, run `git status` first and confirm the file list with the user.
+
+After hooks auto-fix, only re-stage files in the **initial stage set** (captured at step 2 of the workflow). Anything else dirty in the working tree is NOT yours to stage — it was either the user's WIP or got modified by something outside this commit's scope. Surface those as a warning, don't silently include them.
 
 ### Context Efficiency Principles
 
@@ -70,30 +85,49 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 ### 1. Initial Pre-commit Run
 
+Use the **exit code** as the source of truth — NOT keyword regex. A regex like `grep -E "(FAILED|ERROR)"` silently misses any error category that doesn't match (`panic`, `abort`, `cannot`, future hook output). The exit code can't drift.
+
 ```bash
-# Single efficient command for initial validation
-echo "🔍 Running pre-commit validation..." && \
-pre-commit run --all-files --show-diff-on-failure 2>&1 | \
-grep -E "(FAILED|ERROR|WARNING|✓|✗)" || echo "All hooks passed"
+# Run hooks; capture full output and the exit code
+echo "🔍 Running pre-commit validation..."
+PRECOMMIT_OUTPUT=$(pre-commit run --all-files --show-diff-on-failure 2>&1)
+PRECOMMIT_EXIT=$?
+if [ $PRECOMMIT_EXIT -ne 0 ]; then
+    echo "❌ Pre-commit failed (exit $PRECOMMIT_EXIT)"
+    echo "$PRECOMMIT_OUTPUT" | tail -40   # show the relevant trailing context
+else
+    echo "✅ All hooks passed"
+fi
 ```
 
 ### 2. Auto-fix and Re-validate Cycle
 
-```bash
-# Handle the auto-fix cycle efficiently
-echo "🔧 Auto-fixing issues..." && \
-pre-commit run --all-files 2>&1 >/dev/null && \
-echo "✅ All hooks now passing" || \
-echo "❌ Manual intervention required"
-```
-
-### 3. Test Validation
+Same exit-code discipline. Don't trust string matching on output to detect success.
 
 ```bash
-# Quick test validation
-echo "🧪 Running tests..." && \
-pytest --tb=short -q 2>&1 | grep -E "(FAILED|ERROR|passed|failed|warnings)" | tail -5
+echo "🔧 Auto-fixing issues..."
+pre-commit run --all-files >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "✅ All hooks now passing"
+else
+    echo "❌ Manual intervention required"
+fi
 ```
+
+### 3. Test Validation (MANDATORY: enforce coverage gate)
+
+Per `.claude/instructions/07-validation.md`, the project's verification gate is **`--cov-fail-under=85`**. Bare `pytest -q` passes when coverage drops to 80% — agent reports success, CI then fails.
+
+```bash
+echo "🧪 Running tests with coverage gate..."
+uv run pytest --cov=src/pyeye --cov-fail-under=85 --tb=short -q 2>&1 | tail -10
+PYTEST_EXIT=$?
+if [ $PYTEST_EXIT -ne 0 ]; then
+    echo "❌ Test or coverage gate failed (exit $PYTEST_EXIT)"
+fi
+```
+
+If coverage falls below 85%, surface as a BLOCKER, not a success. Do not declare "Ready to commit" when the project's CI gate is unmet.
 
 ### 4. Git Status Check
 
@@ -101,6 +135,39 @@ pytest --tb=short -q 2>&1 | grep -E "(FAILED|ERROR|passed|failed|warnings)" | ta
 # Check if hooks modified files
 git status --porcelain | wc -l | xargs -I {} echo "{} files modified by hooks"
 ```
+
+### 5. Post-commit Verification (MANDATORY — catches stranded fixtures)
+
+After `git commit` succeeds, run `git status` and inspect for **untracked files** that are likely part of the work but were never staged. Files created by Write/Edit are NOT auto-staged — only files explicitly `git add`-ed land in the commit.
+
+```bash
+git status --short
+```
+
+Flag any untracked files that:
+
+- Live under `tests/fixtures/`, `tests/`, or `src/` (likely fixtures or modules co-created with the main change)
+- Are new `__init__.py` package markers (often forgotten)
+- Are documentation files referenced by code or tests (`docs/`, README sections)
+- Have names referenced in committed test files (cross-check with `grep -rn "<filename>" tests/ src/`)
+
+If any are found, **stage them and commit immediately** with a follow-up commit message like `fix(fixtures): stage <X> referenced by committed tests`. Don't report DONE until `git status` shows only files that genuinely don't belong to this work (modified `.mcp.json`, untracked plan/scratch files, npm artifacts unrelated to the task, etc.).
+
+**Why this matters:** local tests pass because the unstaged files exist in the working tree. A fresh clone fails. The gap is silent until the user pushes and someone else (or CI on a fresh checkout) hits the broken state. Confirmed instance 2026-05-04: two fixture files referenced by committed tests sat untracked across multiple commits before being caught.
+
+### 6. Decision-Note Checkpoint (contract-touching diffs)
+
+The commit is the deterministic pause where the diff is already on the table — the right moment to capture *why* a contract-significant change was made, before the reasoning evaporates.
+
+After the commit succeeds, inspect the committed diff. If it touched a **contract surface** — a public/exported signature, a documented invariant or guarantee, a predicate/schema/config contract, an edge/API contract, or a non-obvious "why" decided in the working conversation — invoke the `decision-log` skill to propose ONE entry for `docs/decisions/DECISIONS.md`.
+
+```bash
+# What did this commit actually change? (contract-surface check)
+git show --stat HEAD
+git show HEAD -- '*.py' | grep -E '^[-+](def |class |    def |async def )' | head -20
+```
+
+Delegate the judgement and the entry format to the `decision-log` skill — do NOT inline its rules here. Honour its discipline: propose in one line, never nag, `Verify` honestly tiered, `Anchor` by stable reference (not bare `file:line`). Pure bugfix / rename / formatting / dependency-bump diffs get NO entry. When unsure it clears the contract-significant bar, stay silent.
 
 ## Output Format Standards
 
@@ -147,21 +214,37 @@ git status --porcelain | wc -l | xargs -I {} echo "{} files modified by hooks"
 ```bash
 # User: "commit the changes"
 
+# 0. Capture the initial stage set BEFORE the first commit attempt.
+#    This is the authoritative "files in this commit" list — never re-stage
+#    anything outside it.
+INITIAL_STAGED=$(git diff --cached --name-only)
+# (e.g. "src/module.py tests/test_module.py")
+
 # 1. First commit attempt (triggers hooks)
 git commit -m "feat: add new feature"
 # → Hooks run automatically
-# → Black reformats 3 files
+# → Black reformats src/module.py
 # → Commit fails: "Files were modified by hooks"
 
-# 2. Stage hook changes and retry
-git add -A && git commit -m "feat: add new feature"
+# 2. Re-stage ONLY files that are (a) in the initial stage set AND
+#    (b) modified by the hooks. Never blanket -A.
+HOOK_MODIFIED=$(git diff --name-only)
+for f in $HOOK_MODIFIED; do
+    if echo "$INITIAL_STAGED" | grep -qx "$f"; then
+        git add "$f"
+    else
+        echo "⚠️ $f modified by hooks but not in initial stage set; NOT staging"
+    fi
+done
+git commit -m "feat: add new feature"
 # → Hooks run again
 # → Mypy finds 2 type errors
 # → Commit fails: "mypy found issues"
 
-# 3. Fix type errors, stage, and retry
+# 3. Fix type errors, stage explicitly (the SAME files in the initial set)
 # [Agent fixes the 2 type errors]
-git add src/module.py && git commit -m "feat: add new feature"
+git add src/module.py
+git commit -m "feat: add new feature"
 # → Hooks pass
 # → Commit succeeds!
 

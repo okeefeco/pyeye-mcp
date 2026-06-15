@@ -37,7 +37,7 @@ class DogfoodingMetrics:
         """Start a new development session."""
         # Get current MCP metrics via the MCP tool
         # For now, we'll simulate this - in production, call the actual MCP
-        session = {
+        session: dict[str, Any] = {
             "id": datetime.now().isoformat(),
             "issue": issue_number,
             "start_time": datetime.now().isoformat(),

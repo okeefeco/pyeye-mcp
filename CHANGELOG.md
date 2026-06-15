@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- `worktree-manager` agent and the `claude/development` "learning hub" workflow. Worktrees now use native tooling (the `EnterWorktree` tool / superpowers `using-git-worktrees` skill) under `.claude/worktrees`; removal safety remains via `scripts/worktree_safety.py` and the rules in `01-core-rules.md`. Also removed the now-obsolete `docs/CLAUDE_WORKTREE_WORKFLOW.md` and `.claude/startup-context.md`.
+
+### Changed
+
+- Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync --all-extras`.
+
 ## [1.0.0] - 2025-10-04
 
 ### BREAKING CHANGES

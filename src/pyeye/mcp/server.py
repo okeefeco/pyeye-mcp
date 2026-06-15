@@ -1,5 +1,6 @@
 """Main MCP server implementation for PyEye."""
 
+import builtins
 import logging
 from pathlib import Path
 from typing import Any
@@ -49,9 +50,17 @@ from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
+from .lookup import lookup as _lookup_impl
+from .operations.expand import expand as _expand_impl
+from .operations.inspect import inspect as _inspect_impl
+from .operations.outline import outline as _outline_impl
+from .operations.resolve import (
+    resolve as _resolve_impl,
+    resolve_at as _resolve_at_impl,
+)
+from .operations.trace import trace as _trace_impl
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
 
 # Initialize the MCP server
@@ -140,6 +149,78 @@ def initialize_plugins(project_path: str = ".") -> None:
             # Don't raise - plugins are optional
 
 
+def filter_fields(
+    data: dict[str, Any] | list[dict[str, Any]],
+    fields: list[str] | None,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Filter dictionary or list of dictionaries to include only specified fields.
+
+    Args:
+        data: Single dictionary or list of dictionaries to filter
+        fields: List of field names to include, or None to return shallow copy
+
+    Returns:
+        Filtered dictionary or list of dictionaries
+
+    Raises:
+        ValueError: If fields is an empty list, or if any field is not valid
+        TypeError: If data is not a dict or list of dicts, or if fields is not a list when provided
+    """
+    # Type validation for data
+    if not isinstance(data, (dict, list)):
+        raise TypeError(f"data must be a dict or list of dicts, got {type(data).__name__}")
+
+    if isinstance(data, list):
+        if not all(isinstance(item, dict) for item in data):
+            raise TypeError("All items in list must be dictionaries")
+
+    # If no fields specified, return shallow copy
+    if fields is None:
+        if isinstance(data, dict):
+            return data.copy()
+        else:
+            return [item.copy() for item in data]
+
+    # Type validation for fields
+    if not isinstance(fields, list):
+        raise TypeError(f"fields must be a list or None, got {type(fields).__name__}")
+
+    # Validate fields is not empty
+    if len(fields) == 0:
+        raise ValueError("fields list cannot be empty")
+
+    # Determine valid fields from data
+    if isinstance(data, dict):
+        valid_fields = list(data.keys())
+    elif isinstance(data, list):
+        # Empty list: no validation needed, just return empty list
+        if len(data) == 0:
+            return []
+        # Non-empty list: validate against first item
+        valid_fields = list(data[0].keys())
+    else:
+        valid_fields = []
+
+    # Validate requested fields
+    invalid_fields = [f for f in fields if f not in valid_fields]
+    if invalid_fields:
+        # Sort invalid fields for consistent error messages
+        invalid_sorted = sorted(invalid_fields)
+        # Format with single quotes
+        invalid_str = ", ".join(f"'{f}'" for f in invalid_sorted)
+        # Sort valid fields alphabetically, no quotes
+        valid_sorted = ", ".join(sorted(valid_fields))
+        raise ValueError(f"Invalid field(s): {invalid_str}. Valid fields are: {valid_sorted}")
+
+    # Filter the data
+    if isinstance(data, dict):
+        # Single dictionary - include only fields that exist, preserve requested order
+        return {k: data[k] for k in fields if k in data}
+    else:
+        # List of dictionaries - filter each one, skip missing fields
+        return [{k: item[k] for k in fields if k in item} for item in data]
+
+
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
@@ -202,14 +283,25 @@ def configure_packages(
     for namespace, ns_paths in config.get_namespaces().items():
         manager.namespace_resolver.register_namespace(namespace, ns_paths)
 
+    # Invalidate cached analyzers for all paths so the next get_analyzer call
+    # rebuilds with the updated package paths, namespaces, and standalone
+    # directories.  Multi-project / namespace scenarios can have stale
+    # analyzers for secondary paths too.
+    if all_paths:
+        for path in all_paths:
+            manager.invalidate_analyzer(path)
+    else:
+        manager.invalidate_analyzer(".")
+
     return {
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
-        "config_file": str(config.project_path / f".{PROJECT_NAME}.json"),
+        "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
 
 
+# DEPRECATED: replaced by resolve(identifier) — same intent, returns canonical handle with ambiguity surfaced. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_symbol")
@@ -221,6 +313,15 @@ async def find_symbol(
     scope: str = "all",
 ) -> list[dict[str, Any]]:
     """Python: Find class/function definitions. Unlike grep, follows imports and finds re-exports.
+
+    **Deprecated:** Replaced by ``resolve(identifier)`` — same intent, returns
+    a canonical handle with ambiguity surfaced — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fuzzy search and scope filtering for targeted queries.
 
     Searches across the main project plus all configured additional packages
     and namespace packages. Use the scope parameter to control search breadth.
@@ -253,6 +354,7 @@ async def find_symbol(
     return results
 
 
+# DEPRECATED: replaced by resolve_at(file, line, column) — position → canonical handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("goto_definition")
@@ -261,6 +363,14 @@ async def goto_definition(
     file: str, line: int, column: int, project_path: str = "."
 ) -> dict[str, Any] | None:
     """Python: Jump to where a symbol is defined from any usage location.
+
+    **Deprecated:** Replaced by ``resolve_at(file, line, column)`` — position
+    to canonical handle — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
     Args:
         file: Path to the file
@@ -274,40 +384,470 @@ async def goto_definition(
 
 @mcp.tool()
 @validate_mcp_inputs
-@metrics.measure("find_references")
-@track_mcp_operation("find_references")
-async def find_references(
+@metrics.measure("resolve")
+@track_mcp_operation("resolve")
+async def resolve(
+    identifier: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Resolve any identifier form to a canonical Handle.
+
+    Accepts bare names, FQN dotted paths, re-exported public paths,
+    file:line coordinates, or file paths. Returns the definition-site
+    canonical handle along with kind and scope ("project" or "external").
+
+    Args:
+        identifier: The identifier to resolve. Forms supported:
+            - Bare name: "Config"
+            - FQN: "a.b.c.Config"
+            - Re-exported: "package.Config" (collapses to definition site)
+            - File:line: "src/foo.py:42"
+            - File only: "src/foo.py"
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict — one of:
+        - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
+        - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
+        - Not found: {"found": False, "reason": str}
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
+    # to match this wrapper's declared return type. TypedDict instances are
+    # already dicts at runtime; this is a mypy-compliance shallow copy.
+    return dict(await _resolve_impl(identifier, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("resolve_at")
+@track_mcp_operation("resolve_at")
+async def resolve_at(
     file: str,
     line: int,
     column: int,
     project_path: str = ".",
-    include_definitions: bool = True,
-    include_subclasses: bool = False,
-) -> list[dict[str, Any]]:
-    """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
+) -> dict[str, Any]:
+    """Python: Resolve a (file, line, column) position to a canonical Handle.
+
+    Used when you have coordinates (from a stack trace, error report, or
+    pasted excerpt) rather than a name. Returns the same shape as resolve().
 
     Args:
-        file: Path to the file
-        line: Line number (1-indexed)
-        column: Column number (0-indexed)
-        project_path: Root path of the project
-        include_definitions: Include definitions in results
-        include_subclasses: Also find references to all subclasses (polymorphic search)
+        file: Absolute or project-relative path to the source file.
+        line: 1-indexed line number.
+        column: 0-indexed column number. Pass 0 for the start of the line —
+            this is valid; do not coerce to a default.
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        ResolveResult dict (see resolve() for shape).
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.find_references(
-        file, line, column, include_definitions, include_subclasses
+    # See note on resolve() above re: dict() widening.
+    return dict(await _resolve_at_impl(file, line, column, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("inspect")
+@track_mcp_operation("inspect")
+async def inspect(
+    handle: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Inspect a canonical handle and return a structural Node.
+
+    The "what is this?" operation. Returns the symbol's kind, location,
+    signature, docstring, and kind-dependent fields. Cheap by default —
+    no source content, no exhaustive enumerations. Edge counts and
+    highlights come in later phases.
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/resolve_at).
+        project_path: Project root path (default: current directory)
+
+    Returns:
+        Node dict with universal fields (handle, kind, scope, location,
+        docstring, edge_counts={}) plus kind-dependent fields:
+        - class: signature (constructor), superclasses (list of Handle strings)
+        - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
+        - module: is_package, package?
+        - attribute/property/variable: type?, default? (simple literals only)
+    """
+    analyzer = get_analyzer(project_path)
+    # See note on resolve() above re: dict() widening.
+    return dict(await _inspect_impl(handle, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("expand")
+@track_mcp_operation("expand")
+async def expand(
+    handle: str,
+    edge: str,
+    project_path: str = ".",
+) -> dict[str, Any]:
+    """Python: Expand one outbound edge from a canonical handle (single hop).
+
+    The traversal primitive that walks ONE edge from a source handle and
+    returns adjacent symbols as lightweight Stubs.  Use resolve()/inspect()
+    first to obtain a canonical handle, then call expand() to traverse.
+
+    Supported edges in this slice:
+      - ``members``  — class/module → direct members (attributes, methods, nested
+        classes).  ``stubs: []`` means the class/module was found but has no
+        members; that is NOT the same as unsupported.
+      - ``callees``  — function/method → forward static call targets.  Includes
+        project symbols and stdlib/external symbols reachable via Jedi's goto.
+        Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
+        counted in ``unresolved_call_sites`` rather than invented.
+      - ``imported_by``  — module → the project modules that import it (module
+        Stubs), computed by static AST import-graph reversal (no reverse symbol
+        search).  Covers importers anywhere in the project including tests and
+        standalone scripts.  Non-module handles return the unsupported branch
+        with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
+        not yet implemented).  Ceiling: runtime-dynamic imports
+        (``importlib``/``__import__`` with computed targets) are not detected.
+      - ``subclasses``  — class → the project classes that subclass it (class
+        Stubs), computed by an AST class-graph walk + forward ``goto`` (no
+        reverse symbol search).  Returns the full project subclass closure
+        (direct + indirect), so ``len(stubs) == inspect(handle).edge_counts``
+        ``.subclasses``.  ``stubs: []`` means the class has no project
+        subclasses (measured-none).  A non-class handle also returns the
+        supported branch with ``stubs: []`` — only a class CAN be subclassed,
+        so ``[]`` is true by definition, not an absence-vs-zero lie.
+
+    Unsupported edges return the unsupported branch (never raise):
+      - Inbound/reference edges (``callers``, ``references``,
+        ``overrides``, …) require the Pyright reference backend (#333) and return
+        ``unsupported: true, reason: "deferred_reference_backend"``.
+      - Other structural edges (``superclasses``, ``imports``,
+        ``enclosing_scope``) are planned but not yet implemented in this slice;
+        they return ``reason: "not_yet_implemented"``.
+      - Unrecognised edge names return ``reason: "unknown_edge"``.
+
+    Response shape — discriminated union:
+
+    *Supported branch* (``"unsupported"`` key absent):
+    ::
+
+        { "source": str,                 # canonical source handle
+          "edge":   str,
+          "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
+          "unresolved_call_sites": int   # callees ONLY; absent for members }
+
+    *Unsupported branch* (``"stubs"`` key absent):
+    ::
+
+        { "source": str,
+          "edge":   str,
+          "unsupported": True,
+          "reason":  str,               # deferred_reference_backend |
+                                        # not_yet_implemented | unknown_edge
+          "detail":  str }              # human-readable explanation
+
+    Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
+    ``line_end``, and ``signature`` when Jedi yields one (always for
+    class/function/method; also any name whose inferred type is callable).
+
+    Relationship to deprecated tools: ``members`` supersedes the deprecated
+    ``find_subclasses``/``find_symbol`` pattern for enumerating class members.
+    ``callees`` supersedes manual ``get_call_hierarchy`` usage for forward edges.
+    Both deprecated tools remain registered until Phase B migration.
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/inspect).
+        edge: The outbound edge to expand (e.g. ``"members"``, ``"callees"``).
+        project_path: Project root path (default: current directory).
+
+    Returns:
+        ExpandResult dict — supported branch or unsupported branch (see above).
+        Never raises; unresolvable source handles yield graceful supported-empty
+        results consistent with inspect()'s minimal-node contract.
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(await _expand_impl(handle, edge, analyzer))
+
+
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("trace")
+@track_mcp_operation("trace")
+async def trace(
+    start: str | list[str],
+    follow: list[str],
+    project_path: str = ".",
+    max_depth: int = 3,
+    max_nodes: int = 50,
+    stop_when: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Python: Bounded multi-hop BFS traversal — returns a typed Subgraph.
+
+    The composition primitive: it walks the ``follow`` edges outward from
+    ``start`` across multiple hops, deduping by canonical handle, and returns a
+    ``Subgraph`` of the reachable structure.  Use resolve()/inspect() to obtain
+    canonical handles first, then trace() to see structure across hops (call
+    chains, reverse-import closures, member trees).
+
+    Composes the same edge registry as ``expand``; only the implemented edges
+    (``members``, ``callees``, ``imported_by``) are traversed.  Any other edge
+    named in ``follow`` (deferred reference edges, not-yet-implemented structural
+    edges, unknown names) is reported in ``unsupported_edges`` rather than
+    silently dropped — a silent drop would falsely read as "no such neighbours".
+
+    Response shape — ``Subgraph``::
+
+        { "nodes": { handle: Stub, ... },        # deduped by canonical handle
+          "edges": [ {"from": h, "to": h, "kind": edge}, ... ],
+          "truncated": bool,                     # a cap cut off reachable nodes
+          "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
+          "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
+
+    Edges are NOT deduped across kinds; edges to already-visited handles are
+    recorded (so cycles stay visible) but never re-expanded, guaranteeing
+    termination on cyclic graphs.  ``truncated`` is true ONLY when ``max_depth``
+    or ``max_nodes`` cut off reachable handles before natural termination — not
+    merely because a cap was set.
+
+    Args:
+        start: One canonical handle, or a list of them, as BFS roots.
+        follow: Edge names to traverse at every hop (e.g. ``["members"]``,
+            ``["callees"]``, ``["imported_by"]``).
+        project_path: Project root path (default: current directory).
+        max_depth: Maximum hop distance from a root before a node becomes a
+            non-expanded frontier leaf (default 3).
+        max_nodes: Maximum number of distinct nodes in the subgraph; reaching it
+            sets ``truncated`` (default 50).
+        stop_when: Optional StopPredicate (``exclude_external`` /
+            ``module_pattern`` / ``exclude_tests``); a matching adjacent is a
+            pruned boundary.  Roots are never pruned.  ``exclude_external`` stops
+            at stdlib/site-packages nodes — keeps a trace inside the project (the
+            common ``callees`` case).
+
+    Returns:
+        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
+        unresolvable root simply contributes no node.
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(
+        await _trace_impl(
+            start,
+            follow,
+            analyzer,
+            max_depth=max_depth,
+            max_nodes=max_nodes,
+            stop_when=stop_when,
+        )
     )
 
 
 @mcp.tool()
 @validate_mcp_inputs
+@metrics.measure("outline")
+@track_mcp_operation("outline")
+async def outline(
+    handle: str,
+    project_path: str = ".",
+    max_depth: int | None = None,
+    max_nodes: int = 200,
+) -> dict[str, Any]:
+    """Python: Structural skeleton of a module or class — names, kinds, signatures, line spans.
+
+    Returns a nested ``OutlineTree`` — the ``members`` hierarchy of *handle* as a
+    tree of lightweight structural nodes (``Stub``).  Each node carries
+    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``, and
+    ``signature`` when Jedi yields one.  No source content anywhere in the tree.
+
+    Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
+    ``outline()`` to see the complete structural skeleton in one call — the
+    single-call answer to "show me the structure of this scope."
+
+    **Absence contracts — an agent MUST read these before consuming the tree.**
+
+    *Contract 1 — ``children`` absent ⇔ not expanded.*
+
+    ``children`` present (including ``children: []``) means *measured*: the
+    complete set of direct members of this node.  ``children: []`` is a genuine
+    leaf — a container with no members, or a non-container (function/method/
+    variable).  ``children`` **absent** means a cap fired and this node was not
+    walked — treat it as "unknown," **never as empty.**
+
+    *Contract 2 — ``truncated`` absent-not-false.*
+
+    ``truncated: true`` is present **only** on a node that a cap cut off; it
+    always co-occurs with ``truncation_reason`` and an **absent** ``children``.
+    Fully-walked nodes omit ``truncated`` entirely — ``truncated: false`` never
+    appears.
+
+    **Truncation reasons (one string per node — not a list):**
+
+    - ``"max_depth"`` — at the depth frontier; ``resolve_members`` was peeked
+      once and found members (a genuine empty container at the frontier gets
+      ``children: []`` instead).
+    - ``"max_nodes"`` — total-node budget exhausted; no peek performed.
+    - ``"external"`` — external-scope container at depth ≥ 1; no deeper walk
+      into third-party code.
+
+    When both ``max_nodes`` AND a depth/external cap could apply to the same
+    node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
+
+    Args:
+        handle: Canonical Python dotted-name string (from resolve/inspect).
+        project_path: Project root path (default: current directory).
+        max_depth: Maximum depth from the root (root is depth 0).  ``None``
+            means unbounded within scope; the external cap and ``max_nodes``
+            still apply.  At the frontier, ``resolve_members`` is peeked once
+            to distinguish a genuine empty container from a cut-off one.
+        max_nodes: Total-node budget for the tree (root counts as 1, default
+            200).  Containers that exceed the budget are marked
+            ``truncated: "max_nodes"`` without peeking.
+
+    Returns:
+        ``OutlineTree`` dict — ``{"node": Stub, "children": [OutlineTree, ...]}``.
+        Never raises; an unresolvable handle yields a minimal single-node tree
+        with ``children: []``.  Children within each parent are in source order
+        (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget
+        gracefully (all of depth 1 before any of depth 2, etc.).
+    """
+    analyzer = get_analyzer(project_path)
+    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
+    return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
+
+
+# NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("find_references")
+@track_mcp_operation("find_references")
+async def find_references(
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
+    project_path: str = ".",
+    include_definitions: bool = True,
+    include_subclasses: bool = False,
+    fields: list[str] | None = None,
+    symbol_name: str | None = None,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides fields filtering, include_subclasses, and symbol_name for full reference lists.
+
+    Two calling conventions (coordinates take precedence if both provided):
+    1. Coordinates: file + line + column (precise, unambiguous)
+    2. Symbol name: symbol_name only (convenient; fails if name is ambiguous)
+
+    If symbol_name matches multiple symbols, returns error with a "matches" list
+    so you can pick the right one and retry with coordinates.
+
+    Args:
+        file: Path to the file (required with line and column)
+        line: Line number (1-indexed, required with file and column)
+        column: Column number (0-indexed, required with file and line)
+        symbol_name: Symbol name (alternative to file+line+column)
+        project_path: Root path of the project
+        include_definitions: Include definitions in results
+        include_subclasses: Also find references to all subclasses (polymorphic search)
+        fields: Fields to include per reference. Valid: name, type, line, column,
+               description, full_name, file, is_definition. Default: all fields.
+    """
+    # Validate input: determine which branch to use
+    all_coords = file is not None and line is not None and column is not None
+    any_coord = file is not None or line is not None or column is not None
+
+    if all_coords:
+        # Branch 1: All coordinates present — use them directly (ignore symbol_name)
+        pass
+    elif any_coord:
+        # Branch 3: Some but not all coordinates provided (checked before symbol_name)
+        return {
+            "error": "Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead"
+        }
+    elif symbol_name is not None:
+        # Branch 2: Symbol name provided (no coordinates) — resolve to coordinates
+        _sym_analyzer = get_analyzer(project_path)
+        symbol_results = await _sym_analyzer.find_symbol(
+            symbol_name, fuzzy=False, include_import_paths=True, scope="all"
+        )
+        # If symbol_name is a full dotted path (contains dots) and multiple results came
+        # back, narrow to exact full_name match before disambiguation.
+        if "." in symbol_name and len(symbol_results) > 1:
+            fqn_matches = [r for r in symbol_results if r.get("full_name") == symbol_name]
+            if fqn_matches:
+                symbol_results = fqn_matches
+
+        if len(symbol_results) == 0:
+            if hasattr(builtins, symbol_name):
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            return {"error": f"No symbol found matching '{symbol_name}'"}
+        elif len(symbol_results) == 1:
+            match = symbol_results[0]
+            if "file" not in match:
+                return {
+                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
+                }
+            # Set coordinates and fall through to the existing resolution code
+            file = match["file"]
+            line = match["line"]
+            column = match["column"]
+        else:
+            # Multiple matches — return disambiguation response
+            return {
+                "error": f"Multiple symbols found matching '{symbol_name}'. Specify file, line, and column to disambiguate.",
+                "matches": symbol_results,
+            }
+    else:
+        # Branch 4: Neither coordinates nor symbol_name provided
+        return {"error": "Either symbol_name or file+line+column required"}
+
+    # At this point, all three coordinates are guaranteed non-None
+    # (either provided directly or resolved from symbol_name).
+    assert file is not None
+    assert line is not None
+    assert column is not None
+
+    analyzer = get_analyzer(project_path)
+    result = await analyzer.find_references(
+        file, line, column, include_definitions, include_subclasses
+    )
+
+    # Apply field filtering if requested
+    if fields is not None:
+        result = filter_fields(result, fields)  # type: ignore
+
+    return result
+
+
+# DEPRECATED: replaced by inspect(handle) — richer structural Node response. Will be removed in the legacy-tool cleanup phase.
+@mcp.tool()
+@validate_mcp_inputs
 @metrics.measure("get_type_info")
 @track_mcp_operation("get_type_info")
 async def get_type_info(
-    file: str, line: int, column: int, project_path: str = ".", detailed: bool = False
+    file: str,
+    line: int,
+    column: int,
+    project_path: str = ".",
+    detailed: bool = False,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Python: Get type hints, docstrings, and base classes at cursor position.
+
+    **Deprecated:** Replaced by ``inspect(handle)`` — richer structural Node
+    response — in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides detailed mode and fields filtering for targeted queries.
 
     Args:
         file: Path to the file
@@ -315,17 +855,45 @@ async def get_type_info(
         column: Column number (0-indexed)
         project_path: Root path of the project
         detailed: Include additional information like methods and attributes
+        fields: Optional list of top-level fields to include in response.
+               This filters the TOP-LEVEL response keys only.
+
+               Valid top-level fields:
+               - position: File location information (dict with file, line, column)
+               - inferred_types: Type information (list of type dicts with name, type,
+                                base_classes, mro, methods, attributes, etc.)
+               - docstring: Documentation string
+
+               Note: Fields like base_classes, mro, methods, attributes are NESTED
+               inside the inferred_types field, not top-level. Phase 2 only supports
+               top-level filtering. Use fields=["inferred_types"] to get all type
+               information without position or docstring overhead.
+
+               Token optimization examples:
+               - fields=["inferred_types"] reduces tokens by 69.6% (~400 vs ~700 tokens)
+               - fields=["position", "docstring"] returns only position and docstring
+               - fields=["inferred_types", "docstring"] returns type info and docs
+               - fields=None (default) returns all top-level fields
     """
     analyzer = get_analyzer(project_path)
-    return await analyzer.get_type_info(file, line, column, detailed=detailed)
+    return await analyzer.get_type_info(file, line, column, detailed=detailed, fields=fields)
 
 
+# DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_imports")
 @track_mcp_operation("find_imports")
 async def find_imports(module_name: str, project_path: str = ".") -> list[dict[str, Any]]:
     """Python: Find all files that import a specific module.
+
+    **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
+    in the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
     Args:
         module_name: Name of the module to find imports for
@@ -335,6 +903,7 @@ async def find_imports(module_name: str, project_path: str = ".") -> list[dict[s
     return await analyzer.find_imports(module_name)
 
 
+# DEPRECATED: replaced by inspect(handle).edge_counts.callers for the count; future expand(handle, edge="callers") for the list. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_call_hierarchy")
@@ -343,6 +912,16 @@ async def get_call_hierarchy(
     function_name: str, file: str | None = None, project_path: str = "."
 ) -> dict[str, Any]:
     """Python: Trace function callers and callees through the codebase.
+
+    **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` for the
+    count and future ``expand(handle, edge="callers")`` for the list in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides full call graph traversal beyond the default limit.
 
     Args:
         function_name: Name of the function
@@ -353,12 +932,19 @@ async def get_call_hierarchy(
     return await analyzer.get_call_hierarchy(function_name, file)
 
 
+# DEPRECATED: replaced by future outline over the project root. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_packages")
 @track_mcp_operation("list_packages")
 async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
     """Python: List all packages with their structure and subpackages.
+
+    **Deprecated:** Replaced by future ``outline`` over the project root in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
@@ -380,19 +966,44 @@ async def list_packages(project_path: str = ".") -> list[dict[str, Any]]:
         ) from e
 
 
+# DEPRECATED: replaced by future outline per package handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_modules")
 @track_mcp_operation("list_modules")
-async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
+async def list_modules(
+    project_path: str = ".", fields: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Python: List all modules with their exports, classes, functions, and metrics.
+
+    **Deprecated:** Replaced by future ``outline`` per package handle in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
+        fields: Optional list of fields to include in each module's response.
+               Valid fields: name, import_path, file, exports, classes, functions,
+                           imports_from, size_lines, has_tests
+               Examples:
+               - fields=["name", "file"] - Only module name and file path
+               - fields=["exports", "classes"] - Only exports and class info
+               - fields=None (default) - All fields included
     """
     try:
         analyzer = get_analyzer(project_path)
-        return await analyzer.list_modules()
+        result = await analyzer.list_modules()
+
+        # Apply field filtering if requested
+        if fields is not None:
+            result = filter_fields(result, fields)  # type: ignore
+
+        return result
+    except (ValueError, TypeError):
+        # Let validation errors propagate directly
+        raise
     except ProjectNotFoundError as e:
         raise FileAccessError(
             f"Project path not found: {Path(project_path).as_posix()}", project_path
@@ -404,6 +1015,7 @@ async def list_modules(project_path: str = ".") -> list[dict[str, Any]]:
         ) from e
 
 
+# DEPRECATED: replaced by future trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("analyze_dependencies")
@@ -412,6 +1024,15 @@ async def analyze_dependencies(
     module_path: str, project_path: str = ".", scope: str = "all"
 ) -> dict[str, Any]:
     """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
+
+    **Deprecated:** Replaced by future ``trace(handle, follow=["imports"])`` in
+    the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides circular dependency detection and scope filtering for targeted queries.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -437,12 +1058,21 @@ async def analyze_dependencies(
         ) from e
 
 
+# DEPRECATED: replaced by inspect(handle) on a module handle. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("get_module_info")
 @track_mcp_operation("get_module_info")
 async def get_module_info(module_path: str, project_path: str = ".") -> dict[str, Any]:
     """Python: Get module exports, classes, functions, and complexity metrics.
+
+    **Deprecated:** Replaced by ``inspect(handle)`` on a module handle in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form and returns richer results.
 
     Args:
         module_path: Import path of the module (e.g., "pyeye.mcp")
@@ -467,12 +1097,19 @@ async def get_module_info(module_path: str, project_path: str = ".") -> dict[str
         ) from e
 
 
+# DEPRECATED: replaced by future outline operation. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("list_project_structure")
 @track_mcp_operation("list_project_structure")
 def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[str, Any]:
     """Python: Hierarchical view of Python files and packages in the project.
+
+    **Deprecated:** Replaced by the future ``outline`` operation in the
+    redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
 
     Args:
         project_path: Root path of the project
@@ -516,6 +1153,7 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
     return build_tree(project_root)
 
 
+# DEPRECATED: replaced by inspect(handle).edge_counts.subclasses for the count; future expand(handle, edge="subclasses") for the list. Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_subclasses")
@@ -528,6 +1166,16 @@ async def find_subclasses(
 ) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
+    **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses`` for
+    the count and future ``expand(handle, edge="subclasses")`` for the list in
+    the redesigned API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    For general use, prefer lookup() which accepts any identifier form.
+    This tool provides show_hierarchy and indirect inheritance chains for targeted queries.
+
     Args:
         base_class: Name of the base class to find subclasses for
         project_path: Root path of the project
@@ -537,11 +1185,42 @@ async def find_subclasses(
     try:
         analyzer = get_analyzer(project_path)
 
-        return await analyzer.find_subclasses(
+        result = await analyzer.find_subclasses(
             base_class=base_class,
             include_indirect=include_indirect,
             show_hierarchy=show_hierarchy,
         )
+
+        # The internal analyzer returns a discriminated union (a bare colliding
+        # name yields {"ambiguous": True, "candidates": [...]}).  This deprecated
+        # tool must NOT leak that new shape — it keeps its original
+        # ``list[dict]`` contract so existing ``for sc in result: ...`` callers
+        # don't break (#336).  Resolving ambiguity is the new resolve()/expand()
+        # surface's job, not this tool's.
+        if result.get("ambiguous", False):
+            # Reproduce main's behaviour for a colliding bare name: the flat
+            # union of every same-named class's subclasses.  Each candidate
+            # handle is a FQN, so the per-candidate call is itself unambiguous.
+            merged: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for candidate in result.get("candidates", []):
+                candidate_handle = candidate.get("handle")
+                if not candidate_handle:
+                    continue
+                candidate_result = await analyzer.find_subclasses(
+                    base_class=candidate_handle,
+                    include_indirect=include_indirect,
+                    show_hierarchy=show_hierarchy,
+                )
+                for subclass in candidate_result.get("subclasses", []):
+                    key = subclass.get("full_name") or repr(subclass)
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(subclass)
+            return merged
+
+        subclasses: list[dict[str, Any]] = result.get("subclasses", [])
+        return subclasses
     except ProjectNotFoundError:
         raise
     except Exception as e:
@@ -551,6 +1230,39 @@ async def find_subclasses(
             file_path=project_path,
             error=str(e),
         ) from e
+
+
+# DEPRECATED: replaced by resolve then inspect — the unified lookup is replaced by progressive disclosure. Will be removed in the legacy-tool cleanup phase.
+@mcp.tool()
+@validate_mcp_inputs
+@metrics.measure("lookup")
+@track_mcp_operation("lookup")
+async def lookup(
+    identifier: str | None = None,
+    file: str | None = None,
+    line: int | None = None,
+    column: int | None = None,
+    project_path: str = ".",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Python: Look up any identifier — name, full dotted path, file path, or coordinates.
+
+    **Deprecated:** Replaced by ``resolve`` then ``inspect`` — the unified
+    lookup is superseded by the progressive disclosure API. See
+    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+    for the migration plan. This method will be removed once the legacy
+    MCP tools are deprecated (Phase B of the migration).
+
+    Returns comprehensive structural information about the resolved Python object.
+    """
+    return await _lookup_impl(
+        identifier=identifier,
+        file=file,
+        line=line,
+        column=column,
+        project_path=project_path,
+        limit=limit,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)
@@ -577,8 +1289,40 @@ async def get_performance_metrics(
     return metrics.get_performance_report()
 
 
+async def get_connection_diagnostics() -> dict[str, Any]:
+    """Get connection lifecycle diagnostics for debugging disconnects.
+
+    Returns:
+        Dictionary with connection diagnostics including:
+        - Connection uptime and idle time
+        - Recent connection events
+        - Error summary and patterns
+        - Signal handler status
+    """
+    from .connection_diagnostics import get_diagnostics
+    from .error_tracker import get_error_tracker
+
+    diagnostics = get_diagnostics()
+    error_tracker = get_error_tracker()
+
+    # Get summaries
+    conn_summary = diagnostics.get_summary()
+    error_summary = error_tracker.get_error_summary()
+
+    # Check for error patterns
+    pattern_warning = error_tracker.check_error_pattern()
+
+    return {
+        "connection": conn_summary,
+        "errors": error_summary,
+        "pattern_warning": pattern_warning,
+        "status": "healthy" if not pattern_warning else "warning",
+    }
+
+
 if settings.enable_performance_metrics:
     mcp.tool()(get_performance_metrics)
+    mcp.tool()(get_connection_diagnostics)
 
 
 # Workflow Resources
@@ -696,38 +1440,13 @@ def get_code_review_pr_workflow() -> str:
     return load_workflow("code_review_pr")
 
 
-# Main entry point
-if __name__ == "__main__":
-    import atexit
+# Export for __main__.py
+def get_unified_collector() -> Any:
+    """Get the unified metrics collector.
 
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    Returns:
+        Unified metrics collector instance
+    """
+    from .unified_metrics import get_unified_collector as _get_collector
 
-    # Initialize unified metrics session
-    ensure_unified_session()
-
-    # Cleanup on exit
-    def cleanup() -> None:
-        """Clean up all projects and watchers on exit."""
-        from .unified_metrics import get_unified_collector
-
-        # End unified metrics session
-        collector = get_unified_collector()
-        collector.end_session()
-
-        manager = get_project_manager()
-        manager.cleanup_all()
-        logger.info("Cleaned up all projects and watchers")
-
-    atexit.register(cleanup)
-
-    # Initialize plugins for current directory
-    initialize_plugins(".")
-
-    logger.info("Starting PyEye Server with file watching")
-    logger.info(f"Active plugins: {[p.name() for p in _plugins]}")
-
-    # Run the server
-    mcp.run()
+    return _get_collector()

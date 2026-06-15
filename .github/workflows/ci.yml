@@ -50,7 +50,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -128,7 +128,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           fail_ci_if_error: true
@@ -170,7 +170,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           fail_ci_if_error: true

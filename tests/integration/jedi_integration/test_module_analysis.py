@@ -1,5 +1,7 @@
 """Tests for module analysis functionality."""
 
+from pathlib import Path
+
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -261,6 +263,45 @@ from . import __init__
         assert result["module"] == "mypackage.module"
         assert "os" in result["imports"]["stdlib"]
 
+    @pytest.mark.asyncio
+    async def test_relative_import_records_reverse_dependency(self, tmp_path):
+        """A sibling importing via `from .a import f` appears in imported_by (#343)."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (pkg / "b.py").write_text("from .a import f\n\n\ndef g():\n    f()\n")
+
+        result = await analyze_dependencies("pkg.a", str(tmp_path))
+        assert "pkg.b" in result["imported_by"]
+
+    @pytest.mark.asyncio
+    async def test_relative_import_classified_internal_not_bare_external(self, tmp_path):
+        """`from .a import f` resolves to pkg.a in internal, never bare 'a' in external (#343)."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (pkg / "b.py").write_text("from .a import f\n")
+
+        result = await analyze_dependencies("pkg.b", str(tmp_path))
+        assert "pkg.a" in result["imports"]["internal"]
+        assert "a" not in result["imports"]["external"]
+
+    @pytest.mark.asyncio
+    async def test_multi_level_relative_import_reverse_dependency(self, tmp_path):
+        """A `from ..a import f` two levels up is attributed to the importer (#343)."""
+        pkg = tmp_path / "pkg"
+        sub = pkg / "sub"
+        sub.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "a.py").write_text("def f(): pass")
+        (sub / "__init__.py").write_text("")
+        (sub / "c.py").write_text("from ..a import f\n")
+
+        result = await analyze_dependencies("pkg.a", str(tmp_path))
+        assert "pkg.sub.c" in result["imported_by"]
+
 
 class TestGetModuleInfo:
     """Test the get_module_info functionality."""
@@ -451,3 +492,83 @@ class TestJediAnalyzerMethods:
         result = await analyzer.get_module_info("module")
         assert result["docstring"] == "Doc."
         assert len(result["functions"]) == 1
+
+
+_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
+_TARGET = "mypackage._core.widgets"
+_TARGET_FILE = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+
+class TestFindImporters:
+    """Tests for the extracted ``find_importers`` reverse-scan method.
+
+    Uses the committed ``resolve_project`` fixture (a real directory, not a
+    tmp dir) so the file-based reverse scan exercises the same code paths the
+    legacy ``analyze_dependencies`` does.
+    """
+
+    @pytest.mark.asyncio
+    async def test_find_importers_reports_direct_and_relative_importers(self):
+        """Both a direct ``import`` and a relative ``from`` importer are found.
+
+        ``direct_importer`` reaches the target via ``import
+        mypackage._core.widgets`` (``ast.Import``); ``rel_importer`` reaches it
+        via ``from .widgets import make_widget`` (``ast.ImportFrom`` resolved
+        through ``_resolve_relative_import``). Subset assertions keep this
+        robust against fixture growth.
+        """
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+
+        modules = {m for m, _ in pairs}
+        # Direct ast.Import importer.
+        assert "mypackage._core.direct_importer" in modules
+        # Relative ast.ImportFrom importer.
+        assert "mypackage._core.rel_importer" in modules
+        # Existing absolute from-importers are still present.
+        assert "mypackage.usage" in modules
+
+    @pytest.mark.asyncio
+    async def test_find_importers_excludes_target_and_is_deduped(self):
+        """The target's own file is excluded and modules are deduped."""
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+
+        modules = [m for m, _ in pairs]
+        # Target's own module never reports itself as an importer.
+        assert _TARGET not in modules
+        # Deduped by importer module (one entry per module).
+        assert len(modules) == len(set(modules))
+        # Every pair carries the importer's file path.
+        for _module, file_path in pairs:
+            assert isinstance(file_path, Path)
+
+    @pytest.mark.asyncio
+    async def test_find_importers_reports_non_package_script(self):
+        """A standalone script outside the package is still reported.
+
+        ``script_importer.py`` lives at the fixture root, outside
+        ``mypackage/``, so its handle is the path-derived ``script_importer``
+        (not a package module). The file-based scan must still attribute it,
+        proving coverage breadth (tests + standalone scripts).
+        """
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+
+        modules = {m for m, _ in pairs}
+        assert "script_importer" in modules
+
+    @pytest.mark.asyncio
+    async def test_analyze_dependencies_imported_by_parity(self):
+        """``analyze_dependencies['imported_by']`` matches ``find_importers``.
+
+        Extraction parity: the legacy method's ``imported_by`` field must equal
+        the sorted, deduped module projection of ``find_importers`` output for
+        the same target. Exact equality (both sides compute the same set).
+        """
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        expected = sorted({m for m, _ in pairs})
+
+        result = await analyzer.analyze_dependencies(_TARGET, scope="all")
+        assert result["imported_by"] == expected

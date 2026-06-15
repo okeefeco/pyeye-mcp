@@ -46,10 +46,6 @@ These files contain detailed human documentation that you can reference if neede
 
 Note: The mandatory Claude-specific rules from CONTRIBUTING.md have been extracted to appropriate instruction files
 
-## Detailed Worktree-Aware Workflow
-
-@.claude/startup-context.md
-
 ## Optional User-Specific Configuration
 
 For personal development settings (worktrees, local paths, etc.):
