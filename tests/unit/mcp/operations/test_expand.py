@@ -251,13 +251,16 @@ class TestExpandUnsupported:
     """Unsupported edges return the unsupported branch with the mapped reason."""
 
     @pytest.mark.asyncio
-    async def test_not_yet_implemented(self, analyzer: JediAnalyzer) -> None:
-        # Use ``enclosing_scope`` — the remaining not_yet_implemented structural edge
-        # (imports moved to implemented in #367, superclasses in #361).
-        result = await expand(_WIDGET_HANDLE, "enclosing_scope", analyzer)
+    async def test_not_yet_implemented_via_none_resolver(self, analyzer: JediAnalyzer) -> None:
+        # ``enclosing_scope`` is now implemented (#370) — the ``not_yet_implemented``
+        # category is empty for real edge names.  The ``not_yet_implemented`` reason
+        # can still be triggered by a resolver that returns ``None`` for a wrong-kind
+        # handle (e.g. ``imported_by`` on a non-module).  We test that path here so
+        # the not_yet_implemented branch in ``expand`` remains covered.
+        result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
         assert result["unsupported"] is True
         assert result["reason"] == "not_yet_implemented"
-        assert result["edge"] == "enclosing_scope"
+        assert result["edge"] == "imported_by"
         assert result["source"] == _WIDGET_HANDLE
         assert isinstance(result["detail"], str) and result["detail"]
         # Mutually exclusive: an unsupported result NEVER carries stubs.
@@ -317,11 +320,13 @@ class TestExpandBranchesMutuallyExclusive:
     @pytest.mark.parametrize(
         ("handle", "edge"),
         [
-            # imports is now implemented (#367), superclasses in #361 —
-            # use ``enclosing_scope`` as the representative not_yet_implemented edge.
-            (_WIDGET_HANDLE, "enclosing_scope"),
-            (_ORCHESTRATE_HANDLE, "callers"),
-            (_WIDGET_HANDLE, "bogus_edge"),
+            # enclosing_scope is now implemented (#370); imports in #367;
+            # superclasses in #361.  Use a deferred_reference_backend edge
+            # (``callers``) and a wrong-kind imported_by (returns None →
+            # not_yet_implemented) as representative unsupported cases.
+            (_WIDGET_HANDLE, "imported_by"),  # None resolver → not_yet_implemented
+            (_ORCHESTRATE_HANDLE, "callers"),  # deferred_reference_backend
+            (_WIDGET_HANDLE, "bogus_edge"),  # unknown_edge
         ],
     )
     async def test_unsupported_has_no_supported_markers(
