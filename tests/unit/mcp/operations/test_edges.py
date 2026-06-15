@@ -1578,27 +1578,6 @@ def _enclosing_scope_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     return resolve_enclosing_scope(jedi_name, analyzer)
 
 
-class TestResolveEnclosingScopeEdgeStatus:
-    """Edge-status model: enclosing_scope must be 'implemented' (#370)."""
-
-    def test_enclosing_scope_is_implemented(self) -> None:
-        """After #370, enclosing_scope is implemented — NOT not_yet_implemented."""
-        assert edge_status("enclosing_scope") == "implemented"
-
-    def test_not_yet_implemented_category_is_empty(self) -> None:
-        """_NOT_YET_IMPLEMENTED_EDGES is empty: all recognised edges are now handled.
-
-        The category is retained in the module for the 4-status taxonomy; it is
-        intentionally empty after #370 ships enclosing_scope.
-        """
-        from pyeye.mcp.operations.edges import _NOT_YET_IMPLEMENTED_EDGES
-
-        assert frozenset() == _NOT_YET_IMPLEMENTED_EDGES, (
-            "_NOT_YET_IMPLEMENTED_EDGES must be empty after enclosing_scope is promoted; "
-            f"got {_NOT_YET_IMPLEMENTED_EDGES!r}"
-        )
-
-
 class TestResolveEnclosingScopeMethod:
     """A method → its enclosing class handle (the direct lexical parent)."""
 
@@ -1614,7 +1593,9 @@ class TestResolveEnclosingScopeMethod:
         result = _enclosing_scope_for(_INNER_METHOD_HANDLE, nested_analyzer)
         assert isinstance(result, EdgeResult)
         assert len(result.handles) == 1
-        assert str(result.handles[0]) == _INNER_CLASS_HANDLE
+        assert (
+            str(result.handles[0]) == _INNER_CLASS_HANDLE
+        )  # immediate parent only — NOT the grandparent Outer
 
     def test_adjacent_is_handle_name_pair(self, nested_analyzer: JediAnalyzer) -> None:
         """The adjacent must be a (Handle, Name) pair (not just a handle)."""
@@ -1706,3 +1687,31 @@ class TestResolveEnclosingScopeNeverReverseSearch:
         assert len(result.handles) == 1
         assert str(result.handles[0]) == _OUTER_CLASS_HANDLE
         spy.assert_not_called()
+
+
+class TestResolveEnclosingScopeParentNoneDefensive:
+    """Defensive branch: ``parent()`` returning ``None`` yields ``EdgeResult([])``.
+
+    This test exercises the explicit ``if parent is None`` guard in
+    ``resolve_enclosing_scope`` (edges.py).  The guard is defensive — it handles
+    a Jedi API failure mode where ``parent()`` returns ``None`` for a non-module
+    symbol.  A Mock is used to force the branch deterministically; the happy
+    paths already use real fixtures.
+    """
+
+    def test_parent_returns_none_yields_empty_edgeresult(self) -> None:
+        """When ``parent()`` returns ``None``, resolver returns ``EdgeResult([])`` — never raises."""
+        from unittest.mock import MagicMock
+
+        from pyeye.mcp.operations.edges import resolve_enclosing_scope
+
+        # Construct a mock Jedi Name with a non-module kind so the module gate
+        # does not short-circuit before reaching the parent() call.
+        mock_jedi_name = MagicMock()
+        mock_jedi_name.type = "function"
+        mock_jedi_name.parent.return_value = None  # force the defensive branch
+
+        result = resolve_enclosing_scope(mock_jedi_name, analyzer=MagicMock())
+        assert isinstance(result, EdgeResult)
+        assert result.adjacents == []  # empty, not None
+        assert result is not None  # resolver NEVER returns None

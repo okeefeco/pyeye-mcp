@@ -1035,7 +1035,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
 # ---------------------------------------------------------------------------
 
 
-def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:  # noqa: ARG001
+def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the immediate lexical enclosing scope of a symbol as a canonical handle.
 
     The inverse of ``members``: where ``members`` enumerates a container's
@@ -1054,6 +1054,9 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     class nesting (the #337 lesson applied here): for ``pkg.Outer.Inner.method``
     the arithmetic would mis-identify ``Outer`` as a module, failing to find it.
     ``parent()`` returns the true lexical parent at any nesting depth.
+
+    See also: ``inspect._is_method`` uses the same ``jedi_name.parent()`` Jedi
+    API for method-vs-function classification (method detection, #337).
 
     Synchronous: ``parent()`` is a pure Jedi API call (no file I/O); ``Handle``
     construction is synchronous.  No ``get_references`` / ``find_references`` is
@@ -1074,6 +1077,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.  NEVER returns ``None``.
     """
+    _ = analyzer  # unused: kept for the EDGE_RESOLVERS (jedi_name, analyzer) signature contract
     # Module gate: a module has no lexical enclosing scope.  Gate on kind BEFORE
     # calling parent() — a ModuleSentinel may not have a parent() method at all.
     if _normalise_kind(getattr(jedi_name, "type", None)) == "module":

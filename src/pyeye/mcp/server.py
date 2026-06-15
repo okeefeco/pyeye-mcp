@@ -523,9 +523,8 @@ async def expand(
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Wrong-kind handles for certain edges (e.g. ``imported_by`` on a
-        non-module) return ``reason: "not_yet_implemented"`` via their ``None``
-        resolver signal.
+      - Wrong-kind handles (e.g. ``imported_by`` on a non-module) return the
+        unsupported branch with ``reason: "not_yet_implemented"``.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union:
