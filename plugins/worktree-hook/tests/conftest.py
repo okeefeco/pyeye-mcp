@@ -41,6 +41,12 @@ def wtr() -> ModuleType:
 
 
 @pytest.fixture
+def wtc() -> ModuleType:
+    """The ``worktree_create`` hook module under test."""
+    return _load_hook("worktree_create")
+
+
+@pytest.fixture
 def run_git() -> Callable[..., subprocess.CompletedProcess[str]]:
     """Run a git command in a repo, raising on failure (test setup helper)."""
 
