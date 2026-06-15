@@ -9,17 +9,18 @@ This module is the **single source of truth** for which traversal edges
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
    names (``members``, ``callees``, ``imported_by``, ``subclasses``,
    ``superclasses``) to their resolver callables.  ``members``/``callees``/
-   ``superclasses`` are synchronous and always return an :class:`EdgeResult`;
-   ``imported_by`` and ``subclasses`` are **async**.  ``imported_by`` returns
-   ``EdgeResult | None`` — ``None`` is its wrong-kind signal (the handle is
-   not a module).  ``subclasses`` and ``superclasses`` ALWAYS return an
-   :class:`EdgeResult` (never ``None``): a non-class handle yields
-   ``EdgeResult([])`` because only a class CAN be subclassed/have superclasses,
-   so ``[]`` for the wrong kind is true by definition (the
-   ``members``/``callees`` case), not the absence-vs-zero lie that forces
-   ``imported_by``'s ``None`` path.  An :class:`EdgeResult` carries the
-   adjacent canonical handles plus, for ``callees`` only, the count of
-   unresolved call sites.  ``expand`` awaits any awaitable resolver result.
+   ``superclasses``/``imports`` are synchronous and always return an
+   :class:`EdgeResult` or ``None``; ``imported_by`` and ``subclasses`` are
+   **async**.  ``imported_by`` and ``imports`` return ``EdgeResult | None``
+   — ``None`` is their wrong-kind signal (the handle is not a module).
+   ``subclasses`` and ``superclasses`` ALWAYS return an :class:`EdgeResult`
+   (never ``None``): a non-class handle yields ``EdgeResult([])`` because
+   only a class CAN be subclassed/have superclasses, so ``[]`` for the wrong
+   kind is true by definition (the ``members``/``callees`` case), not the
+   absence-vs-zero lie that forces ``imported_by``'s and ``imports``'s
+   ``None`` paths.  An :class:`EdgeResult` carries the adjacent canonical
+   handles plus, for ``callees`` only, the count of unresolved call sites.
+   ``expand`` awaits any awaitable resolver result.
 
 Status model (spec §4.3)
 ------------------------
@@ -27,8 +28,9 @@ Status model (spec §4.3)
 status                          edges
 ==============================  =========================================
 ``"implemented"``               ``members``, ``callees``, ``imported_by``,
-                                ``subclasses``, ``superclasses``
-``"not_yet_implemented"``       ``imports``, ``enclosing_scope``
+                                ``subclasses``, ``superclasses``,
+                                ``imports``
+``"not_yet_implemented"``       ``enclosing_scope``
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
                                 ``written_by``, ``passed_by``,
                                 ``overrides``, ``overridden_by``,
@@ -122,10 +124,12 @@ STATUS_DEFERRED_REFERENCE_BACKEND = "deferred_reference_backend"
 STATUS_UNKNOWN_EDGE = "unknown_edge"
 
 #: Edges with a working (or Phase-3-bound) resolver.
-_IMPLEMENTED_EDGES = frozenset({"members", "callees", "imported_by", "subclasses", "superclasses"})
+_IMPLEMENTED_EDGES = frozenset(
+    {"members", "callees", "imported_by", "subclasses", "superclasses", "imports"}
+)
 
 #: Edges recognised by the matrix but not yet built (no reference backend needed).
-_NOT_YET_IMPLEMENTED_EDGES = frozenset({"imports", "enclosing_scope"})
+_NOT_YET_IMPLEMENTED_EDGES = frozenset({"enclosing_scope"})
 
 #: Inbound / reference edges deferred until an indexed reference backend lands.
 _DEFERRED_REFERENCE_BACKEND_EDGES = frozenset(
@@ -886,17 +890,146 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
 
 # ---------------------------------------------------------------------------
+# imports resolver (#367) — top-level AST import nodes + forward goto, sync
+# ---------------------------------------------------------------------------
+
+
+def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
+    """Return the top-level imports of a module as canonical handles.
+
+    The outbound ``imports`` edge — the FORWARD complement of ``imported_by``
+    (#345).  Walks the module's TOP-LEVEL ``ast.Import`` and
+    ``ast.ImportFrom`` statements and, for each imported name, forward-resolves
+    via ``script.goto(line, col, follow_imports=True)`` to obtain the canonical
+    handle and Jedi ``Name``.  This is the same forward-goto mechanic as
+    ``resolve_superclasses``/``resolve_callees`` — NO ``get_references``/
+    ``find_references`` anywhere on this path.
+
+    Kind gate (mirrors ``resolve_imported_by``):
+
+    - **module** → measured: ``EdgeResult`` with the imported handles (possibly
+      empty if the module has no top-level imports — a genuine measured "none",
+      NOT an error).
+    - **non-module** (class / function / variable / …) → ``None``.  A non-module
+      CAN contain local imports, so returning ``EdgeResult([])`` would be the
+      "measured zero" lie; ``None`` signals "this edge does not apply to this
+      kind" and becomes ``not_yet_implemented`` downstream in ``expand`` /
+      treated as no-adjacents in ``trace._single_hop`` — those paths already
+      handle ``None`` correctly and require NO modification.
+
+    Positioning logic (verified against real Jedi):
+
+    - ``import foo`` / ``import foo as f`` → goto ``alias.col_offset``
+      (the start of the import name, which points to the whole dotted name's
+      first component; ``follow_imports=True`` resolves to the target module).
+    - ``import foo.bar.baz`` → goto the RIGHTMOST identifier: col =
+      ``alias.col_offset + len(alias.name) - len(alias.name.split(".")[-1])``
+      so goto lands on ``baz`` and resolves to ``foo.bar.baz``.
+    - ``from foo import bar`` / ``from foo import bar as b`` → goto
+      ``alias.col_offset`` (the imported name's position; resolves to the
+      target symbol or module).
+    - ``from . import x`` (relative) → same: goto ``alias.col_offset``.
+    - ``from foo import *`` → SKIP (cannot enumerate targets without running
+      the wildcard; mirrors ``_module_members``'s wildcard gap).
+
+    Unresolvable imports (goto yields no def / no ``full_name`` / ``Handle``
+    construction failure) are DROPPED — cannot build a stub without a Name.
+
+    Dedup by canonical handle string; deterministic order (sorted by handle
+    string, mirroring ``resolve_subclasses``/``resolve_superclasses``).
+
+    Synchronous: cached AST walk + per-import Jedi ``goto`` + ``Handle``
+    construction are all sync.  No ``get_references``/``find_references`` is
+    ever called.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` (or :class:`ModuleSentinel`) for the
+            target.  Module-ness is derived from its normalised kind; the
+            ``module_path`` is the module's source file.
+        analyzer: Active analyzer (for the Jedi project used by ``get_script``).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` are the imported
+        ``(canonical Handle, Jedi Name)`` pairs for a module target, sorted by
+        handle string; or ``None`` for a non-module target.
+        ``unresolved_call_sites`` is always ``None`` — that notion is
+        callees-only.
+    """
+    if _normalise_kind(getattr(jedi_name, "type", None)) != "module":
+        return None
+
+    file_path = getattr(jedi_name, "module_path", None)
+    if file_path is None:
+        return EdgeResult(adjacents=[])
+
+    try:
+        tree = file_artifact_cache.get_ast(file_path)
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+    except Exception:
+        return EdgeResult(adjacents=[])
+
+    seen: set[str] = set()
+    adjacents: list[tuple[Handle, Any]] = []
+
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            # ``import foo`` / ``import foo.bar`` / ``import foo as f``
+            # → goto the RIGHTMOST identifier of the dotted module name so
+            #   Jedi resolves to the full module path, not just the top package.
+            for alias in node.names:
+                last = alias.name.split(".")[-1]
+                col = alias.col_offset + len(alias.name) - len(last)
+                pair = _resolve_call_target(script, (alias.lineno, col))
+                if pair is None:
+                    continue
+                h, name = pair
+                key = str(h)
+                if key in seen:
+                    continue
+                seen.add(key)
+                adjacents.append((h, name))
+
+        elif isinstance(node, ast.ImportFrom):
+            # ``from foo import bar`` / ``from foo import bar as b``
+            # ``from . import x`` (relative)
+            # ``from foo import *`` → SKIP (cannot enumerate wildcard targets)
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                # alias.col_offset is the column of the imported name itself
+                # (Jedi resolves the symbol/module at that position).
+                pair = _resolve_call_target(script, (alias.lineno, alias.col_offset))
+                if pair is None:
+                    continue
+                h, name = pair
+                key = str(h)
+                if key in seen:
+                    continue
+                seen.add(key)
+                adjacents.append((h, name))
+
+    # Sort by canonical handle string for deterministic order (mirrors
+    # resolve_subclasses / resolve_superclasses).
+    adjacents.sort(key=lambda pair: str(pair[0]))
+
+    return EdgeResult(adjacents=adjacents)
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
 #: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
-#: ``superclasses`` are synchronous and always return an :class:`EdgeResult`;
-#: ``imported_by`` and ``subclasses`` are async.  ``imported_by`` may return
-#: ``None`` (its wrong-kind signal); ``subclasses`` and ``superclasses`` always
-#: return an :class:`EdgeResult`` (non-class → ``EdgeResult([])``, never ``None``).
-#: The value type therefore admits a sync-or-async resolver returning
-#: ``EdgeResult | None`` so ``expand`` can stay edge-agnostic (awaiting
-#: awaitable results, treating ``None`` as not-yet-implemented).
+#: ``superclasses``/``imports`` are synchronous; ``members``/``callees``/
+#: ``superclasses`` always return an :class:`EdgeResult`; ``imports`` returns
+#: ``EdgeResult | None`` (``None`` for non-module handles, mirroring
+#: ``imported_by``).  ``imported_by`` and ``subclasses`` are async.
+#: ``imported_by`` may return ``None`` (its wrong-kind signal); ``subclasses``
+#: and ``superclasses`` always return an :class:`EdgeResult` (non-class →
+#: ``EdgeResult([])``, never ``None``).  The value type therefore admits a
+#: sync-or-async resolver returning ``EdgeResult | None`` so ``expand`` can
+#: stay edge-agnostic (awaiting awaitable results, treating ``None`` as
+#: not-yet-implemented).
 EDGE_RESOLVERS: dict[
     str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
 ] = {
@@ -905,4 +1038,5 @@ EDGE_RESOLVERS: dict[
     "imported_by": resolve_imported_by,
     "subclasses": resolve_subclasses,
     "superclasses": resolve_superclasses,
+    "imports": resolve_imports,
 }
