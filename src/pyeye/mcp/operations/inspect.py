@@ -18,7 +18,11 @@ Design notes
   project-scoped).  ``callers`` and ``references`` are intentionally OMITTED —
   they are deferred to the Pyright reference backend (#333) per the
   absence-vs-zero invariant.  Unmeasured edge types are ABSENT (not 0).
-- ``re_exports``, ``highlights``, ``tags``, ``properties`` are ABSENT in Phase 4.
+- ``re_exports`` (non-module kinds): present when measured (``[]`` = measured,
+  none found), or ABSENT if collection failed (couldn't measure).  ABSENT for
+  module kind (not computed for this kind).  Per the absence-vs-zero invariant,
+  absence never means "none".  ``highlights``, ``tags``, ``properties`` are not
+  currently computed and are therefore ABSENT.
 - ``Param.kind`` values: lowercase 5-value enum
   (``"positional"``, ``"positional_or_keyword"``, ``"keyword_only"``,
   ``"var_positional"``, ``"var_keyword"``).
@@ -893,11 +897,13 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     subclasses — for relevant kinds).  ``callers`` and ``references`` are
     intentionally OMITTED (deferred to the Pyright reference backend, #333).
     Edges that exceed their per-measurement budget are OMITTED, not zero.
-    Phase 6 adds ``re_exports`` for non-module kinds (class, function, method,
-    property, variable, attribute).  For module kind, ``re_exports`` is ABSENT
-    (not computed in Phase 6 — per the absence-vs-zero spec invariant: absent
-    means "we don't compute re_exports for this kind").
-    ``highlights``, ``tags``, and ``properties`` remain absent (later phases).
+    ``re_exports`` — for non-module kinds (class, function, method, property,
+    variable, attribute): present when measured (``[]`` = measured, no
+    re-exports), or ABSENT if collection failed (couldn't measure).  ABSENT for
+    module kind (not computed for this kind).  Per the absence-vs-zero
+    invariant, absence never means "none".
+    ``highlights``, ``tags``, and ``properties`` are not currently computed and
+    are therefore ABSENT.
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at).
