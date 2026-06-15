@@ -125,6 +125,12 @@ jobs:
         run: |
           pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
+      - name: Run worktree-hook plugin tests
+        # Standalone plugin suite, separate from the pyeye package and its
+        # coverage gate (--no-cov; the plugin is not part of src/pyeye).
+        run: |
+          pytest plugins/worktree-hook/tests --no-cov
+
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
@@ -166,6 +172,12 @@ jobs:
       - name: Run tests with coverage
         run: |
           pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+
+      - name: Run worktree-hook plugin tests
+        # Standalone plugin suite, separate from the pyeye package and its
+        # coverage gate (--no-cov; the plugin is not part of src/pyeye).
+        run: |
+          pytest plugins/worktree-hook/tests --no-cov
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
