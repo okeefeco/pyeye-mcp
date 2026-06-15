@@ -62,11 +62,6 @@ _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
 _MODULE_WITH_IMPORTERS_HANDLE = "mypackage._core.widgets"
 _MODULE_NO_IMPORTERS_HANDLE = "mypackage._core.module_forms"
 
-#: imports fixtures (#367): ``imports_fixture`` is a module with known top-level
-#: imports (supported, non-empty); ``Widget`` is a CLASS — a non-module handle
-#: for which ``imports`` does not apply (unsupported, not_yet_implemented).
-_IMPORTS_FIXTURE_MODULE_HANDLE = "mypackage._core.imports_fixture"
-
 #: subclasses fixtures (#348, Phase 2): a dedicated fixture project with a known
 #: direct + indirect + non-importable-file topology. ``Animal`` is the base whose
 #: full project subclass closure is exactly {Mammal, Dog, Lizard}; ``Loner`` is a

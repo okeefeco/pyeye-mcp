@@ -971,6 +971,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
 
+    # ``_resolve_call_target`` (shared with ``resolve_callees``) is a
+    # domain-neutral ``goto(follow_imports=True)`` → ``(Handle, Name)`` wrapper;
+    # the goto mechanic for an import target is identical to that for a call
+    # target, so it is reused here despite the callee-flavoured name.
     for node in tree.body:
         if isinstance(node, ast.Import):
             # ``import foo`` / ``import foo.bar`` / ``import foo as f``
