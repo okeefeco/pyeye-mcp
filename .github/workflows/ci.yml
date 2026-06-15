@@ -48,6 +48,7 @@ jobs:
     outputs:
       docs: ${{ steps.filter.outputs.docs }}
       code: ${{ steps.filter.outputs.code }}
+      plugins: ${{ steps.filter.outputs.plugins }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -70,6 +71,9 @@ jobs:
               - '.github/workflows/**'
               - 'setup.py'
               - 'setup.cfg'
+            plugins:
+              - 'plugins/**'
+              - '.github/workflows/**'
       # For non-PR events, always run code checks
       - name: Set outputs for non-PR events
         if: github.event_name != 'pull_request'
@@ -177,6 +181,43 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  plugin-tests:
+    # Standalone worktree-hook plugin suite, fully decoupled from the pyeye
+    # package and its coverage gate (--no-cov). Runs only when the plugin (or
+    # the CI workflow) changes — see the 'plugins' path filter above.
+    needs: [changes]
+    if: |
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.plugins == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Run worktree-hook plugin tests
+        run: |
+          pytest plugins/worktree-hook/tests --no-cov
 
   type-check:
     # Skip type checking for documentation-only changes in PRs
