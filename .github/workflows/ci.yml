@@ -64,6 +64,8 @@ jobs:
               - 'src/**'
               - 'tests/**'
               - 'pyproject.toml'
+              - 'uv.lock'
+              - 'uv.toml'
               - 'requirements*.txt'
               - '.github/workflows/**'
               - 'setup.py'

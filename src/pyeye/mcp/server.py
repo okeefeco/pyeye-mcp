@@ -495,7 +495,7 @@ async def expand(
     returns adjacent symbols as lightweight Stubs.  Use resolve()/inspect()
     first to obtain a canonical handle, then call expand() to traverse.
 
-    Supported edges in this slice:
+    Supported edges (the complete static/outbound set):
       - ``members``  — class/module → direct members (attributes, methods, nested
         classes).  ``stubs: []`` means the class/module was found but has no
         members; that is NOT the same as unsupported.
@@ -518,14 +518,26 @@ async def expand(
         subclasses (measured-none).  A non-class handle also returns the
         supported branch with ``stubs: []`` — only a class CAN be subclassed,
         so ``[]`` is true by definition, not an absence-vs-zero lie.
+      - ``superclasses``  — class → its base classes (class Stubs), resolved by
+        Jedi from the class definition (no reverse search).  A non-class handle
+        returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).
+      - ``imports``  — module → the symbols/modules it imports (Stubs), computed
+        by static AST + forward ``goto``.  ``stubs: []`` is measured-none.  A
+        non-module handle returns the unsupported branch with
+        ``reason: "not_yet_implemented"`` (mirrors ``imported_by``).
+      - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope
+        (the inverse of ``members``), resolved by Jedi ``parent()``: a method →
+        its class, a nested def/class → its enclosing def/class, a top-level
+        def/class/variable → its module.  At most ONE Stub.  A module returns
+        ``stubs: []`` (a module has no enclosing lexical scope — packages are not
+        lexical scopes); ``[]`` is therefore measured-empty, never unsupported.
 
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Other structural edges (``superclasses``, ``imports``,
-        ``enclosing_scope``) are planned but not yet implemented in this slice;
-        they return ``reason: "not_yet_implemented"``.
+      - Wrong-kind handles (e.g. ``imported_by`` on a non-module) return the
+        unsupported branch with ``reason: "not_yet_implemented"``.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union:
@@ -592,11 +604,12 @@ async def trace(
     canonical handles first, then trace() to see structure across hops (call
     chains, reverse-import closures, member trees).
 
-    Composes the same edge registry as ``expand``; only the implemented edges
-    (``members``, ``callees``, ``imported_by``) are traversed.  Any other edge
-    named in ``follow`` (deferred reference edges, not-yet-implemented structural
-    edges, unknown names) is reported in ``unsupported_edges`` rather than
-    silently dropped — a silent drop would falsely read as "no such neighbours".
+    Composes the same edge registry as ``expand``; the implemented edges
+    (``members``, ``callees``, ``imported_by``, ``subclasses``, ``superclasses``,
+    ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in
+    ``follow`` (deferred reference edges, unknown names) is reported in
+    ``unsupported_edges`` rather than silently dropped — a silent drop would
+    falsely read as "no such neighbours".
 
     Response shape — ``Subgraph``::
 

@@ -63,3 +63,42 @@ minimal built-in parser otherwise.
 > exact command string. If you previously registered `worktree_create.py` in
 > `~/.claude/settings.json`, remove that `WorktreeCreate` block when adopting
 > this plugin — otherwise both run and conflict.
+
+## Notes
+
+These behaviours were verified empirically during testing of the installed
+plugin. They are non-obvious — each one caused real confusion — so they are
+captured here to save the next person the same debugging.
+
+### This hook fires inside git repositories
+
+Claude Code's published docs suggest `WorktreeCreate` hooks apply only to
+non-git version control (SVN, Perforce, Mercurial). In practice — verified by
+testing — `EnterWorktree` *does* route through a registered `WorktreeCreate`
+hook inside a normal git repository, and the hook's stdout path fully overrides
+the native default (`.claude/worktrees/<name>` on a `worktree-<name>` branch).
+This override is the entire basis for the plugin working, so without it the
+plugin would be dead code. Because this contradicts the published docs, treat it
+as observed behaviour that could change across Claude Code versions rather than a
+guarantee.
+
+### Restart your session after installing/enabling
+
+Plugin hooks load at session start, not retroactively. If you `/plugin install`
+(or enable) this plugin in a session that began *before* the install,
+`EnterWorktree` falls back to native behaviour (a flat `worktree-<name>`
+directory and branch) because the plugin's hook isn't loaded yet. Start a fresh
+session before the hook takes effect. (Hooks defined directly in `settings.json`
+are auto-reloaded mid-session via the file watcher; only plugin hooks need the
+restart.)
+
+### Removing a worktree this hook created
+
+Because the worktree is created out-of-band by the hook, `ExitWorktree` may
+refuse to remove it ("could not verify worktree state"). Remove it with git
+directly:
+
+```bash
+git worktree remove --force .claude/worktrees/<type>/<name>
+git branch -D <type>/<name>
+```

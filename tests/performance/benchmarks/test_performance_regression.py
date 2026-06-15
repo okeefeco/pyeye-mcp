@@ -64,23 +64,29 @@ class TestPerformanceBaselines:
         async def search():
             return await analyzer.find_symbol("TestClass")
 
-        # Warm up
-        await search()
+        # Warm up the analyzer's caches WITHOUT recording the call. The first call is
+        # cold (jedi import + initial parse) and on slow CI runners takes 400-500ms;
+        # counting it would dominate p95 over only ~10 samples and deterministically
+        # fail macOS CI (#383). Warm up via the analyzer directly so the collector
+        # only records steady-state, warm runs.
+        await analyzer.find_symbol("TestClass")
 
-        # Measure multiple runs
+        # Measure multiple warm runs
         for _ in range(10):
             await search()
 
         stats = collector.get_stats("symbol_search")
 
-        # Performance requirements
-        # Note: Threshold increased from 100ms to 200ms after adding AST fallback
-        # for inheritance detection (fix #234). The AST parsing adds overhead but
-        # correctness is more important than speed.
-        # CI shows high variability: 116ms local, 143-175ms in CI.
-        # TODO: Investigate optimization opportunities for AST fallback path
-        assert stats["p95_ms"] < 200, f"Symbol search p95 ({stats['p95_ms']}ms) exceeds 200ms"
-        assert stats["p50_ms"] < 50, f"Symbol search p50 ({stats['p50_ms']}ms) exceeds 50ms"
+        # Performance requirements (platform-aware thresholds — see tests/utils/performance.py).
+        # The AST fallback for inheritance detection (fix #234) adds overhead, and CI runners
+        # (especially macOS) are slow and variable, so naive flat caps deterministically fail
+        # on macOS CI (#383). CommonThresholds carries the macos_ci tier for exactly this.
+        assert_performance_threshold(
+            stats["p95_ms"], CommonThresholds.SYMBOL_SEARCH_P95, "Symbol search p95"
+        )
+        assert_performance_threshold(
+            stats["p50_ms"], CommonThresholds.SYMBOL_SEARCH_P50, "Symbol search p50"
+        )
 
     @pytest.mark.asyncio
     async def test_goto_definition_performance(self, temp_project):
@@ -94,18 +100,26 @@ class TestPerformanceBaselines:
         async def goto():
             return await analyzer.goto_definition(str(test_file), 4, 10)
 
-        # Warm up
-        await goto()
+        # Warm up the analyzer's caches WITHOUT recording the call (see the note in
+        # test_symbol_search_performance): the cold first call would otherwise
+        # dominate p95 over only ~10 samples and fail on slow CI runners (#383).
+        await analyzer.goto_definition(str(test_file), 4, 10)
 
-        # Measure multiple runs
+        # Measure multiple warm runs
         for _ in range(10):
             await goto()
 
         stats = collector.get_stats("goto_definition")
 
-        # Performance requirements
-        assert stats["p95_ms"] < 75, f"Goto definition p95 ({stats['p95_ms']}ms) exceeds 75ms"
-        assert stats["p50_ms"] < 30, f"Goto definition p50 ({stats['p50_ms']}ms) exceeds 30ms"
+        # Performance requirements (platform-aware thresholds — see tests/utils/performance.py).
+        # macOS CI runners are ~2-3x slower, so flat caps fail deterministically (#383);
+        # CommonThresholds carries the macos_ci tier for exactly this.
+        assert_performance_threshold(
+            stats["p95_ms"], CommonThresholds.GOTO_DEFINITION_P95, "Goto definition p95"
+        )
+        assert_performance_threshold(
+            stats["p50_ms"], CommonThresholds.GOTO_DEFINITION_P50, "Goto definition p50"
+        )
 
     def test_cache_lookup_performance(self):
         """Test that cache lookups are fast."""
