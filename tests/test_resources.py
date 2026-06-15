@@ -60,9 +60,10 @@ class TestWorkflowResources:
         assert "## Goal" in content
         assert "## When to Use" in content
         assert "## Steps" in content
-        assert "get_type_info" in content
-        assert "find_references" in content
-        assert "Grep" in content
+        # Reverse-reference data is deferred (#333); workflow teaches forward edges.
+        assert "expand" in content
+        assert "imported_by" in content
+        assert "#333" in content
 
     def test_refactoring_workflow_structure(self):
         """Verify refactoring workflow has expected structure."""
@@ -75,9 +76,10 @@ class TestWorkflowResources:
         assert "# Safe Refactoring Workflow" in content
         assert "## Goal" in content
         assert "## Steps" in content
-        assert "find_subclasses" in content
-        assert "find_references" in content
+        assert "expand" in content
         assert "analyze_dependencies" in content
+        # Caller impact cannot be statically confirmed yet (#333).
+        assert "#333" in content
 
     def test_code_understanding_workflow_structure(self):
         """Verify code_understanding workflow has expected structure."""
@@ -90,9 +92,9 @@ class TestWorkflowResources:
         assert "# Code Understanding Workflow" in content
         assert "## Goal" in content
         assert "## Steps" in content
-        assert "find_symbol" in content
-        assert "get_type_info" in content
-        assert "get_call_hierarchy" in content
+        assert "resolve" in content
+        assert "inspect" in content
+        assert "expand" in content
 
     def test_dependency_analysis_workflow_structure(self):
         """Verify dependency_analysis workflow has expected structure."""
@@ -106,7 +108,7 @@ class TestWorkflowResources:
         assert "## Goal" in content
         assert "## Steps" in content
         assert "analyze_dependencies" in content
-        assert "list_modules" in content
+        assert "outline" in content
 
 
 class TestWorkflowResourceHandlers:

@@ -4,6 +4,8 @@
 
 Ensure Python code follows industry best practices including PEP standards, modern Python features, type safety, testing standards, and avoids common anti-patterns. This workflow combines checklist-based review with PyEye's semantic analysis for intelligent code understanding.
 
+> **Tool mechanics live in the python-explore skill** (`skills/python-explore/SKILL.md`). This playbook names the pyeye primitive to use for each review step; see the skill for call signatures, return shapes, and the progressive-disclosure model (resolve → inspect/outline → expand → trace).
+
 ## When to Use This Workflow
 
 - Reviewing pull requests
@@ -69,13 +71,7 @@ This workflow enforces:
   - Constants: `UPPER_CASE`
   - Private: `_leading_underscore`
 
-**MCP Tool**: Use `get_module_info()` to see all exports and verify naming consistency:
-
-```python
-# Check module's public API naming
-get_module_info(module_path="mypackage.module")
-# Verify: exports, classes, functions follow conventions
-```
+**MCP Tool**: `outline` a module to see its skeleton (top-level classes/functions) and verify naming consistency across the public API.
 
 ### 2. Type Safety & Type Hints (PEP 484)
 
@@ -93,18 +89,7 @@ get_module_info(module_path="mypackage.module")
 - [ ] `mypy` or `pyright` passes without errors
 - [ ] No `# type: ignore` without justification
 
-**MCP Tool**: Use `get_type_info()` to verify actual inferred types:
-
-```python
-# Check inferred type matches declared type
-get_type_info(
-    file="path/to/file.py",
-    line=42,
-    column=0,
-    detailed=True
-)
-# Returns: inferred type, docstring, signature
-```
+**MCP Tool**: `resolve` the symbol to a handle, then `inspect` it to verify the inferred type, signature, and docstring match what's declared.
 
 **Common Type Hints Issues**:
 
@@ -149,13 +134,7 @@ def calculate_score(user: User, items: list[Item]) -> float:
     """
 ```
 
-**MCP Tool**: Use `get_type_info(detailed=True)` to verify docstrings are present:
-
-```python
-# Check if function has proper documentation
-get_type_info(file=path, line=line, column=col, detailed=True)
-# Returns: docstring content for review
-```
+**MCP Tool**: `inspect` a handle to confirm the docstring is present and review its content.
 
 ### 4. Modern Python Features (3.10+)
 
@@ -243,13 +222,7 @@ def test_search_speed():
     assert_performance_threshold(elapsed_ms, threshold, "search")
 ```
 
-**MCP Tool**: Use `get_call_hierarchy()` to verify test coverage:
-
-```python
-# Find all callers of a function to see if tested
-get_call_hierarchy(function_name="process_data")
-# Check if test files are in callers list
-```
+**Honest limit**: pyeye cannot reliably answer "which tests call this function?" — reverse-reference data (callers/references) is deferred to the Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)). Use the coverage report (`pytest --cov`) as the source of truth for what is exercised. For the forward view, `expand(edge="callees")` shows what the function under test itself invokes.
 
 ### 6. Common Anti-Patterns to Avoid
 
@@ -318,13 +291,7 @@ import json
 data = json.loads(text)
 ```
 
-**MCP Tool**: Use `find_references()` to spot code duplication:
-
-```python
-# Find similar functions that might be duplicated logic
-find_references(file=path, line=line, column=col)
-# If many references do similar things, consider extracting common logic
-```
+**Honest limit**: spotting duplication by "find everywhere this is used" needs reverse-reference data, which pyeye doesn't provide reliably yet ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)). For now, lean on dedicated duplication tooling (see Code Duplication below). What pyeye *can* surface is forward structure: `outline` a module to compare member shapes, and `expand(edge="callees")` to compare what candidate-duplicate functions call.
 
 ### 7. Architecture & Design
 
@@ -338,19 +305,9 @@ find_references(file=path, line=line, column=col)
 
 **MCP Tools for Architecture Review**:
 
-```python
-# Check inheritance hierarchy
-find_subclasses(base_class="BaseProcessor", show_hierarchy=True)
-# Verify: Subclasses follow Liskov Substitution
-
-# Check module dependencies
-analyze_dependencies(module_path="mypackage.core")
-# Verify: No circular dependencies, clean architecture layers
-
-# Check what uses this module
-find_imports(module_name="mypackage.core")
-# Verify: Only appropriate modules depend on core
-```
+- **Inheritance hierarchy**: `expand(edge="subclasses")` from a base class (or `superclasses` from a leaf) — verify subclasses honour Liskov Substitution.
+- **Module dependencies**: `analyze_dependencies` — verify no circular dependencies and clean architecture layers.
+- **What depends on a module**: `expand(edge="imported_by")` — verify only appropriate modules depend on core. (`imports` gives the reverse: what the module pulls in.)
 
 ### 8. Error Handling
 
@@ -386,13 +343,7 @@ except ValueError as e:
 
 **Tool**: Use `isort` to automatically organize imports
 
-**MCP Tool**: Use `get_module_info()` to review imports:
-
-```python
-get_module_info(module_path="mypackage.module")
-# Returns: imports_from list for review
-# Check: Appropriate dependencies, no circular imports
-```
+**MCP Tool**: `expand(edge="imports")` on a module to review its top-level imports — check for appropriate dependencies and no circular imports.
 
 ### 10. Performance Considerations
 
@@ -414,13 +365,7 @@ def read_large_file(path):
             yield process_line(line)
 ```
 
-**MCP Tool**: Use `get_call_hierarchy()` to understand performance:
-
-```python
-# Trace execution to find bottlenecks
-get_call_hierarchy(function_name="slow_operation")
-# Returns: callers and callees - helps identify hot paths
-```
+**MCP Tool**: `trace(follow=["callees"])` from a function to map the forward call structure and spot deep or fan-out paths. Note the honest limit: pyeye gives the *callees* (forward) direction reliably, but not *callers* (who invokes the hot path) — that reverse view is deferred to #333.
 
 ## Code Quality Metrics
 
@@ -568,23 +513,23 @@ pytest --cov=src --cov-fail-under=85  # Tests + coverage
 
 **For New Classes**:
 
-1. `find_symbol()` - Locate class definition
-2. `get_type_info(detailed=True)` - Check documentation, structure
-3. `find_subclasses()` - See if it follows inheritance patterns
-4. `find_references()` - Review usage patterns
+1. `resolve` - Locate the class definition (canonical handle)
+2. `inspect` - Check documentation, signature, structure
+3. `expand(edge="subclasses")` / `expand(edge="superclasses")` - See if it follows inheritance patterns
+4. Usage patterns: pyeye can't list callers/references reliably yet (deferred, #333) — verify usage via the coverage report and forward edges instead
 
 **For New Functions**:
 
-1. `find_symbol()` - Locate function
-2. `get_type_info(detailed=True)` - Check types, docs
-3. `get_call_hierarchy()` - Understand execution flow
-4. `find_references()` - Review how it's used
+1. `resolve` - Locate the function
+2. `inspect` - Check types, docs
+3. `expand(edge="callees")` or `trace(follow=["callees"])` - Understand forward execution flow
+4. Usage: caller/reference data is not available (deferred, #333); use coverage to confirm it's exercised
 
 **For Modules**:
 
-1. `get_module_info()` - Review structure, exports
-2. `analyze_dependencies()` - Check for circular deps
-3. `find_imports()` - See what depends on it
+1. `outline` - Review structure and exports
+2. `analyze_dependencies` - Check for circular deps
+3. `expand(edge="imported_by")` - See what depends on it
 
 ### Step 3: Manual Code Review
 
@@ -617,34 +562,34 @@ Use **[Code Understanding Workflow](workflows://code-understanding)** to deeply 
 
 ### MCP-Enhanced Review
 
-```python
+```text
 # 1. Locate and inspect
-find_symbol(name="DataProcessor")
-→ Found at: src/processing/processor.py:45
+resolve("DataProcessor")
+→ handle: myapp.processing.processor.DataProcessor (src/processing/processor.py:45)
 
-get_type_info(file="src/processing/processor.py", line=45, detailed=True)
+inspect("myapp.processing.processor.DataProcessor")
 → Class with proper docstring ✅
 → Inherits from BaseProcessor ✅
 → Has type hints ✅
-→ Methods: process, validate, transform ✅
+→ edge_counts: members 3, superclasses 1 ✅
 
 # 2. Check architecture
-find_subclasses(base_class="BaseProcessor", show_hierarchy=True)
+expand("myapp.processing.BaseProcessor", edge="subclasses")
 → DataProcessor follows established pattern ✅
 
-analyze_dependencies(module_path="processing.processor")
+analyze_dependencies("myapp.processing.processor")
 → No circular dependencies ✅
 → Imports: typing, pathlib, logging (appropriate) ✅
 
-# 3. Review usage
-find_references(file="src/processing/processor.py", line=45)
-→ Used in 5 places, all appropriate ✅
-→ Test coverage exists ✅
+# 3. Review usage — honest limit
+# Caller/reference data is deferred (#333). Confirm the class is exercised via the
+# coverage report rather than asking pyeye who uses it.
+→ pytest --cov shows DataProcessor paths covered ✅
 
-# 4. Check call flow
-get_call_hierarchy(function_name="process")
+# 4. Check forward call flow
+expand("myapp.processing.processor.DataProcessor.process", edge="callees")
 → Calls validate → transform → save ✅
-→ Called by batch_processor, api_handler ✅
+# Who calls process() is not statically available (deferred, #333)
 ```
 
 ### Manual Review Findings
