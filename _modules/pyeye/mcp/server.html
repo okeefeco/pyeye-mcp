@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=4e850a18"></script>
+      <script src="../../../_static/documentation_options.js?v=85e2b520"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -860,7 +860,7 @@
 <span class="sd">    returns adjacent symbols as lightweight Stubs.  Use resolve()/inspect()</span>
 <span class="sd">    first to obtain a canonical handle, then call expand() to traverse.</span>
 
-<span class="sd">    Supported edges in this slice:</span>
+<span class="sd">    Supported edges (the complete static/outbound set):</span>
 <span class="sd">      - ``members``  — class/module → direct members (attributes, methods, nested</span>
 <span class="sd">        classes).  ``stubs: []`` means the class/module was found but has no</span>
 <span class="sd">        members; that is NOT the same as unsupported.</span>
@@ -883,14 +883,26 @@
 <span class="sd">        subclasses (measured-none).  A non-class handle also returns the</span>
 <span class="sd">        supported branch with ``stubs: []`` — only a class CAN be subclassed,</span>
 <span class="sd">        so ``[]`` is true by definition, not an absence-vs-zero lie.</span>
+<span class="sd">      - ``superclasses``  — class → its base classes (class Stubs), resolved by</span>
+<span class="sd">        Jedi from the class definition (no reverse search).  A non-class handle</span>
+<span class="sd">        returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).</span>
+<span class="sd">      - ``imports``  — module → the symbols/modules it imports (Stubs), computed</span>
+<span class="sd">        by static AST + forward ``goto``.  ``stubs: []`` is measured-none.  A</span>
+<span class="sd">        non-module handle returns the unsupported branch with</span>
+<span class="sd">        ``reason: &quot;not_yet_implemented&quot;`` (mirrors ``imported_by``).</span>
+<span class="sd">      - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope</span>
+<span class="sd">        (the inverse of ``members``), resolved by Jedi ``parent()``: a method →</span>
+<span class="sd">        its class, a nested def/class → its enclosing def/class, a top-level</span>
+<span class="sd">        def/class/variable → its module.  At most ONE Stub.  A module returns</span>
+<span class="sd">        ``stubs: []`` (a module has no enclosing lexical scope — packages are not</span>
+<span class="sd">        lexical scopes); ``[]`` is therefore measured-empty, never unsupported.</span>
 
 <span class="sd">    Unsupported edges return the unsupported branch (never raise):</span>
 <span class="sd">      - Inbound/reference edges (``callers``, ``references``,</span>
 <span class="sd">        ``overrides``, …) require the Pyright reference backend (#333) and return</span>
 <span class="sd">        ``unsupported: true, reason: &quot;deferred_reference_backend&quot;``.</span>
-<span class="sd">      - Other structural edges (``superclasses``, ``imports``,</span>
-<span class="sd">        ``enclosing_scope``) are planned but not yet implemented in this slice;</span>
-<span class="sd">        they return ``reason: &quot;not_yet_implemented&quot;``.</span>
+<span class="sd">      - Wrong-kind handles (e.g. ``imported_by`` on a non-module) return the</span>
+<span class="sd">        unsupported branch with ``reason: &quot;not_yet_implemented&quot;``.</span>
 <span class="sd">      - Unrecognised edge names return ``reason: &quot;unknown_edge&quot;``.</span>
 
 <span class="sd">    Response shape — discriminated union:</span>
@@ -957,11 +969,12 @@
 <span class="sd">    canonical handles first, then trace() to see structure across hops (call</span>
 <span class="sd">    chains, reverse-import closures, member trees).</span>
 
-<span class="sd">    Composes the same edge registry as ``expand``; only the implemented edges</span>
-<span class="sd">    (``members``, ``callees``, ``imported_by``) are traversed.  Any other edge</span>
-<span class="sd">    named in ``follow`` (deferred reference edges, not-yet-implemented structural</span>
-<span class="sd">    edges, unknown names) is reported in ``unsupported_edges`` rather than</span>
-<span class="sd">    silently dropped — a silent drop would falsely read as &quot;no such neighbours&quot;.</span>
+<span class="sd">    Composes the same edge registry as ``expand``; the implemented edges</span>
+<span class="sd">    (``members``, ``callees``, ``imported_by``, ``subclasses``, ``superclasses``,</span>
+<span class="sd">    ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in</span>
+<span class="sd">    ``follow`` (deferred reference edges, unknown names) is reported in</span>
+<span class="sd">    ``unsupported_edges`` rather than silently dropped — a silent drop would</span>
+<span class="sd">    falsely read as &quot;no such neighbours&quot;.</span>
 
 <span class="sd">    Response shape — ``Subgraph``::</span>
 
