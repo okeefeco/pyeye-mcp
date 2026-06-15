@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/worktree_create.py\"",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
