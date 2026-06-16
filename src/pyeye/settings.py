@@ -28,6 +28,17 @@ class PerformanceSettings:
             max_val=86400,  # Max 24 hours
         )
 
+        # AST/Script (file_artifact_cache) combined LRU entry cap. Raise this on
+        # large codebases: when the working set exceeds the cap, repeated scans
+        # (e.g. subclasses) evict their own entries and stop benefiting from the
+        # cache. See issue #397.
+        self.artifact_cache_max_entries: int = self._get_int_env(
+            "PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
+            500,
+            min_val=1,
+            max_val=1_000_000,
+        )
+
         # File watcher settings
         self.watcher_debounce: float = self._get_float_env(
             "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
@@ -167,6 +178,7 @@ class PerformanceSettings:
 
   Caching:
     cache_ttl: {self.cache_ttl}s
+    artifact_cache_max_entries: {self.artifact_cache_max_entries}
 
   File Watching:
     watcher_debounce: {self.watcher_debounce}s

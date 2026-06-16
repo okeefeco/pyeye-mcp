@@ -21,6 +21,19 @@ class TestPerformanceSettings:
         assert settings.analysis_timeout == 30.0
         assert settings.enable_memory_profiling is False
         assert settings.enable_performance_metrics is False
+        assert settings.artifact_cache_max_entries == 500
+
+    def test_artifact_cache_max_entries_env_override(self):
+        """PYEYE_ARTIFACT_CACHE_MAX_ENTRIES tunes the AST/Script cache cap."""
+        with patch.dict(os.environ, {"PYEYE_ARTIFACT_CACHE_MAX_ENTRIES": "2000"}):
+            settings = PerformanceSettings()
+            assert settings.artifact_cache_max_entries == 2000
+
+    def test_artifact_cache_max_entries_min_validation(self):
+        """A sub-minimum cap is clamped to the minimum (must hold >=1 entry)."""
+        with patch.dict(os.environ, {"PYEYE_ARTIFACT_CACHE_MAX_ENTRIES": "0"}):
+            settings = PerformanceSettings()
+            assert settings.artifact_cache_max_entries == 1
 
     def test_env_var_override(self):
         """Test environment variables override defaults."""
