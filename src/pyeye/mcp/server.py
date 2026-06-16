@@ -431,10 +431,12 @@ async def expand(
       - ``subclasses``  — class → the project classes that subclass it (class
         Stubs), computed by an AST class-graph walk + forward ``goto`` (no
         reverse symbol search).  Returns the full project subclass closure
-        (direct + indirect), so ``len(stubs) == inspect(handle).edge_counts``
-        ``.subclasses``.  ``stubs: []`` means the class has no project
-        subclasses (measured-none).  A non-class handle also returns the
-        supported branch with ``stubs: []`` — only a class CAN be subclassed,
+        (direct + indirect).  ``subclasses`` is an expand-only edge: ``inspect``
+        does NOT measure it (dropped in #392 — counting requires this same
+        project-wide scan, so it has no cheap-preview value).  ``stubs: []``
+        means the class has no project subclasses (measured-none).  A non-class
+        handle also returns the supported branch with ``stubs: []`` — only a
+        class CAN be subclassed,
         so ``[]`` is true by definition, not an absence-vs-zero lie.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle

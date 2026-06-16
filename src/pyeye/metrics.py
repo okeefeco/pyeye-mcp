@@ -251,10 +251,17 @@ class MetricsCollector:
             else:
                 other_metrics[name] = stats
 
+        # The AST/Script cache (file_artifact_cache) keeps its own counters and
+        # is otherwise wired to no report — surface it as a distinct section so a
+        # cap-thrashing run is visible (it is the cache that actually accelerates
+        # navigation). Lazy import avoids any import-time coupling.
+        from . import file_artifact_cache
+
         return {
             "uptime_seconds": uptime_seconds,
             "memory": self.get_memory_stats(),
             "cache": self.cache_metrics.get_stats(),
+            "artifact_cache": file_artifact_cache.stats(),
             "operations": {
                 "symbol_search": symbol_metrics,
                 "file_operations": file_metrics,
@@ -334,6 +341,20 @@ class MetricsCollector:
         lines.append("# HELP pyeye_cache_misses Cache misses")
         lines.append("# TYPE pyeye_cache_misses counter")
         lines.append(f"pyeye_cache_misses {self.cache_metrics.misses}")
+
+        # AST/Script (artifact) cache metrics — separate from the result cache.
+        from . import file_artifact_cache
+
+        artifact = file_artifact_cache.stats()
+        lines.append("# HELP pyeye_artifact_cache_hits AST/Script cache hits")
+        lines.append("# TYPE pyeye_artifact_cache_hits counter")
+        lines.append(f"pyeye_artifact_cache_hits {artifact['hits']}")
+        lines.append("# HELP pyeye_artifact_cache_misses AST/Script cache misses")
+        lines.append("# TYPE pyeye_artifact_cache_misses counter")
+        lines.append(f"pyeye_artifact_cache_misses {artifact['misses']}")
+        lines.append("# HELP pyeye_artifact_cache_evictions AST/Script cache evictions")
+        lines.append("# TYPE pyeye_artifact_cache_evictions counter")
+        lines.append(f"pyeye_artifact_cache_evictions {artifact['evictions']}")
 
         # Memory metrics
         memory = self.get_memory_stats()

@@ -131,22 +131,21 @@ class TestReExportCanonicality:
 
 
 class TestProjectExternalBoundary:
-    """Spec acceptance criterion 7: project/external boundary (inspect side).
+    """Spec acceptance criterion 7: project/external boundary.
 
     Verifies that inspecting an external handle (stdlib class) returns
-    scope="external" with shallow structural data, and that
-    edge_counts.subclasses reflects project-internal subclasses only.
+    scope="external" with shallow structural data, and that the project-internal
+    subclass closure is project-scoped — now an expand-only edge (#392).
 
     External symbol used: pathlib.PurePath (stdlib, universally available).
 
     The fixture file ``tests/fixtures/resolve_project/mypackage/
     external_subclass_demo.py`` defines ``_ProjectPathExtension(PurePath)``
     so that exactly one project-internal subclass exists.  The test asserts
-    edge_counts["subclasses"] == 1, not the much larger number of subclasses
-    that Python's stdlib itself contains (PurePosixPath, PureWindowsPath, etc.).
-
-    Note: expand() is deferred past Phase 7.  This test covers only the
-    inspect()-side of criterion 7.
+    ``expand('pathlib.PurePath', 'subclasses')`` returns exactly 1 stub, not the
+    much larger number of subclasses that Python's stdlib itself contains
+    (PurePosixPath, PureWindowsPath, etc.), and that inspect does NOT carry the
+    subclasses edge (#392).
     """
 
     @pytest.mark.asyncio
@@ -191,35 +190,47 @@ class TestProjectExternalBoundary:
             )
 
     @pytest.mark.asyncio
-    async def test_external_subclasses_count_is_project_scoped(self) -> None:
-        """Spec criterion 7: edge_counts.subclasses is project-scoped.
+    async def test_external_subclasses_is_project_scoped_via_expand(self) -> None:
+        """Spec criterion 7: project-scoped subclasses (now an expand-only edge).
 
-        The fixture defines exactly one project-internal class extending
-        pathlib.PurePath (_ProjectPathExtension in external_subclass_demo.py).
-        The subclasses count must be 1 — reflecting only project-internal
-        subclasses, NOT the stdlib's own PurePosixPath / PureWindowsPath /
-        etc. which would inflate the count if scope filtering were absent.
+        subclasses is no longer measured by inspect (#392) — counting it needs
+        the same project-wide scan as listing them, so it is an expand-only edge.
+        This test therefore verifies BOTH halves of the new contract:
+
+        1. ``inspect('pathlib.PurePath').edge_counts`` does NOT contain
+           'subclasses' (it is not inspect-measured).
+        2. ``expand('pathlib.PurePath', 'subclasses')`` is project-scoped: the
+           fixture defines exactly one project-internal class extending
+           pathlib.PurePath (_ProjectPathExtension in external_subclass_demo.py),
+           so expand returns exactly 1 stub — NOT the stdlib's own
+           PurePosixPath / PureWindowsPath etc., which would inflate the result
+           if scope filtering were absent.
         """
+        from pyeye.mcp.operations.expand import expand
         from pyeye.mcp.operations.inspect import inspect
 
         # Use resolve_project fixture which contains the _ProjectPathExtension class.
         # The fixture file is:
         #   tests/fixtures/resolve_project/mypackage/external_subclass_demo.py
         analyzer = _make_analyzer(_RESOLVE_PROJECT)
-        node = await inspect("pathlib.PurePath", analyzer)
 
+        # (1) inspect must NOT carry subclasses (expand-only, #392)
+        node = await inspect("pathlib.PurePath", analyzer)
         edge_counts = node.get("edge_counts", {})
-        assert "subclasses" in edge_counts, (
-            f"inspect('pathlib.PurePath').edge_counts must contain 'subclasses'; "
-            f"got edge_counts={edge_counts!r}"
+        assert "subclasses" not in edge_counts, (
+            f"inspect('pathlib.PurePath').edge_counts must NOT contain 'subclasses' "
+            f"(expand-only edge, #392); got edge_counts={edge_counts!r}"
         )
 
-        actual = edge_counts["subclasses"]
-        assert actual == 1, (
-            f"edge_counts['subclasses'] must be 1 (project-scoped: only "
-            f"_ProjectPathExtension from external_subclass_demo.py); "
-            f"got {actual!r}.  If this is >1, scope filtering may be absent. "
-            f"If 0, the fixture file may not be in the project scope."
+        # (2) expand carries the project-scoped subclasses
+        result = await expand("pathlib.PurePath", "subclasses", analyzer)
+        stubs = result.get("stubs", [])
+        assert len(stubs) == 1, (
+            f"expand('pathlib.PurePath', 'subclasses') must return 1 stub "
+            f"(project-scoped: only _ProjectPathExtension from "
+            f"external_subclass_demo.py); got {len(stubs)} stubs={stubs!r}. "
+            f"If >1, scope filtering may be absent. If 0, the fixture file may "
+            f"not be in the project scope."
         )
 
 
