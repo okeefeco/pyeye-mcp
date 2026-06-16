@@ -513,10 +513,12 @@ async def expand(
       - ``subclasses``  — class → the project classes that subclass it (class
         Stubs), computed by an AST class-graph walk + forward ``goto`` (no
         reverse symbol search).  Returns the full project subclass closure
-        (direct + indirect), so ``len(stubs) == inspect(handle).edge_counts``
-        ``.subclasses``.  ``stubs: []`` means the class has no project
-        subclasses (measured-none).  A non-class handle also returns the
-        supported branch with ``stubs: []`` — only a class CAN be subclassed,
+        (direct + indirect).  ``subclasses`` is an expand-only edge: ``inspect``
+        does NOT measure it (dropped in #392 — counting requires this same
+        project-wide scan, so it has no cheap-preview value).  ``stubs: []``
+        means the class has no project subclasses (measured-none).  A non-class
+        handle also returns the supported branch with ``stubs: []`` — only a
+        class CAN be subclassed,
         so ``[]`` is true by definition, not an absence-vs-zero lie.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle
@@ -1166,7 +1168,7 @@ def list_project_structure(project_path: str = ".", max_depth: int = 3) -> dict[
     return build_tree(project_root)
 
 
-# DEPRECATED: replaced by inspect(handle).edge_counts.subclasses for the count; future expand(handle, edge="subclasses") for the list. Will be removed in the legacy-tool cleanup phase.
+# DEPRECATED: replaced by expand(handle, edge="subclasses") for the list (and len() for the count); subclasses is expand-only, not in inspect's edge_counts (#392). Will be removed in the legacy-tool cleanup phase.
 @mcp.tool()
 @validate_mcp_inputs
 @metrics.measure("find_subclasses")
@@ -1179,9 +1181,9 @@ async def find_subclasses(
 ) -> list[dict[str, Any]]:
     """Python: Find inheritance tree including indirect subclasses. Impossible with grep.
 
-    **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses`` for
-    the count and future ``expand(handle, edge="subclasses")`` for the list in
-    the redesigned API. See
+    **Deprecated:** Replaced by ``expand(handle, edge="subclasses")`` for the
+    list (use ``len(...)`` for the count) in the redesigned API.  ``subclasses``
+    is an expand-only edge — ``inspect`` does not measure it (#392). See
     docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
     for the migration plan. This method will be removed once the legacy
     MCP tools are deprecated (Phase B of the migration).
