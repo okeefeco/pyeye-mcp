@@ -45,7 +45,6 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
-from pyeye.mcp.operations.inspect import inspect
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -611,37 +610,28 @@ class TestExpandSubclassesNonClassMeasuredEmpty:
         assert "stubs" not in imported_by_wrong_kind
 
 
-class TestExpandSubclassesCountListConsistency:
-    """Progressive-disclosure contract: len(stubs) == inspect.edge_counts.subclasses.
+class TestExpandSubclassesEnumeration:
+    """``expand(handle, "subclasses")`` enumerates the project subclass closure.
 
-    The resolver and ``inspect._count_subclasses`` share the EXACT call shape
-    (``scope="main"``, ``include_indirect=True``, ``show_hierarchy=False``), so
-    the number of subclass stubs ``expand`` produces MUST equal the count
-    ``inspect`` reports for the same class.  This is the contract that justifies
-    the shared call shape; if it diverges, the resolver's enumeration or dedup
-    has drifted from ``find_subclasses``' result list (reconcile, don't relax).
+    subclasses is an expand-only edge (inspect no longer measures it — #392), so
+    these tests pin expand's enumeration directly against the fixture topology
+    rather than cross-checking an inspect count.
     """
 
     @pytest.mark.asyncio
-    async def test_expand_len_equals_inspect_count(self, subclasses_analyzer: JediAnalyzer) -> None:
+    async def test_expand_returns_full_project_closure(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
         expand_result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
-        inspect_result = await inspect(_ANIMAL_HANDLE, subclasses_analyzer)
-
         stub_count = len(expand_result["stubs"])
-        edge_count = inspect_result["edge_counts"]["subclasses"]
-        assert stub_count == edge_count, (
-            f"len(expand subclasses stubs)={stub_count} must equal "
-            f"inspect edge_counts['subclasses']={edge_count} (shared call shape)"
-        )
         # The fixture's known closure is exactly 3 (Mammal, Dog, Lizard); pin it
-        # so a fixture-topology change can't silently make this a 0==0 tautology.
+        # so a fixture-topology change surfaces loudly.
         assert stub_count == 3, f"fixture Animal closure should be 3 subclasses; got {stub_count}"
 
     @pytest.mark.asyncio
-    async def test_no_subclasses_consistency_holds_at_zero(
+    async def test_class_with_no_subclasses_returns_empty(
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
-        # The contract also holds for the measured-empty class case: 0 == 0.
+        # Measured-empty class case: a class with no project subclasses → 0 stubs.
         expand_result = await expand(_LONER_HANDLE, "subclasses", subclasses_analyzer)
-        inspect_result = await inspect(_LONER_HANDLE, subclasses_analyzer)
-        assert len(expand_result["stubs"]) == inspect_result["edge_counts"]["subclasses"] == 0
+        assert len(expand_result["stubs"]) == 0

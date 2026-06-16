@@ -38,7 +38,6 @@ _VALID_CLASS: dict = {
     "edge_counts": {
         "members": 0,
         "superclasses": 0,
-        "subclasses": 0,
     },
     "re_exports": [],
 }
@@ -465,10 +464,10 @@ class TestAbsenceVsZeroDetection:
         with pytest.raises(ConformanceViolation, match="superclasses"):
             lint_response(bad, "inspect")
 
-    def test_class_missing_subclasses_edge_rejected(self) -> None:
-        """class kind must have 'subclasses' in edge_counts."""
+    def test_class_subclasses_edge_present_rejected(self) -> None:
+        """'subclasses' is no longer inspect-measured (#392, expand-only); rejected."""
         bad = _clone(_VALID_CLASS)
-        del bad["edge_counts"]["subclasses"]
+        bad["edge_counts"]["subclasses"] = 0
         with pytest.raises(ConformanceViolation, match="subclasses"):
             lint_response(bad, "inspect")
 
@@ -486,10 +485,14 @@ class TestAbsenceVsZeroDetection:
         with pytest.raises(ConformanceViolation, match="references"):
             lint_response(bad, "inspect")
 
-    def test_class_with_only_two_edges_rejected(self) -> None:
-        """class with only 2 of 3 expected edges is rejected."""
+    def test_class_missing_a_required_edge_rejected(self) -> None:
+        """class missing a required edge (superclasses) is rejected.
+
+        The required class edges are members + superclasses (subclasses is
+        expand-only, #392).  Dropping superclasses must still be rejected.
+        """
         bad = _clone(_VALID_CLASS)
-        bad["edge_counts"] = {"members": 0, "superclasses": 0}
+        bad["edge_counts"] = {"members": 0}
         with pytest.raises(ConformanceViolation):
             lint_response(bad, "inspect")
 
@@ -626,7 +629,6 @@ class TestLinterAcceptsValidResponses:
             "edge_counts": {
                 "members": 3,
                 "superclasses": 0,
-                "subclasses": 1,
             },
             "re_exports": ["pkg.X"],
         }

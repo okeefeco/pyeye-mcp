@@ -126,7 +126,7 @@ Instead, **say so plainly**: "pyeye can't give reliable caller/reference data ye
 ### Absence vs zero
 
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A
-present `subclasses: 0` means measured-and-none (genuinely unextended). An *absent*
+present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
 `callers` key means pyeye didn't measure it — don't read that as "no callers."
 
 ## Workflow
@@ -173,7 +173,7 @@ Handles below use a placeholder project (`myapp.…`) — substitute your own. T
 resolve("myapp.config.Settings")   -> { handle: "myapp.config.Settings", kind: "class",
                                         scope: "project", location: {...} }
 inspect("myapp.config.Settings")   -> kind, signature, docstring,
-                                        edge_counts: { members: 7, superclasses: 1, subclasses: 0 }
+                                        edge_counts: { members: 7, superclasses: 1 }
 ```
 
 **Ambiguous name** — let `resolve` disambiguate, don't guess:
@@ -247,7 +247,7 @@ user can correct you:
 ```markdown
 **Mental model: `myapp.cache.Cache`** (`myapp/cache.py:31`)
 - Depends on: `myapp.config.Settings`, `collections.OrderedDict`
-- I can see: 7 members, 1 superclass, 0 subclasses (measured)
+- I can see: 7 members, 1 superclass (measured); subclasses on demand via `expand`
 - I cannot see: callers/references (deferred, #333) — change impact on callers is unverified
 ```
 

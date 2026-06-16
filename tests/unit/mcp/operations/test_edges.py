@@ -749,8 +749,8 @@ class TestResolveSubclassesClass:
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
         # Dog(Mammal) is a grandchild of Animal — include_indirect=True must
-        # surface it (the single-hop edge intentionally returns the full closure
-        # so len(stubs) == inspect.edge_counts.subclasses).
+        # surface it (the single-hop subclasses edge intentionally returns the
+        # full project closure; subclasses is expand-only, #392).
         handles = {
             str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
         }

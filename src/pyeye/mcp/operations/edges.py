@@ -675,12 +675,12 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     Reuses :meth:`JediAnalyzer.find_subclasses` — an AST class-graph walk +
     forward ``goto``/``resolve_canonical`` (NO ``get_references`` /
     ``find_references``, the same load-bearing trust constraint as ``callees`` /
-    ``imported_by``).  The call shape (``scope="main"``, ``include_indirect=True``,
-    ``show_hierarchy=False``) is IDENTICAL to ``inspect._count_subclasses`` so
-    ``len(adjacents) == inspect(handle).edge_counts.subclasses``.  As a
-    single-hop edge it intentionally returns the full project subclass closure
-    (direct + indirect), a deliberate divergence from ``members``/``callees``
-    direct-only semantics justified by that count/list consistency.
+    ``imported_by``).  ``subclasses`` is an **expand-only** edge: ``inspect``
+    does NOT measure it (dropped in #392 — counting it requires this same
+    project-wide scan, so it has no cheap-preview value).  As a single-hop edge
+    it intentionally returns the full project subclass closure (direct +
+    indirect), a deliberate divergence from ``members``/``callees`` direct-only
+    semantics — appropriate because the caller asked to walk the edge explicitly.
 
     Each adjacent's ``Name`` is built from the subclass's OWN FILE (via
     :func:`_subclass_name_from_file`) — never by re-resolving the dotted handle —
@@ -718,17 +718,16 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     if not handle:
         return EdgeResult(adjacents=[])
 
-    # Identical call shape to inspect._count_subclasses so len(stubs) == the
-    # measured edge_counts.subclasses (the progressive-disclosure contract).
+    # Project-internal subclass closure (direct + indirect), project-scoped.
     result = await analyzer.find_subclasses(
         handle,
         scope="main",
         include_indirect=True,
         show_hierarchy=False,
     )
-    # An FQN input never triggers the ambiguous variant (as _count_subclasses
-    # asserts).  Carry the same defensive assert so a future regression surfaces
-    # loudly instead of silently yielding an empty list.
+    # An FQN input never triggers the ambiguous variant.  Carry a defensive
+    # assert so a future regression surfaces loudly instead of silently yielding
+    # an empty list.
     assert not result.get(
         "ambiguous", False
     ), f"FQN input to find_subclasses returned ambiguous variant: {handle!r}"
