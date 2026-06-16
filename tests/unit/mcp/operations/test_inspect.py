@@ -63,14 +63,14 @@ No source-content fields:
   - ``default`` is a simple literal string when present — NOT a complex expression
   - ``location`` is a pointer dict — NOT a source snippet
 
-Contract tested — Phase 4 (Task 4.1)
+Contract tested — edge_counts
 --------------------------------------
-Phase 4 wires exactly 5 edge types into ``edge_counts``:
+``edge_counts`` measures only edges derivable from the symbol's own definition:
   - ``members``: for class and module handles (count of direct members)
   - ``superclasses``: for class handles
-  - ``subclasses``: for class handles (project-scoped)
-  - ``callers``: for function/method handles
-  - ``references``: for any handle (aggregate read/written/passed; excludes calls)
+Edges requiring a project-wide traversal are NOT measured here (expand-only):
+  - ``subclasses``: expand-only — project-wide scan, no cheap preview (#392)
+  - ``callers`` / ``references``: deferred to the Pyright backend (#332/#333)
 
 The absence-vs-zero invariant (load-bearing):
   - Unmeasured edges are ABSENT from edge_counts (not present with value 0)
@@ -123,21 +123,24 @@ _COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
 _MODULE_HANDLE = "mypackage._core.widgets"
 _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
 
-# Phase 4 fixture handles — subclasses of Widget added at end of widgets.py
+# Fixture handle — Premium is a subclass of Widget (declared in widgets.py)
 _PREMIUM_HANDLE = "mypackage._core.widgets.Premium"
-_DELUXE_HANDLE = "mypackage._core.widgets.Deluxe"
 
 # External symbol — pathlib.Path is stdlib, always available
 _PATH_CLASS_HANDLE = "pathlib.Path"
 
-# All 5 edge types measured by Phase 4 (must be present for relevant kinds)
-# callers/references removed (#332): derived from Jedi's budget-capped
-# get_references, which under-reports non-deterministically. Omitted until an
-# indexed backend lands (#333). Only structural edges remain measured.
-_PHASE4_MEASURED_EDGES = frozenset({"members", "superclasses", "subclasses"})
+# Edge types inspect measures in edge_counts (must be present for relevant kinds).
+# Only edges derivable from the symbol's own definition are measured.
+# - subclasses removed (#392): counting needs a project-wide scan with no cheap
+#   preview, so it is an expand-only edge.
+# - callers/references removed (#332): derived from Jedi's budget-capped
+#   get_references, which under-reports non-deterministically. Omitted until an
+#   indexed backend lands (#333).
+_PHASE4_MEASURED_EDGES = frozenset({"members", "superclasses"})
 
-# All unmeasured edge types in Phase 4 (must be ABSENT from edge_counts)
+# Edge types inspect does NOT measure (must be ABSENT from edge_counts)
 _PHASE4_UNMEASURED_EDGES = [
+    "subclasses",
     "read_by",
     "written_by",
     "passed_by",
@@ -804,23 +807,19 @@ class TestInspectUniversalContract:
 
 
 class TestInspectEdgeCounts:
-    """Phase 4 contract: edge_counts populated with exactly 5 measured edge types.
-
-    These tests are in the RED state until Task 4.2 implements edge_counts.
-    The Phase 3 implementation returns ``edge_counts: {}`` always, so every
-    assertion that checks for a non-empty edge_counts (or for a 0-valued key)
-    will fail with AssertionError.
+    """edge_counts contract: only symbol-local edges are measured.
 
     The absence-vs-zero invariant (load-bearing):
     - Measured edges with zero value MUST be PRESENT with value 0 (not omitted)
     - Unmeasured edge types MUST be ABSENT (not present with value 0)
 
-    Phase 4 measures exactly these 5 edges:
+    edge_counts measures exactly these edges (derivable from the symbol itself):
     - ``members``: class and module handles
     - ``superclasses``: class handles
-    - ``subclasses``: class handles (project-scoped)
-    - ``callers``: function/method handles
-    - ``references``: any handle (aggregate read/written/passed; excludes calls)
+
+    NOT measured (require project-wide traversal — expand-only / deferred):
+    - ``subclasses``: expand-only — project-wide scan, no cheap preview (#392)
+    - ``callers`` / ``references``: deferred to the Pyright backend (#332/#333)
     """
 
     # ------------------------------------------------------------------ (a)
@@ -914,52 +913,23 @@ class TestInspectEdgeCounts:
 
     # ------------------------------------------------------------------ (c)
     @pytest.mark.asyncio
-    async def test_class_with_no_subclasses_returns_zero(self, analyzer: JediAnalyzer) -> None:
-        """(c/g) CRITICAL: measured-and-zero is PRESENT with value 0, not omitted.
+    async def test_subclasses_absent_from_edge_counts(self, analyzer: JediAnalyzer) -> None:
+        """(c) subclasses is NEVER in inspect's edge_counts — it is expand-only (#392).
 
-        Config has no subclasses in the project.
-        edge_counts['subclasses'] MUST be 0 (present!), NOT absent.
-        Phase 3 returns edge_counts: {} — 'subclasses' is absent → FAIL.
-        This tests BOTH directions of the invariant:
-        - key is present ('subclasses' in edge_counts)
-        - value is 0 (not a non-zero count)
+        Counting subclasses requires the same project-wide inheritance scan as
+        listing them, so it has no cheap-preview value and was dropped from
+        inspect.  This must hold regardless of whether the class actually has
+        subclasses: Config has none, Widget has Premium+Deluxe — neither emits a
+        'subclasses' key.  Callers who want them use expand(handle, "subclasses").
         """
         from pyeye.mcp.operations.inspect import inspect
 
-        result = await inspect(_CONFIG_HANDLE, analyzer)
-
-        # CRITICAL: 'subclasses' MUST be in edge_counts even when count is 0
-        assert "subclasses" in result["edge_counts"], (
-            f"Config has no subclasses — but 'subclasses' key MUST be present with value 0; "
-            f"got edge_counts={result['edge_counts']!r}. "
-            "Absence means 'not measured'; 0 means 'measured, none found'. "
-            "Phase 4 measures subclasses for all class handles."
-        )
-        assert result["edge_counts"]["subclasses"] == 0, (
-            f"Config has no project subclasses; expected subclasses=0; "
-            f"got subclasses={result['edge_counts']['subclasses']}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_class_with_subclasses_counts_them(self, analyzer: JediAnalyzer) -> None:
-        """(c) A class with project subclasses returns their count in edge_counts.
-
-        Widget has Premium and Deluxe as explicit subclasses in the project.
-        edge_counts['subclasses'] must be >= 2.
-        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
-        """
-        from pyeye.mcp.operations.inspect import inspect
-
-        result = await inspect(_WIDGET_HANDLE, analyzer)
-
-        assert "subclasses" in result["edge_counts"], (
-            f"Widget has subclasses (Premium, Deluxe) — 'subclasses' key must be present; "
-            f"got edge_counts={result['edge_counts']!r}"
-        )
-        assert result["edge_counts"]["subclasses"] >= 2, (
-            f"Widget has >= 2 project subclasses (Premium, Deluxe); "
-            f"got subclasses={result['edge_counts']['subclasses']}"
-        )
+        for handle in (_CONFIG_HANDLE, _WIDGET_HANDLE):
+            result = await inspect(handle, analyzer)
+            assert "subclasses" not in result["edge_counts"], (
+                f"'subclasses' must be ABSENT from inspect edge_counts (expand-only, #392); "
+                f"got edge_counts={result['edge_counts']!r} for handle={handle!r}"
+            )
 
     # ------------------------------------------------------------------ (d/e)
     # callers/references are NO LONGER measured (#332): they were derived from
@@ -1020,14 +990,11 @@ class TestInspectEdgeCounts:
     async def test_unmeasured_edges_are_absent(self, analyzer: JediAnalyzer) -> None:
         """(f) CRITICAL: unmeasured edge types MUST NOT appear in edge_counts.
 
-        Phase 4 measures exactly 5 edges. All other edge types are ABSENT.
-        An absent key means 'we didn't measure this' — not 'the value is 0'.
-        This test runs against a class handle (Widget) where Phase 4 WILL populate
-        members/superclasses/subclasses. It verifies the other 11 types stay absent.
-
-        Phase 3 returns {} — this test PASSES in Phase 3 (no spurious keys).
-        But after Phase 4 implementation, the 5 measured keys will be present.
-        The unmeasured keys must STILL be absent.
+        edge_counts measures only members + superclasses. All other edge types
+        are ABSENT.  An absent key means 'we didn't measure this' — not 'the
+        value is 0'.  This test runs against a class handle (Widget) where
+        members/superclasses are populated; it verifies the unmeasured types
+        (including subclasses — expand-only, #392) stay absent.
 
         NOTE: This test is designed to pass in Phase 3 (nothing to check for yet)
         and continue passing in Phase 4 (measured keys in, unmeasured keys still out).
@@ -1063,43 +1030,15 @@ class TestInspectEdgeCounts:
             )
 
     # ------------------------------------------------------------------ (g) — covered by
-    # test_class_with_no_subclasses_returns_zero (subclasses=0 present)
     # test_function_with_no_callers_returns_zero (callers=0 present)
-
-    # ------------------------------------------------------------------ (h)
-    @pytest.mark.asyncio
-    async def test_external_node_subclasses_are_project_scoped(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """(h) edge_counts on an external node reflects project-internal subclasses only.
-
-        pathlib.Path is a stdlib class. The fixture project has no class that
-        extends pathlib.Path, so edge_counts['subclasses'] must be 0.
-        This verifies that the count is project-scoped (not all Python subclasses globally).
-
-        Phase 3 returns edge_counts: {} so 'subclasses' is absent → FAIL.
-        """
-        from pyeye.mcp.operations.inspect import inspect
-
-        result = await inspect(_PATH_CLASS_HANDLE, analyzer)
-
-        assert "subclasses" in result["edge_counts"], (
-            f"External class handle must have edge_counts['subclasses'] key (project-scoped); "
-            f"got edge_counts={result['edge_counts']!r}. "
-            "Phase 4 measures project subclasses even for external symbols."
-        )
-        # No fixture class extends pathlib.Path → project-scoped count must be 0
-        assert result["edge_counts"]["subclasses"] == 0, (
-            f"No project class extends pathlib.Path; expected subclasses=0 (project-scoped); "
-            f"got subclasses={result['edge_counts']['subclasses']}"
-        )
 
     @pytest.mark.asyncio
     async def test_all_measured_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
         """All measured edge types are present in edge_counts for a class handle.
 
-        Widget is a class — the measured class edges are members, superclasses,
-        and subclasses (callers/references removed, #332).  All must be present.
+        Widget is a class — the measured class edges are members and
+        superclasses (subclasses is expand-only #392; callers/references removed
+        #332).  All must be present.
         """
         from pyeye.mcp.operations.inspect import inspect
 
@@ -1107,7 +1046,7 @@ class TestInspectEdgeCounts:
 
         for edge in _PHASE4_MEASURED_EDGES:
             assert edge in result["edge_counts"], (
-                f"Phase 4 must populate edge_counts[{edge!r}] for class handles; "
+                f"edge_counts must populate edge_counts[{edge!r}] for class handles; "
                 f"got edge_counts={result['edge_counts']!r}"
             )
 
@@ -1116,25 +1055,25 @@ class TestInspectEdgeCounts:
         """edge_counts contains ONLY the measured edges (no extras).
 
         For a class, edge_counts must contain exactly the measured class keys
-        (members, superclasses, subclasses) and nothing else — in particular
-        no callers/references (removed, #332).
+        (members, superclasses) and nothing else — in particular no subclasses
+        (expand-only, #392) and no callers/references (removed, #332).
         """
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect(_WIDGET_HANDLE, analyzer)
         edge_counts = result["edge_counts"]
 
-        # All 5 measured keys must be present for a class
+        # All measured keys must be present for a class
         for edge in _PHASE4_MEASURED_EDGES:
             assert edge in edge_counts, (
-                f"Phase 4 must populate {edge!r} for class Widget; "
+                f"edge_counts must populate {edge!r} for class Widget; "
                 f"got edge_counts={edge_counts!r}"
             )
 
-        # No extra keys beyond the 5 measured ones
+        # No extra keys beyond the measured ones (subclasses must NOT leak in)
         extra_keys = set(edge_counts.keys()) - _PHASE4_MEASURED_EDGES
         assert not extra_keys, (
-            f"edge_counts contains unexpected keys beyond Phase 4's 5 measured edges: "
+            f"edge_counts contains unexpected keys beyond the measured edges: "
             f"{sorted(extra_keys)!r}. Only {sorted(_PHASE4_MEASURED_EDGES)!r} are allowed."
         )
 
@@ -1155,54 +1094,53 @@ class TestInspectEdgeTimeout:
     """
 
     @pytest.mark.asyncio
-    async def test_timeout_on_subclasses_omits_edge(self, analyzer: JediAnalyzer) -> None:
-        """A timeout on subclasses measurement omits 'subclasses' from edge_counts.
+    async def test_timeout_on_superclasses_omits_edge(self, analyzer: JediAnalyzer) -> None:
+        """A timeout on superclasses measurement omits 'superclasses' from edge_counts.
 
-        When ``_count_subclasses`` exceeds the per-edge budget,
-        ``edge_counts['subclasses']`` must be ABSENT (not 0).
-        The other edges (members, superclasses, callers, references) should still
-        be measured independently and present in edge_counts.
+        When ``_count_superclasses`` exceeds the per-edge budget,
+        ``edge_counts['superclasses']`` must be ABSENT (not 0).
+        The other measured edge (``members``) should still be measured
+        independently and present in edge_counts.
         """
         import asyncio
         from unittest.mock import patch
 
         from pyeye.mcp.operations.inspect import inspect
 
-        # Patch _count_subclasses to raise asyncio.TimeoutError on every call.
+        # Patch _count_superclasses to raise asyncio.TimeoutError on every call.
         # _measure_with_budget catches TimeoutError from wait_for, but we also
         # need to handle the case where the coroutine itself raises it.
-        async def subclasses_timeout(*_args: object, **_kwargs: object) -> int:
+        async def superclasses_timeout(*_args: object, **_kwargs: object) -> int:
             raise asyncio.TimeoutError()
 
         with patch.object(
             inspect_ops,
-            "_count_subclasses",
-            side_effect=subclasses_timeout,
+            "_count_superclasses",
+            side_effect=superclasses_timeout,
         ):
             result = await inspect(_WIDGET_HANDLE, analyzer)
 
         edge_counts = result["edge_counts"]
 
-        # subclasses must be ABSENT (timed out → not measured)
-        assert "subclasses" not in edge_counts, (
-            f"Timed-out edge 'subclasses' must be ABSENT from edge_counts; "
+        # superclasses must be ABSENT (timed out → not measured)
+        assert "superclasses" not in edge_counts, (
+            f"Timed-out edge 'superclasses' must be ABSENT from edge_counts; "
             f"got edge_counts={edge_counts!r}. "
             "Absence means 'not measured'; 0 means 'measured, none found'."
         )
 
-        # Other class edges must still be present (per-measurement isolation)
-        for edge in ("members", "superclasses"):
-            assert edge in edge_counts, (
-                f"Edge {edge!r} must still be present when subclasses timed out; "
-                f"got edge_counts={edge_counts!r}"
-            )
+        # The other measured class edge must still be present (per-measurement isolation)
+        assert "members" in edge_counts, (
+            f"Edge 'members' must still be present when superclasses timed out; "
+            f"got edge_counts={edge_counts!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_timeout_on_one_edge_does_not_block_others(self, analyzer: JediAnalyzer) -> None:
         """A timeout on one edge does not prevent other edges from being measured.
 
-        This verifies per-measurement isolation: ``subclasses`` timeout must not
-        cause ``members`` or ``superclasses`` to be absent.
+        This verifies per-measurement isolation: a ``superclasses`` timeout must
+        not cause ``members`` to be absent.
 
         Uses a mock with a very short budget (1 ms) so that the slow mock
         times out via ``asyncio.wait_for`` while others proceed normally.
@@ -1212,12 +1150,12 @@ class TestInspectEdgeTimeout:
 
         from pyeye.mcp.operations.inspect import _build_edge_counts
 
-        # Replace _count_subclasses with a coroutine that sleeps longer than the budget
-        async def slow_subclasses(*_args: object, **_kwargs: object) -> int:
+        # Replace _count_superclasses with a coroutine that sleeps longer than the budget
+        async def slow_superclasses(*_args: object, **_kwargs: object) -> int:
             await asyncio.sleep(10)  # longer than any reasonable budget
             return 99  # pragma: no cover
 
-        with patch.object(inspect_ops, "_count_subclasses", side_effect=slow_subclasses):
+        with patch.object(inspect_ops, "_count_superclasses", side_effect=slow_superclasses):
             # Use a 0.01 second budget so the sleep definitely times out
             result = await _build_edge_counts(
                 _WIDGET_HANDLE,
@@ -1230,10 +1168,10 @@ class TestInspectEdgeTimeout:
                 budget_seconds=0.01,
             )
 
-        # subclasses must be absent (timed out)
+        # superclasses must be absent (timed out)
         assert (
-            "subclasses" not in result
-        ), f"subclasses must be absent after timeout; got {result!r}"
+            "superclasses" not in result
+        ), f"superclasses must be absent after timeout; got {result!r}"
 
     @pytest.mark.asyncio
     async def test_all_edges_absent_when_all_timeout(self, analyzer: JediAnalyzer) -> None:
@@ -1253,7 +1191,6 @@ class TestInspectEdgeTimeout:
         with (
             patch.object(inspect_ops, "_count_class_members", side_effect=always_timeout),
             patch.object(inspect_ops, "_count_superclasses", side_effect=always_timeout),
-            patch.object(inspect_ops, "_count_subclasses", side_effect=always_timeout),
         ):
             result = await inspect(_WIDGET_HANDLE, analyzer)
 
