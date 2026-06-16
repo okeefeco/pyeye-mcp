@@ -48,9 +48,10 @@ _OUTPUT_FUNC = re.compile(
     r"(report|schema|export|stats|serialize|serialise|to_dict|to_json|metrics|summary)",
     re.IGNORECASE,
 )
-# Paths whose changes should NOT trigger a nudge (per the decision-log skill:
-# new test cases / docs are not contract surfaces).
-_EXCLUDED_PREFIXES = ("tests/", "docs/")
+# Only the shipped package is a contract surface. An allowlist (rather than a
+# tests/docs blocklist) keeps dev tooling — scripts/ (incl. this script), ci,
+# config — from nagging, which is what trains people to ignore the nudge.
+_INCLUDED_PREFIX = "src/"
 
 
 def _is_contract_name(name: str) -> bool:
@@ -89,7 +90,7 @@ def scan(diff: str) -> dict[str, set[str]]:
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
             path = line[len("+++ b/") :]
-            current_excluded = path.startswith(_EXCLUDED_PREFIXES) or not path.endswith(".py")
+            current_excluded = not path.startswith(_INCLUDED_PREFIX) or not path.endswith(".py")
             enclosing = None
             continue
         if line.startswith("+++") or line.startswith("---"):

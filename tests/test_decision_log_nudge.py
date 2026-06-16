@@ -79,6 +79,16 @@ def test_tests_and_docs_paths_ignored():
     assert nudge.scan(_diff("docs/guide.md", body)) == {}
 
 
+def test_non_shipped_paths_ignored():
+    """Only the shipped surface (src/) is a contract surface — dev tooling isn't.
+
+    Guards against the nudge firing on its own kind of change (scripts/, ci, etc.).
+    """
+    body = "@@ -1,0 +1,1 @@\n+def scan(diff):\n"
+    assert nudge.scan(_diff("scripts/decision_log_nudge.py", body)) == {}
+    assert nudge.scan(_diff("noxfile.py", body)) == {}
+
+
 def test_trivial_body_change_silent():
     body = "@@ -1,1 +1,1 @@ def existing(self):\n-    return 1\n+    return 2\n"
     assert nudge.scan(_diff("src/pyeye/x.py", body)) == {}
