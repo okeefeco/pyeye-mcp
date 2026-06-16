@@ -141,10 +141,7 @@ inspect("pyeye.cache.GranularCache") →
   "superclasses": ["pyeye.cache.ProjectCache"],
   "edge_counts": {
     "members": 12,
-    "superclasses": 1,
-    "subclasses": 0,
-    "callers": 3,
-    "references": 47
+    "superclasses": 1
   },
   "re_exports": []
 }
@@ -200,16 +197,31 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 ## Edge counts and the absence-vs-zero invariant
 
 `edge_counts` is **always present** on every `inspect` response. It is never
-null and never absent.
+null and never absent — though it may be an empty `{}` for kinds with no
+cheaply-measurable edges (see below).
 
 ### Measured edges per kind
 
 | Kind | Measured edges |
 |------|---------------|
-| `class` | `members`, `superclasses`, `subclasses`, `callers`, `references` |
-| `function`, `method` | `callers`, `references` |
-| `module` | `members`, `references` |
-| `variable`, `attribute`, `property` | `references` |
+| `class` | `members`, `superclasses` |
+| `function`, `method` | _(none — see note)_ |
+| `module` | `members` |
+| `variable`, `attribute`, `property` | _(none — see note)_ |
+
+`edge_counts` reports only edges derivable cheaply from the symbol's own
+definition. Three edge types that earlier drafts measured are no longer in
+`edge_counts`:
+
+- `subclasses` — counting them needs the same project-wide inheritance scan as
+  listing them, so it has no cheap-preview value; it is **expand-only**
+  (`expand(handle, edge="subclasses")`), per #392.
+- `callers`, `references` — deferred to an indexed reference backend (Pyright,
+  #333). They are **omitted** (not `0`), so the absence-vs-zero invariant holds:
+  a present `0` means measured-none, an absent key means not-measured.
+
+Kinds whose only edges were the deferred ones (functions, methods, variables,
+attributes, properties) therefore get an empty `edge_counts: {}` today.
 
 ### The invariant
 
@@ -222,14 +234,14 @@ measured zero" from "we don't yet measure this edge type."
 Examples:
 
 ```json
-// class — all 5 edges measured
-"edge_counts": {"members": 12, "superclasses": 1, "subclasses": 0, "callers": 3, "references": 47}
+// class — members + superclasses measured
+"edge_counts": {"members": 12, "superclasses": 1}
 
-// function — only callers + references
-"edge_counts": {"callers": 5, "references": 23}
+// function/method — no edges measured (callers/references deferred, #332/#333)
+"edge_counts": {}
 
-// variable — only references
-"edge_counts": {"references": 8}
+// variable — no edges measured
+"edge_counts": {}
 ```
 
 The same rule applies to list fields:
@@ -265,16 +277,17 @@ inspect("pathlib.PurePath") →
   "handle": "pathlib.PurePath",
   "kind": "class",
   "scope": "external",
-  "edge_counts": {"members": 47, "superclasses": 1, "subclasses": 1, ...}
+  "edge_counts": {"members": 47, "superclasses": 1}
 }
 ```
 
 For external handles:
 
 - `scope` is `"external"`
-- `edge_counts.subclasses` counts **project-internal** subclasses only —
-  not stdlib subclasses of the same base. This is intentional: it tells you
-  how many places in your project extend an external class.
+- `expand(handle, edge="subclasses")` lists **project-internal** subclasses
+  only — not stdlib subclasses of the same base. This tells you how many places
+  in your project extend an external class. (`subclasses` is an expand-only
+  edge; it is not in `edge_counts` — see #392.)
 - All other universal fields are populated from Jedi's analysis.
 
 ---
@@ -362,7 +375,7 @@ returns:
       { "raw": "CustomModel", "handle": "models.CustomModel" }
     ]
   },
-  "edge_counts": { "callers": 0, "references": 0 },
+  "edge_counts": {},
   "re_exports": []
 }
 ```
