@@ -2,6 +2,10 @@
 default_language_version:
   python: python3.12
 
+# Install pre-commit, commit-msg, AND post-commit hooks on `pre-commit install`
+# (post-commit drives the non-blocking decision-log nudge below).
+default_install_hook_types: [pre-commit, commit-msg, post-commit]
+
 repos:
   # Security checks
   - repo: https://github.com/Yelp/detect-secrets
@@ -142,3 +146,19 @@ repos:
     hooks:
       - id: markdownlint
         args: ['--fix']
+
+  # Decision-log nudge — runs AFTER each commit, never blocks. Prints a one-line
+  # suggestion when the just-committed diff touches a contract surface (new
+  # PYEYE_* config knob, public/dunder signature change, or an output-shape dict
+  # key in a report/schema/export function). Suggestion only — the decision to
+  # log stays human. verbose:true so the nudge is shown despite the 0 exit code.
+  - repo: local
+    hooks:
+      - id: decision-log-nudge
+        name: Decision-log nudge (contract-surface suggestion)
+        entry: python scripts/decision_log_nudge.py
+        language: system
+        stages: [post-commit]
+        pass_filenames: false
+        always_run: true
+        verbose: true
