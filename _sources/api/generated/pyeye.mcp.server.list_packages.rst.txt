@@ -1,6 +1,0 @@
-﻿pyeye.mcp.server.list\_packages
-===============================
-
-.. currentmodule:: pyeye.mcp.server
-
-.. autofunction:: list_packages

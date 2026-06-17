@@ -13,13 +13,13 @@
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=5439e08b"></script>
+      <script src="../_static/documentation_options.js?v=c19aef91"></script>
       <script src="../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="pyeye.mcp.server.find_symbol" href="generated/pyeye.mcp.server.find_symbol.html" />
+    <link rel="next" title="pyeye.mcp.server.find_references" href="generated/pyeye.mcp.server.find_references.html" />
     <link rel="prev" title="Caching Strategy" href="../architecture/caching-strategy.html" /> 
 </head>
 
@@ -199,24 +199,15 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#core-mcp-tools">Core MCP Tools</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#navigation-tools">Navigation Tools</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.find_symbol.html">pyeye.mcp.server.find_symbol</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.goto_definition.html">pyeye.mcp.server.goto_definition</a></li>
 <li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.find_references.html">pyeye.mcp.server.find_references</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.get_type_info.html">pyeye.mcp.server.get_type_info</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.find_imports.html">pyeye.mcp.server.find_imports</a></li>
 <li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.get_call_hierarchy.html">pyeye.mcp.server.get_call_hierarchy</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.find_subclasses.html">pyeye.mcp.server.find_subclasses</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#project-management-tools">Project Management Tools</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.configure_packages.html">pyeye.mcp.server.configure_packages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.list_project_structure.html">pyeye.mcp.server.list_project_structure</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#analysis-tools">Analysis Tools</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.list_packages.html">pyeye.mcp.server.list_packages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.list_modules.html">pyeye.mcp.server.list_modules</a></li>
-<li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.get_module_info.html">pyeye.mcp.server.get_module_info</a></li>
 <li class="toctree-l4"><a class="reference internal" href="generated/pyeye.mcp.server.analyze_dependencies.html">pyeye.mcp.server.analyze_dependencies</a></li>
 </ul>
 </li>
@@ -368,26 +359,11 @@
 <h3>Navigation Tools<a class="headerlink" href="#navigation-tools" title="Link to this heading"></a></h3>
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_symbol.html#pyeye.mcp.server.find_symbol" title="pyeye.mcp.server.find_symbol"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_symbol</span></code></a>(name[, ...])</p></td>
-<td><p>Python: Find class/function definitions.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.goto_definition.html#pyeye.mcp.server.goto_definition" title="pyeye.mcp.server.goto_definition"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.goto_definition</span></code></a>(file, line, ...)</p></td>
-<td><p>Python: Jump to where a symbol is defined from any usage location.</p></td>
-</tr>
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_references.html#pyeye.mcp.server.find_references" title="pyeye.mcp.server.find_references"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_references</span></code></a>([file, ...])</p></td>
 <td><p>Python: Find ALL usages of a symbol.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_type_info.html#pyeye.mcp.server.get_type_info" title="pyeye.mcp.server.get_type_info"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_type_info</span></code></a>(file, line, ...)</p></td>
-<td><p>Python: Get type hints, docstrings, and base classes at cursor position.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_imports.html#pyeye.mcp.server.find_imports" title="pyeye.mcp.server.find_imports"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_imports</span></code></a>(module_name[, ...])</p></td>
-<td><p>Python: Find all files that import a specific module.</p></td>
-</tr>
 <tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_call_hierarchy.html#pyeye.mcp.server.get_call_hierarchy" title="pyeye.mcp.server.get_call_hierarchy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_call_hierarchy</span></code></a>(...[, ...])</p></td>
 <td><p>Python: Trace function callers and callees through the codebase.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.find_subclasses.html#pyeye.mcp.server.find_subclasses" title="pyeye.mcp.server.find_subclasses"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.find_subclasses</span></code></a>(base_class)</p></td>
-<td><p>Python: Find inheritance tree including indirect subclasses.</p></td>
 </tr>
 </tbody>
 </table>
@@ -399,9 +375,6 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.configure_packages.html#pyeye.mcp.server.configure_packages" title="pyeye.mcp.server.configure_packages"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.configure_packages</span></code></a>([...])</p></td>
 <td><p>Python: Configure additional packages, namespaces, and standalone scripts for analysis.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_project_structure.html#pyeye.mcp.server.list_project_structure" title="pyeye.mcp.server.list_project_structure"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_project_structure</span></code></a>([...])</p></td>
-<td><p>Python: Hierarchical view of Python files and packages in the project.</p></td>
-</tr>
 </tbody>
 </table>
 </section>
@@ -409,16 +382,7 @@
 <h3>Analysis Tools<a class="headerlink" href="#analysis-tools" title="Link to this heading"></a></h3>
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_packages.html#pyeye.mcp.server.list_packages" title="pyeye.mcp.server.list_packages"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_packages</span></code></a>([project_path])</p></td>
-<td><p>Python: List all packages with their structure and subpackages.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.list_modules.html#pyeye.mcp.server.list_modules" title="pyeye.mcp.server.list_modules"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.list_modules</span></code></a>([...])</p></td>
-<td><p>Python: List all modules with their exports, classes, functions, and metrics.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.get_module_info.html#pyeye.mcp.server.get_module_info" title="pyeye.mcp.server.get_module_info"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.get_module_info</span></code></a>(module_path)</p></td>
-<td><p>Python: Get module exports, classes, functions, and complexity metrics.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies" title="pyeye.mcp.server.analyze_dependencies"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.analyze_dependencies</span></code></a>(...[, ...])</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies" title="pyeye.mcp.server.analyze_dependencies"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pyeye.mcp.server.analyze_dependencies</span></code></a>(...[, ...])</p></td>
 <td><p>Python: Map module dependencies and detect circular imports.</p></td>
 </tr>
 </tbody>
@@ -442,7 +406,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="../architecture/caching-strategy.html" class="btn btn-neutral float-left" title="Caching Strategy" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="generated/pyeye.mcp.server.find_symbol.html" class="btn btn-neutral float-right" title="pyeye.mcp.server.find_symbol" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="generated/pyeye.mcp.server.find_references.html" class="btn btn-neutral float-right" title="pyeye.mcp.server.find_references" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

@@ -1,6 +1,0 @@
-﻿pyeye.mcp.server.get\_type\_info
-================================
-
-.. currentmodule:: pyeye.mcp.server
-
-.. autofunction:: get_type_info
