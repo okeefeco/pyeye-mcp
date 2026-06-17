@@ -4,6 +4,11 @@
 
 Perform comprehensive pull request reviews combining automated checks, semantic analysis, code standards, and security review. This workflow ensures code quality, safety, and maintainability before merging to main.
 
+> Tool mechanics (call signatures, return shapes, the supported edge set, and the honest
+> limits on reverse-reference data) live in the python-explore skill:
+> `skills/python-explore/SKILL.md`. This playbook names the tools to use at each step;
+> consult the skill for how to call them.
+
 ## When to Use This Workflow
 
 - Reviewing pull requests before merge
@@ -90,70 +95,50 @@ git diff main...HEAD --name-only
 
 **MCP Tool - Quick Scope Analysis**:
 
-```python
-# For each major changed file, understand context
-get_module_info(module_path="changed.module")
-# Returns: structure, exports, imports
-
-# Check what depends on changed code
-analyze_dependencies(module_path="changed.module")
-# Returns: who imports this, circular deps
-```
+- For each major changed module, `outline` it for its skeleton (exports, top-level defs)
+  and `inspect` individual symbols for signature and `edge_counts`.
+- Run `analyze_dependencies` on the module to see its import relationships and any
+  circular dependencies.
 
 ### Phase 3: Semantic Impact Analysis (15 minutes)
 
 **For Each Significant Change**:
 
+> **Honest limit on impact analysis.** pyeye cannot reliably answer "who calls this?"
+> or "what references this?" yet — reverse-reference edges are deferred to the Pyright
+> backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)), and an anchored
+> reverse search under-reports non-deterministically. Do **not** fake call-site or
+> usage coverage with grep or legacy tools. State the limit and lean on the forward
+> edges pyeye *can* answer: `callees`, `imported_by`, `subclasses`, `superclasses`,
+> `imports`, `members`.
+
 #### If New Class Added
 
-```python
-# 1. Understand the class
-find_symbol(name="NewClass")
-get_type_info(file=..., line=..., detailed=True)
-# Check: Documentation, structure, patterns
-
-# 2. Check if follows architecture
-find_subclasses(base_class="ParentClass", show_hierarchy=True)
-# Verify: Inheritance hierarchy makes sense
-
-# 3. Review usage
-find_references(file=..., line=...)
-# Check: Used correctly, not overused
-```
+- `resolve` the class to its canonical handle, then `inspect` it for kind, signature,
+  docstring, and `edge_counts` (documentation, structure, patterns).
+- `expand` the `superclasses` edge to confirm it sits sensibly in the inheritance tree,
+  and `expand` `subclasses` to see what (if anything) already extends it.
+- You cannot statically enumerate every usage of the new class (deferred, #333). If the
+  class lands in a module others import, `expand` that module's `imported_by` edge to
+  see which modules now reach it.
 
 #### If Function Modified
 
-```python
-# 1. Find all call sites
-find_references(file=..., line=function_line)
-# Verify: All callers still work with changes
-
-# 2. Check execution flow
-get_call_hierarchy(function_name="modified_function")
-# Verify: Call chain still makes sense
-
-# 3. For breaking changes
-# Ensure all callers are updated in this PR
-```
+- `resolve` the function, then `inspect` it to confirm its signature and surrounding
+  structure.
+- Reliable caller enumeration is not available (deferred, #333) — say so rather than
+  guessing. Forward, you can `expand` the function's `callees` edge (or `trace` along
+  `callees` for the multi-hop call structure) to confirm its own calls still make sense.
+- For breaking signature changes, treat caller impact as **unverified by pyeye** and
+  confirm callers are updated by reading the diff and the PR's own changes.
 
 #### If Refactoring/Rename
 
-```python
-# Use the Refactoring Workflow
-# workflows://refactoring
-
-# 1. Find all usages
-find_references(file=old_location, line=old_line)
-# Verify: ALL references updated
-
-# 2. Check subclasses (if class)
-find_subclasses(base_class="OldName")
-# Verify: Subclasses still work
-
-# 3. Check dependencies
-analyze_dependencies(module_path="refactored.module")
-# Verify: No broken imports
-```
+- Use the Refactoring Workflow (`workflows://refactoring`).
+- pyeye cannot give you the full "all usages updated?" answer (deferred, #333). Verify
+  renamed references from the diff itself; do not substitute grep as if it were complete.
+- If a class, `expand` its `subclasses` edge to confirm subclasses still resolve.
+- Run `analyze_dependencies` on the refactored module to catch broken or shifted imports.
 
 ### Phase 4: Code Standards Review (10 minutes)
 
@@ -198,15 +183,8 @@ ruff check --select PLR0911,PLR0912,PLR0915 $(cat changed_files.txt)
 
 **Quick MCP Checks**:
 
-```python
-# Check naming consistency
-get_module_info(module_path="new.module")
-# Review: exports follow naming conventions
-
-# Verify type safety
-get_type_info(file=..., line=..., detailed=True)
-# Check: Type hints present and correct
-```
+- `outline` the new module to review whether its exports follow naming conventions.
+- `inspect` individual symbols to verify type hints are present and signatures are correct.
 
 ### Phase 5: Security Review (15 minutes)
 
@@ -222,16 +200,13 @@ get_type_info(file=..., line=..., detailed=True)
 
 **For High-Risk Changes**:
 
-```python
-# Trace data flow for security
-get_call_hierarchy(function_name="handle_user_input")
-# Verify: Input validated, output sanitized
-
-# Check authentication
-find_symbol(name="auth", fuzzy=True)
-find_references(...)
-# Verify: Auth checked on protected resources
-```
+- Trace forward data flow from an input handler by `expand`-ing its `callees` edge (or
+  `trace` along `callees`) to confirm input is validated and output sanitized along the
+  path it actually calls.
+- `resolve` and `inspect` the auth helpers the change touches. Note that pyeye cannot
+  enumerate every protected resource that calls into auth (reverse references deferred,
+  #333) — verify auth coverage from the diff and the endpoints under review, not from a
+  fabricated caller list.
 
 ### Phase 6: Testing Review (10 minutes)
 
@@ -245,15 +220,11 @@ find_references(...)
 
 **MCP Tool - Test Coverage**:
 
-```python
-# Find what tests the new code
-find_references(file=new_code_file, line=new_function_line)
-# Check: Test files in references
-
-# Understand test structure
-get_call_hierarchy(function_name="test_new_feature")
-# Verify: Tests cover main paths
-```
+- pyeye cannot reliably list which tests reference the new code (reverse references
+  deferred, #333) — confirm test presence from the PR's added test files rather than a
+  reverse lookup.
+- For a given test, `resolve` it and `expand` its `callees` edge (or `trace` along
+  `callees`) to verify it actually exercises the main code paths.
 
 **Common Testing Issues**:
 
@@ -278,19 +249,12 @@ assert_performance_threshold(elapsed_ms, threshold, "operation")
 
 **MCP Tools for Architecture**:
 
-```python
-# Check for circular dependencies
-analyze_dependencies(module_path="new.module")
-# Flag: circular_dependencies list should be empty
-
-# Verify clean module boundaries
-find_imports(module_name="core.module")
-# Check: Only appropriate modules import core
-
-# Review inheritance hierarchy
-find_subclasses(base_class="NewBase", show_hierarchy=True)
-# Verify: Hierarchy makes sense, not too deep
-```
+- Run `analyze_dependencies` on the new module; its `circular_dependencies` should be
+  empty.
+- `expand` the core module's `imported_by` edge to verify only appropriate modules
+  import it, and its `imports` edge to check what it depends on.
+- `expand` a base class's `subclasses` edge to review the inheritance hierarchy — make
+  sure it makes sense and is not too deep.
 
 ### Phase 8: Manual Code Review (20 minutes)
 
@@ -356,30 +320,30 @@ Changed files:
 
 ### 3. Semantic Analysis (10 min)
 
-```python
-# Understand new endpoint
-find_symbol(name="get_user_profile")
-→ Found at: api/users.py:67
+```text
+# Understand new endpoint — resolve then inspect
+resolve("api.users.get_user_profile")  → handle at api/users.py:67
+inspect(handle)
+  → Function: get_user_profile(user_id: int) -> ProfileResponse
+  → Docstring: Complete ✅
+  → Type hints: Present ✅
 
-get_type_info(file="api/users.py", line=67, detailed=True)
-→ Function: get_user_profile(user_id: int) -> ProfileResponse
-→ Docstring: Complete ✅
-→ Type hints: Present ✅
+# Forward call flow — expand the callees edge
+expand(handle, edge="callees")
+  → Calls: get_user, check_privacy_settings, format_profile ✅
+  (Who calls this endpoint isn't statically available — deferred, #333 —
+   but for a route the caller is the framework router by construction.)
 
-# Check execution flow
-get_call_hierarchy(function_name="get_user_profile")
-→ Calls: get_user, check_privacy_settings, format_profile ✅
-→ Called by: api_router (FastAPI) ✅
+# Verify model structure — outline the module
+outline("models.profile")
+  → Exports: ProfileModel, PrivacySettings ✅
+expand("models.profile", edge="imports")
+  → Imports: pydantic, enum ✅
 
-# Verify model structure
-get_module_info(module_path="models.profile")
-→ Exports: ProfileModel, PrivacySettings ✅
-→ Imports: pydantic, enum ✅
-
-# Check who uses the model
-find_references(file="models/profile.py", line=profile_model_line)
-→ Used in: api/users.py, serializers.py, tests ✅
-→ All references appropriate ✅
+# Model usage: pyeye can't enumerate every reference (deferred, #333).
+# Forward instead — which modules import the model's module:
+expand("models.profile", edge="imported_by")
+  → api.users, serializers ✅ (test usage confirmed from the PR's test files)
 ```
 
 ### 4. Code Standards (5 min)
@@ -394,35 +358,38 @@ find_references(file="models/profile.py", line=profile_model_line)
 
 ### 5. Security Review (10 min)
 
-```python
-# Check authorization
-find_symbol(name="get_user_profile")
-→ Has @require_auth decorator ✅
+```text
+# Check authorization — resolve + inspect the endpoint
+resolve("api.users.get_user_profile") → handle
+inspect(handle) → Has @require_auth decorator ✅
 
-# Trace user_id input
-get_call_hierarchy(function_name="get_user_profile")
-→ user_id validated as int (FastAPI) ✅
-→ No SQL injection risk (ORM used) ✅
+# Forward data flow for user_id — expand callees
+expand(handle, edge="callees")
+  → user_id validated as int (FastAPI) ✅
+  → No SQL injection risk (ORM used) ✅
 
-# Check privacy logic
-→ check_privacy_settings() verifies access ✅
-→ Returns 403 if unauthorized ✅
+# Check privacy logic (reached via callees)
+  → check_privacy_settings() verifies access ✅
+  → Returns 403 if unauthorized ✅
 
 # No secrets in code
-→ detect-secrets passed ✅
+  → detect-secrets passed ✅
 ```
 
 ### 6. Testing Review (5 min)
 
-```python
-# Check test coverage
-find_references(file="api/users.py", line=67)
-→ test_get_user_profile_success ✅
-→ test_get_user_profile_not_found ✅
-→ test_get_user_profile_unauthorized ✅
-→ test_get_user_profile_privacy ✅
+```text
+# pyeye can't reverse-map endpoint → tests (deferred, #333).
+# Confirm the tests from the PR's added test file:
+  → test_get_user_profile_success ✅
+  → test_get_user_profile_not_found ✅
+  → test_get_user_profile_unauthorized ✅
+  → test_get_user_profile_privacy ✅
 
-# Verify test quality
+# Verify each test exercises the endpoint — expand its callees
+expand("tests.test_users_api.test_get_user_profile_success", edge="callees")
+  → calls get_user_profile ✅
+
 # Tests are independent ✅
 # Edge cases covered (not found, unauthorized) ✅
 # Privacy scenarios tested ✅
@@ -485,10 +452,11 @@ Approved pending minor suggestion #1 (not blocking).
 
 ### Semantic Analysis (MCP Tools)
 
-- [ ] Used `find_references()` for changed symbols
-- [ ] Used `get_call_hierarchy()` to understand flow
-- [ ] Used `analyze_dependencies()` for module changes
-- [ ] Used `find_subclasses()` for class changes
+- [ ] Used `resolve` + `inspect` (or `outline`) to orient on changed symbols
+- [ ] Used `expand(edge="callees")` / `trace` to understand forward call flow
+- [ ] Used `analyze_dependencies` for module changes
+- [ ] Used `expand(edge="subclasses")` for class changes
+- [ ] Stated honestly where caller/reference impact is unverified (deferred, #333)
 
 ### Code Standards
 
@@ -615,28 +583,27 @@ When to comment:
 
 ## MCP Tools Quick Reference
 
+See `skills/python-explore/SKILL.md` for call signatures, the full supported-edge set,
+and the honest limits.
+
 **Understanding Code**:
 
-- `find_symbol()` - Locate definitions
-- `get_type_info()` - Inspect structure
-- `get_module_info()` - Module overview
+- `resolve` - Name/position → canonical handle
+- `inspect` - Structure, signature, docstring, `edge_counts`
+- `outline` - Module/class skeleton in one call
 
-**Impact Analysis**:
+**Impact Analysis** (forward edges only — reverse references deferred, #333):
 
-- `find_references()` - Find all usages
-- `find_subclasses()` - Inheritance impact
-- `get_call_hierarchy()` - Execution flow
+- `expand(edge="callees")` / `trace` - Forward call flow
+- `expand(edge="subclasses")` / `expand(edge="superclasses")` - Inheritance
+- `expand(edge="imported_by")` / `expand(edge="imports")` - Module usage and deps
+
+**Not available yet**: reliable "who calls / what references this" (deferred to the
+Pyright backend, #333). State the limit; do not fake it.
 
 **Architecture**:
 
-- `analyze_dependencies()` - Module relationships
-- `find_imports()` - Who uses this
-
-**Framework-Specific** (Auto-detected):
-
-- `find_routes()` - Flask routes
-- `find_django_views()` - Django views
-- `find_models()` - Pydantic models
+- `analyze_dependencies` - Module relationships and circular deps
 
 ## Success Indicators
 
