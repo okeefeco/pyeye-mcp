@@ -42,9 +42,14 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-timeout>=2.2.0",  # Prevent individual test hangs
-    "black==26.5.1",  # Pinned to match .pre-commit-config.yaml
+    # Single source of truth for these tool versions: .pre-commit-config.yaml
+    # runs them via `uv run`, so the pin here drives pre-commit, CI, and local
+    # dev alike (#413).
+    "black==26.5.1",  # Pinned for reproducible formatting
     "ruff==0.15.17",  # Pinned to avoid unexpected linting rule changes
     "mypy==2.1.0",  # Pinned to avoid type checking behavior changes
+    "types-setuptools",  # mypy stubs for setuptools
+    "types-requests",  # mypy stubs for requests
     "types-aiofiles",  # mypy stubs for aiofiles
     "types-PyYAML",  # mypy stubs for PyYAML (lazy-imported in config.py)
     "detect-secrets==1.5.0",  # Pinned to match current version
