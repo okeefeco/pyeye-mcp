@@ -203,6 +203,14 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
+    Static-surface ceiling: members are enumerated from source.  Runtime-injected
+    members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+    ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` returns none
+    of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.  This is
+    the same static-only boundary ``resolve_imported_by`` carries for dynamic
+    imports; ``[]`` therefore means "no statically-defined members," not "no
+    members at runtime."
+
     Synchronous: Jedi ``get_names`` + AST walk + ``Handle`` construction are all
     sync, so the resolver is sync (a sync resolver called from async ``expand``
     is fine).
@@ -681,6 +689,13 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     it intentionally returns the full project subclass closure (direct +
     indirect), a deliberate divergence from ``members``/``callees`` direct-only
     semantics — appropriate because the caller asked to walk the edge explicitly.
+
+    Static-surface ceiling: the closure is "full" only over literal
+    ``class B(A):`` subclassing.  Dynamically-created subclasses
+    (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
+    registration) are NOT captured — the same static-only boundary
+    ``resolve_imported_by`` carries for dynamic imports.  ``[]`` therefore means
+    "no statically-declared subclasses," not "no subclasses at runtime."
 
     Each adjacent's ``Name`` is built from the subclass's OWN FILE (via
     :func:`_subclass_name_from_file`) — never by re-resolving the dotted handle —
