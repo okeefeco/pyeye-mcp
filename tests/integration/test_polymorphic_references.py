@@ -14,43 +14,35 @@ class TestPolymorphicReferences:
     async def test_find_references_base_class_only(self, tmp_path):
         """Test default behavior unchanged - only finds refs to base class."""
         # Create base class
-        (tmp_path / "base.py").write_text(
-            """
+        (tmp_path / "base.py").write_text("""
 class BaseService:
     '''Base service class'''
     pass
-"""
-        )
+""")
 
         # Create subclass
-        (tmp_path / "subclass.py").write_text(
-            """
+        (tmp_path / "subclass.py").write_text("""
 from base import BaseService
 
 class ProdService(BaseService):
     '''Production service'''
     pass
-"""
-        )
+""")
 
         # Create usage files
-        (tmp_path / "usage_base.py").write_text(
-            """
+        (tmp_path / "usage_base.py").write_text("""
 from base import BaseService
 
 # Use base class
 service = BaseService()
-"""
-        )
+""")
 
-        (tmp_path / "usage_subclass.py").write_text(
-            """
+        (tmp_path / "usage_subclass.py").write_text("""
 from subclass import ProdService
 
 # Use subclass
 service = ProdService()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -82,41 +74,33 @@ service = ProdService()
         (tmp_path / "__init__.py").write_text("")
 
         # Create base class
-        (tmp_path / "base.py").write_text(
-            """
+        (tmp_path / "base.py").write_text("""
 class BaseService:
     '''Base service class'''
     pass
-"""
-        )
+""")
 
         # Create direct subclass
-        (tmp_path / "subclass.py").write_text(
-            """
+        (tmp_path / "subclass.py").write_text("""
 from base import BaseService
 
 class ProdService(BaseService):
     '''Production service'''
     pass
-"""
-        )
+""")
 
         # Create usage files
-        (tmp_path / "usage_base.py").write_text(
-            """
+        (tmp_path / "usage_base.py").write_text("""
 from base import BaseService
 
 service = BaseService()
-"""
-        )
+""")
 
-        (tmp_path / "usage_subclass.py").write_text(
-            """
+        (tmp_path / "usage_subclass.py").write_text("""
 from subclass import ProdService
 
 service = ProdService()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -156,32 +140,26 @@ service = ProdService()
         (tmp_path / "__init__.py").write_text("")
 
         # Create base class
-        (tmp_path / "base.py").write_text(
-            """
+        (tmp_path / "base.py").write_text("""
 class BaseService:
     pass
-"""
-        )
+""")
 
         # Create direct subclass
-        (tmp_path / "middle.py").write_text(
-            """
+        (tmp_path / "middle.py").write_text("""
 from base import BaseService
 
 class MiddleService(BaseService):
     pass
-"""
-        )
+""")
 
         # Create indirect subclass (grandchild)
-        (tmp_path / "leaf.py").write_text(
-            """
+        (tmp_path / "leaf.py").write_text("""
 from middle import MiddleService
 
 class LeafService(MiddleService):
     pass
-"""
-        )
+""")
 
         # Usage of each level
         (tmp_path / "usage_base.py").write_text("from base import BaseService\nobj = BaseService()")
@@ -217,16 +195,14 @@ class LeafService(MiddleService):
     @pytest.mark.asyncio
     async def test_find_references_non_class_symbol(self, tmp_path):
         """Test that include_subclasses is ignored for non-class symbols."""
-        (tmp_path / "module.py").write_text(
-            """
+        (tmp_path / "module.py").write_text("""
 def my_function():
     '''A function'''
     pass
 
 x = my_function()
 y = my_function()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -256,15 +232,13 @@ y = my_function()
     @pytest.mark.asyncio
     async def test_find_references_no_subclasses(self, tmp_path):
         """Test polymorphic search when class has no subclasses."""
-        (tmp_path / "lonely.py").write_text(
-            """
+        (tmp_path / "lonely.py").write_text("""
 class LonelyClass:
     '''A class with no subclasses'''
     pass
 
 obj = LonelyClass()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -291,31 +265,25 @@ obj = LonelyClass()
     async def test_polymorphic_references_deduplication(self, tmp_path):
         """Test that same location isn't shown multiple times."""
         # Create scenario where same location might be found via multiple paths
-        (tmp_path / "base.py").write_text(
-            """
+        (tmp_path / "base.py").write_text("""
 class Base:
     pass
-"""
-        )
+""")
 
-        (tmp_path / "sub.py").write_text(
-            """
+        (tmp_path / "sub.py").write_text("""
 from base import Base
 
 class Sub(Base):
     pass
-"""
-        )
+""")
 
-        (tmp_path / "usage.py").write_text(
-            """
+        (tmp_path / "usage.py").write_text("""
 from base import Base
 from sub import Sub
 
 # This location uses Base explicitly
 x = Base()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -334,8 +302,7 @@ x = Base()
     @pytest.mark.asyncio
     async def test_polymorphic_references_metadata(self, tmp_path):
         """Test that referenced_class metadata is correct."""
-        (tmp_path / "hierarchy.py").write_text(
-            """
+        (tmp_path / "hierarchy.py").write_text("""
 class Animal:
     pass
 
@@ -344,18 +311,15 @@ class Dog(Animal):
 
 class Cat(Animal):
     pass
-"""
-        )
+""")
 
-        (tmp_path / "usage.py").write_text(
-            """
+        (tmp_path / "usage.py").write_text("""
 from hierarchy import Animal, Dog, Cat
 
 base = Animal()
 dog = Dog()
 cat = Cat()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 
@@ -397,13 +361,11 @@ class TestPolymorphicReferencesRealWorld:
         (tmp_path / "__init__.py").write_text("")
 
         # Base service class
-        (tmp_path / "base_components.py").write_text(
-            """
+        (tmp_path / "base_components.py").write_text("""
 class service:
     '''Base service component'''
     pass
-"""
-        )
+""")
 
         # Create 5 different subclass files (simulating crypto_service, bank_service, etc.)
         subclass_names = [
@@ -415,36 +377,30 @@ class service:
         ]
 
         for i, name in enumerate(subclass_names):
-            (tmp_path / f"components_{i}.py").write_text(
-                f"""
+            (tmp_path / f"components_{i}.py").write_text(f"""
 from base_components import service
 
 class {name}(service):
     '''Specific service implementation'''
     pass
-"""
-            )
+""")
 
         # Create usage files (notebooks)
         for i, name in enumerate(subclass_names):
-            (tmp_path / f"notebook_{i}.py").write_text(
-                f"""
+            (tmp_path / f"notebook_{i}.py").write_text(f"""
 from components_{i} import {name}
 
 # Usage in notebook
 svc = {name}()
-"""
-            )
+""")
 
         # Also add usage of base class
-        (tmp_path / "notebook_base.py").write_text(
-            """
+        (tmp_path / "notebook_base.py").write_text("""
 from base_components import service
 
 # Direct usage of base class
 base_svc = service()
-"""
-        )
+""")
 
         analyzer = JediAnalyzer(str(tmp_path))
 

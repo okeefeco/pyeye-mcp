@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import ValidationError
-from pyeye.mcp.server import find_symbol
+from pyeye.validation import InputValidator
 
 
 @pytest.mark.asyncio
@@ -26,8 +27,7 @@ class TestCompoundSymbols:
         """Test finding __init__ method of specific class."""
         # Create test file with multiple classes
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def __init__(self, name: str):
         self.name = name
@@ -35,11 +35,11 @@ class User:
 class Product:
     def __init__(self, id: int):
         self.id = id
-"""
-        )
+""")
 
         # This should find only User's __init__, not Product's
-        result = await find_symbol("User.__init__", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.__init__", include_import_paths=True, scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "__init__"
@@ -50,8 +50,7 @@ class Product:
     async def test_find_class_instance_method(self, tmp_path: Path) -> None:
         """Test finding instance method of specific class."""
         test_file = tmp_path / "calculator.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Calculator:
     def add(self, a: int, b: int) -> int:
         return a + b
@@ -62,11 +61,13 @@ class Calculator:
 class ScientificCalculator:
     def add(self, a: float, b: float) -> float:
         return a + b
-"""
-        )
+""")
 
         # Should find only Calculator.add, not ScientificCalculator.add
-        result = await find_symbol("Calculator.add", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "Calculator.add", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "add"
@@ -81,19 +82,20 @@ class ScientificCalculator:
         (models_dir / "__init__.py").touch()
 
         user_file = models_dir / "user.py"
-        user_file.write_text(
-            """
+        user_file.write_text("""
 class User:
     def save(self) -> None:
         pass
 
     def delete(self) -> None:
         pass
-"""
-        )
+""")
 
         # Should find models.user.User.save
-        result = await find_symbol("models.user.User.save", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "models.user.User.save", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "save"
@@ -103,8 +105,7 @@ class User:
     async def test_find_static_method(self, tmp_path: Path) -> None:
         """Test finding static method of a class."""
         test_file = tmp_path / "utils.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class DateUtils:
     @staticmethod
     def format_date(date: str) -> str:
@@ -118,11 +119,13 @@ class StringUtils:
     @staticmethod
     def format_date(text: str) -> str:
         return text.upper()
-"""
-        )
+""")
 
         # Should find only DateUtils.format_date
-        result = await find_symbol("DateUtils.format_date", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "DateUtils.format_date", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "format_date"
@@ -132,8 +135,7 @@ class StringUtils:
     async def test_find_class_method(self, tmp_path: Path) -> None:
         """Test finding class method."""
         test_file = tmp_path / "factory.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class UserFactory:
     @classmethod
     def create(cls, name: str):
@@ -146,11 +148,13 @@ class ProductFactory:
     @classmethod
     def create(cls, id: int):
         return cls(id)
-"""
-        )
+""")
 
         # Should find only UserFactory.create
-        result = await find_symbol("UserFactory.create", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "UserFactory.create", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "create"
@@ -159,8 +163,7 @@ class ProductFactory:
     async def test_find_property(self, tmp_path: Path) -> None:
         """Test finding property of a class."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def __init__(self, email: str):
         self._email = email
@@ -177,11 +180,11 @@ class Admin:
     @property
     def email(self) -> str:
         return "admin@example.com"
-"""
-        )
+""")
 
         # Should find only User.email property getter
-        result = await find_symbol("User.email", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.email", include_import_paths=True, scope="all")
 
         # May return both getter and setter, but at least the getter
         assert len(result) >= 1
@@ -190,8 +193,7 @@ class Admin:
     async def test_find_nested_class_method(self, tmp_path: Path) -> None:
         """Test finding method in nested class."""
         test_file = tmp_path / "nested.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class Outer:
     class Inner:
         def method(self) -> str:
@@ -199,11 +201,13 @@ class Outer:
 
     def method(self) -> str:
         return "outer"
-"""
-        )
+""")
 
         # Should find Inner.method
-        result = await find_symbol("Outer.Inner.method", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "Outer.Inner.method", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "method"
@@ -212,49 +216,62 @@ class Outer:
     async def test_backward_compatibility_simple_symbol(self, tmp_path: Path) -> None:
         """Test that simple symbols still work (backward compatibility)."""
         test_file = tmp_path / "simple.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class SimpleClass:
     pass
 
 def simple_function():
     pass
-"""
-        )
+""")
 
         # Simple class name should still work
-        result = await find_symbol("SimpleClass", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("SimpleClass", include_import_paths=True, scope="all")
         assert len(result) == 1
         assert result[0]["name"] == "SimpleClass"
 
         # Simple function name should still work
-        result = await find_symbol("simple_function", project_path=str(tmp_path))
+        result = await analyzer.find_symbol(
+            "simple_function", include_import_paths=True, scope="all"
+        )
         assert len(result) == 1
         assert result[0]["name"] == "simple_function"
 
-    async def test_invalid_compound_symbols(self, tmp_path: Path) -> None:
-        """Test that invalid compound symbols raise appropriate errors."""
+    def test_invalid_compound_symbols(self) -> None:
+        """Test that invalid compound symbols raise appropriate errors.
+
+        Input validation for the ``name`` parameter is performed by
+        ``InputValidator.validate_identifier(name, allow_dots=True)`` -- the exact
+        check the (now-removed) ``find_symbol`` MCP tool applied at its boundary
+        via the ``validate_mcp_inputs`` decorator before delegating to the
+        analyzer. The analyzer method itself does not raise on malformed input.
+        """
+
+        def validate(name: str) -> None:
+            InputValidator.validate_identifier(name, allow_dots=True)
+
         # Double dots
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model..method", project_path=str(tmp_path))
+            validate("Model..method")
 
         # Leading dot
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol(".Model.method", project_path=str(tmp_path))
+            validate(".Model.method")
 
         # Trailing dot
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model.method.", project_path=str(tmp_path))
+            validate("Model.method.")
 
         # Empty component
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model..method", project_path=str(tmp_path))
+            validate("Model..method")
 
     async def test_builtin_type_methods(self, tmp_path: Path) -> None:
         """Test finding methods of built-in types."""
         # This is a special case - built-ins might not be found by Jedi
         # but we should handle gracefully
-        result = await find_symbol("str.__init__", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("str.__init__", include_import_paths=True, scope="all")
 
         # Either finds it or returns empty list (not an error)
         assert isinstance(result, list)
@@ -269,18 +286,19 @@ def simple_function():
         (os_module / "__init__.py").touch()
 
         path_module = os_module / "path.py"
-        path_module.write_text(
-            """
+        path_module.write_text("""
 def join(*paths):
     return "/".join(paths)
 
 def split(path):
     return path.split("/")
-"""
-        )
+""")
 
         # Should find myos.path.join
-        result = await find_symbol("myos.path.join", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "myos.path.join", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "join"
@@ -289,8 +307,7 @@ def split(path):
     async def test_async_method(self, tmp_path: Path) -> None:
         """Test finding async methods."""
         test_file = tmp_path / "client.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class AsyncClient:
     async def connect(self) -> None:
         pass
@@ -301,11 +318,13 @@ class AsyncClient:
 class SyncClient:
     def connect(self) -> None:
         pass
-"""
-        )
+""")
 
         # Should find only AsyncClient.connect
-        result = await find_symbol("AsyncClient.connect", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "AsyncClient.connect", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "connect"
@@ -314,27 +333,27 @@ class SyncClient:
     async def test_method_not_found(self, tmp_path: Path) -> None:
         """Test behavior when compound symbol doesn't exist."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def save(self):
         pass
-"""
-        )
+""")
 
         # Non-existent method should return empty list
-        result = await find_symbol("User.delete", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.delete", include_import_paths=True, scope="all")
         assert result == []
 
         # Non-existent class should return empty list
-        result = await find_symbol("NonExistent.method", project_path=str(tmp_path))
+        result = await analyzer.find_symbol(
+            "NonExistent.method", include_import_paths=True, scope="all"
+        )
         assert result == []
 
     async def test_partial_match_not_returned(self, tmp_path: Path) -> None:
         """Test that partial matches are not returned for compound symbols."""
         test_file = tmp_path / "models.py"
-        test_file.write_text(
-            """
+        test_file.write_text("""
 class User:
     def save(self):
         pass
@@ -345,11 +364,11 @@ class User:
 class UserProfile:
     def save(self):
         pass
-"""
-        )
+""")
 
         # Should find only User.save, not User.save_async or UserProfile.save
-        result = await find_symbol("User.save", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.save", include_import_paths=True, scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "save"

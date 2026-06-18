@@ -1,0 +1,7 @@
+{
+  "namespaces": {
+    "testns": [
+      "../lookup_namespace_sibling"
+    ]
+  }
+}

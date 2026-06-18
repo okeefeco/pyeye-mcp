@@ -147,12 +147,10 @@ class TestNamespaceResolver:
 
         # Create __init__.py with namespace declaration
         init_file = temp_project_dir / "__init__.py"
-        init_file.write_text(
-            """
+        init_file.write_text("""
 # Namespace package
 __path__ = __import__('pkgutil').extend_path(__path__, __name__)
-"""
-        )
+""")
 
         namespace = resolver._detect_namespace_package(init_file)
 

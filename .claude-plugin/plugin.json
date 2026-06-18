@@ -1,0 +1,37 @@
+{
+  "author": {
+    "email": "mark_okeefe@mac.com",
+    "name": "Mark O'Keefe (O'Keefe & Co Consulting Pty Ltd)"
+  },
+  "description": "Semantic Python code analysis MCP server - find symbols, navigate definitions, trace call hierarchies, and understand code structure",
+  "homepage": "https://github.com/okeefeco/pyeye-mcp",
+  "keywords": [
+    "python",
+    "code-analysis",
+    "mcp",
+    "jedi",
+    "static-analysis",
+    "code-navigation"
+  ],
+  "license": "MIT",
+  "mcpServers": {
+    "pyeye": {
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "--no-sync",
+        "--frozen",
+        "python",
+        "-m",
+        "pyeye.mcp"
+      ],
+      "command": "uv",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv"
+      }
+    }
+  },
+  "name": "pyeye",
+  "repository": "https://github.com/okeefeco/pyeye-mcp"
+}

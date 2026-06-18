@@ -1,6 +1,7 @@
 """Jedi-based analyzer for PyEye."""
 
 import ast
+import contextlib
 import logging
 import os
 import re
@@ -9,11 +10,15 @@ from typing import Any
 
 import jedi
 
+from .. import file_artifact_cache
 from ..async_utils import read_file_async, rglob_async, ripgrep_async
+from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
+from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer
+from ..path_utils import paths_equal
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -33,12 +38,22 @@ Scope = str | list[str]
 class JediAnalyzer:
     """Wrapper around Jedi for semantic Python analysis."""
 
-    def __init__(self, project_path: str = ".", config: ProjectConfig | None = None):
+    def __init__(
+        self,
+        project_path: str = ".",
+        config: ProjectConfig | None = None,
+        namespace_config: dict[str, list[str]] | None = None,
+    ):
         """Initialize the Jedi analyzer.
 
         Args:
             project_path: Root path of the project to analyze
             config: Optional project configuration for smart defaults
+            namespace_config: Optional namespace package mappings
+                (``{"ns_name": ["repo_root_path", ...]}``) to include in
+                the Jedi project's ``added_sys_path`` at init time.  This
+                ensures ``full_name`` values include the namespace prefix
+                from the very first query.
 
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
@@ -64,37 +79,56 @@ class JediAnalyzer:
         if not self.project_path.exists():
             raise ProjectNotFoundError(self.project_path.as_posix())
 
+        # Apply namespace_config immediately so namespace_paths is populated
+        # before the Jedi project is created.
+        if namespace_config:
+            self.namespace_paths = {
+                ns: [Path(p) for p in paths] for ns, paths in namespace_config.items()
+            }
+
         try:
-            # Get additional sys paths from config (e.g., src/ layout detection)
-            added_sys_path: list[str] | None = None
+            # Get additional sys paths from config (e.g., src/ layout, sibling packages)
+            added_sys_path: list[str] = []
             if config:
                 package_paths = config.get_package_paths()
-                # Filter to paths that are subdirectories of the project (like src/)
-                # These need to be added to sys.path for proper module resolution
-                additional = []
-                # Resolve project path for consistent comparison (handles Windows short paths)
                 resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    # Skip the project path itself and external paths
-                    if pkg != resolved_project and self._is_subpath(pkg, resolved_project):
-                        additional.append(pkg.as_posix())
+                    if pkg != resolved_project and pkg.exists():
+                        added_sys_path.append(pkg.as_posix())
                         logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if additional:
-                    added_sys_path = additional
-                    # Store source roots for use in import path computation
-                    self.source_roots = [Path(p) for p in additional]
+                if added_sys_path:
+                    self.source_roots = [
+                        Path(p)
+                        for p in added_sys_path
+                        if self._is_subpath(Path(p), resolved_project)
+                    ]
 
-            # Pass POSIX string to Jedi to avoid Path object cache issues (Jedi bug with Path as dict keys)
-            # Using as_posix() ensures cross-platform compatibility with forward slashes
-            # Only pass added_sys_path if we have paths (Jedi doesn't accept None)
+            # Add namespace repo roots to Jedi's sys_path so full_name values
+            # include the namespace prefix from the first query.
+            for ns_paths in self.namespace_paths.values():
+                for ns_path in ns_paths:
+                    resolved = ns_path.resolve()
+                    if resolved.exists() and resolved.as_posix() not in added_sys_path:
+                        added_sys_path.append(resolved.as_posix())
+                        logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
+
+            # When the project_path IS a Python package (has __init__.py),
+            # Jedi must be rooted at the PARENT so that the package name is
+            # included in full_name values.
+            jedi_root = self.project_path.resolve()
+            self._jedi_root_is_parent = False
+            if (jedi_root / "__init__.py").exists():
+                jedi_root = jedi_root.parent
+                self._jedi_root_is_parent = True
+
             if added_sys_path:
                 self.project = jedi.Project(
-                    path=self.project_path.as_posix(),
+                    path=jedi_root.as_posix(),
                     added_sys_path=added_sys_path,
                 )
             else:
-                self.project = jedi.Project(path=self.project_path.as_posix())
+                self.project = jedi.Project(path=jedi_root.as_posix())
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -117,6 +151,13 @@ class JediAnalyzer:
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
 
+        For namespace packages (no ``__init__.py``), the parent directories of
+        each namespace path must be in Jedi's ``added_sys_path`` so that Jedi
+        resolves ``full_name`` values with the namespace prefix.  For example,
+        if namespace ``aac`` has path ``/repos/aac-catalog/aac/logical/``, then
+        ``/repos/aac-catalog/`` must be in Jedi's sys path so Jedi reports
+        ``aac.logical.patterns.X`` instead of ``logical.patterns.X``.
+
         Args:
             namespaces: Dictionary mapping namespace names to their paths
         """
@@ -125,6 +166,30 @@ class JediAnalyzer:
         self._update_validator()
         # Invalidate lazy loader cache when namespaces change
         self.lazy_loader.invalidate()
+
+        # Add namespace repo roots to Jedi's sys_path so full_name values
+        # include the namespace prefix.  The declared paths in .pyeye.json are
+        # repo roots that CONTAIN the namespace package directory.  E.g., for
+        # "aac": ["../aac-catalog"], the path ../aac-catalog/ contains aac/ as
+        # a subdirectory.  Adding aac-catalog/ to sys_path lets Jedi resolve
+        # "aac.logical.patterns.X" instead of just "logical.patterns.X".
+        ns_sys_paths: set[str] = set()
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                resolved = ns_path.resolve()
+                if resolved.exists():
+                    ns_sys_paths.add(resolved.as_posix())
+
+        if ns_sys_paths:
+            # Merge with existing added_sys_path and recreate the Jedi project
+            existing = list(self.project.added_sys_path or [])
+            merged = list(set(existing) | ns_sys_paths)
+            jedi_root = self.project.path
+            self.project = jedi.Project(
+                path=Path(jedi_root).as_posix(),
+                added_sys_path=merged,
+            )
+            logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
         """Set standalone script directories.
@@ -151,8 +216,17 @@ class JediAnalyzer:
             self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
         return self._additional_projects[resolved]
 
+    # DEPRECATED: internal helper for legacy methods; will be removed alongside them.
     async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
         """Search for a symbol name across all configured scopes.
+
+        **Deprecated:** Internal helper for legacy methods that are being
+        superseded by the resolve/resolve_at/inspect API. Will be removed
+        alongside the legacy methods it supports (get_call_hierarchy,
+        find_imports, analyze_dependencies, get_module_info, find_subclasses).
+        See docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Uses Jedi project.search() on the main project, then searches
         additional and namespace paths. Deduplicates by (name, file, line).
@@ -169,15 +243,50 @@ class JediAnalyzer:
         search_paths = await self._resolve_scope_to_paths(effective_scope)
 
         results: list[Any] = []
-        seen: set[tuple[str, str, int]] = set()
+        seen: set[tuple[str, str | None, int]] = set()
+
+        # Map namespace subdirectory paths back to their repo roots.
+        # _resolve_scope_to_paths returns subdirectories (e.g., aac-modules/aac/)
+        # but Jedi projects should be rooted at the repo root (aac-modules/)
+        # so full_name includes the namespace prefix.
+        ns_roots: dict[Path, Path] = {}  # subdirectory → repo root
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                repo_root = ns_path.resolve()
+                for subdir in self._get_namespace_directory_structure(ns_path):
+                    ns_roots[subdir.resolve()] = repo_root
 
         for path in search_paths:
             is_main = path == self.project_path
+            resolved_path = path.resolve()
             try:
-                project = self.project if is_main else self._get_project_for_path(path)
+                # Use the main project for the main project path.
+                # For namespace subdirectories, use a project rooted at the
+                # repo root (not the subdirectory) so Jedi reports full_name
+                # with the namespace prefix.
+                # For other paths, use per-path projects.
+                if is_main:
+                    project = self.project
+                elif resolved_path in ns_roots:
+                    project = self._get_project_for_path(ns_roots[resolved_path])
+                else:
+                    project = self._get_project_for_path(path)
 
                 for r in project.search(name, all_scopes=True):
-                    key = (r.name, str(r.module_path), r.line)
+                    # When the main Jedi root is wider than the project_path
+                    # (e.g., root moved to parent for __init__.py package prefix),
+                    # filter results to files within the actual project path.
+                    if is_main and self._jedi_root_is_parent and r.module_path:
+                        try:
+                            Path(r.module_path).relative_to(resolved_path)
+                        except ValueError:
+                            continue  # Result is outside the main project
+
+                    key = (
+                        r.name,
+                        Path(r.module_path).as_posix() if r.module_path else None,
+                        r.line,
+                    )
                     if key not in seen:
                         seen.add(key)
                         results.append(r)
@@ -640,7 +749,7 @@ class JediAnalyzer:
 
         try:
             # Get parent and member names
-            parent_path, member_name = get_parent_and_member(components)
+            _, member_name = get_parent_and_member(components)
 
             # First, find the parent symbol (class or module) across all scopes
             parent_results = await self._search_all_scopes(components[-2], scope)
@@ -691,8 +800,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
             definitions = script.goto(line, column)
 
             if definitions:
@@ -749,8 +858,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             # Get references from Jedi (searches main project paths)
             references = script.get_references(line, column, include_builtins=False)
@@ -783,9 +892,9 @@ class JediAnalyzer:
                         continue
 
                     try:
-                        standalone_source = await read_file_async(standalone_file)
-                        standalone_script = jedi.Script(
-                            standalone_source, path=standalone_file, project=self.project
+                        # Bucket 1: analysis input — Script comes from cache.
+                        standalone_script = file_artifact_cache.get_script(
+                            standalone_file, self.project
                         )
 
                         # Get all names in the standalone file
@@ -829,10 +938,29 @@ class JediAnalyzer:
                     )
 
                     try:
-                        # Find all subclasses (including indirect)
-                        subclasses = await self.find_subclasses(
-                            class_name, include_indirect=True, show_hierarchy=False
+                        # Find all subclasses (including indirect).
+                        # Prefer the inferred FQN when available so we get FQN-strict
+                        # resolution and avoid the ambiguous-name variant.
+                        # Use Jedi's full_name directly — it's already FQN-qualified.
+                        inferred_fqn: str | None = None
+                        if inferred:
+                            first = inferred[0]
+                            if first.full_name:
+                                inferred_fqn = first.full_name
+                        lookup_name = inferred_fqn if inferred_fqn else class_name
+                        raw_subclasses = await self.find_subclasses(
+                            lookup_name, include_indirect=True, show_hierarchy=False
                         )
+
+                        # Handle discriminated-union result
+                        if raw_subclasses.get("ambiguous", False):
+                            logger.warning(
+                                f"Polymorphic search: ambiguous class name {class_name!r}; "
+                                "skipping subclass expansion"
+                            )
+                            subclasses: list[dict[str, Any]] = []
+                        else:
+                            subclasses = raw_subclasses.get("subclasses", [])
 
                         if subclasses:
                             logger.info(f"Found {len(subclasses)} subclasses of {class_name}")
@@ -904,7 +1032,12 @@ class JediAnalyzer:
         return results
 
     async def get_type_info(
-        self, file: str, line: int, column: int, detailed: bool = False
+        self,
+        file: str,
+        line: int,
+        column: int,
+        detailed: bool = False,
+        fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Get type information at a specific position.
 
@@ -913,6 +1046,9 @@ class JediAnalyzer:
             line: Line number (1-indexed)
             column: Column number (0-indexed)
             detailed: Include additional information like methods and attributes
+            fields: Optional list of top-level fields to include in response.
+                   Valid fields: position, inferred_types, docstring
+                   Example: ["position", "docstring"] returns only those fields
 
         Returns:
             Type information including inferred type, docstring, and for classes:
@@ -923,8 +1059,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             # Get inferred type
             inferred = script.infer(line, column)
@@ -981,10 +1117,16 @@ class JediAnalyzer:
 
                 result["inferred_types"].append(type_info)
 
+            # Apply field filtering if requested
+            if fields is not None:
+                from ..mcp.server import filter_fields
+
+                result = filter_fields(result, fields)  # type: ignore[assignment]
+
             return result
 
-        except FileAccessError:
-            raise  # Re-raise file access errors
+        except (FileAccessError, ValueError):
+            raise  # Re-raise file access errors and validation errors
         except Exception as e:
             logger.error(f"Error getting type info: {e}")
             raise AnalysisError(
@@ -994,8 +1136,15 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
+    # DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
     async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_name: Name of the module to find imports for
@@ -1175,6 +1324,11 @@ class JediAnalyzer:
 
                     # If we found imports, extract line information using the details
                     if matching_details:
+                        # TODO(api-redesign): content-shipping path — flagged 2026-05-02 per layering principle
+                        # Source is read solely to populate ``import_statement``
+                        # with the raw line text.  Pyeye is the semantic layer;
+                        # the agent can Read the file at (file, line) for the
+                        # statement text.  Drop in the upcoming API redesign.
                         source = await read_file_async(py_file)
                         lines = source.splitlines()
 
@@ -1217,10 +1371,18 @@ class JediAnalyzer:
 
         return results
 
+    # DEPRECATED: replaced by inspect(handle).edge_counts.callers (count) and future expand(handle, edge="callers") + expand(handle, edge="callees") (lists). Will be removed in the legacy-tool cleanup phase.
     async def get_call_hierarchy(
         self, function_name: str, file: str | None = None
     ) -> dict[str, Any]:
         """Get the call hierarchy for a function or class.
+
+        **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` (count)
+        and future ``expand(handle, edge="callers")`` + ``expand(handle, edge="callees")``
+        (lists) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         For functions, finds callers (who calls it) and callees (what it calls).
         For classes, finds instantiation sites (callers) and what __init__ calls (callees).
@@ -1245,7 +1407,8 @@ class JediAnalyzer:
             function_def = None
             for res in search_results:
                 if res.type in ("function", "class") and (
-                    file is None or str(res.module_path) == file
+                    file is None
+                    or (res.module_path is not None and paths_equal(res.module_path, file))
                 ):
                     function_def = res
                     break
@@ -1253,17 +1416,8 @@ class JediAnalyzer:
             if not function_def or not function_def.module_path:
                 return {"error": f"Symbol {function_name} not found"}
 
-            # Get the function's source
-            source = await read_file_async(function_def.module_path)
-            script = jedi.Script(
-                source,
-                path=(
-                    function_def.module_path.as_posix()
-                    if isinstance(function_def.module_path, Path)
-                    else function_def.module_path
-                ),
-                project=self.project,
-            )
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(function_def.module_path, self.project)
 
             # Find references (callers)
             refs = script.get_references(function_def.line, function_def.column)
@@ -1273,11 +1427,18 @@ class JediAnalyzer:
                     if isinstance(callers_list, list):
                         callers_list.append(
                             {
+                                "name": ref.name,
+                                "full_name": ref.full_name,
                                 "file": (
                                     Path(ref.module_path).as_posix() if ref.module_path else None
                                 ),
                                 "line": ref.line,
                                 "column": ref.column,
+                                # TODO(api-redesign): content-shipping path — flagged 2026-05-02 per layering principle
+                                # ``ref.get_line_code()`` returns raw source text for the
+                                # caller's line.  Pyeye is the semantic layer; line
+                                # content belongs to the agent's Read tool given
+                                # (file, line).  Drop in the upcoming API redesign.
                                 "context": (
                                     ref.get_line_code().strip()
                                     if hasattr(ref, "get_line_code")
@@ -1304,6 +1465,10 @@ class JediAnalyzer:
                         callees_list.append(
                             {
                                 "name": name.name,
+                                "full_name": name.full_name,
+                                "file": (
+                                    Path(name.module_path).as_posix() if name.module_path else None
+                                ),
                                 "line": name.line,
                                 "column": name.column,
                                 "type": name.type,
@@ -1311,7 +1476,7 @@ class JediAnalyzer:
                         )
 
         except FileNotFoundError as e:
-            raise ProjectNotFoundError(str(self.project_path)) from e
+            raise ProjectNotFoundError(self.project_path.as_posix()) from e
         except Exception as e:
             logger.error(f"Error getting call hierarchy: {e}")
             # Convert Path objects in exception to strings for serialization
@@ -1345,8 +1510,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 raise FileAccessError(f"File not found: {file}", file, "read")
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             for completion in script.complete(line, column):
                 completions.append(
@@ -1374,8 +1539,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 return None
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
             signatures = script.get_signatures(line, column)
 
             if signatures:
@@ -1401,8 +1566,8 @@ class JediAnalyzer:
             if not file_path.exists():
                 return imports
 
-            source = await read_file_async(file_path)
-            script = jedi.Script(source, path=file_path, project=self.project)
+            # Bucket 1: analysis input — Script comes from cache.
+            script = file_artifact_cache.get_script(file_path, self.project)
 
             names = script.get_names(all_scopes=True, definitions=True, references=False)
 
@@ -1632,12 +1797,15 @@ class JediAnalyzer:
                         continue
 
                 try:
-                    # Read file for analysis
+                    # Bucket 1: AST comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
+                    # Bucket 5: line count as a semantic metric.  Reading
+                    # source for a line count is a tiny secondary read; the
+                    # primary parse path goes through the cache above.  When
+                    # the API redesign drops content-coupled fields, this
+                    # metric likely stays as semantic metadata.
                     source = await read_file_async(py_file)
                     lines = source.count("\n") + 1
-
-                    # Parse with AST to extract structure
-                    tree = ast.parse(source)
 
                     exports = []
                     classes = []
@@ -1699,10 +1867,153 @@ class JediAnalyzer:
 
         return modules
 
+    # DEPRECATED: replaced by future expand(handle, edge="imports") and trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
+    @staticmethod
+    def _resolve_relative_import(
+        level: int, module: str | None, importer_module: str, importer_is_package: bool
+    ) -> str | None:
+        """Resolve an ``ast.ImportFrom`` to an absolute module path.
+
+        ``level`` is the number of leading dots and ``module`` is the text after
+        them (``None`` for ``from . import x``).  Absolute imports
+        (``level == 0``) are returned unchanged.  Relative imports are resolved
+        against *importer_module* using Python's package semantics:
+
+        - a regular module ``pkg.sub.mod`` has package ``pkg.sub``; ``level=1``
+          anchors there and each extra level strips one trailing component.
+        - a package ``pkg.sub`` (its ``__init__``) IS its own package; ``level=1``
+          anchors at ``pkg.sub`` itself.
+
+        Without this, a relative import's bare tail (e.g. ``exceptions`` from
+        ``from .exceptions import X``) is mis-classified as external and the
+        importer is never attributed to the target's ``imported_by`` (#343).
+
+        Args:
+            level: Number of leading dots (0 = absolute import).
+            module: Module text after the dots, or ``None`` for ``from . import x``.
+            importer_module: Dotted path of the module doing the import.
+            importer_is_package: ``True`` when the importer is a package
+                ``__init__`` (its module name already denotes the package).
+
+        Returns:
+            The absolute dotted module path, or ``None`` if it cannot be resolved
+            (e.g. the relative level walks above the project root).
+        """
+        if level <= 0:
+            return module
+        if importer_is_package:
+            anchor_parts = importer_module.split(".") if importer_module else []
+        else:
+            anchor_parts = importer_module.split(".")[:-1]
+        strip = level - 1
+        if strip > len(anchor_parts):
+            return None
+        base = anchor_parts[: len(anchor_parts) - strip] if strip else anchor_parts
+        suffix = module.split(".") if module else []
+        combined = base + suffix
+        return ".".join(combined) if combined else None
+
+    async def find_importers(
+        self, module_path: str, target_file: Path, scope: Scope = "all"
+    ) -> list[tuple[str, Path]]:
+        """Find project files that import ``module_path`` (reverse import scan).
+
+        Scans every project file in *scope* for an import of the target module,
+        using a textual pre-filter followed by an authoritative AST check. This
+        is the reusable extraction of the reverse-scan formerly inlined in
+        :meth:`analyze_dependencies`; a later ``expand(handle, edge="imported_by")``
+        edge can build on it without depending on the deprecated method.
+
+        The scan is purely AST-based (no Jedi reference resolution), which is
+        what gives it breadth: standalone scripts and test files that import the
+        target are reported, even when they live outside an importable package
+        root.
+
+        Args:
+            module_path: Absolute dotted path of the target module.
+            target_file: The target module's own file, skipped during the scan
+                so a module never reports itself.
+            scope: Search scope (see :meth:`analyze_dependencies`).
+
+        Returns:
+            ``(importer_dotted_module, importer_file)`` pairs, deduped by
+            importer module (first occurrence wins, in sorted file path order)
+            and sorted by module name.  Files are iterated in POSIX-sorted
+            order so "first occurrence wins" is deterministic across runs and
+            platforms — the per-module ``Path`` selection does not depend on
+            filesystem or scan order.
+        """
+        target_root = module_path.split(".")[0]
+        importers: dict[str, Path] = {}
+
+        py_files = sorted(
+            await self.get_project_files("*.py", scope),
+            key=lambda p: p.as_posix(),
+        )
+        for py_file in py_files:
+            if py_file == target_file:
+                continue
+
+            try:
+                importer_module = self._get_import_path_for_file(py_file)
+                # Pre-filter (avoids AST parse for unrelated files; the AST
+                # check below is authoritative).  Parse when EITHER the
+                # absolute path appears textually (absolute imports) OR the
+                # file shares the target's top-level package — a relative
+                # import (`from .x import y`) can resolve into the target
+                # without ever spelling its absolute path (#343).  Source is
+                # read but not cached or returned — a heuristic, not content.
+                source = await read_file_async(py_file)
+                shares_package = bool(
+                    importer_module and importer_module.split(".")[0] == target_root
+                )
+                if (
+                    module_path in source
+                    or module_path.replace(".", "/") in source
+                    or shares_package
+                ):
+                    importer_is_package = py_file.name == "__init__.py"
+                    # Bucket 1: AST for the precise check comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            if any(
+                                alias.name == module_path
+                                or alias.name.startswith(module_path + ".")
+                                for alias in node.names
+                            ):
+                                if importer_module and importer_module not in importers:
+                                    importers[importer_module] = py_file
+                                break
+                        elif isinstance(node, ast.ImportFrom):
+                            resolved = self._resolve_relative_import(
+                                node.level,
+                                node.module,
+                                importer_module or "",
+                                importer_is_package,
+                            )
+                            if resolved and (
+                                resolved == module_path or resolved.startswith(module_path + ".")
+                            ):
+                                if importer_module and importer_module not in importers:
+                                    importers[importer_module] = py_file
+                                break
+            except Exception as e:
+                logger.warning(f"Could not analyze {py_file} for imports: {e}")
+                continue
+
+        return [(module, importers[module]) for module in sorted(importers)]
+
     async def analyze_dependencies(
         self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
     ) -> dict[str, Any]:
         """Analyze import dependencies for a module.
+
+        **Deprecated:** Replaced by future ``expand(handle, edge="imports")`` and
+        ``trace(handle, follow=["imports"])`` in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             module_path: The module to analyze dependencies for
@@ -1747,8 +2058,8 @@ class JediAnalyzer:
                 raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
 
             # Analyze imports in this module
-            source = await read_file_async(module_file)
-            tree = ast.parse(source)
+            # Bucket 1: AST comes from cache.
+            tree = file_artifact_cache.get_ast(module_file)
 
             # Standard library modules (common ones, not exhaustive)
             stdlib_modules = {
@@ -1841,14 +2152,23 @@ class JediAnalyzer:
                         else:
                             result["imports"]["external"].append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        module_name = node.module.split(".")[0]
+                    # Resolve relative imports (`from .x import y`) to their
+                    # absolute path before classifying; otherwise the bare tail
+                    # is mis-bucketed as external and the edge is lost (#343).
+                    resolved = self._resolve_relative_import(
+                        node.level,
+                        node.module,
+                        module_path,
+                        module_file.name == "__init__.py",
+                    )
+                    if resolved:
+                        module_name = resolved.split(".")[0]
                         if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(node.module)
+                            result["imports"]["stdlib"].append(resolved)
                         elif module_name in project_modules:
-                            result["imports"]["internal"].append(node.module)
+                            result["imports"]["internal"].append(resolved)
                         else:
-                            result["imports"]["external"].append(node.module)
+                            result["imports"]["external"].append(resolved)
 
             # Remove duplicates and sort
             stdlib_imports = result["imports"]["stdlib"]
@@ -1858,41 +2178,10 @@ class JediAnalyzer:
             result["imports"]["internal"] = sorted(set(internal_imports))
             result["imports"]["external"] = sorted(set(external_imports))
 
-            # Find what imports this module
-            py_files = await self.get_project_files("*.py", scope)
-            for py_file in py_files:
-                if py_file == module_file:
-                    continue
-
-                try:
-                    source = await read_file_async(py_file)
-                    if module_path in source or module_path.replace(".", "/") in source:
-                        # More precise check with AST
-                        tree = ast.parse(source)
-                        for node in ast.walk(tree):
-                            if isinstance(node, ast.Import):
-                                for alias in node.names:
-                                    if alias.name == module_path or alias.name.startswith(
-                                        module_path + "."
-                                    ):
-                                        import_path = self._get_import_path_for_file(py_file)
-                                        if import_path:
-                                            result["imported_by"].append(import_path)
-                                        break
-                            elif isinstance(node, ast.ImportFrom):
-                                if node.module and (
-                                    node.module == module_path
-                                    or node.module.startswith(module_path + ".")
-                                ):
-                                    import_path = self._get_import_path_for_file(py_file)
-                                    if import_path:
-                                        result["imported_by"].append(import_path)
-                                    break
-                except Exception as e:
-                    logger.warning(f"Could not analyze {py_file} for imports: {e}")
-                    continue
-
-            result["imported_by"] = sorted(set(result["imported_by"]))
+            # Find what imports this module (reverse scan extracted to
+            # find_importers so a future imported_by edge can reuse it).
+            importer_pairs = await self.find_importers(module_path, module_file, scope)
+            result["imported_by"] = sorted({module for module, _ in importer_pairs})
 
             # Check for circular dependencies
             # Use visited set to prevent infinite recursion
@@ -1927,8 +2216,16 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle) for module-kind handles. Will be removed in the legacy-tool cleanup phase.
     async def get_module_info(self, module_path: str) -> dict[str, Any]:
-        """Get detailed information about a specific module."""
+        """Get detailed information about a specific module.
+
+        **Deprecated:** Replaced by ``inspect(handle)`` for module-kind handles
+        in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+        """
         info: dict[str, Any] = {
             "module": module_path,
             "file": None,
@@ -1970,11 +2267,12 @@ class JediAnalyzer:
 
             info["file"] = module_file.as_posix()
 
-            # Read and parse the module
+            # Bucket 1: AST comes from cache.
+            tree = file_artifact_cache.get_ast(module_file)
+            # Bucket 5: line count as a semantic metric — see list_modules
+            # for rationale.  Tiny secondary read; primary parse is cached.
             source = await read_file_async(module_file)
             info["metrics"]["lines"] = source.count("\n") + 1
-
-            tree = ast.parse(source)
 
             # Get module docstring
             if (
@@ -2070,6 +2368,542 @@ class JediAnalyzer:
 
         return info
 
+    def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Build a minimal navigable reference dict from a Jedi Name object.
+
+        Args:
+            name: A Jedi Name object from project.search() or similar.
+
+        Returns:
+            Dict with keys: name, full_name, file (POSIX or None), line.
+        """
+        return {
+            "name": name.name,
+            "full_name": name.full_name,
+            "file": Path(name.module_path).as_posix() if name.module_path else None,
+            "line": name.line,
+        }
+
+    _BUILTINS = frozenset(
+        {
+            "int",
+            "str",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "bytes",
+            "None",
+            "type",
+            "object",
+        }
+    )
+
+    # Single-arg wrappers that should be unwrapped to resolve the inner type
+    _TYPE_WRAPPERS = frozenset(
+        {
+            "ClassVar",
+            "Optional",
+            "Final",
+            "List",
+            "Sequence",
+            "Set",
+            "FrozenSet",
+            "Tuple",
+            "Type",
+            "Deque",
+            "Iterator",
+            "Iterable",
+            "AsyncIterator",
+            "AsyncIterable",
+            "Awaitable",
+            "Coroutine",
+            "Generator",
+            "AsyncGenerator",
+            # Lowercase generic forms (Python 3.9+)
+            "list",
+            "set",
+            "frozenset",
+            "tuple",
+            "type",
+        }
+    )
+
+    async def _build_type_ref(
+        self,
+        type_hint_str: str | None,
+        script: jedi.Script | None = None,
+        annotation_line: int | None = None,
+        annotation_col: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Build a navigable reference from a type hint string.
+
+        For simple types (bare names), resolves via ``script.goto()`` when
+        file context is available (follows imports correctly), falling back
+        to global search when no context is provided.
+
+        For complex types (generics, unions), returns the outer name plus
+        ``inner_types`` — a list of navigable references for each leaf type
+        found by recursively unwrapping wrappers like ClassVar, Optional, List.
+
+        Args:
+            type_hint_str: A type hint string such as ``"int"``,
+                ``"ServiceConfig"``, ``"ClassVar[Optional[Zone]]"``, or
+                ``"str | None"``. Pass *None* or empty string to get *None*.
+            script: Optional Jedi Script for contextual resolution. When
+                provided, ``script.goto()`` is used to follow the file's
+                imports instead of doing a global search.
+            annotation_line: Line number of the annotation in source (1-indexed).
+            annotation_col: Column offset of the annotation in source (0-indexed).
+
+        Returns:
+            A navigable reference dict, or *None* if *type_hint_str* is
+            None/empty.  Complex types include an ``inner_types`` list.
+        """
+        if not type_hint_str:
+            return None
+
+        # If the type string is complex (contains [ | ,) extract and resolve
+        # inner types recursively.
+        if any(ch in type_hint_str for ch in ("[", "|", ",")):
+            inner_types = await self._resolve_inner_types(type_hint_str)
+            return {
+                "name": type_hint_str,
+                "full_name": None,
+                "file": None,
+                "line": None,
+                "inner_types": inner_types,
+            }
+
+        # Simple name — try contextual resolution first, then global
+        return await self._resolve_simple_type(
+            type_hint_str, script, annotation_line, annotation_col
+        )
+
+    async def _resolve_simple_type(
+        self,
+        name: str,
+        script: jedi.Script | None = None,
+        line: int | None = None,
+        col: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve a bare type name to a navigable reference.
+
+        When *script*, *line*, and *col* are provided, uses ``script.goto()``
+        to follow the file's import chain — this resolves ``Status`` to the
+        correct enum, not a random match elsewhere.  Falls back to global
+        search when no context is available.
+        """
+        name = name.strip()
+        if not name:
+            return {"name": "", "full_name": None, "file": None, "line": None}
+
+        # Known builtins — no need for contextual resolution
+        if name in self._BUILTINS:
+            return {
+                "name": name,
+                "full_name": f"builtins.{name}",
+                "file": None,
+                "line": None,
+            }
+
+        # Contextual resolution via script.goto(follow_imports=True) —
+        # follows the file's import chain to the actual definition.
+        if script is not None and line is not None and col is not None:
+            try:
+                definitions = script.goto(line, col, follow_imports=True)
+                if definitions:
+                    return self._build_navigable_ref(definitions[0])
+            except Exception:
+                pass
+
+        # Fallback: global search (when no file context available)
+        try:
+            results = await self._search_all_scopes(name)
+            if results:
+                return self._build_navigable_ref(results[0])
+        except Exception:
+            pass
+
+        # Unknown — partial reference
+        return {"name": name, "full_name": None, "file": None, "line": None}
+
+    async def _resolve_inner_types(self, type_hint_str: str) -> list[dict[str, Any]]:
+        """Recursively unwrap a complex type hint and resolve all leaf types.
+
+        Handles:
+        - Wrappers: ``ClassVar[X]``, ``Optional[X]``, ``List[X]`` etc.
+        - Multi-arg: ``dict[K, V]`` → resolves both K and V
+        - Unions: ``X | Y`` → resolves both X and Y
+        - Nested: ``ClassVar[Optional[List[X]]]`` → unwraps to X
+
+        Leaf types are resolved via global search. Contextual (per-leaf
+        ``script.goto()``) resolution would require per-leaf line/col
+        information that string parsing cannot provide.
+
+        Returns:
+            A list of navigable references for each resolved leaf type.
+        """
+        leaves = self._extract_leaf_types(type_hint_str)
+        resolved = []
+        for leaf in leaves:
+            # For contextual resolution, we'd need per-leaf line/col which
+            # we don't have from string parsing. Use global search for inner
+            # types — they're typically well-known types (builtins, generics).
+            ref = await self._resolve_simple_type(leaf)
+            resolved.append(ref)
+        return resolved
+
+    def _extract_leaf_types(self, type_hint_str: str) -> list[str]:
+        """Extract leaf type names from a potentially nested type expression.
+
+        Recursively unwraps single-arg wrappers and splits multi-arg generics
+        and unions into individual type names.
+
+        Returns:
+            A flat list of bare type name strings (no brackets or pipes).
+        """
+        s = type_hint_str.strip()
+
+        # Handle union syntax: X | Y
+        if "|" in s and "[" not in s:
+            # Simple union without nested generics
+            return [
+                leaf for part in s.split("|") for leaf in self._extract_leaf_types(part.strip())
+            ]
+
+        # Handle union with nested generics — need bracket-aware splitting
+        if "|" in s:
+            parts = self._split_top_level(s, "|")
+            if len(parts) > 1:
+                return [leaf for part in parts for leaf in self._extract_leaf_types(part.strip())]
+
+        # Handle generic: Name[...]
+        if "[" in s:
+            outer, inner = self._split_generic(s)
+            outer = outer.strip()
+
+            if outer in self._TYPE_WRAPPERS:
+                # Single-arg wrapper — unwrap and recurse into inner
+                return self._extract_leaf_types(inner)
+            else:
+                # Multi-arg generic (e.g., dict[K, V]) — resolve each arg
+                args = self._split_top_level(inner, ",")
+                return [leaf for arg in args for leaf in self._extract_leaf_types(arg.strip())]
+
+        # Bare name — this is a leaf
+        return [s] if s else []
+
+    @staticmethod
+    def _split_generic(s: str) -> tuple[str, str]:
+        """Split 'Outer[Inner]' into ('Outer', 'Inner').
+
+        Handles nested brackets correctly.
+        """
+        idx = s.index("[")
+        outer = s[:idx]
+        # Strip the outer brackets
+        inner = s[idx + 1 :]
+        if inner.endswith("]"):
+            inner = inner[:-1]
+        return outer, inner
+
+    @staticmethod
+    def _split_top_level(s: str, delimiter: str) -> list[str]:
+        """Split a string by delimiter, respecting bracket nesting.
+
+        ``"str, dict[str, int], bool"`` split by ``,`` →
+        ``["str", "dict[str, int]", "bool"]``
+        """
+        parts: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for ch in s:
+            if ch == "[":
+                depth += 1
+                current.append(ch)
+            elif ch == "]":
+                depth -= 1
+                current.append(ch)
+            elif ch == delimiter[0] and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        remainder = "".join(current).strip()
+        if remainder:
+            parts.append(remainder)
+        return parts
+
+    @staticmethod
+    def _extract_param_default(description: str) -> str | None:
+        """Extract the default value string from a Jedi param description.
+
+        Jedi param descriptions have the format:
+        - ``param self``                      → no default
+        - ``param port: int=8080``            → default is ``"8080"``
+        - ``param name: str="default"``       → default is ``'"default"'``
+        - ``param y=10``                      → default is ``"10"``
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            The default value as a source-text string, or None if no default.
+        """
+        # Strip leading "param " prefix
+        body = description[len("param ") :].strip()
+        if ":" in body:
+            # Type-annotated: "name: type=default" or "name: type"
+            colon_idx = body.index(":")
+            after_type = body[colon_idx + 1 :].strip()
+            if "=" in after_type:
+                eq_idx = after_type.index("=")
+                return after_type[eq_idx + 1 :].strip()
+        elif "=" in body:
+            # No type annotation: "name=default"
+            eq_idx = body.index("=")
+            return body[eq_idx + 1 :].strip()
+        return None
+
+    @staticmethod
+    def _has_type_annotation(description: str) -> bool:
+        """Return True if the Jedi param description contains a type annotation.
+
+        Args:
+            description: The raw ``param.description`` string from Jedi.
+
+        Returns:
+            True if the description includes a ``:`` annotation marker.
+        """
+        body = description[len("param ") :].strip()
+        return ":" in body
+
+    async def _enrich_method(self, name: jedi.api.classes.Name) -> dict[str, Any]:
+        """Extract full method details including signature, parameters, and return type.
+
+        Takes a Jedi Name object whose ``type`` is ``"function"`` and returns a
+        rich dict with navigable references for the return type and each
+        parameter's type hint.
+
+        Args:
+            name: A Jedi Name object representing a function/method.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the method's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``signature``: the full signature string (e.g. ``"start(self, port: int = 8080) -> bool"``)
+              or None if no signatures are available
+            - ``return_type``: navigable ref dict for the return type, or None
+            - ``parameters``: list of parameter dicts, each with:
+
+              - ``name``: parameter name
+              - ``type_hint``: navigable ref dict or None
+              - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        sigs = name.get_signatures()
+        if not sigs:
+            result["signature"] = None
+            result["return_type"] = None
+            result["parameters"] = []
+            return result
+
+        sig = sigs[0]
+        result["signature"] = sig.to_string()
+
+        # Create script for contextual type resolution
+        # Bucket 1: analysis input — Script and AST come from cache.
+        script: jedi.Script | None = None
+        func_ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+        if name.module_path:
+            try:
+                script = file_artifact_cache.get_script(name.module_path, self.project)
+                # Find the function's AST node for annotation positions
+                tree = file_artifact_cache.get_ast(name.module_path)
+                for node in ast.walk(tree):
+                    if (
+                        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == name.name
+                        and node.lineno == name.line
+                    ):
+                        func_ast_node = node
+                        break
+            except Exception:
+                pass
+
+        # Parse return type — use AST position for contextual resolution
+        sig_str = sig.to_string()
+        return_type_str: str | None = None
+        return_line: int | None = None
+        return_col: int | None = None
+        match = re.search(r"->\s*(.+)$", sig_str)
+        if match:
+            return_type_str = match.group(1).strip()
+        if func_ast_node and func_ast_node.returns:
+            return_line = func_ast_node.returns.lineno
+            return_col = func_ast_node.returns.col_offset
+        result["return_type"] = await self._build_type_ref(
+            return_type_str,
+            script=script,
+            annotation_line=return_line,
+            annotation_col=return_col,
+        )
+
+        # Build parameter list
+        parameters: list[dict[str, Any]] = []
+        _IMPLICIT_PARAMS = {"self", "cls"}
+        # Build a map of param name → AST annotation position
+        param_positions: dict[str, tuple[int, int]] = {}
+        if func_ast_node:
+            for arg in func_ast_node.args.args + func_ast_node.args.kwonlyargs:
+                if arg.annotation:
+                    param_positions[arg.arg] = (arg.annotation.lineno, arg.annotation.col_offset)
+            vararg = func_ast_node.args.vararg
+            if vararg and vararg.annotation:
+                param_positions[vararg.arg] = (
+                    vararg.annotation.lineno,
+                    vararg.annotation.col_offset,
+                )
+            kwarg = func_ast_node.args.kwarg
+            if kwarg and kwarg.annotation:
+                param_positions[kwarg.arg] = (kwarg.annotation.lineno, kwarg.annotation.col_offset)
+
+        for param in sig.params:
+            pname = param.name
+            desc = param.description
+
+            if pname in _IMPLICIT_PARAMS or not self._has_type_annotation(desc):
+                type_hint_ref = None
+            else:
+                hint_str = param.get_type_hint()
+                p_line, p_col = param_positions.get(pname, (None, None))
+                type_hint_ref = await self._build_type_ref(
+                    hint_str,
+                    script=script,
+                    annotation_line=p_line,
+                    annotation_col=p_col,
+                )
+
+            default = self._extract_param_default(desc)
+            parameters.append(
+                {
+                    "name": pname,
+                    "type_hint": type_hint_ref,
+                    "default": default,
+                }
+            )
+
+        result["parameters"] = parameters
+        return result
+
+    async def _enrich_attribute(self, name: jedi.api.classes.Name, source: str) -> dict[str, Any]:
+        """Extract attribute details including type hint and default value.
+
+        Takes a Jedi Name object whose ``type`` is ``"statement"`` or
+        ``"instance"`` (a module-level or class-level attribute) and returns a
+        rich dict by parsing the enclosing source text to extract the annotation
+        and default value.
+
+        .. note::
+            The ``source`` parameter is a bridge contract pending reshape to accept
+            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
+            (``lookup_builders.py``).
+
+        Args:
+            name: A Jedi Name object representing an attribute.
+            source: The full source text of the module containing the attribute.
+
+        Returns:
+            A dict with keys:
+
+            - ``name``: the attribute's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        result = self._build_navigable_ref(name)
+
+        type_hint_str: str | None = None
+        default_str: str | None = None
+        annotation_line: int | None = None
+        annotation_col: int | None = None
+
+        try:
+            tree = ast.parse(source)
+            target_line = name.line  # 1-based
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign) and node.col_offset >= 0:
+                    if node.lineno == target_line:
+                        type_hint_str = ast.unparse(node.annotation)
+                        default_str = ast.unparse(node.value) if node.value is not None else None
+                        # Capture annotation position for contextual goto resolution
+                        annotation_line = node.annotation.lineno
+                        annotation_col = node.annotation.col_offset
+                        break
+                elif isinstance(node, ast.Assign):
+                    if node.lineno == target_line:
+                        default_str = ast.unparse(node.value)
+                        break
+        except Exception:
+            logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
+
+        # Create a script for contextual type resolution if we have a file.
+        # Bucket 1: analysis input — Script comes from cache (source param is
+        # ignored here because the cache reads from the path itself).
+        script: jedi.Script | None = None
+        if name.module_path and annotation_line is not None:
+            with contextlib.suppress(Exception):
+                script = file_artifact_cache.get_script(name.module_path, self.project)
+
+        result["type_hint"] = await self._build_type_ref(
+            type_hint_str,
+            script=script,
+            annotation_line=annotation_line,
+            annotation_col=annotation_col,
+        )
+        result["default"] = default_str
+        return result
+
+    async def _get_module_variables(self, script: jedi.Script, source: str) -> list[dict[str, Any]]:
+        """Extract module-level variable assignments with type hints and defaults.
+
+        Returns enriched dicts for all top-level variable statements in the
+        module, excluding class/function definitions and import statements.
+
+        .. note::
+            The ``source`` parameter is a bridge contract pending reshape to accept
+            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
+            (``lookup_builders.py``).
+
+        Args:
+            script: A Jedi Script object for the module to inspect.
+            source: The full source text of the module.
+
+        Returns:
+            A list of dicts, each with keys:
+
+            - ``name``: the variable's simple name
+            - ``full_name``: full dotted path or None
+            - ``file``: POSIX file path or None
+            - ``line``: 1-based line number or None
+            - ``type_hint``: navigable ref dict or None
+            - ``default``: default value as source-text string, or None
+        """
+        names = script.get_names(all_scopes=False)
+        variables = [n for n in names if n.type == "statement" and n.is_definition()]
+        return [await self._enrich_attribute(name, source) for name in variables]
+
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
@@ -2111,10 +2945,17 @@ class JediAnalyzer:
 
         return result
 
+    # DEPRECATED: replaced by inspect(handle).re_exports (Phase 6 of resolve+inspect plan). Will be removed in the legacy-tool cleanup phase.
     async def find_reexports(
         self, symbol_name: str, original_module: str, file_path: str | None = None
     ) -> list[str]:
         """Find re-export paths for a symbol.
+
+        **Deprecated:** Replaced by ``inspect(handle).re_exports`` (Phase 6 of
+        the resolve+inspect plan) in the redesigned API. See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
 
         Args:
             symbol_name: Name of the symbol to find re-exports for
@@ -2225,14 +3066,28 @@ class JediAnalyzer:
 
         return False
 
+    # DEPRECATED: replaced by expand(handle, edge="subclasses") for the list (and len() for the count); subclasses is expand-only, not in inspect's edge_counts (#392). Will be removed in the legacy-tool cleanup phase.
     async def find_subclasses(
         self,
         base_class: str,
         scope: Scope | None = None,
         include_indirect: bool = True,
         show_hierarchy: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
+
+        **Deprecated:** Replaced by ``expand(handle, edge="subclasses")`` for the
+        list (use ``len(...)`` for the count) in the redesigned API.  ``subclasses``
+        is an expand-only edge — ``inspect`` does not measure it (#392). See
+        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
+        for the migration plan. This method will be removed once the legacy
+        MCP tools are deprecated (Phase B of the migration).
+
+        Note: The ambiguity-aware discriminated-union return shape
+        (``{"ambiguous": False, "subclasses": [...]}`` vs
+        ``{"ambiguous": True, "candidates": [...]}``) was introduced just before
+        this deprecation to fix a name-conflation bug; the method is still being
+        deprecated as a whole in favour of the inspect/expand API.
 
         Uses a hybrid Jedi + AST approach for performance:
         1. Single-pass AST parsing of scoped files (no double-read)
@@ -2251,10 +3106,19 @@ class JediAnalyzer:
             show_hierarchy: Show the full inheritance chain
 
         Returns:
-            List of subclasses with their locations and inheritance details
+            Discriminated-union dict:
+              {"ambiguous": False, "subclasses": [...]}  — unambiguous result
+              {"ambiguous": True, "candidates": [...]}   — multiple classes share
+                                                           the simple name; caller
+                                                           must disambiguate with FQN
         """
-        subclasses = []
+        subclasses: list[dict[str, Any]] = []
         processed_classes: set[str] = set()
+
+        # Determine if the caller supplied a FQN (has a dot) or a bare simple name.
+        is_fqn_input = "." in base_class
+        # For FQN input the simple leaf name used to match dotted base expressions.
+        leaf_name = base_class.split(".")[-1] if is_fqn_input else base_class
 
         try:
             # Get all Python files in scope (cached by get_project_files)
@@ -2263,15 +3127,15 @@ class JediAnalyzer:
             # Single pass: parse each file once, extract all class info
             # Maps class simple name -> list of (node, tree, file) for cross-file lookups
             classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
-            # Maps FQN -> (node, tree, file) for deduplication
+            # Maps full_name -> (node, tree, file) for deduplication
             classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-            # Maps parent name -> set of child FQNs (for indirect traversal)
+            # Maps parent name -> set of child full_names (for indirect traversal)
             parent_to_children: dict[str, set[str]] = {}
 
             for py_file in py_files:
                 try:
-                    content = await read_file_async(py_file)
-                    tree = ast.parse(content, filename=py_file.as_posix())
+                    # Bucket 1: AST comes from cache.
+                    tree = file_artifact_cache.get_ast(py_file)
 
                     for node in ast.walk(tree):
                         if not isinstance(node, ast.ClassDef):
@@ -2295,25 +3159,92 @@ class JediAnalyzer:
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
 
-            # Find all direct subclasses by name match
+            # Index FQNs by simple (leaf) name.  Used by the FQN-strict resolver
+            # to take a path-independent fast path when a leaf name is unique
+            # (no Jedi goto/canonicalisation needed — robust on symlinked temp
+            # dirs; issue #335).
+            fqns_by_leaf: dict[str, list[str]] = {}
+            for fqn in classes_by_fqn:
+                fqns_by_leaf.setdefault(fqn.split(".")[-1], []).append(fqn)
+
+            # -------------------------------------------------------------------
+            # Ambiguity check: when caller passes a bare simple name and multiple
+            # distinct FQN-keyed classes share that leaf name, return the
+            # ambiguous variant so the caller can re-call with a FQN.
+            # -------------------------------------------------------------------
+            if not is_fqn_input:
+                matching_fqns_for_name = [
+                    fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
+                ]
+                if len(matching_fqns_for_name) > 1:
+                    # Build candidate descriptors
+                    candidates: list[dict[str, Any]] = []
+                    for fqn in sorted(matching_fqns_for_name):
+                        node, _, py_file = classes_by_fqn[fqn]
+                        candidates.append(
+                            {
+                                "handle": fqn,
+                                "kind": "class",
+                                "location": {
+                                    "file": py_file.as_posix(),
+                                    "line_start": node.lineno,
+                                    "line_end": node.lineno,
+                                },
+                            }
+                        )
+                    return {"ambiguous": True, "candidates": candidates}
+
+            # -------------------------------------------------------------------
+            # Find all direct subclasses.
+            # -------------------------------------------------------------------
             direct_fqns: set[str] = set()
 
-            # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
-            if base_class in parent_to_children:
-                direct_fqns.update(parent_to_children[base_class])
+            # Caches shared across the direct resolution AND every indirect
+            # (grandchild) traversal step.  Keyed by source position / identifier
+            # so repeated Jedi goto() and canonicalization work is done once.
+            resolved_cache: dict[tuple[str, int, int], str | None] = {}
+            canonical_cache: dict[str, Handle | None] = {}
 
-            # Check dotted name matches (e.g., class Foo(module.Animal))
-            for parent_name, children in parent_to_children.items():
-                if parent_name != base_class and parent_name.endswith(f".{base_class}"):
-                    direct_fqns.update(children)
+            if is_fqn_input:
+                # FQN-strict path: only include children whose declared base
+                # canonically resolves to the requested FQN.  See
+                # _resolve_direct_subclass_fqns for the re-export-aware match
+                # (issue #335 Bug A).
+                direct_fqns = await self._resolve_direct_subclass_fqns(
+                    base_class,
+                    classes_by_fqn,
+                    parent_to_children,
+                    fqns_by_leaf,
+                    resolved_cache,
+                    canonical_cache,
+                )
 
-            # Try Jedi-based resolution for aliased imports
-            # e.g., "from module import Animal as A" -> class Foo(A)
-            direct_fqns.update(
-                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
-            )
+            else:
+                # Simple name path (unambiguous — ambiguity was checked above).
+                # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
+                if base_class in parent_to_children:
+                    direct_fqns.update(parent_to_children[base_class])
 
-            # Collect indirect subclasses via graph traversal
+                # Check dotted name matches (e.g., class Foo(module.Animal))
+                for parent_name, children in parent_to_children.items():
+                    if parent_name != base_class and parent_name.endswith(f".{base_class}"):
+                        direct_fqns.update(children)
+
+                # Try Jedi-based resolution for aliased imports
+                # e.g., "from module import Animal as A" -> class Foo(A)
+                direct_fqns.update(
+                    await self._resolve_aliased_bases(
+                        base_class, classes_by_fqn, parent_to_children
+                    )
+                )
+
+            # Collect indirect subclasses via graph traversal.
+            #
+            # Issue #335 Bug B: each grandchild step re-resolves children against
+            # the *FQN* of the current subclass (via _resolve_direct_subclass_fqns)
+            # rather than re-keying on its simple name.  Two unrelated classes that
+            # share a simple name therefore never cross-contaminate each other's
+            # (in)direct subclass sets.
             if include_indirect:
                 all_matching_fqns = set(direct_fqns)
                 queue = list(direct_fqns)
@@ -2321,14 +3252,18 @@ class JediAnalyzer:
                     current_fqn = queue.pop()
                     if current_fqn not in classes_by_fqn:
                         continue
-                    current_node = classes_by_fqn[current_fqn][0]
-                    current_name = current_node.name
-                    # Find children of this class
-                    if current_name in parent_to_children:
-                        for child_fqn in parent_to_children[current_name]:
-                            if child_fqn not in all_matching_fqns:
-                                all_matching_fqns.add(child_fqn)
-                                queue.append(child_fqn)
+                    children = await self._resolve_direct_subclass_fqns(
+                        current_fqn,
+                        classes_by_fqn,
+                        parent_to_children,
+                        fqns_by_leaf,
+                        resolved_cache,
+                        canonical_cache,
+                    )
+                    for child_fqn in children:
+                        if child_fqn not in all_matching_fqns:
+                            all_matching_fqns.add(child_fqn)
+                            queue.append(child_fqn)
             else:
                 all_matching_fqns = direct_fqns
 
@@ -2342,7 +3277,7 @@ class JediAnalyzer:
                 is_direct = fqn in direct_fqns
 
                 # Determine direct parent name
-                direct_parent = self._find_direct_parent_name(node, base_class, is_direct)
+                direct_parent = self._find_direct_parent_name(node, leaf_name, is_direct)
 
                 subclass_info: dict[str, Any] = {
                     "name": node.name,
@@ -2368,20 +3303,193 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-        return subclasses
+        return {"ambiguous": False, "subclasses": subclasses}
+
+    async def _canonical_cached(
+        self, identifier: str, canonical_cache: dict[str, Handle | None]
+    ) -> Handle | None:
+        """Memoised :func:`resolve_canonical` keyed by identifier.
+
+        Canonicalisation walks import chains via Jedi and can be repeated many
+        times during an indirect-subclass traversal, so results are cached for
+        the lifetime of a single ``find_subclasses`` call.  Never raises.
+        """
+        if identifier not in canonical_cache:
+            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+        return canonical_cache[identifier]
+
+    async def _fqn_matches_target(
+        self,
+        resolved: str | None,
+        target_fqn: str,
+        canonical_target: Handle | None,
+        canonical_cache: dict[str, Handle | None],
+    ) -> bool:
+        """Return True if a resolved base FQN identifies ``target_fqn``.
+
+        Matches on exact equality first (cheap, the common case), then falls
+        back to comparing canonical (definition-site) handles so a base that
+        resolves across a re-export boundary is not dropped (issue #335 Bug A).
+        """
+        if resolved is None:
+            return False
+        if resolved == target_fqn:
+            return True
+        if canonical_target is None:
+            return False
+        resolved_canonical = await self._canonical_cached(resolved, canonical_cache)
+        return resolved_canonical is not None and str(resolved_canonical) == str(canonical_target)
+
+    async def _resolve_direct_subclass_fqns(
+        self,
+        target_fqn: str,
+        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
+        parent_to_children: dict[str, set[str]],
+        fqns_by_leaf: dict[str, list[str]],
+        resolved_cache: dict[tuple[str, int, int], str | None],
+        canonical_cache: dict[str, Handle | None],
+    ) -> set[str]:
+        """Return FQNs of classes whose declared base resolves to ``target_fqn``.
+
+        FQN-strict: a candidate child matches only when Jedi's resolved base
+        ``full_name`` equals ``target_fqn`` exactly OR canonicalises to the same
+        definition site.  This both honours re-export boundaries (issue #335
+        Bug A) and lets the indirect/grandchild traversal carry FQN identity
+        rather than re-keying on the simple class name (issue #335 Bug B).
+
+        **Path-independent fast path:** when exactly one project class bears the
+        leaf name and its AST FQN equals ``target_fqn``, the relationship is
+        unambiguous from the AST alone, so candidate children are accepted
+        without invoking Jedi ``goto``/canonicalisation.  This avoids the
+        symlinked-temp-dir fragility (macOS ``/var`` -> ``/private/var``) that
+        makes Jedi return degraded results, and also speeds up the common case.
+        Jedi resolution is reserved for genuine simple-name collisions and
+        re-export-path mismatches.
+
+        Args:
+            target_fqn: The (definition-site or re-export) FQN to match against.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: declared-base-name -> set of child FQNs.
+            fqns_by_leaf: simple (leaf) name -> list of class FQNs sharing it.
+            resolved_cache: shared (file, line, col) -> resolved full_name cache.
+            canonical_cache: shared identifier -> canonical Handle cache.
+        """
+        leaf_name = target_fqn.split(".")[-1]
+
+        # Path-independent fast path: a unique leaf whose sole class IS the
+        # target leaves no ambiguity, so no Jedi resolution is needed.
+        same_leaf_fqns = fqns_by_leaf.get(leaf_name, [])
+        fast_accept = len(same_leaf_fqns) == 1 and same_leaf_fqns[0] == target_fqn
+
+        # Only canonicalise (Jedi-backed) when the fast path does not apply.
+        canonical_target = (
+            None if fast_accept else await self._canonical_cached(target_fqn, canonical_cache)
+        )
+
+        found: set[str] = set()
+
+        # Gather candidate children: declared base simple name == leaf_name
+        # OR declared base dotted name ends with ".{leaf_name}".
+        candidate_child_fqns: set[str] = set()
+        if leaf_name in parent_to_children:
+            candidate_child_fqns.update(parent_to_children[leaf_name])
+        for parent_name, children in parent_to_children.items():
+            if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
+                candidate_child_fqns.update(children)
+
+        for child_fqn in candidate_child_fqns:
+            if child_fqn not in classes_by_fqn:
+                continue
+            if fast_accept:
+                # Unambiguous: the unique class named leaf_name is target_fqn.
+                found.add(child_fqn)
+                continue
+            child_node, _, child_file = classes_by_fqn[child_fqn]
+            try:
+                script = file_artifact_cache.get_script(child_file, self.project)
+            except Exception:
+                continue
+
+            for base in child_node.bases:
+                base_name = self._get_base_name_from_ast(base)
+                if not base_name:
+                    continue
+                if base_name.split(".")[-1] != leaf_name:
+                    continue
+
+                # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
+                # col_offset points to the first name component, not the leaf
+                # name.  Use the leaf's position so goto() resolves to the
+                # class, not the package/module.
+                goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
+                cache_key = (child_file.as_posix(), goto_line, goto_col)
+                if cache_key not in resolved_cache:
+                    resolved_fqn: str | None = None
+                    try:
+                        goto_results = script.goto(goto_line, goto_col, follow_imports=True)
+                        for gr in goto_results:
+                            if gr.name == leaf_name and gr.full_name:
+                                # Prefer full_name from Jedi — already FQN-qualified
+                                # and independent of project-relative path resolution.
+                                resolved_fqn = gr.full_name
+                                break
+                    except Exception:
+                        resolved_fqn = None
+                    resolved_cache[cache_key] = resolved_fqn
+
+                if await self._fqn_matches_target(
+                    resolved_cache[cache_key], target_fqn, canonical_target, canonical_cache
+                ):
+                    found.add(child_fqn)
+                    break
+
+        # Also resolve aliased imports
+        # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
+        found.update(
+            await self._resolve_aliased_bases(
+                leaf_name,
+                classes_by_fqn,
+                parent_to_children,
+                target_fqn=target_fqn,
+                canonical_target=canonical_target,
+                canonical_cache=canonical_cache,
+            )
+        )
+        return found
 
     async def _resolve_aliased_bases(
         self,
         base_class: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
+        target_fqn: str | None = None,
+        canonical_target: Handle | None = None,
+        canonical_cache: dict[str, Handle | None] | None = None,
     ) -> set[str]:
         """Use Jedi goto() to resolve aliased base class references.
 
         Handles cases like 'from module import Animal as A; class Foo(A):'
         where AST name matching alone would miss the relationship.
+
+        Args:
+            base_class: The simple name (leaf) of the base class to match.
+            classes_by_fqn: FQN -> (node, tree, file) mapping.
+            parent_to_children: parent name -> set of child FQNs.
+            target_fqn: When set (FQN-strict mode), only include children
+                        whose resolved parent FQN equals this value (matched
+                        exactly or via canonical definition site — issue #335).
+                        When None (simple-name mode), any class named base_class
+                        is accepted.
+            canonical_target: Pre-resolved canonical handle for ``target_fqn``
+                        (computed if omitted).  Ignored when ``target_fqn`` is None.
+            canonical_cache: Shared identifier -> canonical Handle cache.
         """
         resolved_fqns: set[str] = set()
+
+        if canonical_cache is None:
+            canonical_cache = {}
+        if target_fqn is not None and canonical_target is None:
+            canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
 
         # Only check parent names that didn't match the base_class by simple name
         # These are candidates for aliased imports
@@ -2396,7 +3504,7 @@ class JediAnalyzer:
 
         # Group classes by file to minimize Jedi Script creation
         file_to_classes: dict[str, list[tuple[str, ast.ClassDef]]] = {}
-        for fqn, (node, _tree, py_file) in classes_by_fqn.items():
+        for fqn, (node, _, py_file) in classes_by_fqn.items():
             file_key = py_file.as_posix()
             for base in node.bases:
                 parent_name = self._get_base_name_from_ast(base)
@@ -2407,8 +3515,8 @@ class JediAnalyzer:
         for file_path_str, class_entries in file_to_classes.items():
             try:
                 file_path = Path(file_path_str)
-                content = await read_file_async(file_path)
-                script = jedi.Script(content, path=file_path, project=self.project)
+                # Bucket 1: analysis input — Script comes from cache.
+                script = file_artifact_cache.get_script(file_path, self.project)
 
                 for fqn, node in class_entries:
                     for base in node.bases:
@@ -2423,7 +3531,19 @@ class JediAnalyzer:
                             )
                             for result in goto_results:
                                 if result.name == base_class:
-                                    resolved_fqns.add(fqn)
+                                    if target_fqn is not None:
+                                        # FQN-strict: match exactly or via canonical
+                                        # definition site so re-exported bases are
+                                        # not dropped (issue #335 Bug A).
+                                        if await self._fqn_matches_target(
+                                            result.full_name,
+                                            target_fqn,
+                                            canonical_target,
+                                            canonical_cache,
+                                        ):
+                                            resolved_fqns.add(fqn)
+                                    else:
+                                        resolved_fqns.add(fqn)
                                     break
                         except Exception:
                             pass
@@ -2448,6 +3568,24 @@ class JediAnalyzer:
             if parent_name:
                 return parent_name
         return "unknown"
+
+    @staticmethod
+    def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:
+        """Get the source position of the leaf name in a base class AST node.
+
+        For a simple ``ast.Name`` node the col_offset already points at the name.
+        For an ``ast.Attribute`` chain like ``_core.widgets.Widget`` the node's
+        col_offset points at the first component (``_core``), while Jedi needs
+        to be positioned at ``Widget`` to follow imports to the class definition.
+
+        Uses ``end_col_offset`` (present in Python 3.8+) to compute where the
+        final attribute name starts.
+        """
+        if isinstance(base, ast.Attribute) and base.attr == leaf_name:
+            end_col = getattr(base, "end_col_offset", None)
+            if end_col is not None:
+                return base.lineno, end_col - len(leaf_name)
+        return base.lineno, base.col_offset
 
     @staticmethod
     def _get_base_name_from_ast(base: Any) -> str | None:
@@ -2625,7 +3763,7 @@ class JediAnalyzer:
             class_def: The Jedi class definition (Name object)
 
         Returns:
-            Tuple of (base_classes, mro) where both are lists of fully qualified names
+            Tuple of (base_classes, mro) where both are lists of full dotted paths
         """
         base_classes: list[str] = []
         mro: list[str] = []
@@ -2693,7 +3831,7 @@ class JediAnalyzer:
                 # Use py__mro__() to discover all classes in the hierarchy
                 mro_classes = list(value.py__mro__())
 
-                # Build name->FQN mapping and bases graph from Jedi values
+                # Build name->full_name mapping and bases graph from Jedi values
                 name_to_fqn: dict[str, str] = {}
                 bases_map: dict[str, list[str]] = {}
 
@@ -2702,7 +3840,7 @@ class JediAnalyzer:
                     if not cls_name:
                         continue
 
-                    # Build FQN
+                    # Build full_name
                     fqn = cls_name
                     module = cls.get_root_context()
                     if hasattr(module, "py__name__"):
@@ -2734,7 +3872,7 @@ class JediAnalyzer:
                 # Compute correct C3 linearization
                 c3_order = self._c3_linearize(root_name, bases_map)
 
-                # Convert to FQNs
+                # Convert to full dotted paths
                 mro = [name_to_fqn.get(name, name) for name in c3_order]
 
                 if mro:
@@ -2802,11 +3940,11 @@ class JediAnalyzer:
         """Extract direct base class names using Parso AST parsing.
 
         Args:
-            script: The Jedi script instance (for resolving base class FQNs)
+            script: The Jedi script instance (for resolving base class full dotted paths)
             class_def: A Jedi Name object for a class
 
         Returns:
-            List of fully qualified base class names
+            List of full dotted base class names
         """
         base_classes: list[str] = []
 
@@ -2871,7 +4009,7 @@ class JediAnalyzer:
                             ):
                                 base_nodes.append(arg)
 
-            # Resolve each base node to a FQN
+            # Resolve each base node to a full dotted path
             for node in base_nodes:
                 base_name = self._resolve_base_node(script, node)
                 if base_name:
@@ -2883,7 +4021,7 @@ class JediAnalyzer:
         return base_classes
 
     def _resolve_base_node(self, script: jedi.Script, node: Any) -> str | None:
-        """Resolve a Parso base class node to a fully qualified name.
+        """Resolve a Parso base class node to a full dotted name.
 
         Tries Jedi inference first, falls back to AST extraction.
 
@@ -2892,7 +4030,7 @@ class JediAnalyzer:
             node: A Parso AST node for a base class reference
 
         Returns:
-            Fully qualified name string, or None
+            Full dotted name string, or None
         """
         try:
             base_line = node.start_pos[0]

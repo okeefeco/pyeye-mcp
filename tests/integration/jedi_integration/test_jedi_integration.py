@@ -23,8 +23,7 @@ class TestJediIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a real Python file
             test_file = Path(temp_dir) / "test_module.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 class TestClass:
     def test_method(self):
         pass
@@ -33,8 +32,7 @@ def test_function():
     return 42
 
 TEST_CONSTANT = "value"
-"""
-            )
+""")
 
             # Use real JediAnalyzer
             analyzer = JediAnalyzer(temp_dir)
@@ -134,15 +132,13 @@ TEST_CONSTANT = "value"
         """Test goto_definition returns JSON-serializable results."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def target_function():
     pass
 
 # Usage
 target_function()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -163,15 +159,13 @@ target_function()
         """Test find_references returns JSON-serializable results."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 class MyClass:
     pass
 
 obj1 = MyClass()
 obj2 = MyClass()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -193,17 +187,16 @@ obj2 = MyClass()
     @pytest.mark.asyncio
     async def test_mcp_server_response_serialization(self):
         """Test that MCP server responses are always JSON-serializable."""
-        # Import the actual MCP server function
-        from pyeye.mcp.server import find_symbol
-
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a test file
             test_file = Path(temp_dir) / "test.py"
             test_file.write_text("class TestClass: pass")
 
+            analyzer = JediAnalyzer(temp_dir)
+
             # Test successful response
             try:
-                results = await find_symbol("TestClass", project_path=temp_dir)
+                results = await analyzer.find_symbol("TestClass", include_import_paths=True)
                 # Should be JSON serializable
                 json_str = json.dumps(results)
                 assert isinstance(json_str, str)
@@ -227,23 +220,19 @@ obj2 = MyClass()
 
             # Create module.py
             module_file = package_dir / "module.py"
-            module_file.write_text(
-                """
+            module_file.write_text("""
 class MyClass:
     def method(self):
         return "test"
-"""
-            )
+""")
 
             # Create a script that uses the package
             script_file = Path(temp_dir) / "script.py"
-            script_file.write_text(
-                """
+            script_file.write_text("""
 from mypackage import MyClass
 
 obj = MyClass()
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -290,8 +279,7 @@ obj = MyClass()
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test files
             test_file = Path(temp_dir) / "test.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def caller_function():
     target_function()
 
@@ -301,8 +289,7 @@ def target_function():
 
 def helper_function():
     pass
-"""
-            )
+""")
 
             analyzer = JediAnalyzer(temp_dir)
 
@@ -320,28 +307,22 @@ def helper_function():
 
     @pytest.mark.asyncio
     async def test_all_mcp_tools_json_serializable(self):
-        """Test that all MCP tool responses are JSON-serializable."""
-        from pyeye.mcp.server import (
-            get_module_info,
-            list_modules,
-            list_packages,
-        )
-
+        """Test that all analyzer responses are JSON-serializable."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a simple module
             test_file = Path(temp_dir) / "test_module.py"
-            test_file.write_text(
-                """
+            test_file.write_text("""
 def test_function():
     pass
-"""
-            )
+""")
 
-            # Test each MCP tool
+            analyzer = JediAnalyzer(temp_dir)
+
+            # Test each analyzer method
             tools_to_test = [
-                (list_modules, {"project_path": temp_dir}),
-                (list_packages, {"project_path": temp_dir}),
-                (get_module_info, {"module_path": "test_module", "project_path": temp_dir}),
+                (analyzer.list_modules, {}),
+                (analyzer.list_packages, {}),
+                (analyzer.get_module_info, {"module_path": "test_module"}),
             ]
 
             for tool_func, kwargs in tools_to_test:

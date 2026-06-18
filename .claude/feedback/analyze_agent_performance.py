@@ -15,7 +15,7 @@ from typing import Any
 class AgentPerformanceAnalyzer:
     """Analyzes agent performance from feedback logs."""
 
-    def __init__(self, feedback_dir: Path = None):
+    def __init__(self, feedback_dir: Path | None = None):
         """Initialize the analyzer with the feedback directory."""
         if feedback_dir is None:
             feedback_dir = Path.home() / ".claude" / "feedback"
@@ -232,7 +232,9 @@ Analysis Period: Last {days} days
 
         # Generate recommendations based on metrics
         if metrics["success_rate"] < 70:
-            report += "- ⚠️ Success rate is below 70%. Review repeated issues and implement fixes.\n"
+            report += (
+                "- ⚠️ Success rate is below 70%. Review repeated issues and implement fixes.\n"
+            )
 
         if metrics["user_intervention_rate"] > 25:
             report += "- ⚠️ High user intervention rate. Improve error handling and recovery.\n"

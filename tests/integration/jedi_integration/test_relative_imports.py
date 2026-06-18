@@ -43,18 +43,15 @@ class TestRelativeImportDetection:
         subpkg_dir.mkdir()
 
         # __init__.py with relative imports
-        (pkg_dir / "__init__.py").write_text(
-            """\"\"\"Package init with relative imports.\"\"\"
+        (pkg_dir / "__init__.py").write_text("""\"\"\"Package init with relative imports.\"\"\"
 
 from . import platform
 from . import nodejs
 from .component import Component
-"""
-        )
+""")
 
         # component.py
-        (pkg_dir / "component.py").write_text(
-            """\"\"\"Component module.\"\"\"
+        (pkg_dir / "component.py").write_text("""\"\"\"Component module.\"\"\"
 
 
 class Component:
@@ -62,35 +59,29 @@ class Component:
 
     def run(self):
         return "running"
-"""
-        )
+""")
 
         # platform.py
-        (pkg_dir / "platform.py").write_text(
-            """\"\"\"Platform module.\"\"\"
+        (pkg_dir / "platform.py").write_text("""\"\"\"Platform module.\"\"\"
 
 
 def get_platform():
     return "test"
-"""
-        )
+""")
 
         # nodejs.py
-        (pkg_dir / "nodejs.py").write_text(
-            """\"\"\"Nodejs module.\"\"\"
+        (pkg_dir / "nodejs.py").write_text("""\"\"\"Nodejs module.\"\"\"
 
 
 def get_nodejs():
     return "v18"
-"""
-        )
+""")
 
         # subpkg/__init__.py
         (subpkg_dir / "__init__.py").write_text('"""Subpackage init."""')
 
         # subpkg/helper.py with relative import from parent
-        (subpkg_dir / "helper.py").write_text(
-            """\"\"\"Helper module with relative imports.\"\"\"
+        (subpkg_dir / "helper.py").write_text("""\"\"\"Helper module with relative imports.\"\"\"
 
 from .. import nodejs
 from ..platform import get_platform
@@ -98,16 +89,13 @@ from ..platform import get_platform
 
 def help_me():
     return nodejs.get_nodejs(), get_platform()
-"""
-        )
+""")
 
         # pyproject.toml
-        (temp_project_dir / "pyproject.toml").write_text(
-            """[project]
+        (temp_project_dir / "pyproject.toml").write_text("""[project]
 name = "mypackage"
 version = "1.0.0"
-"""
-        )
+""")
 
         return temp_project_dir
 
@@ -283,22 +271,18 @@ class TestRelativeImportEdgeCases:
         sub2 = sub1 / "sub2"
         sub2.mkdir()
         (sub2 / "__init__.py").write_text("")
-        (sub2 / "deep.py").write_text(
-            """\"\"\"Deeply nested with triple-dot relative import.\"\"\"
+        (sub2 / "deep.py").write_text("""\"\"\"Deeply nested with triple-dot relative import.\"\"\"
 
 from ... import core
 
 def use_core():
     return core.core_func()
-"""
-        )
+""")
 
-        (temp_project_dir / "pyproject.toml").write_text(
-            """[project]
+        (temp_project_dir / "pyproject.toml").write_text("""[project]
 name = "pkg"
 version = "1.0.0"
-"""
-        )
+""")
 
         return temp_project_dir
 
@@ -329,8 +313,7 @@ class TestImportAnalyzerRelativeImports:
         (pkg_dir / "__init__.py").write_text("")
 
         test_file = pkg_dir / "consumer.py"
-        test_file.write_text(
-            """\"\"\"Consumer with various relative imports.\"\"\"
+        test_file.write_text("""\"\"\"Consumer with various relative imports.\"\"\"
 
 from . import sibling
 from .. import parent_module
@@ -338,8 +321,7 @@ from .sub import helper
 
 def consume():
     pass
-"""
-        )
+""")
 
         return temp_project_dir
 

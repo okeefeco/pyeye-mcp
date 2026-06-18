@@ -1,0 +1,69 @@
+# Branch type definitions for the worktree_create hook.
+# Repo-specific overrides go in .claude/hooks/worktree_create.yaml at project root.
+#
+# Nested naming model
+# -------------------
+# The requested worktree name is split at its first separator ("/" or "-").
+# The leading segment is the "type prefix". If it matches a canonical or an
+# alias below, it is normalised to canonical form and becomes its own
+# directory level. Branch name and directory share that same nested form:
+#
+#   feat-361-bla-bla     -> branch feat/361-bla-bla   dir feat/361-bla-bla/
+#   feature/361-bla-bla  -> branch feat/361-bla-bla   dir feat/361-bla-bla/   (alias collapsed)
+#   feat/361-bla-bla     -> branch feat/361-bla-bla   dir feat/361-bla-bla/   (already canonical)
+#   bugfix-7-fix-thing   -> branch fix/7-fix-thing    dir fix/7-fix-thing/
+#
+# Normalisation fires the same way whether you pass the flat (dash) or the
+# path-like (slash) form, so aliases are always collapsed to canonical.
+#
+# An unrecognised prefix (or a name with no separator) passes through verbatim:
+#   random-thing -> branch random-thing   dir random-thing/   (no nesting added)
+#
+# Guard: if a branch with the *literal* requested name already exists locally
+# (e.g. an old worktree in the pre-nesting flat format), that name is honoured
+# as-is instead of being normalised, so we never fork a divergent branch.
+#
+# Each branch_types entry defines:
+#   canonical: the normalised type prefix / leading directory (e.g. fix -> fix/123-desc)
+#   aliases:   alternative prefixes that map to the canonical (optional)
+
+branch_types:
+  - canonical: fix
+    aliases: [bugfix, bug, hotfix, issue]
+
+  - canonical: feat
+    aliases: [feature]
+
+  - canonical: docs
+    aliases: [doc, documentation]
+
+  - canonical: test
+
+  - canonical: chore
+
+  - canonical: perf
+
+  - canonical: refactor
+
+  - canonical: style
+
+  - canonical: ci
+
+  - canonical: build
+
+  - canonical: perm
+    aliases: [persistent]
+
+# Where worktrees are created. One of:
+#   native  -> <repo>/.claude/worktrees/<name>   (default; Claude Code's native path)
+#   in-repo -> <repo>/<in_repo_dir>/<name>        (kept inside the repo, e.g. .worktrees)
+#   sibling -> <repo-parent>/<repo><work_dir_suffix>/<name>   (legacy sibling layout)
+# native and in-repo are auto-added to .git/info/exclude so they don't pollute git status.
+worktree_location: native
+
+# Directory name used when worktree_location is "in-repo".
+in_repo_dir: ".worktrees"
+
+# Suffix appended to the repo name when worktree_location is "sibling".
+# e.g. repo "pyeye-mcp" + suffix "-wtree" -> sibling dir "pyeye-mcp-wtree"
+work_dir_suffix: "-wtree"

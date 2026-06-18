@@ -1,8 +1,33 @@
 # Python Security Code Review (OWASP 2025)
 
+> Tool mechanics (call signatures, return shapes, edges) live in the python-explore skill
+> (`skills/python-explore/SKILL.md`). This playbook names the tools to reach for; the skill
+> is the source of truth for how to drive them.
+
 ## Goal
 
-Identify security vulnerabilities in Python code using OWASP guidelines and PyEye's semantic analysis to trace data flow, validate input handling, and detect security anti-patterns.
+Identify security vulnerabilities in Python code using OWASP guidelines and PyEye's semantic analysis to validate input handling, map structural relationships, and detect security anti-patterns.
+
+## A Hard Limit Before You Start: Reverse References
+
+Security review leans on "who calls this?" and "what references this tainted value?" —
+full reverse data-flow. **PyEye cannot answer that reliably yet.** Caller/reference edges
+are deferred to the Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333));
+PyEye refuses them rather than returning a wrong or under-reported set.
+
+So you **cannot statically confirm complete taint flow** (every path from a source to a
+sink) with PyEye today. What you *can* do reliably:
+
+- **Forward** from a function: `expand(edge="callees")` / `trace(follow=["callees"])` — what
+  a handler calls downstream toward a sink.
+- **Around a module:** `expand(edge="imported_by")` (who imports it) and
+  `expand(edge="imports")` (what it pulls in).
+- **Inheritance:** `expand(edge="subclasses")` / `expand(edge="superclasses")`.
+- **Structure:** `inspect`, `outline`, `expand(edge="members")`, `expand(edge="enclosing_scope")`.
+
+When a step below wants reverse data ("trace back to where input comes from"), say so
+plainly and substitute forward edges plus a `grep`-anchored manual read of the call sites —
+and treat the result as **unconfirmed**, not exhaustive.
 
 ## When to Use This Workflow
 
@@ -23,9 +48,9 @@ Combines:
 ## Steps
 
 1. **Automated Scanning** - Run security tools (bandit, pip-audit, safety, detect-secrets)
-2. **Input Validation Review** - Trace user input flow with MCP tools
+2. **Input Validation Review** - Map user-input handlers and their forward call structure
 3. **Authentication/Authorization Review** - Find and verify auth patterns
-4. **Data Flow Analysis** - Trace sensitive data with `get_call_hierarchy()`
+4. **Data Flow Analysis** - Follow forward edges (`trace`/`expand callees`) toward sinks
 5. **Framework-Specific Review** - Use framework plugins (Flask/Django)
 6. **Review OWASP checklist** - Verify all security categories below
 
@@ -45,20 +70,14 @@ See "Security Review Workflow" section for detailed process.
 - [ ] Special characters properly handled
 - [ ] File uploads validated (type, size, content)
 
-**MCP Tool - Trace Input Flow**:
+**PyEye - Map Input Flow (forward only)**:
 
-```python
-# Find where user input enters the system
-find_symbol(name="request_handler", fuzzy=True)
-
-# Trace how input flows through the code
-get_call_hierarchy(function_name="process_user_input")
-# Returns: callers (where input comes from) and callees (where it goes)
-
-# Find all places that handle user input
-find_references(file=handler_file, line=input_line)
-# Verify: Each reference validates input
-```
+- `resolve` the input handler to a canonical handle.
+- `expand(edge="callees")` or `trace(follow=["callees"])` to see where input flows
+  downstream — toward validators and sinks.
+- Reverse ("who sends input *into* this handler?") is **not available** (#333). To check
+  call sites, `grep` for the handler name and `Read` each one manually; treat the set as
+  unconfirmed, not exhaustive.
 
 **Common Vulnerabilities**:
 
@@ -86,14 +105,11 @@ def update_user(user_id: int):
 
 **Detection Strategy**:
 
-```python
-# Search for SQL injection patterns
-find_symbol(name="execute", fuzzy=True)
-# Look for database execute calls
-
-get_call_hierarchy(function_name="execute")
-# Trace back to see if SQL is constructed from user input
-```
+- `resolve` the DB execute wrapper, then `expand(edge="imported_by")` to find which modules
+  use it — those are your audit surface.
+- For each caller module, `outline` it and `Read` the execute call sites to check whether
+  SQL is built from user input. Reverse "trace back to the input source" is not statically
+  available (#333); confirm by reading the call sites, not by trusting a reference query.
 
 **Examples**:
 
@@ -122,16 +138,12 @@ User.query.filter_by(id=user_id).first()
 - [ ] Validate/sanitize all input to shell commands
 - [ ] Use libraries instead of shell commands when possible
 
-**MCP Tool - Find Command Execution**:
+**PyEye - Find Command Execution**:
 
-```python
-# Find all subprocess usage
-find_imports(module_name="subprocess")
-
-# Check each usage
-get_type_info(file=subprocess_file, line=subprocess_line, detailed=True)
-# Verify: shell=False, list arguments used
-```
+- `expand("subprocess", edge="imported_by")` to find every project module that imports
+  `subprocess` (likewise for `os`).
+- `inspect` the call sites' enclosing functions and `Read` them to verify `shell=False`
+  and list-form arguments.
 
 **Examples**:
 
@@ -160,17 +172,12 @@ os.listdir(user_directory)
 - [ ] Never trust user-provided file paths
 - [ ] Use `Path` objects, not string manipulation
 
-**MCP Tool - Find File Operations**:
+**PyEye - Find File Operations**:
 
-```python
-# Find file operations
-find_symbol(name="open", fuzzy=True)
-find_symbol(name="Path", fuzzy=True)
-
-# Trace where file paths come from
-get_call_hierarchy(function_name="read_file")
-# Verify: Path validation exists
-```
+- `resolve` the file-reading helper and `expand(edge="callees")` to confirm it routes
+  through path-validation/resolution before `open`.
+- Reverse ("where do the file paths originate?") is not statically available (#333);
+  `grep` the helper name and `Read` each call site to check the path is validated.
 
 **Examples**:
 
@@ -206,22 +213,15 @@ def read_user_file(filename: str):
 - [ ] Authorization checked on every protected resource
 - [ ] No authentication logic in frontend only
 
-**MCP Tool - Find Auth Patterns**:
+**PyEye - Find Auth Patterns**:
 
-```python
-# Find authentication functions
-find_symbol(name="authenticate", fuzzy=True)
-find_symbol(name="login", fuzzy=True)
-
-# Check password handling
-find_references(file=auth_file, line=password_line)
-# Verify: Hashing used, no plaintext storage
-
-# For Flask apps - use Flask plugin
-# (Automatically detects Flask and provides specialized tools)
-find_routes()  # Lists all routes
-# Check: Each protected route has auth decorator
-```
+- `resolve` the auth entry points (`authenticate`, `login`) to canonical handles, then
+  `inspect`/`outline` to see their structure and `expand(edge="callees")` to confirm they
+  reach a hashing/verify routine.
+- Confirming that *every* protected resource checks authorization needs reverse references,
+  which are not available (#333). Enumerate protected entry points another way — for Flask,
+  the `find_routes()` plugin tool lists routes so you can audit each for an auth decorator —
+  then `Read` each handler.
 
 **Examples**:
 
@@ -304,18 +304,12 @@ ruff check --select S  # Security rules
 bandit -r src/         # Security linter
 ```
 
-**MCP Tool - Find Hardcoded Secrets**:
+**PyEye - Find Hardcoded Secrets**:
 
-```python
-# Find string constants that might be secrets
-find_symbol(name="API_KEY", fuzzy=True)  # pragma: allowlist secret
-find_symbol(name="SECRET", fuzzy=True)  # pragma: allowlist secret
-find_symbol(name="PASSWORD", fuzzy=True)  # pragma: allowlist secret
-
-# Check if loaded from environment
-get_type_info(...)
-# Verify: Uses os.environ or config system
-```
+- `resolve` suspect constants (`API_KEY`, `SECRET`, `PASSWORD`) to their definition handles,
+  then `inspect` each to see kind/location and `Read` the line to confirm it loads from
+  `os.environ` or a config/secret system rather than a literal.
+- Pair this with `detect-secrets` / `bandit` (below) for pattern coverage PyEye doesn't do.
 
 **Examples**:
 
@@ -405,17 +399,11 @@ data = UserData(**json.loads(user_input))
 - [ ] Known vulnerabilities patched
 - [ ] Minimal dependencies (reduce attack surface)
 
-**MCP Tool - Analyze Dependencies**:
+**PyEye - Analyze Dependencies**:
 
-```python
-# Check what the module imports
-get_module_info(module_path="myapp.api")
-# Returns: imports list
-
-# Verify each import is legitimate and needed
-analyze_dependencies(module_path="myapp.api")
-# Returns: Full dependency tree
-```
+- `expand("myapp.api", edge="imports")` to list a module's top-level imports — verify each
+  is legitimate and needed (attack-surface check).
+- `analyze_dependencies("myapp.api")` for the full dependency tree, including circular deps.
 
 ### 11. Framework-Specific Security
 
@@ -490,26 +478,27 @@ detect-secrets scan
 
 For each user input point:
 
-1. `find_symbol()` - Locate input handlers
-2. `get_call_hierarchy()` - Trace data flow
+1. `resolve` the input handler to a handle
+2. `expand(edge="callees")` / `trace(follow=["callees"])` - follow data forward
 3. Verify validation exists before use
 4. Check for injection vulnerabilities
 
 ### Step 3: Authentication/Authorization Review
 
-1. `find_symbol(name="auth", fuzzy=True)` - Find auth code
-2. `find_references()` - See where auth is checked
-3. `get_call_hierarchy()` - Trace auth flow
-4. Verify authorization on all protected resources
+1. `resolve` auth entry points (`authenticate`, `login`)
+2. Enumerate protected entry points (e.g. `find_routes()` for Flask) and `Read` each handler
+3. `expand(edge="callees")` - confirm auth code reaches a verify/hash routine
+4. Verify authorization on each protected resource (reverse "is it checked everywhere?"
+   can't be statically confirmed — #333)
 
 ### Step 4: Data Flow Analysis
 
 For sensitive data:
 
 1. Identify data entry points
-2. `get_call_hierarchy()` - Trace where data goes
+2. `trace(follow=["callees"])` - follow forward toward sinks
 3. Verify encryption/hashing applied
-4. Check logs don't leak data
+4. Check logs don't leak data — note that complete reverse taint flow is unconfirmable (#333)
 
 ### Step 5: Framework-Specific Review
 
@@ -532,33 +521,31 @@ If Flask/Django detected:
 ✅ detect-secrets - 1 potential secret found
 ```
 
-### MCP-Enhanced Analysis
+### PyEye-Enhanced Analysis
 
-```python
-# 1. Find the login endpoint
-find_symbol(name="login")
-→ Found at: api/auth.py:45
+```text
+# 1. Resolve the login endpoint to a handle
+resolve("login")
+→ handle: api.auth.login  (api/auth.py:45)
 
-# 2. Check implementation
-get_type_info(file="api/auth.py", line=45, detailed=True)
-→ Function: login(username: str, password: str)
-→ Has SQL query - needs review ⚠️
+# 2. Inspect implementation
+inspect("api.auth.login")
+→ signature: login(username: str, password: str)
+→ has SQL query - needs review ⚠️
 
-# 3. Trace data flow
-get_call_hierarchy(function_name="login")
-→ Calls: validate_credentials, create_session
-→ Called by: api_endpoint
+# 3. Follow data forward (reliable)
+expand("api.auth.login", edge="callees")
+→ calls: validate_credentials, create_session
+→ NOTE: "who calls login?" (callers) is deferred (#333) — not shown
 
 # 4. Check password handling
-find_references(file="api/auth.py", line=password_line)
-→ Used in: bcrypt.checkpw() ✅
-→ Never logged ✅
-→ Not stored ✅
+# Reverse "where is password referenced?" is not available (#333).
+# Read api/auth.py around line 45 to confirm:
+→ Used in bcrypt.checkpw() ✅  /  never logged ✅  /  not stored ✅
 
 # 5. Check SQL usage
 # Bandit flagged: "SELECT * FROM users WHERE username = ?"
-→ Uses parameterized query ✅
-→ No string concatenation ✅
+→ Uses parameterized query ✅  /  no string concatenation ✅
 ```
 
 ### Manual Review Findings
@@ -585,12 +572,13 @@ find_references(file="api/auth.py", line=password_line)
 - [ ] Sensitive data encrypted
 - [ ] Error messages don't leak information
 
-**MCP Tools Used**:
+**PyEye Tools Used**:
 
-- [ ] `get_call_hierarchy()` - Traced data flow
-- [ ] `find_references()` - Found all usages
-- [ ] `analyze_dependencies()` - Checked imports
+- [ ] `expand(edge="callees")` / `trace` - Followed data flow forward
+- [ ] `expand(edge="imports"|"imported_by")` - Checked import surface
+- [ ] `analyze_dependencies()` - Checked dependency tree
 - [ ] Framework plugins - Framework-specific checks
+- [ ] Acknowledged reverse-reference limit (#333) where taint flow couldn't be confirmed
 
 ## Success Indicators
 

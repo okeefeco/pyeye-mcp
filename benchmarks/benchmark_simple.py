@@ -22,8 +22,7 @@ def create_test_project(size: str = "small") -> str:
         pkg_dir.mkdir(exist_ok=True)
 
         module_file = pkg_dir / f"module_{i}.py"
-        module_file.write_text(
-            f'''
+        module_file.write_text(f'''
 """Module {i} for benchmarking."""
 
 def function_{i}(x: int) -> int:
@@ -36,8 +35,7 @@ class Class_{i}:
     def method(self, value: str) -> str:
         """Test method."""
         return value.upper()
-'''
-        )
+''')
 
     return temp_dir
 

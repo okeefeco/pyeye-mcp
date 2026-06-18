@@ -15,8 +15,7 @@ def create_test_files() -> Path:
 
     # Test file 1: API response with str(Path)
     api_file = test_dir / "api_handler.py"
-    api_file.write_text(
-        '''from pathlib import Path
+    api_file.write_text('''from pathlib import Path
 
 def get_file_info(file_path: Path):
     """Return file information for API response."""
@@ -31,14 +30,12 @@ def get_template_path(template_name: str, template_dir: Path):
     template_file = template_dir / template_name
     # This will break on Windows
     return str(template_file.relative_to(template_dir))  # Should use .as_posix()
-'''
-    )
+''')
     print(f"Created API handler with path issues: {api_file}")
 
     # Test file 2: Cache with direct string conversion
     cache_file = test_dir / "cache_manager.py"
-    cache_file.write_text(
-        '''from pathlib import Path
+    cache_file.write_text('''from pathlib import Path
 from typing import Dict, Any
 
 class CacheManager:
@@ -59,14 +56,12 @@ class CacheManager:
         """Check if two paths are the same."""
         # Direct string comparison
         return str(path1) == str(path2)  # Should use paths_equal()
-'''
-    )
+''')
     print(f"Created cache manager with path issues: {cache_file}")
 
     # Test file 3: Config handling
     config_file = test_dir / "config.py"
-    config_file.write_text(
-        '''from pathlib import Path
+    config_file.write_text('''from pathlib import Path
 import json
 
 def save_config(config_path: Path, settings: dict):
@@ -85,14 +80,12 @@ def load_paths_from_config(config: dict) -> list:
         # Creating Path from potentially Windows-style string
         paths.append(Path(path_str))  # May have backslashes from Windows
     return paths
-'''
-    )
+''')
     print(f"Created config handler with path issues: {config_file}")
 
     # Test file 4: Mixed contexts (some correct, some not)
     mixed_file = test_dir / "mixed_usage.py"
-    mixed_file.write_text(
-        '''from pathlib import Path
+    mixed_file.write_text('''from pathlib import Path
 import subprocess
 import os
 
@@ -114,8 +107,7 @@ def process_file(file_path: Path):
         }
 
     return {"file": str(file_path), "exists": False}  # Should be as_posix()
-'''
-    )
+''')
     print(f"Created mixed usage file: {mixed_file}")
 
     return test_dir

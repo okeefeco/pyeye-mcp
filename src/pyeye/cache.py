@@ -39,6 +39,33 @@ class CodebaseWatcher(FileSystemEventHandler):
         self.pending_changes: set[str] = set()
         self.debounce_lock = threading.Lock()
 
+    # Directories that should never trigger cache invalidation.
+    # Watchdog's Observer still receives events from these but we skip them
+    # immediately to avoid unnecessary processing.
+    _IGNORE_DIRS = frozenset(
+        {
+            ".git",
+            ".hg",
+            ".svn",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            "node_modules",
+            ".venv",
+            "venv",
+            ".env",
+            "env",
+            ".tox",
+            ".nox",
+            ".eggs",
+            "dist",
+            "build",
+            ".idea",
+            ".vscode",
+        }
+    )
+
     def on_modified(self, event: Any) -> None:
         """Handle file modification events with debouncing."""
         if event.is_directory:
@@ -47,23 +74,28 @@ class CodebaseWatcher(FileSystemEventHandler):
         # Only care about Python files
         if isinstance(event, FileModifiedEvent):
             src_path = event.src_path
-            if isinstance(src_path, str) and src_path.endswith(".py"):
-                logger.debug(f"Python file modified: {Path(src_path).as_posix()}")
-                self.last_change = time.time()
+            if not isinstance(src_path, str) or not src_path.endswith(".py"):
+                return
 
-                # Add to pending changes and reset debounce timer
-                with self.debounce_lock:
-                    self.pending_changes.add(src_path)
+            # Skip files in ignored directories
+            parts = Path(src_path).parts
+            if any(part in self._IGNORE_DIRS for part in parts):
+                return
 
-                    # Cancel existing timer if any
-                    if self.debounce_timer:
-                        self.debounce_timer.cancel()
+            logger.debug(f"Python file modified: {Path(src_path).as_posix()}")
+            self.last_change = time.time()
 
-                    # Start new timer
-                    self.debounce_timer = threading.Timer(
-                        self.debounce_delay, self._process_changes
-                    )
-                    self.debounce_timer.start()
+            # Add to pending changes and reset debounce timer
+            with self.debounce_lock:
+                self.pending_changes.add(src_path)
+
+                # Cancel existing timer if any
+                if self.debounce_timer:
+                    self.debounce_timer.cancel()
+
+                # Start new timer
+                self.debounce_timer = threading.Timer(self.debounce_delay, self._process_changes)
+                self.debounce_timer.start()
 
     def _process_changes(self) -> None:
         """Process accumulated changes after debounce delay."""

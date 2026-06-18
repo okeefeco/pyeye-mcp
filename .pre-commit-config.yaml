@@ -2,6 +2,10 @@
 default_language_version:
   python: python3.12
 
+# Install pre-commit, commit-msg, AND post-commit hooks on `pre-commit install`
+# (post-commit drives the non-blocking decision-log nudge below).
+default_install_hook_types: [pre-commit, commit-msg, post-commit]
+
 repos:
   # Security checks
   - repo: https://github.com/Yelp/detect-secrets
@@ -27,14 +31,15 @@ repos:
         # Ignored vulnerabilities (tracked in GitHub issues):
         # - GHSA-4xh5-x5gv-qwph: pip vulnerability, awaiting pip 25.3
         # - CVE-2025-69872: diskcache pickle deserialization, no fix available (issue #289)
-        entry: uv run pip-audit --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872
+        # - CVE-2026-4539: pygments vulnerability, no fix available yet (latest is 2.19.2)
+        entry: uv run pip-audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
 
   # Code formatting
   - repo: https://github.com/psf/black
-    rev: 25.1.0
+    rev: 26.3.1
     hooks:
       - id: black
         language_version: python3.12
@@ -56,7 +61,9 @@ repos:
         additional_dependencies:
           - types-setuptools
           - types-requests
-        args: ['--ignore-missing-imports', '--no-strict-optional']
+          - types-PyYAML
+          - types-aiofiles
+        args: ['--ignore-missing-imports']
         exclude: ^tests/
 
   # Documentation
@@ -87,7 +94,10 @@ repos:
         args: ['--fix=lf']
       - id: name-tests-test
         args: ['--pytest-test-first']
-        exclude: '^tests/(fixtures|utils)/'
+        # Exclude any 'fixtures/' or 'utils/' directory under tests/, at any
+        # nesting depth. Fixture .py files are intentionally NOT named
+        # 'test_*' — they are sample code under analysis, not pytest cases.
+        exclude: '^tests/.*(fixtures|utils)/|response_linter\.py$'
 
   # Project-specific checks
   # Cross-platform path checker - useful for periodic audits but has false positives
@@ -117,9 +127,38 @@ repos:
       - id: commitizen
         stages: [commit-msg]
 
+  # Conformance linter — layering + absence-vs-zero invariant
+  # Runs the adversarial + existing-response tests to catch content-layer
+  # violations and incorrect edge_counts semantics before each commit.
+  # Intentionally fast: only tests/conformance/ is executed (< 5 seconds).
+  - repo: local
+    hooks:
+      - id: conformance-linter
+        name: PyEye conformance linter (layering + absence-vs-zero)
+        entry: uv run pytest tests/conformance/ -q --no-header --no-cov
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Markdown
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.38.0
     hooks:
       - id: markdownlint
         args: ['--fix']
+
+  # Decision-log nudge — runs AFTER each commit, never blocks. Prints a one-line
+  # suggestion when the just-committed diff touches a contract surface (new
+  # PYEYE_* config knob, public/dunder signature change, or an output-shape dict
+  # key in a report/schema/export function). Suggestion only — the decision to
+  # log stays human. verbose:true so the nudge is shown despite the 0 exit code.
+  - repo: local
+    hooks:
+      - id: decision-log-nudge
+        name: Decision-log nudge (contract-surface suggestion)
+        entry: python scripts/decision_log_nudge.py
+        language: system
+        stages: [post-commit]
+        pass_filenames: false
+        always_run: true
+        verbose: true

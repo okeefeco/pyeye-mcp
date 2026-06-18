@@ -115,8 +115,7 @@ class TestDjangoPlugin:
     async def test_find_models(self, temp_project):
         """Test finding Django models."""
         models_file = temp_project / "models.py"
-        models_file.write_text(
-            """
+        models_file.write_text("""
 from django.db import models
 
 class User(models.Model):
@@ -126,8 +125,7 @@ class User(models.Model):
 class Product(models.Model):
     title = models.CharField(max_length=200)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-"""
-        )
+""")
 
         plugin = DjangoPlugin(temp_project)
         models = await plugin.find_models()
@@ -140,8 +138,7 @@ class Product(models.Model):
     async def test_find_views(self, temp_project):
         """Test finding Django views."""
         views_file = temp_project / "views.py"
-        views_file.write_text(
-            """
+        views_file.write_text("""
 from django.views import View
 from django.views.generic import ListView, DetailView
 from django.shortcuts import render
@@ -154,8 +151,7 @@ class UserDetailView(DetailView):
 
 def index(request):
     return render(request, 'index.html')
-"""
-        )
+""")
 
         plugin = DjangoPlugin(temp_project)
         views = await plugin.find_views()
@@ -168,8 +164,7 @@ def index(request):
     async def test_find_urls(self, temp_project):
         """Test finding Django URL patterns."""
         urls_file = temp_project / "urls.py"
-        urls_file.write_text(
-            """
+        urls_file.write_text("""
 from django.urls import path, include
 from . import views
 
@@ -178,8 +173,7 @@ urlpatterns = [
     path('users/', views.UserListView.as_view(), name='user-list'),
     path('api/', include('api.urls')),
 ]
-"""
-        )
+""")
 
         plugin = DjangoPlugin(temp_project)
         urls = await plugin.find_urls()
@@ -213,16 +207,14 @@ urlpatterns = [
         migrations_dir.mkdir()
 
         migration_file = migrations_dir / "0001_initial.py"
-        migration_file.write_text(
-            """
+        migration_file.write_text("""
 from django.db import migrations, models
 
 class Migration(migrations.Migration):
     initial = True
     dependencies = []
     operations = []
-"""
-        )
+""")
 
         plugin = DjangoPlugin(temp_project)
         migrations = await plugin.find_migrations()
@@ -294,27 +286,23 @@ class Migration(migrations.Migration):
         """Test finding Django models with namespace scope."""
         # Main project model
         main_models = temp_project / "models.py"
-        main_models.write_text(
-            """
+        main_models.write_text("""
 from django.db import models
 
 class MainModel(models.Model):
     name = models.CharField(max_length=100)
-"""
-        )
+""")
 
         # Namespace model
         ns_path = temp_project / "shared_namespace"
         ns_path.mkdir()
         ns_models = ns_path / "models.py"
-        ns_models.write_text(
-            """
+        ns_models.write_text("""
 from django.db import models
 
 class SharedModel(models.Model):
     value = models.IntegerField()
-"""
-        )
+""")
 
         plugin = DjangoPlugin(temp_project)
         plugin.set_namespace_paths({"shared": [str(ns_path)]})

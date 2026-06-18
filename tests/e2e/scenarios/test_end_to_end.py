@@ -23,8 +23,7 @@ class TestEndToEndWorkflow:
         src_dir.mkdir()
 
         main_py = src_dir / "main.py"
-        main_py.write_text(
-            """
+        main_py.write_text("""
 def main():
     \"\"\"Main entry point.\"\"\"
     result = helper(42)
@@ -36,8 +35,7 @@ def helper(value: int) -> int:
 
 if __name__ == "__main__":
     main()
-"""
-        )
+""")
 
         # Step 2: Create configuration
         config_file = temp_project_dir / ".pyeye.json"
@@ -108,27 +106,23 @@ if __name__ == "__main__":
         auth_pkg = auth_repo / "company" / "auth"
         auth_pkg.mkdir(parents=True)
         (auth_pkg / "__init__.py").write_text("")
-        (auth_pkg / "models.py").write_text(
-            """
+        (auth_pkg / "models.py").write_text("""
 class User:
     def __init__(self, username: str):
         self.username = username
-"""
-        )
+""")
 
         # API repository
         api_pkg = api_repo / "company" / "api"
         api_pkg.mkdir(parents=True)
         (api_pkg / "__init__.py").write_text("")
-        (api_pkg / "client.py").write_text(
-            """
+        (api_pkg / "client.py").write_text("""
 from company.auth.models import User
 
 class APIClient:
     def __init__(self, user: User):
         self.user = user
-"""
-        )
+""")
 
         # Configure namespace
         resolver = NamespaceResolver()
@@ -185,28 +179,24 @@ class APIClient:
 
         # Create Flask project
         app_py = temp_project_dir / "app.py"
-        app_py.write_text(
-            """
+        app_py.write_text("""
 from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return 'Hello'
-"""
-        )
+""")
 
         # Create Pydantic models
         models_py = temp_project_dir / "models.py"
-        models_py.write_text(
-            """
+        models_py.write_text("""
 from pydantic import BaseModel
 
 class User(BaseModel):
     name: str
     age: int
-"""
-        )
+""")
 
         # Test Flask plugin detection
         flask_plugin = FlaskPlugin(str(temp_project_dir))
@@ -312,71 +302,80 @@ class User(BaseModel):
         # Ensure cleanup
         manager.cleanup_all()
 
-    def test_large_codebase_workflow(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_large_codebase_workflow(self, temp_project_dir):
         """Test handling large codebases with many files."""
-        # Create large structure
+        # Create large structure as importable packages so modules have
+        # canonical dotted handles that outline() can resolve.
         for i in range(20):
             module_dir = temp_project_dir / f"module{i}"
             module_dir.mkdir()
+            (module_dir / "__init__.py").write_text("")
 
             for j in range(10):
                 py_file = module_dir / f"file{j}.py"
-                py_file.write_text(
-                    f"""
+                py_file.write_text(f"""
 def function_{i}_{j}():
     \"\"\"Function in module {i} file {j}\"\"\"
     pass
-"""
-                )
+""")
 
-        # Test project structure listing
-        from pyeye.mcp.server import list_project_structure
+        # Verify the project's structure is discoverable end-to-end via the
+        # outline tool. outline() resolves a module handle and returns its
+        # structural skeleton (OutlineTree), proving the codebase is navigable.
+        # (list_project_structure was removed in the legacy-tool deletion;
+        # outline works on Python handles, not filesystem directory trees, so
+        # we assert on a module's members rather than a directory count.)
+        from pyeye.mcp.server import outline
 
-        structure = list_project_structure(str(temp_project_dir), max_depth=2)
+        structure = await outline(
+            handle="module0.file0",
+            project_path=str(temp_project_dir),
+            max_depth=2,
+        )
 
-        # The new structure returns a tree, not a flat count
-        assert "name" in structure
-        assert structure["type"] == "directory"
+        # OutlineTree shape: {"node": Stub, "children": [OutlineTree, ...]}.
+        assert "node" in structure
         assert "children" in structure
-        # Should have 20 module directories (we created 20 above)
-        assert len([c for c in structure["children"] if c["type"] == "directory"]) == 20
+        node = structure["node"]
+        assert node["kind"] == "module"
+        # The module's single top-level member (function_0_0) must be discovered.
+        child_handles = [c["node"]["handle"] for c in structure["children"]]
+        assert any(h.endswith("function_0_0") for h in child_handles), (
+            f"function_0_0 must be discoverable in module0.file0; "
+            f"got children={child_handles!r}"
+        )
 
     def test_cross_repository_import_resolution(self, temp_project_dir):
         """Test resolving imports across multiple repositories."""
         # Create main project
         main_proj = temp_project_dir / "main"
         main_proj.mkdir()
-        (main_proj / "app.py").write_text(
-            """
+        (main_proj / "app.py").write_text("""
 from lib.utils import helper
 from shared.models import User
 
 def main():
     user = User("test")
     return helper(user)
-"""
-        )
+""")
 
         # Create lib repository
         lib_repo = temp_project_dir / "lib"
         lib_repo.mkdir()
-        (lib_repo / "utils.py").write_text(
-            """
+        (lib_repo / "utils.py").write_text("""
 def helper(data):
     return str(data)
-"""
-        )
+""")
 
         # Create shared repository
         shared_repo = temp_project_dir / "shared"
         shared_repo.mkdir()
-        (shared_repo / "models.py").write_text(
-            """
+        (shared_repo / "models.py").write_text("""
 class User:
     def __init__(self, name):
         self.name = name
-"""
-        )
+""")
 
         # Configure project with dependencies
         manager = ProjectManager()

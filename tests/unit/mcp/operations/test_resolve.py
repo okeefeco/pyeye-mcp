@@ -1,0 +1,1260 @@
+"""Tests for the resolve(identifier) operation — Task 2.2.
+
+Fixture layout
+--------------
+tests/fixtures/resolve_project/
+  mypackage/
+    __init__.py           # re-exports Widget from _core.widgets
+    helpers.py            # defines Widget (second, ambiguous definition)
+    _core/
+      __init__.py         # empty
+      widgets.py          # defines Widget (canonical) and Config (unique)
+
+Known-correct canonical handle for Widget: ``mypackage._core.widgets.Widget``
+Public re-export path: ``mypackage.Widget``
+Ambiguous bare name: ``Widget`` → two candidates in project
+
+Test cases
+----------
+(a) Bare name with single project match → success result
+(b) FQN dotted path → success result with canonical handle
+(c) Re-exported path → collapses to canonical definition site
+(d) File path with line → success result via position lookup
+(e) File path without line → module handle
+(f) Unresolved identifier → {found: false, reason: ...}
+(g) Every success variant includes ``scope``
+(h) Ambiguous bare name → candidates each carry kind, scope, location
+"""
+
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
+_RESOLVE_FIXTURE = _FIXTURE  # Alias used in some test helpers
+
+
+@pytest.fixture
+def analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the resolve_project fixture."""
+    return JediAnalyzer(str(_FIXTURE))
+
+
+# ---------------------------------------------------------------------------
+# (a) Bare name with a single project match → success
+# ---------------------------------------------------------------------------
+
+
+class TestBareNameSingleMatch:
+    """A bare name that uniquely identifies one project symbol should return success."""
+
+    @pytest.mark.asyncio
+    async def test_unique_bare_name_returns_success(self, analyzer: JediAnalyzer) -> None:
+        """Config appears in exactly one project file — resolve should succeed."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert "ambiguous" not in result
+        assert "handle" in result
+        assert result["handle"] == "mypackage._core.widgets.Config"
+
+    @pytest.mark.asyncio
+    async def test_single_match_includes_kind(self, analyzer: JediAnalyzer) -> None:
+        """Single-match success must include a non-empty kind."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert "kind" in result
+        assert result["kind"] == "class"
+
+    @pytest.mark.asyncio
+    async def test_single_match_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """Single bare-name match must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+        assert isinstance(loc["line_end"], int)
+
+
+# ---------------------------------------------------------------------------
+# (b) FQN dotted path → success
+# ---------------------------------------------------------------------------
+
+
+class TestFQNDottedPath:
+    """A fully-qualified dotted name should resolve to its canonical handle."""
+
+    @pytest.mark.asyncio
+    async def test_fqn_resolves_to_canonical(self, analyzer: JediAnalyzer) -> None:
+        """mypackage._core.widgets.Config resolves to the same canonical handle."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.Config"
+
+    @pytest.mark.asyncio
+    async def test_fqn_includes_scope(self, analyzer: JediAnalyzer) -> None:
+        """FQN result must include scope field — Task 2.1 contract."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        assert "scope" in result
+        assert result["scope"] in ("project", "external")
+
+    @pytest.mark.asyncio
+    async def test_fqn_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """FQN result must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+
+
+# ---------------------------------------------------------------------------
+# (c) Re-exported path collapses to canonical definition site
+# ---------------------------------------------------------------------------
+
+
+class TestReExportedPathCollapses:
+    """A public re-export path should resolve to the definition site handle."""
+
+    @pytest.mark.asyncio
+    async def test_reexport_collapses_to_definition(self, analyzer: JediAnalyzer) -> None:
+        """mypackage.Widget is re-exported; canonical is mypackage._core.widgets.Widget."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+
+        assert result["found"] is True
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.Widget"
+
+    @pytest.mark.asyncio
+    async def test_reexport_result_includes_scope(self, analyzer: JediAnalyzer) -> None:
+        """Re-export result must include scope."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+
+        assert result["found"] is True
+        assert "scope" in result
+
+    @pytest.mark.asyncio
+    async def test_reexport_result_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """Re-export result must include a location dict."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+
+
+# ---------------------------------------------------------------------------
+# (c2) External dotted name (stdlib / site-packages) → external success
+# ---------------------------------------------------------------------------
+
+
+class TestExternalDottedName:
+    """A fully-qualified dotted name pointing at a stdlib/external symbol must
+    resolve with scope='external'.
+
+    Per ``docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md``
+    lines 138-148, 191, 195: external symbols are reachable as handles, scope is
+    ``"external"``, and pyeye lazily resolves them via Jedi's import-following.
+    Bug surfaced when ``resolve("pathlib.Path")`` returned ``unresolved`` while
+    ``resolve_at`` and ``inspect`` both succeeded for the same symbol.
+    """
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_resolves_to_canonical_handle(self, analyzer: JediAnalyzer) -> None:
+        """resolve('pathlib.Path') must return found=True with the FQN as handle."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert (
+            result["found"] is True
+        ), f"resolve('pathlib.Path') must succeed (stdlib symbol); got {result!r}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "pathlib.Path"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_classified_as_external(self, analyzer: JediAnalyzer) -> None:
+        """External-scope FQN must carry scope='external'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        assert (
+            result["scope"] == "external"
+        ), f"pathlib.Path is stdlib; expected scope='external', got {result['scope']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_kind_is_class(self, analyzer: JediAnalyzer) -> None:
+        """pathlib.Path is a class — kind must reflect that, not fall back to 'variable'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        assert (
+            result["kind"] == "class"
+        ), f"pathlib.Path is a class; expected kind='class', got {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_location_points_to_real_definition(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Location must point to the actual stdlib definition, not a degenerate stub."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("pathlib.Path", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        assert (
+            loc["file"] != "<unknown>"
+        ), f"location.file must point at stdlib pathlib; got {loc['file']!r}"
+        assert (
+            "pathlib" in loc["file"]
+        ), f"location.file must contain 'pathlib'; got {loc['file']!r}"
+        assert (
+            loc["line_start"] > 1
+        ), f"location.line_start must point at real definition (>1); got {loc['line_start']!r}"
+
+    @pytest.mark.asyncio
+    async def test_external_fqn_unresolvable_returns_not_found(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A dotted name that Jedi cannot infer must fall through to not-found.
+
+        Exercises the negative branch of the synthetic-import fallback: when
+        ``script.infer`` returns no results, resolve must return
+        ``{found: False, reason: "unresolved"}`` (not raise, not return a
+        spurious external success).
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        # Module exists in stdlib but the leaf does not.
+        result = await resolve("pathlib.NotARealClassXYZ", analyzer)
+
+        assert result["found"] is False
+        assert "reason" in result
+
+
+# ---------------------------------------------------------------------------
+# (d) File path with line → symbol at that position
+# ---------------------------------------------------------------------------
+
+
+class TestFilePathWithLine:
+    """src/foo.py:N should resolve to the symbol defined at that line."""
+
+    @pytest.mark.asyncio
+    async def test_file_with_line_resolves_to_symbol(self, analyzer: JediAnalyzer) -> None:
+        """mypackage/_core/widgets.py:21 is 'class Widget' — should resolve to Widget."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+
+        assert result["found"] is True
+        assert "ambiguous" not in result
+        assert "handle" in result
+        # The resolved symbol at line 21 (class Widget)
+        assert "Widget" in result["handle"]
+
+    @pytest.mark.asyncio
+    async def test_file_with_line_includes_scope(self, analyzer: JediAnalyzer) -> None:
+        """File:line result must include scope."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+
+        assert result["found"] is True
+        assert "scope" in result
+
+    @pytest.mark.asyncio
+    async def test_file_with_line_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """File:line result must include a location dict pointing at the definition."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert "line_end" in loc
+        assert isinstance(loc["line_start"], int)
+
+
+# ---------------------------------------------------------------------------
+# (e) File path without line → module handle
+# ---------------------------------------------------------------------------
+
+
+class TestFilePathWithoutLine:
+    """A bare file path (no :N) should resolve to the module handle."""
+
+    @pytest.mark.asyncio
+    async def test_file_path_resolves_to_module(self, analyzer: JediAnalyzer) -> None:
+        """widgets.py without line → mypackage._core.widgets module handle."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+
+        assert result["found"] is True
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets"
+
+    @pytest.mark.asyncio
+    async def test_file_path_kind_is_module(self, analyzer: JediAnalyzer) -> None:
+        """Module resolution should have kind='module'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+
+        assert result["found"] is True
+        assert result["kind"] == "module"
+
+    @pytest.mark.asyncio
+    async def test_file_path_includes_location(self, analyzer: JediAnalyzer) -> None:
+        """File-only result must include a location dict (lenient about line_end)."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+
+        assert result["found"] is True
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert loc["file"] == widgets_path
+        assert "line_start" in loc
+        assert "line_end" in loc
+        # line_start must be 1 for file-only resolution
+        assert loc["line_start"] == 1
+
+    @pytest.mark.asyncio
+    async def test_relative_file_path_resolves_to_module(
+        self, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A relative file path (resolvable via CWD) must produce the correct module handle.
+
+        Regression: ``_resolve_file_only`` previously passed the raw Path to
+        ``_get_import_path_for_file`` without resolving to absolute first.  When
+        the input was relative, ``relative_to(absolute_root)`` raised ValueError
+        and resolution either failed (absolute project_path) or produced a
+        wrongly-prefixed handle like ``src.foo.bar`` instead of ``foo.bar``
+        (relative project_path).  The fix is to resolve to absolute before
+        looking up the import path.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        monkeypatch.chdir(_FIXTURE)
+        result = await resolve("mypackage/_core/widgets.py", analyzer)
+
+        assert result["found"] is True, f"Expected success, got {result!r}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets"
+        assert result["kind"] == "module"
+
+
+# ---------------------------------------------------------------------------
+# (f) Unresolved identifier → {found: false, reason: ...}
+# ---------------------------------------------------------------------------
+
+
+class TestUnresolvedIdentifier:
+    """An identifier that cannot be resolved must return found=False with a reason."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_dotted_name_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Completely unknown identifier should return found=False."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("does_not_exist.Nowhere", analyzer)
+
+        assert result["found"] is False
+        assert "reason" in result
+        assert isinstance(result["reason"], str)
+        assert len(result["reason"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_missing_file_path_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """A file path that doesn't exist should return found=False."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("/nonexistent/path/file.py", analyzer)
+
+        assert result["found"] is False
+        assert "reason" in result
+
+    @pytest.mark.asyncio
+    async def test_not_found_reason_is_descriptive(self, analyzer: JediAnalyzer) -> None:
+        """The reason string should be a known discriminating value."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("completely_unknown_module.UnknownClass", analyzer)
+
+        assert result["found"] is False
+        # Reason must be a non-empty string indicating what went wrong
+        assert result["reason"] in (
+            "unresolved",
+            "file_not_found",
+            "no_symbol_at_position",
+            "invalid_identifier",
+        )
+
+
+# ---------------------------------------------------------------------------
+# (g) Every success variant includes scope
+# ---------------------------------------------------------------------------
+
+
+class TestSuccessVariantsIncludeScope:
+    """All success paths must include a scope field per the Task 2.1 contract."""
+
+    @pytest.mark.asyncio
+    async def test_bare_name_success_has_scope(self, analyzer: JediAnalyzer) -> None:
+        """Bare name success must include scope."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert "scope" in result
+        assert result["scope"] in ("project", "external")
+
+    @pytest.mark.asyncio
+    async def test_config_is_project_scope(self, analyzer: JediAnalyzer) -> None:
+        """A class defined in the fixture project should have scope='project'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+
+        assert result["found"] is True
+        assert result["scope"] == "project"
+
+
+# ---------------------------------------------------------------------------
+# (g2) Every success variant includes location
+# ---------------------------------------------------------------------------
+
+
+class TestSuccessVariantsIncludeLocation:
+    """All success paths must include a location field with file/line_start/line_end."""
+
+    def _assert_location(self, result: dict) -> None:  # type: ignore[type-arg]
+        """Helper: assert a valid location dict is present in result."""
+        assert "location" in result, f"Missing 'location' in success result: {result}"
+        loc = result["location"]
+        assert "file" in loc, f"Missing 'file' in location: {loc}"
+        assert "line_start" in loc, f"Missing 'line_start' in location: {loc}"
+        assert "line_end" in loc, f"Missing 'line_end' in location: {loc}"
+        assert isinstance(loc["line_start"], int), f"line_start not int: {loc}"
+        assert isinstance(loc["line_end"], int), f"line_end not int: {loc}"
+        assert loc["line_start"] >= 1, f"line_start < 1: {loc}"
+
+    @pytest.mark.asyncio
+    async def test_bare_name_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 1 (bare name): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Config", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_fqn_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 2 (FQN dotted): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_reexported_path_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 3 (re-exported path): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage.Widget", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_file_with_line_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 4 (file:line): success result must include location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(f"{widgets_path}:21", analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+
+    @pytest.mark.asyncio
+    async def test_file_only_success_has_location(self, analyzer: JediAnalyzer) -> None:
+        """Form 5 (file-only): success result must include location.
+
+        line_end may be 1 (no cheap way to get last line for modules).
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        widgets_path = (_FIXTURE / "mypackage" / "_core" / "widgets.py").as_posix()
+        result = await resolve(widgets_path, analyzer)
+        assert result["found"] is True
+        self._assert_location(result)
+        # file-only always resolves to line_start == 1
+        assert result["location"]["line_start"] == 1
+
+
+# ---------------------------------------------------------------------------
+# (h) Ambiguous bare name → candidates carry kind, scope, location
+# ---------------------------------------------------------------------------
+
+
+class TestAmbiguousBareName:
+    """A bare name matching multiple project symbols should return an ambiguous result."""
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_bare_name_returns_ambiguous(self, analyzer: JediAnalyzer) -> None:
+        """Widget exists in both _core.widgets and helpers — should be ambiguous."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Widget", analyzer)
+
+        # Should be ambiguous (multiple matches)
+        assert result["found"] is True
+        assert result.get("ambiguous") is True
+        assert "candidates" in result
+        assert len(result["candidates"]) >= 2
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_candidates_carry_required_fields(self, analyzer: JediAnalyzer) -> None:
+        """Each candidate must carry handle, kind, scope, and location."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Widget", analyzer)
+
+        assert result["found"] is True
+        assert result.get("ambiguous") is True
+
+        for candidate in result["candidates"]:
+            assert "handle" in candidate, f"Missing 'handle' in {candidate}"
+            assert "kind" in candidate, f"Missing 'kind' in {candidate}"
+            assert "scope" in candidate, f"Missing 'scope' in {candidate}"
+            assert "location" in candidate, f"Missing 'location' in {candidate}"
+            # Validate location shape
+            loc = candidate["location"]
+            assert "file" in loc
+            assert "line_start" in loc
+            assert "line_end" in loc
+            assert isinstance(loc["line_start"], int)
+            assert isinstance(loc["line_end"], int)
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_candidates_are_deterministically_ordered(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Candidates must be sorted by (scope, file, line_start) ascending.
+
+        project < external, then alphabetical by file, then ascending line.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Widget", analyzer)
+
+        assert result["found"] is True
+        assert result.get("ambiguous") is True
+        candidates = result["candidates"]
+        assert len(candidates) >= 2
+
+        # Verify ordering: project before external
+        scopes = [c["scope"] for c in candidates]
+        for i in range(len(scopes) - 1):
+            if scopes[i] == "external" and scopes[i + 1] == "project":
+                pytest.fail(
+                    f"external candidate appears before project at position {i}: " f"{scopes}"
+                )
+
+        # Within same scope, verify alphabetical by file then ascending line
+        project_candidates = [c for c in candidates if c["scope"] == "project"]
+        for i in range(len(project_candidates) - 1):
+            loc_a = project_candidates[i]["location"]
+            loc_b = project_candidates[i + 1]["location"]
+            key_a = (loc_a["file"], loc_a["line_start"])
+            key_b = (loc_b["file"], loc_b["line_start"])
+            assert key_a <= key_b, f"Candidates not sorted: {key_a} > {key_b}"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_candidates_have_valid_scopes(self, analyzer: JediAnalyzer) -> None:
+        """All candidates must have scope in ('project', 'external')."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("Widget", analyzer)
+
+        assert result["found"] is True
+        for candidate in result["candidates"]:
+            assert candidate["scope"] in (
+                "project",
+                "external",
+            ), f"Invalid scope: {candidate['scope']}"
+
+
+# ---------------------------------------------------------------------------
+# Identifier form parser (unit tests for the helper)
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifierFormParser:
+    """Unit tests for the _parse_identifier helper."""
+
+    def test_file_with_line(self) -> None:
+        """Path:int should be detected as file_with_line."""
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        form = _parse_identifier("/src/foo.py:42")
+        assert form["kind"] == "file_with_line"
+        assert form["path"] == "/src/foo.py"
+        assert form["line"] == 42
+
+    def test_file_without_line(self) -> None:
+        """A .py path without colon-int should be file_only."""
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        form = _parse_identifier("/src/foo.py")
+        assert form["kind"] == "file_only"
+        assert form["path"] == "/src/foo.py"
+
+    def test_file_with_slash(self) -> None:
+        """A path with / (no .py extension) should be file_only."""
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        form = _parse_identifier("src/subdir/module")
+        assert form["kind"] == "file_only"
+
+    def test_dotted_name(self) -> None:
+        """A dotted name without / or \\ should be dotted_name."""
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        form = _parse_identifier("a.b.c.Config")
+        assert form["kind"] == "dotted_name"
+        assert form["name"] == "a.b.c.Config"
+
+    def test_bare_name(self) -> None:
+        """A single identifier (no dots) should be bare_name."""
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        form = _parse_identifier("Config")
+        assert form["kind"] == "bare_name"
+        assert form["name"] == "Config"
+
+
+# ---------------------------------------------------------------------------
+# Kind recovery for non-class dotted names
+# ---------------------------------------------------------------------------
+
+
+class TestKindRecovery:
+    """Resolving a dotted name for a function must return kind='function', not 'class'."""
+
+    @pytest.mark.asyncio
+    async def test_function_dotted_name_returns_function_kind(self, analyzer: JediAnalyzer) -> None:
+        """mypackage._core.widgets.make_widget is a function — kind must be 'function'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.make_widget"
+        assert (
+            result["kind"] == "function"
+        ), f"Expected kind='function' for a factory function, got: {result['kind']!r}"
+
+
+# ---------------------------------------------------------------------------
+# Task 2.3: resolve_at(file, line, column) — position-based resolution
+# ---------------------------------------------------------------------------
+
+# Fixture coordinates (1-indexed line, 0-indexed column per Jedi convention):
+#
+#   widgets.py line 21: "class Widget:"
+#     - column 6 → 'W' of Widget (the class name)
+#     - column 0 → 'c' of class keyword
+#   widgets.py line 1: '"""Widget implementation — the definition site.'
+#     - column 3 → inside the docstring literal
+#   use_widget.py line 11: "w = Widget()"
+#     - column 4 → 'W' of Widget (use site)
+
+
+class TestResolveAt:
+    """Task 2.3: resolve_at(file, line, column) converts a position to a canonical handle."""
+
+    # (a) Position on a known symbol → success with handle
+    @pytest.mark.asyncio
+    async def test_position_on_symbol_returns_success(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at the 'W' of 'class Widget' returns the canonical Widget handle."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 21: "class Widget:" — column 6 is 'W'
+        result = await resolve_at(widgets_path, 21, 6, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert "ambiguous" not in result
+        assert result["handle"] == "mypackage._core.widgets.Widget"
+        assert result["kind"] == "class"
+        assert "scope" in result
+        assert result["scope"] == "project"
+        assert "location" in result
+        loc = result["location"]
+        assert "file" in loc
+        assert "line_start" in loc
+        assert isinstance(loc["line_start"], int)
+
+    # (b) Position on whitespace → no_symbol_at_position
+    @pytest.mark.asyncio
+    async def test_position_on_whitespace_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at a blank line yields found=False, reason='no_symbol_at_position'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 20 is blank (the blank line between the import and class Widget)
+        result = await resolve_at(widgets_path, 20, 0, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+    # (c) Position on a literal → no_symbol_at_position
+    @pytest.mark.asyncio
+    async def test_position_on_literal_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Pointing inside a string literal yields found=False, reason='no_symbol_at_position'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 1: '"""Widget implementation — the definition site.'
+        # Column 10 is inside the docstring literal (well past the opening quotes)
+        result = await resolve_at(widgets_path, 1, 10, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+    # (d) column=0 is valid — must NOT be treated as falsy
+    @pytest.mark.asyncio
+    async def test_column_zero_is_valid(self, analyzer: JediAnalyzer) -> None:
+        """column=0 is a legitimate column (start of line); implementation must not use 'if column:'.
+
+        Empirical Jedi behaviour at column=0 on ``class Widget:``
+        ----------------------------------------------------------
+        column=0 lands on the ``c`` of the ``class`` keyword.  Jedi's ``goto()`` at a
+        bare keyword returns no definitions (the keyword has no ``full_name``), so the
+        correct result is ``found=False, reason='no_symbol_at_position'``.
+
+        Why this proves the truthiness-bug contract
+        -------------------------------------------
+        A buggy implementation using ``if column:`` would silently treat ``0`` as falsy
+        and substitute a fallback column (e.g. the heuristic column 6, which is ``W`` of
+        ``Widget``).  Column 6 *does* resolve successfully to Widget.  The two cases are
+        therefore distinguishable:
+
+        - column=0 correctly honoured  → ``found=False`` (keyword, no symbol)
+        - column=0 silently replaced by 6 → ``found=True, handle='…Widget'``
+
+        Asserting ``found is False`` with ``reason='no_symbol_at_position'`` proves that
+        column=0 was passed through unchanged.  If the assertion ever becomes
+        ``found=True``, it is a strong indicator of the truthiness bug (or a Jedi
+        behaviour change that should be re-examined).
+        """
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 21: "class Widget:" — column 0 is 'c' of the 'class' keyword.
+        # Jedi returns no definitions for a bare keyword → correct outcome is not-found.
+        result = await resolve_at(widgets_path, 21, 0, analyzer)
+
+        # Column 0 must be accepted (no TypeError / crash) and treated as-is.
+        # The correct Jedi outcome at the class keyword is no_symbol_at_position —
+        # NOT the Widget class that would appear if column were silently moved to 6.
+        assert result["found"] is False, (
+            f"column=0 on the 'class' keyword should be not-found; "
+            f"if found=True this likely indicates a truthiness bug (column 0 → column 6): {result}"
+        )
+        assert result["reason"] == "no_symbol_at_position"
+
+    # (e) Use site (not definition) still returns canonical handle
+    @pytest.mark.asyncio
+    async def test_use_site_returns_canonical_handle(self, analyzer: JediAnalyzer) -> None:
+        """Pointing at a Widget usage in use_widget.py returns the definition-site handle."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        use_widget_path = str(_FIXTURE / "mypackage" / "use_widget.py")
+        # Line 11: "w = Widget()" — column 4 is 'W' of Widget (use site)
+        result = await resolve_at(use_widget_path, 11, 4, analyzer)
+
+        assert result["found"] is True, f"Expected found=True at use site, got: {result}"
+        assert "ambiguous" not in result
+        # Must resolve to the definition site, not the use site
+        assert result["handle"] == "mypackage._core.widgets.Widget"
+
+    @pytest.mark.asyncio
+    async def test_kind_recovery_via_canonical_fallback(self, analyzer: JediAnalyzer) -> None:
+        """When find_symbol returns no match, _kind_for_canonical recovers kind
+        by re-deriving from the canonical handle's definition file.
+
+        Forces the fallback path: stub find_symbol to return nothing, so
+        _resolve_dotted_name cannot get kind from the fast path and must
+        call _kind_for_canonical instead.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        # Force the fallback: stub find_symbol to return nothing
+        with patch.object(analyzer, "find_symbol", new=AsyncMock(return_value=[])):
+            result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == "mypackage._core.widgets.make_widget"
+        assert (
+            result["kind"] == "function"
+        ), f"_kind_for_canonical fallback should recover 'function', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_bare_module_returns_module(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A bare module name (no dot in handle) returns kind='module'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical("mypackage", analyzer)
+        assert kind == "module"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_nonexistent_module_returns_variable(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """A handle whose module file cannot be found returns kind='variable'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical("nonexistent_pkg.some.Symbol", analyzer)
+        assert kind == "variable"
+
+
+# ---------------------------------------------------------------------------
+# Method-kind consistency (issue #406)
+# ---------------------------------------------------------------------------
+
+
+class TestMethodKindConsistency:
+    """Regression tests for #406: every resolve path must report a method as
+    ``kind="method"``, consistent with ``inspect``/``outline``.
+
+    The fixture method is ``Widget.greet`` at ``widgets.py:37`` (``def greet``;
+    column 8 is the ``g`` of ``greet``).  Before the fix, the resolve path mapped
+    Jedi's ``type="function"`` straight to ``"function"`` while ``inspect`` and the
+    stub builder promoted it to ``"method"`` via ``_is_method`` — three primitives,
+    two answers, one symbol.
+    """
+
+    METHOD_HANDLE = "mypackage._core.widgets.Widget.greet"
+
+    @pytest.mark.asyncio
+    async def test_resolve_at_method_kind_is_method(self, analyzer: JediAnalyzer) -> None:
+        """resolve_at on a method reports kind='method', not 'function'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 37: "    def greet(self) -> str:" — column 8 is 'g' of greet.
+        result = await resolve_at(widgets_path, 37, 8, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == self.METHOD_HANDLE
+        assert (
+            result["kind"] == "method"
+        ), f"resolve_at should report a method as 'method', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_resolve_dotted_method_kind_is_method(self, analyzer: JediAnalyzer) -> None:
+        """resolve on a dotted method handle reports kind='method'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve(self.METHOD_HANDLE, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == self.METHOD_HANDLE
+        assert (
+            result["kind"] == "method"
+        ), f"resolve (dotted) should report a method as 'method', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_method_is_method(self, analyzer: JediAnalyzer) -> None:
+        """The _kind_for_canonical fallback re-derives a method as 'method'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical(self.METHOD_HANDLE, analyzer)
+        assert (
+            kind == "method"
+        ), f"_kind_for_canonical should recover 'method' for a method, got: {kind!r}"
+
+    @pytest.mark.asyncio
+    async def test_resolve_at_and_inspect_agree_on_method_kind(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """resolve_at and inspect must report the SAME kind for one method symbol."""
+        from pyeye.mcp.operations.inspect import inspect
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        resolved = await resolve_at(widgets_path, 37, 8, analyzer)
+        assert resolved["found"] is True
+
+        inspected = await inspect(resolved["handle"], analyzer)
+
+        assert resolved["kind"] == inspected["kind"], (
+            "resolve_at and inspect disagree on kind for the same symbol: "
+            f"resolve_at={resolved['kind']!r} inspect={inspected['kind']!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Identifier form parser — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifierFormParserEdgeCases:
+    """Additional edge-case tests for _parse_identifier."""
+
+    def test_dotted_name_with_colon_integer_classifies_as_dotted(self) -> None:
+        """A dotted FQN with a colon-line suffix is NOT a file:line — it's a dotted name.
+
+        The file:line regex matches ``mypackage.Widget:42`` but the path guard
+        rejects it (no ``/``, ``\\``, or ``.py`` ending) so it falls through to
+        dotted_name classification.  A future regex change could silently break this.
+        """
+        from pyeye.mcp.operations.resolve import _parse_identifier
+
+        result = _parse_identifier("mypackage.Widget:42")
+        assert result["kind"] == "dotted_name"
+        # The full string is preserved as the name (will fail resolution gracefully later)
+        assert result["name"] == "mypackage.Widget:42"
+
+
+# ---------------------------------------------------------------------------
+# Internal helper coverage — error paths and edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestNormaliseKind:
+    """Unit tests for the _normalise_kind helper."""
+
+    def test_none_returns_variable(self) -> None:
+        """None jedi_type maps to 'variable'."""
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind(None) == "variable"
+
+    def test_unknown_type_returns_itself(self) -> None:
+        """An unknown type string is passed through unchanged."""
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("some_new_jedi_type") == "some_new_jedi_type"
+
+    def test_class_maps_correctly(self) -> None:
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("class") == "class"
+
+    def test_statement_maps_to_variable(self) -> None:
+        from pyeye.mcp.operations.resolve import _normalise_kind
+
+        assert _normalise_kind("statement") == "variable"
+
+
+class TestResolveBareNameErrorPaths:
+    """Error-path coverage for _resolve_bare_name."""
+
+    @pytest.mark.asyncio
+    async def test_find_symbol_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """When find_symbol raises, _resolve_bare_name returns not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(analyzer, "find_symbol", side_effect=RuntimeError("boom")):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
+
+    @pytest.mark.asyncio
+    async def test_matches_without_full_name_returns_not_found(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Matches that lack full_name are filtered out — returns not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(
+            analyzer,
+            "find_symbol",
+            new=AsyncMock(return_value=[{"name": "Config", "file": "x.py"}]),
+        ):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+
+    @pytest.mark.asyncio
+    async def test_empty_matches_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """Empty find_symbol results return not-found."""
+        from pyeye.mcp.operations.resolve import _resolve_bare_name
+
+        with patch.object(analyzer, "find_symbol", new=AsyncMock(return_value=[])):
+            result = await _resolve_bare_name("Config", analyzer)
+
+        assert result["found"] is False
+
+
+class TestHandleToFile:
+    """Unit tests for the _handle_to_file helper."""
+
+    def test_single_component_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
+        """A Handle with no dot (bare module) returns None — no module part to look up."""
+        from pyeye.handle import Handle
+        from pyeye.mcp.operations.resolve import _handle_to_file
+
+        result = _handle_to_file(Handle("mypackage"), analyzer)
+        assert result is None
+
+    def test_known_handle_returns_posix_path(self, analyzer: JediAnalyzer) -> None:
+        """A valid handle returns a posix-formatted path string."""
+        from pyeye.handle import Handle
+        from pyeye.mcp.operations.resolve import _handle_to_file
+
+        result = _handle_to_file(Handle("mypackage._core.widgets.Widget"), analyzer)
+        assert result is not None
+        assert "/" in result  # posix path
+        assert not result.startswith("\\")
+
+
+class TestResolveFileLineErrorPaths:
+    """Error-path coverage for _resolve_file_line."""
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_file_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """A file path that does not exist returns file_not_found."""
+        from pyeye.mcp.operations.resolve import _resolve_file_line
+
+        result = await _resolve_file_line(Path("/nonexistent/path/file.py"), 1, analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "file_not_found"
+
+    @pytest.mark.asyncio
+    async def test_goto_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """When script.goto() raises, returns no_symbol_at_position."""
+        import jedi
+
+        from pyeye.mcp.operations.resolve import _resolve_file_line
+
+        widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        with patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")):
+            result = await _resolve_file_line(widgets_path, 21, analyzer)
+
+        assert result["found"] is False
+        assert result["reason"] == "no_symbol_at_position"
+
+
+class TestResolveFileOnlyErrorPaths:
+    """Error-path coverage for _resolve_file_only."""
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_file_returns_not_found(self, analyzer: JediAnalyzer) -> None:
+        """A file path that does not exist returns file_not_found."""
+        from pyeye.mcp.operations.resolve import _resolve_file_only
+
+        result = await _resolve_file_only(Path("/nonexistent/file.py"), analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "file_not_found"
+
+    @pytest.mark.asyncio
+    async def test_file_with_no_module_path_returns_not_found(
+        self, analyzer: JediAnalyzer, tmp_path: Path
+    ) -> None:
+        """A file that exists but cannot be mapped to a module returns unresolved."""
+        from pyeye.mcp.operations.resolve import _resolve_file_only
+
+        # File outside project root — _get_import_path_for_file returns None/empty
+        temp_file = tmp_path / "orphan.py"
+        temp_file.write_text("x = 1")
+        result = await _resolve_file_only(temp_file, analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
+
+
+class TestFindSymbolColumnOnLine:
+    """Unit tests for the _find_symbol_column_on_line helper."""
+
+    def test_out_of_range_line_returns_zero(self, tmp_path: Path) -> None:
+        """A line number beyond the file's last line returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n")
+        assert _find_symbol_column_on_line(f, 999) == 0
+
+    def test_zero_line_returns_zero(self, tmp_path: Path) -> None:
+        """Line 0 is out of range (1-indexed), returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n")
+        assert _find_symbol_column_on_line(f, 0) == 0
+
+    def test_empty_line_returns_zero(self, tmp_path: Path) -> None:
+        """A line containing only whitespace returns 0."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("x = 1\n   \ny = 2\n")
+        assert _find_symbol_column_on_line(f, 2) == 0
+
+    def test_exception_returns_zero(self) -> None:
+        """An unreadable path returns 0 (exception absorbed)."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        result = _find_symbol_column_on_line(Path("/nonexistent/path.py"), 1)
+        assert result == 0
+
+    def test_class_keyword_skipped(self, tmp_path: Path) -> None:
+        """'class' keyword is skipped to land on the class name."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("class MyClass:\n    pass\n")
+        col = _find_symbol_column_on_line(f, 1)
+        # "class " is 6 chars, so column should be 6
+        assert col == 6
+
+    def test_def_keyword_skipped(self, tmp_path: Path) -> None:
+        """'def' keyword is skipped to land on the function name."""
+        from pyeye.mcp.operations.resolve import _find_symbol_column_on_line
+
+        f = tmp_path / "sample.py"
+        f.write_text("def my_func():\n    pass\n")
+        col = _find_symbol_column_on_line(f, 1)
+        # "def " is 4 chars
+        assert col == 4
+
+
+# ---------------------------------------------------------------------------
+# Span location tests — column_end and line_end correctness
+# ---------------------------------------------------------------------------
+
+
+class TestSpanLocationSemantics:
+    """Verify that Location spans name identifiers and full definition bodies."""
+
+    @pytest.mark.asyncio
+    async def test_class_location_spans_full_definition(self) -> None:
+        """A class location spans from the class name through the end of the body.
+
+        Widget is defined at line 21 in widgets.py.
+        'Widget' is 6 characters, so column_end - column_start == 6.
+        Widget has methods and attributes, so line_end > line_start.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.Widget", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        # Name span: "Widget" is 6 characters
+        assert loc["column_end"] - loc["column_start"] == 6, (
+            f"'Widget' is 6 chars; expected column span of 6, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Body span: Widget has multiple methods — line_end must exceed line_start
+        assert loc["line_end"] > loc["line_start"], (
+            f"Widget class body should span multiple lines; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_function_location_spans_body(self) -> None:
+        """A function location spans from the function name through the end of the body.
+
+        make_widget is defined in widgets.py.
+        'make_widget' is 11 characters, so column_end - column_start == 11.
+        make_widget has a body, so line_end >= line_start.
+        """
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.make_widget", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        # Name span: "make_widget" is 11 characters
+        assert loc["column_end"] - loc["column_start"] == 11, (
+            f"'make_widget' is 11 chars; expected column span of 11, "
+            f"got {loc['column_end'] - loc['column_start']} (loc={loc})"
+        )
+        # Function body spans at least the def line plus its body
+        assert loc["line_end"] >= loc["line_start"], (
+            f"line_end must be >= line_start; "
+            f"got line_start={loc['line_start']}, line_end={loc['line_end']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_column_end_greater_than_column_start_for_any_name(self) -> None:
+        """column_end > column_start for any non-empty symbol name."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        analyzer = JediAnalyzer(str(_RESOLVE_FIXTURE))
+        result = await resolve("mypackage._core.widgets.Config", analyzer)
+
+        assert result["found"] is True
+        loc = result["location"]
+        assert "column_start" in loc, "column_start must be present"
+        assert "column_end" in loc, "column_end must be present"
+        assert loc["column_end"] > loc["column_start"], (
+            f"column_end must be > column_start for a named symbol; "
+            f"got column_start={loc['column_start']}, column_end={loc['column_end']}"
+        )
