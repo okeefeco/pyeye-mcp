@@ -20,8 +20,7 @@ Quick Start for Contributors
 
    .. code-block:: bash
 
-      uv venv
-      uv pip install -e ".[dev]"
+      uv sync
       pre-commit install
 
 3. **Run Tests**
@@ -163,12 +162,12 @@ Building Documentation
 
 .. code-block:: bash
 
-   # Install documentation dependencies
-   uv pip install sphinx sphinx-autodoc-typehints sphinx-rtd-theme
+   # Install documentation dependencies (the `docs` dependency-group)
+   uv sync --group docs
 
    # Build documentation
    cd docs
-   sphinx-build -b html source build
+   uv run sphinx-build -b html source build
 
    # Preview documentation
    python -m http.server 8000 -d build

@@ -37,7 +37,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Install dependencies
-        run: uv sync --all-extras  # creates .venv so the repo:local hooks' `uv run <tool>` resolves
+        run: uv sync  # creates .venv so the repo:local hooks' `uv run <tool>` resolves
       - uses: pre-commit/action@v3.0.1
 
   # Detect if only documentation files changed
@@ -122,12 +122,10 @@ jobs:
           cache-dependency-glob: '**/pyproject.toml'
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
+        run: uv sync
 
       - name: Run tests with coverage
-        run: |
-          pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+        run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
@@ -164,12 +162,10 @@ jobs:
           cache-dependency-glob: '**/pyproject.toml'
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
+        run: uv sync
 
       - name: Run tests with coverage
-        run: |
-          pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+        run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
@@ -210,12 +206,10 @@ jobs:
           cache-dependency-glob: '**/pyproject.toml'
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
+        run: uv sync
 
       - name: Run worktree-hook plugin tests
-        run: |
-          pytest plugins/worktree-hook/tests --no-cov
+        run: uv run pytest plugins/worktree-hook/tests --no-cov
 
   type-check:
     # Skip type checking for documentation-only changes in PRs
@@ -239,10 +233,7 @@ jobs:
           cache-dependency-glob: '**/pyproject.toml'
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
-          # Install setuptools_scm for version file generation
-          uv pip install --system setuptools_scm
+        run: uv sync  # setuptools_scm is in the dev group
 
       - name: Generate version file
         run: |
@@ -283,11 +274,10 @@ jobs:
           ''')
           print(f'Generated _version.py with version {version}')
           EOF
-          python generate_version.py
+          uv run python generate_version.py
 
       - name: Run mypy
-        run: |
-          mypy src/pyeye --ignore-missing-imports
+        run: uv run mypy src/pyeye --ignore-missing-imports
 
   changelog-validation:
     # Validate changelog format
@@ -322,12 +312,10 @@ jobs:
           cache-dependency-glob: '**/pyproject.toml'
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
+        run: uv sync
 
       - name: Run bandit
-        run: |
-          bandit -r src/ -ll
+        run: uv run bandit -r src/ -ll
 
       # Safety check removed - deprecated command with compatibility issues
       # Consider using pip-audit or other alternatives in future

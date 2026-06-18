@@ -26,9 +26,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 - Use `uv` for consistent Python management:
 
   ```bash
-  uv venv
-  source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-  uv pip install -e ".[dev]"
+  uv sync
   ```
 
 ### Virtual Environment Setup
@@ -37,23 +35,16 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 
 **Solution**:
 
-1. Always use a virtual environment:
+1. Sync the uv-managed environment (creates `.venv`, installs deps from the lock):
 
    ```bash
-   uv venv
-   source .venv/bin/activate
+   uv sync
    ```
 
-2. Reinstall dependencies:
+2. Verify installation:
 
    ```bash
-   uv pip install -e ".[dev]"
-   ```
-
-3. Verify installation:
-
-   ```bash
-   python -c "import pyeye; print(pyeye.__version__)"
+   uv run python -c "import pyeye; print(pyeye.__version__)"
    ```
 
 ### Dependency Conflicts
@@ -66,14 +57,13 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 
    ```bash
    rm -rf .venv
-   uv venv
-   uv pip install -e ".[dev]"
+   uv sync
    ```
 
 2. Check for conflicting packages:
 
    ```bash
-   uv pip list | grep -E "jedi|fastmcp|mcp"
+   uv run pip list | grep -E "jedi|fastmcp|mcp"
    ```
 
 ### Platform-Specific Issues

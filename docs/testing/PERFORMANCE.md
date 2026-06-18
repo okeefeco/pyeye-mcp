@@ -482,9 +482,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
-          pip install pytest-benchmark
+        run: uv sync  # installs the package + dev group (add benchmark tooling to a dependency-group if adopted)
 
       - name: Run performance tests
         run: |

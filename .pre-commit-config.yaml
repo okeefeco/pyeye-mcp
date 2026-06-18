@@ -41,8 +41,7 @@ repos:
   # `uv run`, so their versions come from the single pin in pyproject.toml
   # (dev group) rather than separate hook `rev:`s. This keeps pre-commit,
   # `uv run <tool>`, and CI on the exact same binary — no drift (#413).
-  # Requires a synced env (`uv sync --all-extras`); CI does this before
-  # running pre-commit.
+  # Requires a synced env (`uv sync`); CI does this before running pre-commit.
   - repo: local
     hooks:
       # Code formatting
