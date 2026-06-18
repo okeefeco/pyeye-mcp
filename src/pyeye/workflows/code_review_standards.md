@@ -59,9 +59,8 @@ This workflow enforces:
 
 **Automated Checks** (should be in CI):
 
-- [ ] `ruff check` - Fast linter (replaces flake8)
+- [ ] `ruff check` - Fast linter and import sorting (replaces flake8, isort)
 - [ ] `black` - Code formatting
-- [ ] `isort` - Import sorting
 
 **Manual Review**:
 
@@ -341,7 +340,7 @@ except ValueError as e:
 2. Third-party libraries
 3. Local application imports
 
-**Tool**: Use `isort` to automatically organize imports
+**Tool**: Use `ruff` (the `I` import-sorting rules) to automatically organize imports
 
 **MCP Tool**: `expand(edge="imports")` on a module to review its top-level imports — check for appropriate dependencies and no circular imports.
 
