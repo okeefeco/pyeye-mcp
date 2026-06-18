@@ -101,8 +101,8 @@ assert_performance_threshold(elapsed_ms, threshold, "Operation name")
 Pre-commit runs automatically on commit and includes:
 
 - **Security scanning** (detect-secrets, bandit, pip-audit)
-- **Code formatting** (black, isort)
-- **Linting** (ruff)
+- **Code formatting** (black)
+- **Linting and import sorting** (ruff)
 - **Type checking** (mypy)
 - **Documentation checks** (pydocstyle)
 - **Cross-platform path checking** (custom hook)
