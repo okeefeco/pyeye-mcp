@@ -64,6 +64,7 @@ dev = [
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks
+    "click>=8.0.0",  # CLI for scripts/dogfooding_metrics.py (was only transitively present)
     "setuptools_scm[toml]>=8",  # _version.py generation (mirrors [build-system].requires)
     "tomli>=2.0.0; python_version < '3.11'",  # TOML parsing for Python 3.10
     # Note: pre-commit removed from dev deps - install at user level instead:
