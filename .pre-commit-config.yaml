@@ -62,15 +62,19 @@ repos:
         types: [python]
         args: ['--fix', '--exit-non-zero-on-fix']
 
-      # Type checking (src only — mypy type stubs live in the pyproject dev
-      # group so `uv run mypy` picks them up)
+      # Type checking — run on the whole package as a unit (pass_filenames:
+      # false), NOT on the per-file list pre-commit would otherwise pass. mypy
+      # is a whole-program analyser; feeding it batched file subsets makes
+      # mypy 2.x INTERNAL-ERROR on a partial module graph (caught in CI on #413).
+      # This invocation is identical to the CI `type-check` job. Type stubs live
+      # in the pyproject dev group so `uv run mypy` picks them up.
       - id: mypy
         name: mypy
         entry: uv run mypy
         language: system
         types: [python]
-        args: ['--ignore-missing-imports']
-        exclude: ^tests/
+        pass_filenames: false
+        args: ['src/pyeye', '--ignore-missing-imports']
 
   # Documentation
   - repo: https://github.com/pycqa/pydocstyle
