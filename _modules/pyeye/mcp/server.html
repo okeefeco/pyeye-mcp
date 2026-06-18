@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=57afe5f1"></script>
+      <script src="../../../_static/documentation_options.js?v=9cc1d625"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -766,7 +766,11 @@
 <span class="sd">    Supported edges (the complete static/outbound set):</span>
 <span class="sd">      - ``members``  — class/module → direct members (attributes, methods, nested</span>
 <span class="sd">        classes).  ``stubs: []`` means the class/module was found but has no</span>
-<span class="sd">        members; that is NOT the same as unsupported.</span>
+<span class="sd">        members; that is NOT the same as unsupported.  Static-surface ceiling:</span>
+<span class="sd">        members are read from source; runtime-injected members (metaclass /</span>
+<span class="sd">        ``setattr`` / ``__getattr__`` / ``type()`` / ``__init_subclass__``) are</span>
+<span class="sd">        NOT captured — e.g. a Django ``Model`` shows none of its metaclass-injected</span>
+<span class="sd">        ``_meta`` / ``objects`` / ``DoesNotExist``.</span>
 <span class="sd">      - ``callees``  — function/method → forward static call targets.  Includes</span>
 <span class="sd">        project symbols and stdlib/external symbols reachable via Jedi&#39;s goto.</span>
 <span class="sd">        Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are</span>
@@ -788,6 +792,10 @@
 <span class="sd">        handle also returns the supported branch with ``stubs: []`` — only a</span>
 <span class="sd">        class CAN be subclassed,</span>
 <span class="sd">        so ``[]`` is true by definition, not an absence-vs-zero lie.</span>
+<span class="sd">        Static-surface ceiling: the &quot;full closure&quot; is full only over literal</span>
+<span class="sd">        ``class B(A):`` subclassing; dynamically-created subclasses</span>
+<span class="sd">        (``type(&#39;B&#39;, (A,), {})``, factory-built classes, ``__init_subclass__``</span>
+<span class="sd">        registration) are NOT captured.</span>
 <span class="sd">      - ``superclasses``  — class → its base classes (class Stubs), resolved by</span>
 <span class="sd">        Jedi from the class definition (no reverse search).  A non-class handle</span>
 <span class="sd">        returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).</span>
@@ -948,6 +956,13 @@
 <span class="sd">    Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then</span>
 <span class="sd">    ``outline()`` to see the complete structural skeleton in one call — the</span>
 <span class="sd">    single-call answer to &quot;show me the structure of this scope.&quot;</span>
+
+<span class="sd">    **Static-surface ceiling.** The tree walks the ``members`` edge, so it is</span>
+<span class="sd">    complete over what is *statically defined in source* but not over runtime.</span>
+<span class="sd">    Runtime-injected members (metaclass / ``setattr`` / ``__getattr__`` /</span>
+<span class="sd">    ``type()`` / ``__init_subclass__``) are NOT captured — e.g. ``outline`` of a</span>
+<span class="sd">    Django ``Model`` omits its metaclass-injected ``_meta`` / ``objects`` /</span>
+<span class="sd">    ``DoesNotExist``.  An absent member is &quot;not in source,&quot; not &quot;not at runtime.&quot;</span>
 
 <span class="sd">    **Absence contracts — an agent MUST read these before consuming the tree.**</span>
 
