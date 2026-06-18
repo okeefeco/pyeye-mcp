@@ -25,7 +25,7 @@ Map common requests to the right tool. Some operations use a subagent; most are 
 ### "Create worktree" / "Setup a worktree" / "Switch to issue X"
 
 → Use the native `EnterWorktree` tool (or the `Agent` tool with `isolation: "worktree"`); the superpowers `using-git-worktrees` skill is the entry point and drives this. Native tooling places the worktree under `.claude/worktrees` (gitignored) and lets the harness track and clean it up.
-→ Set up the env with `uv sync --all-extras` (this is a `uv` project — NOT `uv pip install` / `uv venv`; see `feedback_uv_sync_setup`).
+→ Set up the env with `uv sync` (this is a `uv` project — NOT `uv pip install` / `uv venv`; `dev` is uv's default group so a bare `uv sync` installs all dev tooling. See `feedback_uv_sync_setup`).
 → Switching to an existing worktree is just `cd` into it (`git worktree list` to find paths).
 
 ### "Remove worktree" / "Delete worktree" / "Clean up worktree"
