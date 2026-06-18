@@ -28,6 +28,7 @@ from ..scope_utils import (
     parallel_search,
 )
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
+from .base_resolution import build_import_table, build_module_defines, resolve_base
 
 logger = logging.getLogger(__name__)
 
@@ -3159,14 +3160,6 @@ class JediAnalyzer:
                 except Exception as e:
                     logger.debug(f"Error parsing {py_file}: {e}")
 
-            # Index FQNs by simple (leaf) name.  Used by the FQN-strict resolver
-            # to take a path-independent fast path when a leaf name is unique
-            # (no Jedi goto/canonicalisation needed — robust on symlinked temp
-            # dirs; issue #335).
-            fqns_by_leaf: dict[str, list[str]] = {}
-            for fqn in classes_by_fqn:
-                fqns_by_leaf.setdefault(fqn.split(".")[-1], []).append(fqn)
-
             # -------------------------------------------------------------------
             # Ambiguity check: when caller passes a bare simple name and multiple
             # distinct FQN-keyed classes share that leaf name, return the
@@ -3205,19 +3198,47 @@ class JediAnalyzer:
             resolved_cache: dict[tuple[str, int, int], str | None] = {}
             canonical_cache: dict[str, Handle | None] = {}
 
+            # Build the resolved parent->children index ONCE (#405).  The old
+            # per-target resolver re-resolved every class base on every closure
+            # node (O(closure_nodes x classes x goto)).  Instead, resolve each
+            # base a single time here and bucket the child under its base's
+            # definition-site key, so the lookups below are O(1).  Resolution is
+            # AST-first (resolve_base — no Jedi, #335-robust) with a Jedi goto
+            # fallback only when the AST cannot commit; both routes yield the
+            # same definition-site key.
+            import_tables, module_defines = self._build_ast_resolution_tables(py_files)
+            resolved_index: dict[str, set[str]] = {}
+            for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
+                child_module = self._get_import_path_for_file(child_file) or child_file.stem
+                for base in child_node.bases:
+                    base_dotted = self._get_base_name_from_ast(base)
+                    if not base_dotted or base_dotted.split(".")[-1] == "object":
+                        continue
+                    key = await self._resolve_base_to_key(
+                        base,
+                        base_dotted,
+                        child_module,
+                        child_file,
+                        import_tables,
+                        module_defines,
+                        resolved_cache,
+                        canonical_cache,
+                    )
+                    if key is not None:
+                        resolved_index.setdefault(key, set()).add(child_fqn)
+
+            async def direct_children(target_fqn: str) -> set[str]:
+                """Children whose base resolves to *target_fqn* (def-site exact or re-export)."""
+                key = self._target_index_key(target_fqn, import_tables, module_defines)
+                if key is None:
+                    canon = await self._canonical_cached(target_fqn, canonical_cache)
+                    key = str(canon) if canon is not None else target_fqn
+                return set(resolved_index.get(key, set()))
+
             if is_fqn_input:
-                # FQN-strict path: only include children whose declared base
-                # canonically resolves to the requested FQN.  See
-                # _resolve_direct_subclass_fqns for the re-export-aware match
-                # (issue #335 Bug A).
-                direct_fqns = await self._resolve_direct_subclass_fqns(
-                    base_class,
-                    classes_by_fqn,
-                    parent_to_children,
-                    fqns_by_leaf,
-                    resolved_cache,
-                    canonical_cache,
-                )
+                # FQN-strict path: children whose declared base resolves to the
+                # requested FQN's definition site (re-export-aware; issue #335 Bug A).
+                direct_fqns = await direct_children(base_class)
 
             else:
                 # Simple name path (unambiguous — ambiguity was checked above).
@@ -3241,10 +3262,9 @@ class JediAnalyzer:
             # Collect indirect subclasses via graph traversal.
             #
             # Issue #335 Bug B: each grandchild step re-resolves children against
-            # the *FQN* of the current subclass (via _resolve_direct_subclass_fqns)
-            # rather than re-keying on its simple name.  Two unrelated classes that
-            # share a simple name therefore never cross-contaminate each other's
-            # (in)direct subclass sets.
+            # the *FQN* (definition-site key) of the current subclass, so two
+            # unrelated classes that share a simple name never cross-contaminate
+            # each other's (in)direct subclass sets.
             if include_indirect:
                 all_matching_fqns = set(direct_fqns)
                 queue = list(direct_fqns)
@@ -3252,15 +3272,7 @@ class JediAnalyzer:
                     current_fqn = queue.pop()
                     if current_fqn not in classes_by_fqn:
                         continue
-                    children = await self._resolve_direct_subclass_fqns(
-                        current_fqn,
-                        classes_by_fqn,
-                        parent_to_children,
-                        fqns_by_leaf,
-                        resolved_cache,
-                        canonical_cache,
-                    )
-                    for child_fqn in children:
+                    for child_fqn in await direct_children(current_fqn):
                         if child_fqn not in all_matching_fqns:
                             all_matching_fqns.add(child_fqn)
                             queue.append(child_fqn)
@@ -3340,122 +3352,94 @@ class JediAnalyzer:
         resolved_canonical = await self._canonical_cached(resolved, canonical_cache)
         return resolved_canonical is not None and str(resolved_canonical) == str(canonical_target)
 
-    async def _resolve_direct_subclass_fqns(
-        self,
-        target_fqn: str,
-        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
-        parent_to_children: dict[str, set[str]],
-        fqns_by_leaf: dict[str, list[str]],
-        resolved_cache: dict[tuple[str, int, int], str | None],
-        canonical_cache: dict[str, Handle | None],
-    ) -> set[str]:
-        """Return FQNs of classes whose declared base resolves to ``target_fqn``.
+    def _build_ast_resolution_tables(
+        self, py_files: list[Path]
+    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
+        """Build per-module AST import/define tables for AST-first base resolution (#405).
 
-        FQN-strict: a candidate child matches only when Jedi's resolved base
-        ``full_name`` equals ``target_fqn`` exactly OR canonicalises to the same
-        definition site.  This both honours re-export boundaries (issue #335
-        Bug A) and lets the indirect/grandchild traversal carry FQN identity
-        rather than re-keying on the simple class name (issue #335 Bug B).
-
-        **Path-independent fast path:** when exactly one project class bears the
-        leaf name and its AST FQN equals ``target_fqn``, the relationship is
-        unambiguous from the AST alone, so candidate children are accepted
-        without invoking Jedi ``goto``/canonicalisation.  This avoids the
-        symlinked-temp-dir fragility (macOS ``/var`` -> ``/private/var``) that
-        makes Jedi return degraded results, and also speeds up the common case.
-        Jedi resolution is reserved for genuine simple-name collisions and
-        re-export-path mismatches.
-
-        Args:
-            target_fqn: The (definition-site or re-export) FQN to match against.
-            classes_by_fqn: FQN -> (node, tree, file) mapping.
-            parent_to_children: declared-base-name -> set of child FQNs.
-            fqns_by_leaf: simple (leaf) name -> list of class FQNs sharing it.
-            resolved_cache: shared (file, line, col) -> resolved full_name cache.
-            canonical_cache: shared identifier -> canonical Handle cache.
+        Returns ``(import_tables, module_defines)`` keyed by the same module
+        derivation (:meth:`_get_import_path_for_file`) used to build class FQNs,
+        so resolution keys line up.  ASTs come from the shared cache; relative
+        imports reuse ``ImportAnalyzer``'s resolver.
         """
-        leaf_name = target_fqn.split(".")[-1]
-
-        # Path-independent fast path: a unique leaf whose sole class IS the
-        # target leaves no ambiguity, so no Jedi resolution is needed.
-        same_leaf_fqns = fqns_by_leaf.get(leaf_name, [])
-        fast_accept = len(same_leaf_fqns) == 1 and same_leaf_fqns[0] == target_fqn
-
-        # Only canonicalise (Jedi-backed) when the fast path does not apply.
-        canonical_target = (
-            None if fast_accept else await self._canonical_cached(target_fqn, canonical_cache)
-        )
-
-        found: set[str] = set()
-
-        # Gather candidate children: declared base simple name == leaf_name
-        # OR declared base dotted name ends with ".{leaf_name}".
-        candidate_child_fqns: set[str] = set()
-        if leaf_name in parent_to_children:
-            candidate_child_fqns.update(parent_to_children[leaf_name])
-        for parent_name, children in parent_to_children.items():
-            if parent_name != leaf_name and parent_name.endswith(f".{leaf_name}"):
-                candidate_child_fqns.update(children)
-
-        for child_fqn in candidate_child_fqns:
-            if child_fqn not in classes_by_fqn:
+        import_tables: dict[str, dict[str, str]] = {}
+        module_defines: dict[str, dict[str, str]] = {}
+        resolve_relative = ImportAnalyzer(self.project_path)._resolve_relative_import
+        for py_file in py_files:
+            module_name = self._get_import_path_for_file(py_file) or py_file.stem
+            if module_name in import_tables:
                 continue
-            if fast_accept:
-                # Unambiguous: the unique class named leaf_name is target_fqn.
-                found.add(child_fqn)
-                continue
-            child_node, _, child_file = classes_by_fqn[child_fqn]
             try:
-                script = file_artifact_cache.get_script(child_file, self.project)
+                tree = file_artifact_cache.get_ast(py_file)
             except Exception:
                 continue
+            import_tables[module_name] = build_import_table(tree, module_name, resolve_relative)
+            module_defines[module_name] = build_module_defines(tree)
+        return import_tables, module_defines
 
-            for base in child_node.bases:
-                base_name = self._get_base_name_from_ast(base)
-                if not base_name:
-                    continue
-                if base_name.split(".")[-1] != leaf_name:
-                    continue
+    async def _resolve_base_to_key(
+        self,
+        base: ast.expr,
+        base_dotted: str,
+        child_module: str,
+        child_file: Path,
+        import_tables: dict[str, dict[str, str]],
+        module_defines: dict[str, dict[str, str]],
+        resolved_cache: dict[tuple[str, int, int], str | None],
+        canonical_cache: dict[str, Handle | None],
+    ) -> str | None:
+        """Resolve one class base to its definition-site index key, or ``None``.
 
-                # For ast.Attribute nodes (e.g. "_core.widgets.Widget"),
-                # col_offset points to the first name component, not the leaf
-                # name.  Use the leaf's position so goto() resolves to the
-                # class, not the package/module.
-                goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
-                cache_key = (child_file.as_posix(), goto_line, goto_col)
-                if cache_key not in resolved_cache:
-                    resolved_fqn: str | None = None
-                    try:
-                        goto_results = script.goto(goto_line, goto_col, follow_imports=True)
-                        for gr in goto_results:
-                            if gr.name == leaf_name and gr.full_name:
-                                # Prefer full_name from Jedi — already FQN-qualified
-                                # and independent of project-relative path resolution.
-                                resolved_fqn = gr.full_name
-                                break
-                    except Exception:
-                        resolved_fqn = None
-                    resolved_cache[cache_key] = resolved_fqn
+        AST-first via :func:`resolve_base` (path-independent — this is what
+        preserves the old fast-path's macOS-symlink robustness, issue #335).
+        Only when the AST cannot commit does it fall back to Jedi ``goto``
+        (memoised by source position) plus canonicalisation, exactly as the old
+        resolver did across re-export boundaries.  Both routes yield the same
+        definition-site string, so index keys are consistent regardless of which
+        path resolved a given base.
+        """
+        ast_resolved = resolve_base(child_module, base_dotted, import_tables, module_defines)
+        if ast_resolved is not None:
+            return ast_resolved
 
-                if await self._fqn_matches_target(
-                    resolved_cache[cache_key], target_fqn, canonical_target, canonical_cache
-                ):
-                    found.add(child_fqn)
-                    break
+        leaf_name = base_dotted.split(".")[-1]
+        goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
+        cache_key = (child_file.as_posix(), goto_line, goto_col)
+        if cache_key not in resolved_cache:
+            resolved_fqn: str | None = None
+            try:
+                script = file_artifact_cache.get_script(child_file, self.project)
+                for gr in script.goto(goto_line, goto_col, follow_imports=True):
+                    if gr.name == leaf_name and gr.full_name:
+                        resolved_fqn = gr.full_name
+                        break
+            except Exception:
+                resolved_fqn = None
+            resolved_cache[cache_key] = resolved_fqn
 
-        # Also resolve aliased imports
-        # (e.g., "from mypackage._core.widgets import Widget as W; class X(W):")
-        found.update(
-            await self._resolve_aliased_bases(
-                leaf_name,
-                classes_by_fqn,
-                parent_to_children,
-                target_fqn=target_fqn,
-                canonical_target=canonical_target,
-                canonical_cache=canonical_cache,
-            )
-        )
-        return found
+        resolved = resolved_cache[cache_key]
+        if resolved is None:
+            return None
+        canonical = await self._canonical_cached(resolved, canonical_cache)
+        return str(canonical) if canonical is not None else resolved
+
+    def _target_index_key(
+        self,
+        target_fqn: str,
+        import_tables: dict[str, dict[str, str]],
+        module_defines: dict[str, dict[str, str]],
+    ) -> str | None:
+        """Resolve a target FQN to its AST definition-site key, or ``None``.
+
+        Splits the FQN into ``module.leaf`` and reuses :func:`resolve_base`, so a
+        target is keyed the same way bases are (following re-exports via AST).
+        ``None`` means the AST cannot resolve it — the caller then falls back to
+        Jedi canonicalisation to stay byte-identical with the old re-export match.
+        """
+        if "." not in target_fqn:
+            return None
+        target_module, target_leaf = target_fqn.rsplit(".", 1)
+        return resolve_base(target_module, target_leaf, import_tables, module_defines)
 
     async def _resolve_aliased_bases(
         self,
