@@ -2,7 +2,7 @@
 
 The canonical "what is this?" operation.  Returns kind, signature, location,
 docstring, plus kind-dependent fields.  No source content.  No edge expansions
-beyond the 5 Phase 4 edge types in edge_counts.
+beyond the edge types measured in edge_counts.
 
 Public API
 ----------
@@ -13,11 +13,18 @@ Public API
 
 Design notes
 ------------
-- ``edge_counts`` is ALWAYS present.  Phase 4 populates 5 edge types:
-  ``members`` (class/module), ``superclasses`` (class), ``subclasses`` (class,
-  project-scoped), ``callers`` (function/method), ``references`` (all kinds,
-  excludes call sites).  Unmeasured edge types are ABSENT (not 0).
-- ``re_exports``, ``highlights``, ``tags``, ``properties`` are ABSENT in Phase 4.
+- ``edge_counts`` is ALWAYS present.  It measures only edges derivable from the
+  symbol's own definition: ``members`` (class/module) and ``superclasses``
+  (class).  ``subclasses`` is intentionally OMITTED — counting it requires a
+  project-wide inheritance scan with no cheap-preview value, so it is an
+  expand-only edge (``expand(handle, "subclasses")``) (#392).  ``callers`` and
+  ``references`` are likewise OMITTED — deferred to the Pyright reference backend
+  (#333).  Unmeasured edge types are ABSENT (not 0).
+- ``re_exports`` (non-module kinds): present when measured (``[]`` = measured,
+  none found), or ABSENT if collection failed (couldn't measure).  ABSENT for
+  module kind (not computed for this kind).  Per the absence-vs-zero invariant,
+  absence never means "none".  ``highlights``, ``tags``, ``properties`` are not
+  currently computed and are therefore ABSENT.
 - ``Param.kind`` values: lowercase 5-value enum
   (``"positional"``, ``"positional_or_keyword"``, ``"keyword_only"``,
   ``"var_positional"``, ``"var_keyword"``).
@@ -48,7 +55,10 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members, resolve_superclasses
-from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
+
+# Kind normalisation + method detection live in resolve (the lower-level module)
+# so resolve, inspect, and stubs share one source of truth (#406).
+from pyeye.mcp.operations.resolve import _normalise_kind_from_name
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
 
@@ -120,33 +130,6 @@ def _make_location(
     if column_end is not None:
         loc["column_end"] = column_end
     return loc
-
-
-def _is_method(jedi_name: Any) -> bool:
-    """Return True if *jedi_name* is a method (a function enclosed by a class).
-
-    Reads the resolved Jedi ``Name``'s parent scope directly via
-    ``Name.parent()`` instead of re-deriving the enclosing scope from the dotted
-    handle.  Dotted-name string arithmetic plus a filesystem module lookup
-    cannot see class nesting — for ``module.Outer.Inner.method`` it treats
-    ``Outer`` as a module, fails to find it, and misclassifies the nested-class
-    method as a plain function (issue #337).  Using ``parent()`` also avoids a
-    redundant per-call Jedi ``Script`` load.
-
-    Args:
-        jedi_name: The resolved Jedi ``Name`` object for the symbol.
-
-    Returns:
-        ``True`` when the symbol is a function whose immediate enclosing scope
-        is a class (at any nesting depth).
-    """
-    if getattr(jedi_name, "type", None) != "function":
-        return False
-    try:
-        parent = jedi_name.parent()
-    except Exception:
-        return False
-    return parent is not None and getattr(parent, "type", None) == "class"
 
 
 def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, bool, bool]:
@@ -765,36 +748,6 @@ async def _count_superclasses(
     return len(resolve_superclasses(jedi_name, analyzer).handles)
 
 
-async def _count_subclasses(handle: str, analyzer: JediAnalyzer) -> int:
-    """Count project-internal subclasses of a class.
-
-    Delegates to ``analyzer.find_subclasses`` with ``scope="main"`` so only
-    project files are searched.  External subclasses (stdlib, third-party)
-    are excluded.
-
-    Args:
-        handle: The class's canonical dotted-name string.
-        analyzer: Active analyzer.
-
-    Returns:
-        Count of project-internal subclasses (direct + indirect).
-    """
-    try:
-        result = await analyzer.find_subclasses(
-            handle,  # Pass the full FQN for unambiguous, FQN-strict resolution
-            scope="main",
-            include_indirect=True,
-            show_hierarchy=False,
-        )
-        # Unambiguous path (FQN input never triggers ambiguous variant)
-        assert not result.get(
-            "ambiguous", False
-        ), f"FQN input to find_subclasses returned ambiguous variant: {handle!r}"
-        return len(result.get("subclasses", []))
-    except Exception:
-        return 0
-
-
 async def _build_edge_counts(
     handle: str,
     kind: str,
@@ -809,10 +762,14 @@ async def _build_edge_counts(
     time out or error are OMITTED from the returned dict (absence-vs-zero
     invariant).  Edges that succeed are included even when the count is 0.
 
-    Measured edge types:
+    Measured edge types (only edges derivable from the symbol's own definition):
     - ``members``: count of direct members (class and module handles)
     - ``superclasses``: count of direct superclasses (class handles)
-    - ``subclasses``: count of project-internal subclasses (class handles)
+
+    **``subclasses`` is intentionally NOT measured** (see #392).  Counting
+    project-internal subclasses requires the same project-wide inheritance scan
+    as listing them, so it has no cheap-preview value and is an expand-only edge
+    (``expand(handle, "subclasses")``).
 
     **``callers`` and ``references`` are intentionally NOT measured** (see #332).
     They were derived from Jedi's ``get_references``, which is budget-capped
@@ -850,7 +807,11 @@ async def _build_edge_counts(
     if kind == "class":
         coros["members"] = _count_class_members(handle, jedi_name, analyzer)
         coros["superclasses"] = _count_superclasses(jedi_name, analyzer, superclasses)
-        coros["subclasses"] = _count_subclasses(handle, analyzer)
+        # subclasses is intentionally NOT measured here — counting subclasses
+        # requires the same project-wide inheritance scan as listing them, so it
+        # has no cheap-preview value (#392).  It is an expand-only edge:
+        # expand(handle, "subclasses").  inspect's edge_counts reports only edges
+        # derivable from the symbol's own definition (members, superclasses).
 
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
@@ -888,14 +849,20 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     returns source content — signatures are single-line strings; ``location``
     is a pointer dict only; ``default`` fields are simple literals only.
 
-    Always includes ``edge_counts`` (Phase 4 measures: members, superclasses,
-    subclasses, callers, references — for relevant kinds).  Edges that exceed
-    their per-measurement budget are OMITTED, not zero.
-    Phase 6 adds ``re_exports`` for non-module kinds (class, function, method,
-    property, variable, attribute).  For module kind, ``re_exports`` is ABSENT
-    (not computed in Phase 6 — per the absence-vs-zero spec invariant: absent
-    means "we don't compute re_exports for this kind").
-    ``highlights``, ``tags``, and ``properties`` remain absent (later phases).
+    Always includes ``edge_counts`` (measures only edges derivable from the
+    symbol's own definition: members, superclasses — for relevant kinds).
+    ``subclasses`` is OMITTED — it is an expand-only edge
+    (``expand(handle, "subclasses")``), since counting it needs a project-wide
+    scan (#392).  ``callers`` and ``references`` are likewise OMITTED (deferred
+    to the Pyright reference backend, #333).
+    Edges that exceed their per-measurement budget are OMITTED, not zero.
+    ``re_exports`` — for non-module kinds (class, function, method, property,
+    variable, attribute): present when measured (``[]`` = measured, no
+    re-exports), or ABSENT if collection failed (couldn't measure).  ABSENT for
+    module kind (not computed for this kind).  Per the absence-vs-zero
+    invariant, absence never means "none".
+    ``highlights``, ``tags``, and ``properties`` are not currently computed and
+    are therefore ABSENT.
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at).
@@ -932,10 +899,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 
-    jedi_type: str = getattr(jedi_name, "type", None) or "statement"
-    # Determine if this function is actually a method
-    raw_kind = _normalise_kind(jedi_type)
-    kind = "method" if raw_kind == "function" and _is_method(jedi_name) else raw_kind
+    # Normalise kind, promoting class-enclosed functions to "method" (#406).
+    kind = _normalise_kind_from_name(jedi_name)
 
     location = location_from_name(file_str, jedi_name)
 

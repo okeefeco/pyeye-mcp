@@ -302,12 +302,15 @@ class User(BaseModel):
         # Ensure cleanup
         manager.cleanup_all()
 
-    def test_large_codebase_workflow(self, temp_project_dir):
+    @pytest.mark.asyncio
+    async def test_large_codebase_workflow(self, temp_project_dir):
         """Test handling large codebases with many files."""
-        # Create large structure
+        # Create large structure as importable packages so modules have
+        # canonical dotted handles that outline() can resolve.
         for i in range(20):
             module_dir = temp_project_dir / f"module{i}"
             module_dir.mkdir()
+            (module_dir / "__init__.py").write_text("")
 
             for j in range(10):
                 py_file = module_dir / f"file{j}.py"
@@ -317,17 +320,31 @@ def function_{i}_{j}():
     pass
 """)
 
-        # Test project structure listing
-        from pyeye.mcp.server import list_project_structure
+        # Verify the project's structure is discoverable end-to-end via the
+        # outline tool. outline() resolves a module handle and returns its
+        # structural skeleton (OutlineTree), proving the codebase is navigable.
+        # (list_project_structure was removed in the legacy-tool deletion;
+        # outline works on Python handles, not filesystem directory trees, so
+        # we assert on a module's members rather than a directory count.)
+        from pyeye.mcp.server import outline
 
-        structure = list_project_structure(str(temp_project_dir), max_depth=2)
+        structure = await outline(
+            handle="module0.file0",
+            project_path=str(temp_project_dir),
+            max_depth=2,
+        )
 
-        # The new structure returns a tree, not a flat count
-        assert "name" in structure
-        assert structure["type"] == "directory"
+        # OutlineTree shape: {"node": Stub, "children": [OutlineTree, ...]}.
+        assert "node" in structure
         assert "children" in structure
-        # Should have 20 module directories (we created 20 above)
-        assert len([c for c in structure["children"] if c["type"] == "directory"]) == 20
+        node = structure["node"]
+        assert node["kind"] == "module"
+        # The module's single top-level member (function_0_0) must be discovered.
+        child_handles = [c["node"]["handle"] for c in structure["children"]]
+        assert any(h.endswith("function_0_0") for h in child_handles), (
+            f"function_0_0 must be discoverable in module0.file0; "
+            f"got children={child_handles!r}"
+        )
 
     def test_cross_repository_import_resolution(self, temp_project_dir):
         """Test resolving imports across multiple repositories."""

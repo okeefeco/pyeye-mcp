@@ -45,7 +45,6 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
-from pyeye.mcp.operations.inspect import inspect
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -251,13 +250,16 @@ class TestExpandUnsupported:
     """Unsupported edges return the unsupported branch with the mapped reason."""
 
     @pytest.mark.asyncio
-    async def test_not_yet_implemented(self, analyzer: JediAnalyzer) -> None:
-        # Use ``imports`` — the remaining not_yet_implemented structural edge
-        # (superclasses moved to implemented in #361).
-        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
+    async def test_not_yet_implemented_via_none_resolver(self, analyzer: JediAnalyzer) -> None:
+        # ``enclosing_scope`` is now implemented (#370) — the ``not_yet_implemented``
+        # category is empty for real edge names.  The ``not_yet_implemented`` reason
+        # can still be triggered by a resolver that returns ``None`` for a wrong-kind
+        # handle (e.g. ``imported_by`` on a non-module).  We test that path here so
+        # the not_yet_implemented branch in ``expand`` remains covered.
+        result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
         assert result["unsupported"] is True
         assert result["reason"] == "not_yet_implemented"
-        assert result["edge"] == "imports"
+        assert result["edge"] == "imported_by"
         assert result["source"] == _WIDGET_HANDLE
         assert isinstance(result["detail"], str) and result["detail"]
         # Mutually exclusive: an unsupported result NEVER carries stubs.
@@ -317,11 +319,13 @@ class TestExpandBranchesMutuallyExclusive:
     @pytest.mark.parametrize(
         ("handle", "edge"),
         [
-            # superclasses is now implemented (#361) — replaced with ``imports``
-            # as the representative not_yet_implemented structural edge.
-            (_WIDGET_HANDLE, "imports"),
-            (_ORCHESTRATE_HANDLE, "callers"),
-            (_WIDGET_HANDLE, "bogus_edge"),
+            # enclosing_scope is now implemented (#370); imports in #367;
+            # superclasses in #361.  Use a deferred_reference_backend edge
+            # (``callers``) and a wrong-kind imported_by (returns None →
+            # not_yet_implemented) as representative unsupported cases.
+            (_WIDGET_HANDLE, "imported_by"),  # None resolver → not_yet_implemented
+            (_ORCHESTRATE_HANDLE, "callers"),  # deferred_reference_backend
+            (_WIDGET_HANDLE, "bogus_edge"),  # unknown_edge
         ],
     )
     async def test_unsupported_has_no_supported_markers(
@@ -432,6 +436,47 @@ class TestExpandImportedByModuleNoImportersSupported:
         # And they are genuinely different shapes (stubs vs reason).
         assert "stubs" in empty_module and "stubs" not in non_module
         assert "reason" not in empty_module and "reason" in non_module
+
+
+# ---------------------------------------------------------------------------
+# Issue #367 — imports wiring: non-module → None → not_yet_implemented
+# ---------------------------------------------------------------------------
+
+
+class TestExpandImportsNonModuleUnsupported:
+    """A NON-MODULE handle → unsupported ``not_yet_implemented`` (NOT empty).
+
+    The resolver (``resolve_imports``) returns ``None`` for a non-module handle
+    (a class/function has no "top-level imports" concept, so returning
+    ``stubs: []`` would be the #332 "measured zero" lie).  ``expand`` must
+    surface that ``None`` as the UNSUPPORTED branch with a KIND-SPECIFIC
+    ``detail`` — distinct from the source-not-found graceful-empty path and
+    from the module measured-empty path.
+
+    This mirrors ``TestExpandImportedByNonModuleUnsupported`` and proves the
+    ``None`` → not_yet_implemented flow end-to-end through ``expand``, not just
+    at the resolver layer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_class_imports_is_unsupported(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
+        # Unsupported branch — wrong kind for this edge.
+        assert result["unsupported"] is True
+        assert result["reason"] == "not_yet_implemented"
+        assert result["edge"] == "imports"
+        # Mutually exclusive: an unsupported result NEVER carries stubs.
+        assert "stubs" not in result
+        assert "unresolved_call_sites" not in result
+
+    @pytest.mark.asyncio
+    async def test_class_imports_detail_names_kind(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_WIDGET_HANDLE, "imports", analyzer)
+        detail = result["detail"]
+        assert isinstance(detail, str) and detail, "detail must be a non-empty str"
+        # Kind-specific: Widget is a class, so the detail must name the kind.
+        assert "class" in detail, f"detail must name the handle's kind (class): {detail!r}"
+        assert "imports" in detail, f"detail should name the edge: {detail!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -565,37 +610,28 @@ class TestExpandSubclassesNonClassMeasuredEmpty:
         assert "stubs" not in imported_by_wrong_kind
 
 
-class TestExpandSubclassesCountListConsistency:
-    """Progressive-disclosure contract: len(stubs) == inspect.edge_counts.subclasses.
+class TestExpandSubclassesEnumeration:
+    """``expand(handle, "subclasses")`` enumerates the project subclass closure.
 
-    The resolver and ``inspect._count_subclasses`` share the EXACT call shape
-    (``scope="main"``, ``include_indirect=True``, ``show_hierarchy=False``), so
-    the number of subclass stubs ``expand`` produces MUST equal the count
-    ``inspect`` reports for the same class.  This is the contract that justifies
-    the shared call shape; if it diverges, the resolver's enumeration or dedup
-    has drifted from ``find_subclasses``' result list (reconcile, don't relax).
+    subclasses is an expand-only edge (inspect no longer measures it — #392), so
+    these tests pin expand's enumeration directly against the fixture topology
+    rather than cross-checking an inspect count.
     """
 
     @pytest.mark.asyncio
-    async def test_expand_len_equals_inspect_count(self, subclasses_analyzer: JediAnalyzer) -> None:
+    async def test_expand_returns_full_project_closure(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
         expand_result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
-        inspect_result = await inspect(_ANIMAL_HANDLE, subclasses_analyzer)
-
         stub_count = len(expand_result["stubs"])
-        edge_count = inspect_result["edge_counts"]["subclasses"]
-        assert stub_count == edge_count, (
-            f"len(expand subclasses stubs)={stub_count} must equal "
-            f"inspect edge_counts['subclasses']={edge_count} (shared call shape)"
-        )
         # The fixture's known closure is exactly 3 (Mammal, Dog, Lizard); pin it
-        # so a fixture-topology change can't silently make this a 0==0 tautology.
+        # so a fixture-topology change surfaces loudly.
         assert stub_count == 3, f"fixture Animal closure should be 3 subclasses; got {stub_count}"
 
     @pytest.mark.asyncio
-    async def test_no_subclasses_consistency_holds_at_zero(
+    async def test_class_with_no_subclasses_returns_empty(
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
-        # The contract also holds for the measured-empty class case: 0 == 0.
+        # Measured-empty class case: a class with no project subclasses → 0 stubs.
         expand_result = await expand(_LONER_HANDLE, "subclasses", subclasses_analyzer)
-        inspect_result = await inspect(_LONER_HANDLE, subclasses_analyzer)
-        assert len(expand_result["stubs"]) == inspect_result["edge_counts"]["subclasses"] == 0
+        assert len(expand_result["stubs"]) == 0

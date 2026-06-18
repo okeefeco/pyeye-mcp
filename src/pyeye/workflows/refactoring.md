@@ -2,11 +2,15 @@
 
 ## Goal
 
-Perform safe refactoring of classes, functions, or modules by understanding the full impact of changes before making them. This workflow ensures you don't break existing code by analyzing:
+Refactor a class, function, or module by understanding the impact of a change
+*before* making it. Honest scope first: pyeye can confirm **inheritance impact**,
+**module-level dependents**, and the **dependency closure** statically. It **cannot**
+yet confirm **caller/reference impact** — that is deferred to the Pyright backend
+([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)). Any refactor that touches
+shared code must say so plainly.
 
-- Inheritance hierarchies (subclasses that depend on the structure)
-- All references (code that uses the symbol)
-- Module dependencies (imports and usage relationships)
+Tool mechanics (call shapes, return shapes, handles, edge semantics) live in
+`skills/python-explore/SKILL.md` — this file references tools by name only.
 
 ## When to Use This Workflow
 
@@ -15,240 +19,110 @@ Perform safe refactoring of classes, functions, or modules by understanding the 
 - "What will break if I modify this?"
 - "Help me refactor this module"
 
+## The Honest-Impact Boundary
+
+| Question | Tool | Reliable? |
+|----------|------|-----------|
+| What subclasses depend on this class? | `expand(edge="subclasses")` | Yes |
+| What base classes does it inherit from? | `expand(edge="superclasses")` | Yes |
+| Which modules import this module? | `expand(edge="imported_by")` | Yes (module-level) |
+| What is the dependency closure? | `analyze_dependencies` / `trace(follow=["imports"])` | Yes |
+| What is the current signature/structure? | `inspect` | Yes |
+| **Who calls / references this symbol?** | — | **No — deferred to #333** |
+
+**The crux:** there is no reliable "who calls this?" answer yet. Do NOT fake one with
+`grep` or the deprecated legacy reference tools — they under-report
+non-deterministically (see SKILL.md → "Honest Limits"). State the gap instead.
+
 ## Steps
 
-### Step 1: Find All Subclasses (For Classes)
+### Step 1: Establish the current shape
 
-**If refactoring a class**, first check the inheritance hierarchy:
+`inspect` the target symbol for its signature, docstring, and `edge_counts`. Record
+the before-state so you can compare after the change. For a class or module, `outline`
+gives the full skeleton in one call.
 
-Use `find_subclasses` to find all classes that inherit from the target class:
+### Step 2: Inheritance impact (for classes)
 
-```python
-# Example call
-find_subclasses(
-    base_class="Animal",
-    include_indirect=True,
-    show_hierarchy=True
-)
+`expand(edge="subclasses")` on the class to find project classes that extend it, and
+`expand(edge="superclasses")` to see what it inherits. Subclasses inherit
+methods/attributes — changing the base can break them.
 
-# Returns:
-# [
-#     {
-#         "name": "Dog",
-#         "file": "/project/animals/dog.py",
-#         "hierarchy": ["Animal", "Dog"]
-#     },
-#     {
-#         "name": "Puppy",
-#         "file": "/project/animals/puppy.py",
-#         "hierarchy": ["Animal", "Dog", "Puppy"]
-#     }
-# ]
-```
+### Step 3: Module dependents and dependency closure
 
-**Why this matters**: Subclasses inherit methods/attributes. Changing the base class can break subclass implementations.
+If the change affects a module:
 
-### Step 2: Find All References
+- `expand(edge="imported_by")` — which project modules import this one (module-level
+  dependents that will at least need an import update).
+- `analyze_dependencies` — imports, importers, and circular-dependency warnings.
+- `trace(follow=["imports"])` — walk the import closure across multiple hops when the
+  blast radius is wider than direct importers.
 
-Use the **[Find All References Workflow](workflows://find-references)** to locate every place the symbol is used:
+### Step 4: Assess impact honestly, then plan
 
-1. Get fully qualified name with `get_type_info`
-2. Find package references with `find_references`
-3. Find script/notebook references with `Grep`
-4. Combine results
+Combine what you measured:
 
-**Example Output**:
+- **Inheritance impact** — subclass count (Step 2).
+- **Module dependents** — importer count and dependency closure (Step 3).
+- **Caller/reference impact** — **unverified.** pyeye cannot statically confirm which
+  call sites or references touch this symbol (#333). Flag this explicitly in your plan
+  whenever the symbol is shared.
 
-- 15 references found in 8 files
-- Includes: direct instantiation, imports, type hints, inheritance
+Risk guidance:
 
-**Why this matters**: Every reference is a place that might need updating after your change.
+- **Low** — no subclasses, few/no importers: proceed, but still note callers are
+  unverified.
+- **Medium** — some subclasses or several importers: update deliberately, lean on tests.
+- **High** — deep hierarchy or wide import closure: consider a deprecation/compat shim,
+  and rely on the test suite (not pyeye) to surface caller breakage.
 
-### Step 3: Analyze Module Dependencies
+Change order: base symbol → direct subclasses → dependent modules.
 
-If refactoring affects a module, understand its dependency relationships:
+### Step 5: Make changes with validation
 
-Use `analyze_dependencies` to see what imports the module and what it imports:
+Tests are your caller-impact safety net, since pyeye can't be:
 
-```python
-# Example call
-analyze_dependencies(
-    module_path="mypackage.models",
-    scope="all"
-)
+1. Make the change to the target symbol.
+2. Run the test suite — this is the primary check that callers still work.
+3. `inspect` the symbol again to confirm the new signature/structure.
+4. Run the type checker (mypy/pyright) — it catches caller breakage pyeye cannot.
 
-# Returns:
-# {
-#     "module": "mypackage.models",
-#     "imports": ["sqlalchemy", "pydantic"],
-#     "imported_by": ["mypackage.services", "mypackage.api"],
-#     "circular_dependencies": []
-# }
-```
+## Refactoring Patterns
 
-**Why this matters**:
+- **Rename symbol** — update the definition; rely on tests + type checker to catch
+  callers (not statically enumerable).
+- **Change signature** — `inspect` before/after; deprecation shims ease migration since
+  every call site cannot be confirmed in advance.
+- **Move to another module** — `expand(edge="imported_by")` to find importers; add a
+  compatibility import in the old location if the closure is wide.
+- **Split a class** — `expand(edge="subclasses")` to decide the new hierarchy; migrate
+  members, then validate with tests.
 
-- `imported_by` shows which modules will be affected
-- `circular_dependencies` reveals potential issues
-- `imports` shows external dependencies to consider
-
-### Step 4: Review and Plan Changes
-
-Based on Steps 1-3, create a refactoring plan:
-
-**Impact Assessment**:
-
-- How many subclasses affected? (Step 1)
-- How many references to update? (Step 2)
-- Which modules depend on this? (Step 3)
-
-**Refactoring Strategy**:
-
-- **Low Impact** (<5 references, no subclasses): Proceed with confidence
-- **Medium Impact** (5-20 references, 1-3 subclasses): Update carefully
-- **High Impact** (>20 references, complex hierarchy): Consider deprecation strategy
-
-**Change Order**:
-
-1. Update base class/function
-2. Update direct subclasses
-3. Update all references (from Step 2)
-4. Update dependent modules (from Step 3)
-
-### Step 5: Make Changes with Validation
-
-Execute changes in order, validating each step:
-
-1. **Make the change** to the target symbol
-2. **Run tests** to catch immediate breaks
-3. **Re-run find_references** to verify all usages are updated
-4. **Check type hints** if using type checking (mypy/pyright)
-
-## Complete Example: Renaming a Class
-
-**Goal**: Rename `User` class to `Customer`
-
-### Analysis Phase
-
-```text
-Step 1: find_subclasses(base_class="User", show_hierarchy=True)
-→ Found: PremiumUser, AdminUser (2 subclasses)
-
-Step 2: Find All References (using find-references workflow)
-→ get_type_info → "mypackage.models.User"
-→ find_references → 12 package references
-→ Grep → 3 notebook references
-→ Total: 15 references across 10 files
-
-Step 3: analyze_dependencies(module_path="mypackage.models")
-→ imported_by: ["mypackage.services", "mypackage.api", "tests.test_models"]
-→ No circular dependencies
-```
-
-### Impact Assessment
-
-- **Subclasses**: 2 (PremiumUser, AdminUser)
-- **References**: 15 total
-- **Dependent modules**: 3
-
-**Risk Level**: Medium (manageable with careful execution)
-
-### Refactoring Plan
-
-1. Rename `User` → `Customer` in models.py
-2. Update subclasses: PremiumUser, AdminUser
-3. Update 12 package references
-4. Update 3 notebook references
-5. Run full test suite
-6. Verify with find_references again
-
-## Refactoring Checklist
+## Checklist
 
 Before changing code:
 
-- [ ] Run `find_subclasses` (for classes)
-- [ ] Run find-references workflow
-- [ ] Run `analyze_dependencies` (for modules)
-- [ ] Document impact assessment
-- [ ] Create refactoring plan
-
-During refactoring:
-
-- [ ] Follow planned change order
-- [ ] Run tests after each major change
-- [ ] Update type hints and docstrings
-- [ ] Handle both direct and indirect dependencies
+- [ ] `inspect` (and `outline` for classes/modules) to capture the before-state
+- [ ] `expand(edge="subclasses")` / `superclasses` for inheritance impact
+- [ ] `expand(edge="imported_by")` and `analyze_dependencies` for module dependents
+- [ ] Document impact — and explicitly flag that caller impact is unverified (#333)
 
 After refactoring:
 
-- [ ] Re-run find_references (should show new name only)
-- [ ] Run full test suite
-- [ ] Check for deprecation warnings
-- [ ] Update documentation
+- [ ] Run the full test suite (primary caller-impact check)
+- [ ] Run the type checker
+- [ ] `inspect` to confirm the new shape
 
-## Common Refactoring Patterns
+## Limitations
 
-### Pattern 1: Rename Symbol
-
-1. Find all references
-2. Update all at once
-3. Validate no old name remains
-
-### Pattern 2: Change Function Signature
-
-1. Find all references
-2. Check if calls use positional or keyword args
-3. Use deprecation warnings for gradual migration
-
-### Pattern 3: Move to Different Module
-
-1. Find all imports
-2. Update import statements
-3. Consider adding compatibility import in old location
-
-### Pattern 4: Split Large Class
-
-1. Find subclasses (decide which inherits from what)
-2. Find all references (categorize by usage)
-3. Create new classes
-4. Migrate references gradually
-
-## Limitations and Considerations
-
-**Known Limitations**:
-
-- Dynamic imports (e.g., `importlib.import_module()`) may not be found
-- String-based references (e.g., class name in config files) need manual search
-- Monkey-patching or runtime modifications won't be detected
-
-**Best Practices**:
-
-- Always use version control (git) before refactoring
-- Run tests frequently during the process
-- Consider feature flags for large refactorings
-- Document breaking changes in commit messages
-
-**Performance Tips**:
-
-- Cache results of find_references for reuse
-- Process files in dependency order (leaves first, roots last)
-- Use batch operations when possible
-
-## Success Indicators
-
-✅ **Complete analysis**: Understood all subclasses, references, and dependencies
-✅ **Planned execution**: Clear order of changes with validation points
-✅ **No broken references**: All old symbol usages updated
-✅ **Tests passing**: Full test suite validates changes
-✅ **Clean verification**: Re-running find_references shows only new symbol name
+- **Caller/reference impact is not statically available** (deferred to #333). Tests and
+  the type checker are the safety net.
+- Dynamic imports (`importlib.import_module()`) and string-based references (config
+  files, class names in strings) are invisible to static analysis — search manually.
+- Monkey-patching and runtime modifications won't be detected.
+- Always refactor under version control and run tests frequently.
 
 ## Related Workflows
 
-- [Find All References](workflows://find-references) - Used in Step 2
-- [Dependency Analysis](workflows://dependency-analysis) - Deep dive into module relationships
-- [Code Understanding](workflows://code-understanding) - Understanding unfamiliar code before refactoring
-
-## Related Issues
-
-- Issue #234: find_subclasses missing direct subclasses (may need to verify inheritance manually)
-- Issue #236: Standalone scripts not included in find_references (this workflow includes Grep workaround)
+- [Dependency Analysis](workflows://dependency-analysis) — deeper module-relationship analysis
+- [Code Understanding](workflows://code-understanding) — orient in unfamiliar code first

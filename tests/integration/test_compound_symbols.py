@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import ValidationError
-from pyeye.mcp.server import find_symbol
+from pyeye.validation import InputValidator
 
 
 @pytest.mark.asyncio
@@ -37,7 +38,8 @@ class Product:
 """)
 
         # This should find only User's __init__, not Product's
-        result = await find_symbol("User.__init__", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.__init__", include_import_paths=True, scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "__init__"
@@ -62,7 +64,10 @@ class ScientificCalculator:
 """)
 
         # Should find only Calculator.add, not ScientificCalculator.add
-        result = await find_symbol("Calculator.add", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "Calculator.add", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "add"
@@ -87,7 +92,10 @@ class User:
 """)
 
         # Should find models.user.User.save
-        result = await find_symbol("models.user.User.save", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "models.user.User.save", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "save"
@@ -114,7 +122,10 @@ class StringUtils:
 """)
 
         # Should find only DateUtils.format_date
-        result = await find_symbol("DateUtils.format_date", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "DateUtils.format_date", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "format_date"
@@ -140,7 +151,10 @@ class ProductFactory:
 """)
 
         # Should find only UserFactory.create
-        result = await find_symbol("UserFactory.create", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "UserFactory.create", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "create"
@@ -169,7 +183,8 @@ class Admin:
 """)
 
         # Should find only User.email property getter
-        result = await find_symbol("User.email", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.email", include_import_paths=True, scope="all")
 
         # May return both getter and setter, but at least the getter
         assert len(result) >= 1
@@ -189,7 +204,10 @@ class Outer:
 """)
 
         # Should find Inner.method
-        result = await find_symbol("Outer.Inner.method", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "Outer.Inner.method", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "method"
@@ -207,38 +225,53 @@ def simple_function():
 """)
 
         # Simple class name should still work
-        result = await find_symbol("SimpleClass", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("SimpleClass", include_import_paths=True, scope="all")
         assert len(result) == 1
         assert result[0]["name"] == "SimpleClass"
 
         # Simple function name should still work
-        result = await find_symbol("simple_function", project_path=str(tmp_path))
+        result = await analyzer.find_symbol(
+            "simple_function", include_import_paths=True, scope="all"
+        )
         assert len(result) == 1
         assert result[0]["name"] == "simple_function"
 
-    async def test_invalid_compound_symbols(self, tmp_path: Path) -> None:
-        """Test that invalid compound symbols raise appropriate errors."""
+    def test_invalid_compound_symbols(self) -> None:
+        """Test that invalid compound symbols raise appropriate errors.
+
+        Input validation for the ``name`` parameter is performed by
+        ``InputValidator.validate_identifier(name, allow_dots=True)`` -- the exact
+        check the (now-removed) ``find_symbol`` MCP tool applied at its boundary
+        via the ``validate_mcp_inputs`` decorator before delegating to the
+        analyzer. The analyzer method itself does not raise on malformed input.
+        """
+
+        def validate(name: str) -> None:
+            InputValidator.validate_identifier(name, allow_dots=True)
+
         # Double dots
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model..method", project_path=str(tmp_path))
+            validate("Model..method")
 
         # Leading dot
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol(".Model.method", project_path=str(tmp_path))
+            validate(".Model.method")
 
         # Trailing dot
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model.method.", project_path=str(tmp_path))
+            validate("Model.method.")
 
         # Empty component
         with pytest.raises(ValidationError, match="Invalid"):
-            await find_symbol("Model..method", project_path=str(tmp_path))
+            validate("Model..method")
 
     async def test_builtin_type_methods(self, tmp_path: Path) -> None:
         """Test finding methods of built-in types."""
         # This is a special case - built-ins might not be found by Jedi
         # but we should handle gracefully
-        result = await find_symbol("str.__init__", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("str.__init__", include_import_paths=True, scope="all")
 
         # Either finds it or returns empty list (not an error)
         assert isinstance(result, list)
@@ -262,7 +295,10 @@ def split(path):
 """)
 
         # Should find myos.path.join
-        result = await find_symbol("myos.path.join", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "myos.path.join", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "join"
@@ -285,7 +321,10 @@ class SyncClient:
 """)
 
         # Should find only AsyncClient.connect
-        result = await find_symbol("AsyncClient.connect", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol(
+            "AsyncClient.connect", include_import_paths=True, scope="all"
+        )
 
         assert len(result) == 1
         assert result[0]["name"] == "connect"
@@ -301,11 +340,14 @@ class User:
 """)
 
         # Non-existent method should return empty list
-        result = await find_symbol("User.delete", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.delete", include_import_paths=True, scope="all")
         assert result == []
 
         # Non-existent class should return empty list
-        result = await find_symbol("NonExistent.method", project_path=str(tmp_path))
+        result = await analyzer.find_symbol(
+            "NonExistent.method", include_import_paths=True, scope="all"
+        )
         assert result == []
 
     async def test_partial_match_not_returned(self, tmp_path: Path) -> None:
@@ -325,7 +367,8 @@ class UserProfile:
 """)
 
         # Should find only User.save, not User.save_async or UserProfile.save
-        result = await find_symbol("User.save", project_path=str(tmp_path))
+        analyzer = JediAnalyzer(str(tmp_path))
+        result = await analyzer.find_symbol("User.save", include_import_paths=True, scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "save"

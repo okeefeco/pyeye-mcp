@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pyeye.mcp.server import find_symbol, goto_definition
+from pyeye.mcp.server import resolve, resolve_at
 from pyeye.metrics import metrics
 from pyeye.validation import validate_mcp_inputs
 
@@ -87,48 +87,56 @@ class TestMCPToolIntegration:
     """Test that MCP tools return actual results, not coroutines."""
 
     @pytest.mark.asyncio
+    @patch("pyeye.mcp.server._resolve_impl")
     @patch("pyeye.mcp.server.get_analyzer")
-    async def test_find_symbol_returns_result_not_coroutine(self, mock_get_analyzer):
-        """Test that find_symbol returns the actual result, not a coroutine."""
-        # Setup mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_analyzer.find_symbol = AsyncMock(
-            return_value=[{"name": "TestClass", "file": "test.py", "line": 10}]
-        )
-        mock_get_analyzer.return_value = mock_analyzer
+    async def test_resolve_returns_result_not_coroutine(self, mock_get_analyzer, mock_resolve_impl):
+        """Test that resolve returns the actual result, not a coroutine."""
+        # Setup mocks: get_analyzer is delegated to, the impl returns the result
+        mock_get_analyzer.return_value = AsyncMock()
+        mock_resolve_impl.return_value = {
+            "found": True,
+            "handle": "pkg.TestClass",
+            "kind": "class",
+            "scope": "project",
+        }
 
         # The decorated function should still be async
-        assert asyncio.iscoroutinefunction(find_symbol)
+        assert asyncio.iscoroutinefunction(resolve)
 
         # Call the function
-        result = await find_symbol("TestClass", project_path=".", scope="main")
-
-        # Should get the actual result, not a coroutine object
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["name"] == "TestClass"
-
-    @pytest.mark.asyncio
-    @patch("pyeye.mcp.server.get_analyzer")
-    async def test_goto_definition_returns_result_not_coroutine(self, mock_get_analyzer):
-        """Test that goto_definition returns the actual result, not a coroutine."""
-        # Setup mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_analyzer.goto_definition = AsyncMock(
-            return_value={"file": "target.py", "line": 20, "column": 5}
-        )
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # The decorated function should still be async
-        assert asyncio.iscoroutinefunction(goto_definition)
-
-        # Call the function
-        result = await goto_definition("test.py", 10, 5, project_path=".")
+        result = await resolve("TestClass", project_path=".")
 
         # Should get the actual result, not a coroutine object
         assert isinstance(result, dict)
-        assert result["file"] == "target.py"
-        assert result["line"] == 20
+        assert result["found"] is True
+        assert result["handle"] == "pkg.TestClass"
+
+    @pytest.mark.asyncio
+    @patch("pyeye.mcp.server._resolve_at_impl")
+    @patch("pyeye.mcp.server.get_analyzer")
+    async def test_resolve_at_returns_result_not_coroutine(
+        self, mock_get_analyzer, mock_resolve_at_impl
+    ):
+        """Test that resolve_at returns the actual result, not a coroutine."""
+        # Setup mocks: get_analyzer is delegated to, the impl returns the result
+        mock_get_analyzer.return_value = AsyncMock()
+        mock_resolve_at_impl.return_value = {
+            "found": True,
+            "handle": "pkg.target.func",
+            "kind": "function",
+            "scope": "project",
+        }
+
+        # The decorated function should still be async
+        assert asyncio.iscoroutinefunction(resolve_at)
+
+        # Call the function
+        result = await resolve_at("test.py", 10, 5, project_path=".")
+
+        # Should get the actual result, not a coroutine object
+        assert isinstance(result, dict)
+        assert result["found"] is True
+        assert result["handle"] == "pkg.target.func"
 
     @pytest.mark.asyncio
     async def test_simulated_mcp_tool_invocation(self):

@@ -30,12 +30,17 @@ Kind normalisation
 Jedi's ``Name.type`` is mapped to the API kind vocabulary:
 
     class      → "class"
-    function   → "function"
+    function   → "function"  (→ "method" when enclosed by a class)
     module     → "module"
     statement  → "variable"
     param      → "variable"
     property   → "property"
     keyword    → "variable"  (rare; included for completeness)
+
+A class-enclosed function is promoted to ``"method"`` via
+``_normalise_kind_from_name`` — the single normalisation helper shared by
+``resolve``, ``inspect``, and the stub builder so all three primitives agree on
+``kind`` for the same symbol (issue #406).
 
 Deterministic ambiguous ordering
 ---------------------------------
@@ -190,6 +195,59 @@ def _normalise_kind(jedi_type: str | None) -> str:
     return _JEDI_TYPE_TO_KIND.get(jedi_type, jedi_type)
 
 
+def _is_method(jedi_name: Any) -> bool:
+    """Return True if *jedi_name* is a method (a function enclosed by a class).
+
+    Reads the resolved Jedi ``Name``'s parent scope directly via
+    ``Name.parent()`` instead of re-deriving the enclosing scope from the dotted
+    handle.  Dotted-name string arithmetic plus a filesystem module lookup
+    cannot see class nesting — for ``module.Outer.Inner.method`` it treats
+    ``Outer`` as a module, fails to find it, and misclassifies the nested-class
+    method as a plain function (issue #337).  Using ``parent()`` also avoids a
+    redundant per-call Jedi ``Script`` load.
+
+    Lives here (rather than in ``inspect``) so the resolve path can apply the
+    same promotion without a circular import — ``inspect`` and ``stubs`` import
+    it from this module (issue #406).
+
+    Args:
+        jedi_name: The resolved Jedi ``Name`` object for the symbol.
+
+    Returns:
+        ``True`` when the symbol is a function whose immediate enclosing scope
+        is a class (at any nesting depth).
+    """
+    if getattr(jedi_name, "type", None) != "function":
+        return False
+    try:
+        parent = jedi_name.parent()
+    except Exception:
+        return False
+    return parent is not None and getattr(parent, "type", None) == "class"
+
+
+def _normalise_kind_from_name(jedi_name: Any) -> str:
+    """Normalise a Jedi ``Name`` to the API kind, promoting methods.
+
+    The single source of truth for kind normalisation across ``resolve``,
+    ``inspect``, and the stub builder.  Maps ``Name.type`` via
+    :func:`_normalise_kind`, then promotes a class-enclosed function from
+    ``"function"`` to ``"method"`` via :func:`_is_method`.
+
+    Before #406 only ``inspect`` and ``stubs`` applied this promotion, so the
+    resolve path reported a method as ``"function"`` while the others reported
+    ``"method"`` — three primitives, two answers, one symbol.
+
+    Args:
+        jedi_name: The resolved Jedi ``Name`` object for the symbol.
+
+    Returns:
+        The API kind string, with ``"method"`` substituted for a method.
+    """
+    raw_kind = _normalise_kind(getattr(jedi_name, "type", None))
+    return "method" if raw_kind == "function" and _is_method(jedi_name) else raw_kind
+
+
 # ---------------------------------------------------------------------------
 # Scope ordering helper
 # ---------------------------------------------------------------------------
@@ -294,7 +352,7 @@ async def _resolve_at_position(
     # Determine file for scope classification
     def_file = name.module_path.as_posix() if name.module_path else file_path.as_posix()
     scope = classify_scope(def_file, analyzer)
-    kind = _normalise_kind(name.type)
+    kind = _normalise_kind_from_name(name)
 
     return _SuccessResult(
         found=True,
@@ -464,7 +522,6 @@ async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyze
     """Build a _SuccessResult from a single find_symbol match dict."""
     full_name = match.get("full_name", "")
     file_str = match.get("file", "")
-    kind = _normalise_kind(match.get("type"))
 
     # Canonicalise
     handle = await resolve_canonical(full_name, analyzer)
@@ -481,11 +538,15 @@ async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyze
 
     # Attempt to get a real Jedi Name for the span (column_end + line_end).
     # Falls back to the degenerate _make_location shape when lookup fails.
+    # The Jedi Name also drives method promotion (function → method, #406);
+    # the match dict's flat ``type`` cannot see class nesting.
     jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
     if jedi_name is not None:
         location = cast(_Location, location_from_name(file_posix, jedi_name))
+        kind = _normalise_kind_from_name(jedi_name)
     else:
         location = _make_location(file_posix, match_line, match_col)
+        kind = _normalise_kind(match.get("type"))
 
     return _SuccessResult(
         found=True,
@@ -502,7 +563,6 @@ async def _build_candidate_from_match(
     """Build a _Candidate dict from a single find_symbol match dict."""
     full_name = match.get("full_name", "")
     file_str = match.get("file", "")
-    kind = _normalise_kind(match.get("type"))
 
     if not full_name:
         return None
@@ -522,11 +582,15 @@ async def _build_candidate_from_match(
     file_posix = Path(file_str).as_posix() if file_str else ""
 
     # Attempt to get a real Jedi Name for the span (column_end + line_end).
-    # Falls back to the degenerate point shape when lookup fails.
+    # Falls back to the degenerate point shape when lookup fails.  The Jedi Name
+    # also drives method promotion (function → method, #406) so candidates carry
+    # the same kind a later resolve/inspect of the chosen handle would report.
     jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
     if jedi_name is not None:
         loc = cast(_Location, location_from_name(file_posix, jedi_name))
+        kind = _normalise_kind_from_name(jedi_name)
     else:
+        kind = _normalise_kind(match.get("type"))
         loc = _Location(
             file=file_posix,
             line_start=match_line,
@@ -552,8 +616,15 @@ def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     """Look up kind by re-deriving from the canonical handle's definition site.
 
     Used as a fallback when ``find_symbol`` leaf search doesn't return the
-    matching symbol.  Splits the handle into ``<module>.<leaf>``, resolves the
-    module file, then searches ``jedi.Script.get_names`` for the symbol.
+    matching symbol.  Walks the dotted handle up to its enclosing module file,
+    then searches ``jedi.Script.get_names`` (all scopes) for the symbol and
+    normalises its kind — promoting class-enclosed functions to ``"method"``.
+
+    The handle may name a nested symbol (``Class.method``, ``Outer.Inner``) whose
+    module is several components up, so we strip trailing components until
+    ``find_module_file`` succeeds rather than splitting only at the last dot —
+    the old single split treated the class as a module, missed the symbol, and
+    fell through to ``"variable"`` (issue #406).
 
     Returns ``"module"`` for a bare module name (no dot), ``"variable"`` when
     the kind genuinely cannot be determined (safest Python kind — every binding
@@ -561,18 +632,24 @@ def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     """
     from pyeye.canonicalization import find_module_file
 
-    parts = canonical_handle.rsplit(".", 1)
-    if len(parts) != 2:
+    if "." not in canonical_handle:
         return "module"  # bare module name
-    module_path, _ = parts
-    module_file = find_module_file(module_path, analyzer)
+
+    module_file = None
+    prefix = canonical_handle
+    while "." in prefix:
+        prefix = prefix.rsplit(".", 1)[0]
+        module_file = find_module_file(prefix, analyzer)
+        if module_file is not None:
+            break
     if module_file is None:
         return "variable"  # safer default than "class"
+
     script = file_artifact_cache.get_script(module_file, analyzer.project)
     try:
         for name_obj in script.get_names(all_scopes=True, definitions=True, references=False):
             if name_obj.full_name == canonical_handle:
-                return _normalise_kind(name_obj.type) or "variable"
+                return _normalise_kind_from_name(name_obj) or "variable"
     except Exception as exc:
         logger.debug("_kind_for_canonical(%r): get_names failed: %s", canonical_handle, exc)
     return "variable"
@@ -618,7 +695,7 @@ async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _S
 
         def_file = jedi_name.module_path.as_posix() if jedi_name.module_path else ""
         scope = classify_scope(def_file, analyzer) if def_file else "external"
-        kind = _normalise_kind(jedi_name.type)
+        kind = _normalise_kind_from_name(jedi_name)
 
         if def_file:
             location = cast(_Location, location_from_name(def_file, jedi_name))
@@ -660,33 +737,40 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
 
     # Try to find the match whose full_name matches our canonical handle
     file_str = ""
-    kind: str | None = None
+    matched_type: str | None = None
+    match_found = False
     match_line: int | None = None
     match_column: int | None = None
     for match in matches:
         if match.get("full_name") == str(handle):
             file_str = match.get("file", "")
-            kind = _normalise_kind(match.get("type"))
+            matched_type = match.get("type")
             match_line = match.get("line")
             match_column = match.get("column")
+            match_found = True
             break
     else:
         # Fallback: use the file derived from the handle path
         file_str = _handle_to_file(handle, analyzer) or ""
 
-    if kind is None:
-        # Leaf search missed — recover kind from the canonical handle's definition site
-        kind = _kind_for_canonical(str(handle), analyzer)
-
     scope = classify_scope(file_str, analyzer) if file_str else "external"
     file_posix = Path(file_str).as_posix() if file_str else ""
 
     # Attempt span location via Jedi Name; fall back to degenerate point location.
+    # The Jedi Name is also the only source that can promote function → method
+    # (the flat match ``type`` cannot see class nesting, #406); prefer it for
+    # kind, then fall back to the match type, then to canonical re-derivation.
     jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_column, analyzer)
     if jedi_name is not None:
         location = cast(_Location, location_from_name(file_posix, jedi_name))
+        kind = _normalise_kind_from_name(jedi_name)
     else:
         location = _make_location(file_posix, match_line, match_column)
+        if match_found:
+            kind = _normalise_kind(matched_type)
+        else:
+            # Leaf search missed — recover kind from the canonical definition site
+            kind = _kind_for_canonical(str(handle), analyzer)
 
     return _SuccessResult(
         found=True,

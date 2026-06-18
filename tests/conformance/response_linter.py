@@ -205,10 +205,11 @@ _LAYERING_DOC = (
 # a comment explaining the phase or spec reference.
 KNOWN_EDGE_TYPES: frozenset[str] = frozenset(
     {
-        # Phase 4 measured edges (current implementation):
+        # Edges inspect measures in edge_counts (symbol-local, current impl):
         "members",
         "superclasses",
-        "subclasses",
+        # Known edges NOT measured by inspect (expand-only / deferred):
+        "subclasses",  # expand-only — project-wide scan, no cheap preview (#392)
         "callers",
         "references",
         # Future edges per spec Edge Type Vocabulary:
@@ -233,6 +234,13 @@ _PLUGIN_EDGE_RE: re.Pattern[str] = re.compile(r"^\w+@\w+$")
 # Maps kind → frozenset of edge keys that MUST be present (possibly 0) when
 # the implementation measured them.  "other" kinds produce no measurements.
 #
+# Only edges derivable from the symbol's own definition are measured by inspect.
+#
+# ``subclasses`` was REMOVED from ``class`` (see #392): counting it requires the
+# same project-wide inheritance scan as listing them, so it has no cheap-preview
+# value and is now an expand-only edge.  It lives in ``_PHASE4_UNMEASURED_EDGES``
+# (forbidden in inspect's edge_counts).
+#
 # ``callers`` and ``references`` were REMOVED from every kind (see #332): they
 # were derived from Jedi's budget-capped ``get_references`` and under-reported
 # non-deterministically, so they are no longer measured and now live in
@@ -240,16 +248,18 @@ _PLUGIN_EDGE_RE: re.Pattern[str] = re.compile(r"^\w+@\w+$")
 # variable handles therefore have NO required edges — an empty edge_counts is
 # valid for them.  They return once an indexed backend lands (#333).
 _PHASE4_EXPECTED_EDGES: dict[str, frozenset[str]] = {
-    "class": frozenset({"members", "superclasses", "subclasses"}),
+    "class": frozenset({"members", "superclasses"}),
     "module": frozenset({"members"}),
 }
 
 # B.3 — Keys that must NOT appear (unmeasured edges).
 # These are in KNOWN_EDGE_TYPES (future vocab) but are NOT measured.
 # Their presence with any value (including 0) is a false claim about measurements.
+# ``subclasses`` is here because it is expand-only, not inspect-measured (#392).
 # ``callers``/``references`` are here pending the indexed-backend fix (#332/#333).
 _PHASE4_UNMEASURED_EDGES: frozenset[str] = frozenset(
     {
+        "subclasses",
         "callers",
         "references",
         "callees",

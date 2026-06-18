@@ -1,81 +1,133 @@
 ---
 name: python-explore
-description: Use when understanding, modifying, refactoring, debugging, extending, or implementing Python code. Triggers on "how does", "what does", "why is X doing", "add feature", "implement", "update behaviour". Does NOT trigger for explicit "show me"/"read this file" requests, single-line typo fixes with exact location, or adding new test cases only. Requires pyeye MCP server.
+description: Use when understanding, navigating, debugging, refactoring, or extending Python code with the pyeye MCP server. Triggers on "how does X work", "what does", "why is X doing", "what calls/imports/subclasses this", "add feature", "implement", "refactor", "trace", "debug", "extend". Does NOT trigger for explicit "show me"/"read this file"/"print"/"display" requests, "what's the syntax for" language questions, single-line typo/string fixes with an exact location given, adding a new test case only, or when pyeye output for the symbol is already in context. Requires the pyeye MCP server.
 ---
 
 # Python Explore
 
-Build a mental model with pyeye before touching Python code.
+Build a structural model of Python code with pyeye before reading or changing it —
+**orient cheap, drill on demand.**
+
+## The Model: Progressive Disclosure
+
+pyeye answers questions in three widening steps. Start at the cheapest that answers
+your question; only go wider when you need to.
+
+1. **Orient (cheap):** `resolve` a name to a canonical handle, then `inspect` it for
+   structure, or `outline` a module/class for its skeleton.
+2. **Drill (on demand):** `expand` one edge from a handle to see its immediate
+   neighbours (members, callees, importers, subclasses…).
+3. **Trace (across hops):** `trace` follows edges multiple hops to see structure
+   across a call chain, import closure, or member tree.
+
+**Canonical handles are the currency.** A handle is Python's own dotted notation —
+`a.b.c.Name` — anchored at the *definition site*, stable across edits, and the same
+no matter which import alias you arrived through. Everything downstream takes a handle.
+pyeye returns **pointers and structured facts, never source** — when you need the actual
+code, `Read` the `file:line` it points you at.
 
 ## Skill Type: Mixed Rigid/Flexible
 
 **Rigid gates (non-negotiable):**
 
-- Always produce a written summary before proceeding
-- Always use pyeye before Read() on unfamiliar code
-- Never re-explore what's already in context
+- Your first move on unfamiliar Python is pyeye, not a blind `Read()`.
+- Never re-explore what pyeye already surfaced in this conversation.
 
-**Flexible path (use judgement):**
+**Flexible (use judgement):**
 
-- Depth scaling based on task scope
-- Which specific pyeye calls to make
-- When the mental model is "sufficient"
+- How deep to go (a single `inspect`, or a multi-hop `trace`).
+- Which primitives and edges to call.
+- Whether to write out a mental-model summary — do it when it helps the user, not as
+  ceremony (see [Stating Your Mental Model](#stating-your-mental-model)).
 
 ## Do NOT Trigger When
 
-- User says "show me", "print", "display", "read this file" — respect explicit requests
-- User says "run", "execute" — not exploration
-- User asks "what's the syntax for" — language question, not codebase question
-- Single-line typo/string fix where user gives exact location
-- Adding a new test case (not modifying test infrastructure)
-- Pyeye output for this module is already visible in conversation context
+- User says "show me", "print", "display", "read this file" — respect explicit requests,
+  use `Read()`.
+- User says "run", "execute" — that is not exploration.
+- User asks "what's the syntax for" — a language question, not a codebase question.
+- Single-line typo/string fix where the user gives the exact location.
+- Adding a new test case only (not modifying the code under test).
+- pyeye output for this symbol is already visible in conversation context — skip straight
+  to using it.
 
-If pyeye output is already in context, skip to summary and proceed.
+## The Primitives
 
-## Depth Scaling
+| Primitive | Use it to | Returns |
+|-----------|-----------|---------|
+| `resolve(identifier)` | Turn a name, dotted path, or `file:line` into a canonical handle | `{handle, kind, scope, location}` — or `{ambiguous, candidates}` |
+| `resolve_at(file, line, column)` | Turn a position (stack frame, pasted line) into a handle | same shape as `resolve` |
+| `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node, plus kind-dependent fields (e.g. `superclasses`, `re_exports`); no source |
+| `outline(handle)` | See the structural skeleton of a module or class in one call | a tree of member stubs |
+| `expand(handle, edge)` | Walk ONE edge to the immediate neighbours | a list of stubs |
+| `trace(start, follow, …)` | Walk edges across multiple hops | a subgraph (nodes + edges) |
 
-| Task Scope | Pyeye Calls |
-|------------|-------------|
-| Single class/function change | `lookup()` (primary entry point) — for advanced use: `find_references()` with field filtering |
-| Cross-module change | `lookup()` + `analyze_dependencies()` |
-| "I don't know where to start" | Full: `list_project_structure()` → `list_modules()` → drill down |
+Notes that matter:
 
-Never run `list_project_structure()` for a scoped single-symbol task.
+- `resolve` already includes a `location` pointer, so it answers "where is this defined?"
+  on its own — you do **not** need a follow-up `inspect` just for location. Use `inspect`
+  when you want signature/docstring/`edge_counts`.
+- **Ambiguity:** a bare name can match several symbols. `resolve` then returns
+  `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
+  `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
+  dotted handle.
+- **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
+  external symbols (stdlib, site-packages) get project-scoped answers — see the scope
+  example below.
+- **No source content, ever.** `inspect`/`outline`/`expand`/`trace` return pointers and
+  structured facts. `Read` is the content layer.
 
-## Relationship Queries Require Pyeye, Not Grep
+## Supported Edges
 
-**These patterns start with `lookup()`. Use `find_references` for the complete reference list with field filtering, or `get_call_hierarchy` for full call graphs. NEVER Grep:**
+`expand` and `trace` walk these edges. This is the **complete** set pyeye can answer
+reliably today:
 
-- "Find classes that consume/use X"
-- "Which code references this symbol"
-- "Find classes where field contains/equals X"
-- "Who calls this function"
-- "What depends on this"
+<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope -->
 
-**Why:** Grep does text matching and misses semantic relationships (inheritance, imports, indirect references). Pyeye follows the actual reference graph.
+| Edge | Direction | Meaning |
+|------|-----------|---------|
+| `members` | container → children | a class's methods/attributes, or a module's top-level defs |
+| `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
+| `callees` | function → what it calls | forward call targets resolved from the body |
+| `subclasses` | class → its subclasses | project classes that extend this class |
+| `superclasses` | class → its bases | the class's direct base classes |
+| `imports` | module → what it imports | the module's top-level imports |
+| `imported_by` | module → its importers | project modules that import this module |
 
-### Example: "Find classes that consume api_mesh"
+## ⭐ Honest Limits — Reverse References Are NOT Available
 
-`pyeye.lookup(identifier="api_mesh")` → returns symbol info including references in one call
+This is the most important rule in this skill.
 
-If the short name is ambiguous (multiple matches), use the full dotted path from `full_name`:
-`pyeye.lookup(identifier="aac.logical.patterns.common.cdis.components.api_mesh")`
+**"Who calls this?" and "what references this?" cannot be answered reliably yet.** The
+edges `callers`, `references`, `read_by`, `written_by`, `passed_by`, `overrides`,
+`overridden_by`, `decorated_by`, and `decorates` are **deferred** — they need an indexed
+reference backend (Pyright) that isn't wired up yet ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)).
+When you ask for one, pyeye **refuses** (reports it as unsupported) rather than returning
+a wrong or empty answer. Likewise, `inspect`'s `edge_counts` simply **omits** `callers`
+and `references` — it does not report them as `0`.
 
-For the complete unfiltered reference list (e.g., with field filtering), use the targeted tool:
-`pyeye.find_references(symbol_name="aac.logical.patterns.common.cdis.components.api_mesh")`
+**Do NOT fake reverse-reference data.** Specifically:
 
-You can also use coordinates directly if you already have them:
-`pyeye.find_references(file=<path>, line=<line>, column=<column>)`
+- Do **not** fall back to `grep` to guess who calls or references a symbol.
+- Do **not** use the deprecated legacy tools `find_references` or `get_call_hierarchy`
+  to fill the gap. They are backed by exactly the reverse search the redesign rejected:
+  it under-reports non-deterministically — anchored at a definition it can return a
+  near-empty set for a heavily-used symbol. A confident wrong answer is worse than an
+  honest "not available."
 
-## Exit Criteria
+Instead, **say so plainly**: "pyeye can't give reliable caller/reference data yet
+(deferred to #333)." Then offer what you *can* answer:
 
-Mental model is sufficient when you can answer:
+- **Forward** from a function: `callees` (what it calls).
+- **Around a module:** `imported_by` (who imports it) and `imports` (what it imports).
+- **Inheritance:** `subclasses` / `superclasses`.
+- **Structure:** `members`, `enclosing_scope`.
 
-- What is this thing?
-- What does it depend on?
-- What would break if I change it?
+### Absence vs zero
 
-This is a judgement call, not a checklist. Explain at least one decision with "because" or "so that".
+When you read `edge_counts`, a **missing key means "not measured," not "zero."** A
+present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
+`callers` key means pyeye didn't measure it — don't read that as "no callers."
 
 ## Workflow
 
@@ -86,84 +138,142 @@ digraph python_explore {
     "Task involves Python code" [shape=diamond];
     "Explicit read/show request?" [shape=diamond];
     "Already explored in context?" [shape=diamond];
-    "Scope clear?" [shape=diamond];
+    "Reverse-reference question?" [shape=diamond];
 
     "Respect request, use Read()" [shape=box];
-    "Skip to summary" [shape=box];
-    "Run scoped pyeye calls" [shape=box];
-    "Run broad pyeye discovery" [shape=box];
-    "Write brief summary" [shape=box];
+    "Use what's in context" [shape=box];
+    "State the limit honestly, offer forward edges" [shape=box];
+    "Orient: resolve then inspect / outline" [shape=box];
+    "Drill / trace as needed" [shape=box];
     "Proceed with task" [shape=box];
 
     "Task involves Python code" -> "Explicit read/show request?" [label="yes"];
     "Task involves Python code" -> "Proceed with task" [label="no"];
     "Explicit read/show request?" -> "Respect request, use Read()" [label="yes"];
     "Explicit read/show request?" -> "Already explored in context?" [label="no"];
-    "Already explored in context?" -> "Skip to summary" [label="yes"];
-    "Already explored in context?" -> "Scope clear?" [label="no"];
-    "Scope clear?" -> "Run scoped pyeye calls" [label="yes"];
-    "Scope clear?" -> "Run broad pyeye discovery" [label="no"];
-    "Run scoped pyeye calls" -> "Write brief summary";
-    "Run broad pyeye discovery" -> "Write brief summary";
-    "Skip to summary" -> "Write brief summary";
-    "Write brief summary" -> "Proceed with task";
+    "Already explored in context?" -> "Use what's in context" [label="yes"];
+    "Already explored in context?" -> "Reverse-reference question?" [label="no"];
+    "Reverse-reference question?" -> "State the limit honestly, offer forward edges" [label="yes"];
+    "Reverse-reference question?" -> "Orient: resolve then inspect / outline" [label="no"];
+    "Orient: resolve then inspect / outline" -> "Drill / trace as needed";
+    "Drill / trace as needed" -> "Proceed with task";
+    "Use what's in context" -> "Proceed with task";
+    "State the limit honestly, offer forward edges" -> "Proceed with task";
 }
 ```
 
-## Summary Format
+## Worked Examples
 
-**MANDATORY:** Always output before proceeding. All four fields are NON-NEGOTIABLE:
+Handles below use a placeholder project (`myapp.…`) — substitute your own. The
+`pathlib` example is real and works anywhere.
 
-```markdown
-**Mental Model: [symbol/module name]**
-- Location: `path/to/file.py:line`
-- Dependencies: [key imports/bases]
-- Impact: [what uses this / what would break]
-- Done when: All callers identified and impact understood; changes can proceed safely
+**"What is `Settings`?"** — orient in one or two calls:
+
+```text
+resolve("myapp.config.Settings")   -> { handle: "myapp.config.Settings", kind: "class",
+                                        scope: "project", location: {...} }
+inspect("myapp.config.Settings")   -> kind, signature, docstring,
+                                        edge_counts: { members: 7, superclasses: 1 }
 ```
 
-**CRITICAL: Every class referenced in the summary MUST include:**
+**Ambiguous name** — let `resolve` disambiguate, don't guess:
 
-- **Full dotted path:** e.g., `aac.logical.patterns.common.cdis.components.api_mesh`
-- **File path with line number:** e.g., `aac/logical/patterns/common/cdis/components.py:13`
+```text
+resolve("Settings")  -> { ambiguous: true, candidates: [
+                            { handle: "myapp.config.Settings", ... },
+                            { handle: "myapp.cli.Settings", ... } ] }
+```
 
-The `full_name` field in pyeye results is the full dotted path — use it as-is in summaries. You can also pass it directly as `identifier` to `lookup` (or as `symbol_name` to `find_references`) for unambiguous resolution without needing coordinates.
+Pick the candidate you meant, or re-resolve with the full dotted handle.
 
-Never reference a class with only a name, only a line number, or only a module path. Both full dotted path and file:line are required for every class to make the summary actionable.
+**"I'm looking at this line / stack frame — what is it?"** — position to handle:
 
-This creates an audit trail the user can correct if wrong.
+```text
+resolve_at("myapp/cache.py", line=42, column=8)  -> { handle: "myapp.cache.Cache.evict", ... }
+```
 
-## Pyeye Tool Reference
+**"What's inside this module?"** — skeleton in one call:
 
-| Purpose | Tool |
-|---------|------|
-| Look up any identifier (name, dotted path, file path, or coordinates) | `pyeye.lookup(identifier="X")` — **primary entry point** |
-| Fuzzy symbol search | `pyeye.find_symbol(name="X")` — targeted: when you need fuzzy matching |
-| Full reference lists with field filtering | `pyeye.find_references(symbol_name="X")` or `pyeye.find_references(file="...", line=X, column=Y)` — targeted |
-| Complete call graphs | `pyeye.get_call_hierarchy(function_name="X")` — targeted |
-| Inheritance hierarchies | `pyeye.find_subclasses(base_class="X")` — targeted: use `show_hierarchy=True` for trees |
-| Circular dependency detection | `pyeye.analyze_dependencies(module_path="...")` — targeted |
-| Project layout | `pyeye.list_project_structure(max_depth=3)` — discovery |
-| All modules | `pyeye.list_modules()` — discovery |
-| All packages | `pyeye.list_packages()` — discovery |
+```text
+outline("myapp.cache")  -> tree of (Cache, DependencyTracker, ...) with their methods
+```
+
+**"What does this function call?"** — forward, reliable:
+
+```text
+expand("myapp.cache.Cache.evict", edge="callees")  -> stubs for each call target
+```
+
+**"Who imports this module?"** — reverse, but reliably static:
+
+```text
+expand("myapp.cache", edge="imported_by")  -> module stubs that import myapp.cache
+```
+
+**"What subclasses this base?"** — inheritance down:
+
+```text
+expand("myapp.plugins.Base", edge="subclasses")  -> project classes extending Base
+```
+
+**Multi-hop closure** — structure across hops:
+
+```text
+trace(start="myapp.cache.Cache.evict", follow=["callees"], max_depth=3)
+  -> subgraph of the 3-hop forward call structure
+```
+
+**Project vs external scope** — `pathlib.Path` is external, so subclasses come back
+project-scoped:
+
+```text
+inspect("pathlib.Path")                      -> scope: "external", members/signature derived on demand
+expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project that extend Path
+```
+
+**"Who calls `Cache.evict`?"** — the honest refusal:
+
+> Reliable caller data isn't available yet — `callers` is deferred to the Pyright
+> backend (#333), and faking it with grep or the legacy reference tools would
+> under-report. What I *can* show: what `Cache.evict` itself calls (`callees`), and which
+> modules import `myapp.cache` (`imported_by`). Want either of those?
+
+## Stating Your Mental Model
+
+When it helps the user — a non-trivial change, an ambiguous request, a risky edit —
+state what you found before proceeding. Use **canonical handles + `file:line`** so the
+user can correct you:
+
+```markdown
+**Mental model: `myapp.cache.Cache`** (`myapp/cache.py:31`)
+- Depends on: `myapp.config.Settings`, `collections.OrderedDict`
+- I can see: 7 members, 1 superclass (measured); subclasses on demand via `expand`
+- I cannot see: callers/references (deferred, #333) — change impact on callers is unverified
+```
+
+Scale this to the task. A pure "how does X work?" answer may need no separate summary;
+a refactor that touches shared code deserves one — and should be explicit that
+caller impact can't be statically confirmed.
 
 ## Failure Mode
 
 If pyeye is unavailable (server down, tools not responding):
 
-1. Note explicitly: "pyeye unavailable — falling back to Read()"
-2. Proceed with Read()
-3. Warn that static analysis is unavailable
+1. Note it explicitly: "pyeye unavailable — falling back to `Read()`."
+2. Proceed with `Read()`.
+3. Warn that static structural analysis is unavailable.
 
-Do not block — degrade gracefully but make the limitation visible.
+Don't block — degrade gracefully, but make the limitation visible.
 
 ## Red Flags — You're About to Violate This Skill
 
-- First tool call is Read() on a Python file you haven't explored
-- Reaching for Grep to find a class/function definition
-- Reaching for Grep to find relationships (see "Relationship Queries" section above)
-- Calling `find_symbol` or `get_module_info` when `lookup` would do
-- "Let me just quickly read this file" without pyeye context
-- Modifying code without knowing what depends on it
+- Your first tool call is `Read()` on a Python file you haven't oriented in pyeye.
+- Reaching for `grep` to find a definition.
+- Reaching for `grep` to answer a relationship/reference question.
+- Reaching for deprecated `find_*` / `get_*` legacy tools.
+- **Faking "who calls this" with grep or the legacy reference tools** instead of stating
+  the limit honestly.
+- Re-exploring a symbol pyeye already surfaced in this conversation.
 
-**If you catch yourself doing any of these: STOP. Run pyeye first.**
+**If you catch yourself doing any of these: STOP. Orient with pyeye, or say honestly
+what it can't answer.**

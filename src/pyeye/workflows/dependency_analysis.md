@@ -10,6 +10,10 @@ Understand module dependencies, import relationships, and architectural patterns
 - Analyze architectural layers
 - Plan refactoring safely
 
+> Tool mechanics (call signatures, return shapes, handles, edges) live in
+> `skills/python-explore/SKILL.md`. This workflow references tools by name and
+> focuses on the dependency-analysis methodology.
+
 ## When to Use This Workflow
 
 - "What does this module depend on?"
@@ -20,441 +24,191 @@ Understand module dependencies, import relationships, and architectural patterns
 
 ## Steps
 
-### Step 1: Analyze Single Module Dependencies
+### Step 1: Analyze single-module dependencies
 
-Use `analyze_dependencies` to understand a specific module's import relationships:
+Run `analyze_dependencies` on the target module. It is still the dedicated
+dependency tool: it reports the module's internal/external/stdlib imports, its
+importers, and any circular dependencies in one call.
 
-```python
-# Example call
-analyze_dependencies(
-    module_path="mypackage.services",
-    scope="all"
-)
+Key information to read off the result:
 
-# Returns:
-# {
-#     "module": "mypackage.services",
-#     "imports": [
-#         {"module": "mypackage.models", "type": "internal"},
-#         {"module": "sqlalchemy", "type": "external"},
-#         {"module": "logging", "type": "stdlib"}
-#     ],
-#     "imported_by": [
-#         {"module": "mypackage.api", "file": "/project/api/routes.py"},
-#         {"module": "mypackage.cli", "file": "/project/cli/commands.py"}
-#     ],
-#     "circular_dependencies": []
-# }
-```
+- **imports** — what this module depends on (downstream dependencies)
+- **imported_by** — what depends on this module (upstream dependents)
+- **circular_dependencies** — problematic cycles, if any
 
-**Key Information**:
+For a single edge rather than the full report, `expand(edge="imports")` lists what
+a module imports and `expand(edge="imported_by")` lists its importers.
 
-- **imports**: What this module depends on (downstream dependencies)
-- **imported_by**: What depends on this module (upstream dependents)
-- **circular_dependencies**: Problematic cycles if any
+### Step 2: Get a project overview
 
-### Step 2: Explore Project Structure
-
-Use `list_modules` to get an overview of all modules in the project:
-
-```python
-list_modules()
-
-# Returns list of modules with:
-# [
-#     {
-#         "module": "mypackage.models",
-#         "file": "/project/mypackage/models.py",
-#         "exports": ["User", "Product", "Order"],
-#         "classes": 3,
-#         "functions": 5,
-#         "lines": 234
-#     },
-#     ...
-# ]
-```
-
-**Insight**: Identify:
+Use `outline` to see the structural skeleton of a package or module before drilling
+in — its modules, classes, and top-level defs. Use this to spot:
 
 - Core modules (heavily imported by others)
 - Leaf modules (no internal dependents)
 - Large modules (candidates for splitting)
 
-### Step 3: Build Dependency Map
+### Step 3: Build a dependency map
 
-For each key module, run `analyze_dependencies` to build a complete dependency graph:
+Run `analyze_dependencies` on each key module to build the graph by hand, e.g.:
 
-```python
-# Core business logic module
-analyze_dependencies("mypackage.models")
+```text
+api → services → models → (external: SQLAlchemy, Pydantic)
+```
 
-# Service layer
-analyze_dependencies("mypackage.services")
+To follow the import closure across multiple hops in one call, use
+`trace(follow=["imports"])` from a starting module.
 
-# API layer
+**Pattern recognition:**
+
+- **Layered architecture**: API → Service → Model → Database
+- **Vertical slices**: feature modules with minimal cross-dependencies
+- **Utility hub**: core utilities imported everywhere
+
+### Step 4: Identify circular dependencies
+
+Pay special attention to `circular_dependencies` in each `analyze_dependencies`
+result. Resolution strategies:
+
+1. **Extract interface** — create a base module both can import
+2. **Dependency injection** — pass dependencies instead of importing
+3. **Lazy import** — import inside a function instead of at module level
+4. **Refactor** — move shared code to a separate module
+
+### Step 5: Categorize external dependencies
+
+Split the imports from Step 1 by type:
+
+- **Internal** — changes here affect your own modules
+- **External packages** — version upgrades affect this module
+- **Standard library** — Python version constraints
+
+**Security consideration**: external dependencies are supply-chain risks — track
+them carefully.
+
+### Step 6: Assess module coupling
+
+Compute coupling metrics from the dependency data:
+
+- **Fan-out (efferent coupling)**: count of modules this module imports. High
+  fan-out = depends on many things = fragile.
+- **Fan-in (afferent coupling)**: count of modules that import this module. High
+  fan-in = many dependents = changes are risky.
+- **Instability**: `fan_out / (fan_in + fan_out)`. `0` = stable (depended on,
+  doesn't depend); `1` = unstable (depends on others, not depended on).
+
+## Worked Example: Analyzing an API Module
+
+**Goal**: understand dependencies of `mypackage.api`.
+
+```text
 analyze_dependencies("mypackage.api")
+  → imports: services, auth, fastapi, pydantic
+  → imported_by: []           (entry point — nothing imports it)
+  → circular: none
 
-# Build mental model:
-# api → services → models → (external: SQLAlchemy, Pydantic)
+outline("mypackage")          → api is one of 8 modules
+
+analyze_dependencies("mypackage.services") → imports: models, cache
+analyze_dependencies("mypackage.auth")     → imports: models, jose, passlib
 ```
 
-**Pattern Recognition**:
-
-- **Layered Architecture**: API → Service → Model → Database
-- **Vertical Slices**: Feature modules with minimal cross-dependencies
-- **Utility Hub**: Core utilities imported everywhere
-
-### Step 4: Identify Circular Dependencies
-
-Pay special attention to `circular_dependencies` in the analysis:
-
-```python
-analyze_dependencies("mypackage.models")
-
-# If circular dependency exists:
-# {
-#     "circular_dependencies": [
-#         {
-#             "cycle": ["mypackage.models", "mypackage.services", "mypackage.models"],
-#             "severity": "high"
-#         }
-#     ]
-# }
-```
-
-**Circular Dependency Resolution Strategies**:
-
-1. **Extract Interface**: Create a base module both can import
-2. **Dependency Injection**: Pass dependencies instead of importing
-3. **Lazy Import**: Import inside function instead of module level
-4. **Refactor**: Move shared code to separate module
-
-### Step 5: Analyze External Dependencies
-
-Categorize dependencies by type:
-
-```python
-# From Step 1 results, extract imports by type:
-
-Internal dependencies: ["mypackage.models", "mypackage.utils"]
-→ Impact: Changes affect these modules
-
-External packages: ["sqlalchemy", "pydantic", "requests"]
-→ Impact: Version upgrades affect this module
-
-Standard library: ["logging", "typing", "pathlib"]
-→ Impact: Python version constraints
-```
-
-**Security Consideration**: External dependencies are supply chain risks - track them carefully.
-
-### Step 6: Assess Module Coupling
-
-Calculate coupling metrics from dependency analysis:
-
-**Fan-out (Efferent Coupling)**:
-
-- Count of modules this module imports
-- High fan-out = depends on many things = fragile
-
-**Fan-in (Afferent Coupling)**:
-
-- Count of modules that import this module
-- High fan-in = many dependents = changes are risky
-
-**Instability**:
-
-- Formula: Fan-out / (Fan-in + Fan-out)
-- 0 = Stable (depended on, doesn't depend)
-- 1 = Unstable (depends on others, not depended on)
-
-## Complete Example: Analyzing API Module
-
-**Goal**: Understand dependencies of `mypackage.api` module
-
-### Analysis Phase
+Resulting dependency graph:
 
 ```text
-Step 1: analyze_dependencies("mypackage.api")
-→ Imports: ["mypackage.services", "mypackage.auth", "fastapi", "pydantic"]
-→ Imported by: [] (it's an entry point, nothing imports it)
-→ Circular: None
-
-Step 2: list_modules()
-→ API is one of 8 modules in the project
-→ API has 450 lines, 0 classes, 12 functions (route handlers)
-
-Step 3: Analyze dependencies of API's imports
-→ analyze_dependencies("mypackage.services")
-  → Imports: ["mypackage.models", "mypackage.cache"]
-→ analyze_dependencies("mypackage.auth")
-  → Imports: ["mypackage.models", "jose", "passlib"]
-
-Dependency Chain:
-api → services → models
-api → auth → models
+fastapi, pydantic           (API framework)
+        ↓
+mypackage.api               (API routes)
+        ↓
+mypackage.services / auth   (business logic / authentication)
+        ↓
+mypackage.models            (data models)
+        ↓
+sqlalchemy                  (database ORM)
 ```
 
-### Dependency Graph
+**Insights:**
 
-```text
-External:
-  fastapi, pydantic (API framework)
-    ↓
-  mypackage.api (API routes)
-    ↓
-  mypackage.services (Business logic)
-  mypackage.auth (Authentication)
-    ↓
-  mypackage.models (Data models)
-    ↓
-  sqlalchemy (Database ORM)
-```
-
-### Insights Gained
-
-**Architecture Pattern**: Clean layered architecture
-
-- API layer depends on Services and Auth
-- Services layer depends on Models
-- Models layer depends on Database ORM
-- No circular dependencies ✅
-
-**Coupling Metrics**:
-
-- API module: Fan-out = 4, Fan-in = 0, Instability = 1.0 (entry point)
-- Services: Fan-out = 2, Fan-in = 1, Instability = 0.67 (moderate)
-- Models: Fan-out = 1, Fan-in = 2, Instability = 0.33 (stable)
-
-**Change Impact**:
-
-- Changing API: No impact (nothing imports it)
-- Changing Services: Affects API only
-- Changing Models: Affects Services, Auth, and transitively API
+- Clean layered architecture; dependencies flow downward; no cycles.
+- Coupling: API fan-out 4 / fan-in 0 / instability 1.0 (entry point); Services
+  fan-out 2 / fan-in 1 / instability 0.67; Models fan-out 1 / fan-in 2 /
+  instability 0.33 (stable).
+- Change impact: changing Models affects Services, Auth, and transitively API.
 
 ## Dependency Analysis Checklist
 
 Quick analysis:
 
-- [ ] Run `analyze_dependencies` on target module
+- [ ] Run `analyze_dependencies` on the target module
 - [ ] Check for circular dependencies
-- [ ] Identify direct imports and importers
+- [ ] Note direct imports and importers
 
 Deep analysis:
 
-- [ ] Run `list_modules` for project overview
-- [ ] Build dependency map for key modules
+- [ ] Run `outline` for a project overview
+- [ ] Build a dependency map for key modules (`trace(follow=["imports"])` for closure)
 - [ ] Calculate coupling metrics
 - [ ] Identify architectural patterns
 - [ ] Assess change impact
 
 ## Common Dependency Patterns
 
-### Pattern 1: Layered Architecture
-
-```text
-UI/API Layer (high instability)
-    ↓
-Business Logic Layer
-    ↓
-Data Access Layer
-    ↓
-Database/External (stable)
-```
-
-**Characteristics**:
-
-- Dependencies flow downward
-- No upward or lateral dependencies
-- Clear separation of concerns
-
-### Pattern 2: Hexagonal/Ports & Adapters
-
-```text
-Core Domain (stable, no external deps)
-    ↑
-Ports (interfaces)
-    ↑
-Adapters (implementations, unstable)
-```
-
-**Characteristics**:
-
-- Core is isolated
-- Adapters depend on core
-- Easy to swap implementations
-
-### Pattern 3: Microservices/Vertical Slices
-
-```text
-Feature A     Feature B     Feature C
-   ↓             ↓             ↓
-Shared Utils  Shared Utils  Shared Utils
-```
-
-**Characteristics**:
-
-- Features are independent
-- Minimal cross-feature dependencies
-- Shared utilities are stable
-
-### Anti-Pattern: Circular Dependencies
-
-```text
-Module A ←→ Module B  (BAD!)
-```
-
-**Problems**:
-
-- Import order issues
-- Testing difficulties
-- Tight coupling
+- **Layered**: dependencies flow downward (UI/API → business logic → data access
+  → database); no upward or lateral edges.
+- **Hexagonal / ports & adapters**: stable core domain with no external deps;
+  adapters depend on core; easy to swap implementations.
+- **Vertical slices**: independent features sharing only stable utilities.
+- **Anti-pattern — circular**: `A ←→ B`. Causes import-order issues, testing
+  difficulty, and tight coupling.
 
 ## Refactoring Based on Dependencies
 
-### High Fan-out (Module depends on too many things)
-
-**Problem**: Fragile, breaks when dependencies change
-**Solution**:
-
-- Extract interfaces
-- Use dependency injection
-- Split into smaller modules
-
-### High Fan-in (Many things depend on this module)
-
-**Problem**: Changes affect many modules
-**Solution**:
-
-- Ensure stability (comprehensive tests)
-- Use semantic versioning
-- Consider deprecation warnings
-
-### Circular Dependencies
-
-**Problem**: Import errors, tight coupling
-**Solution**:
-
-- Extract shared code to new module
-- Use lazy imports
-- Refactor to break cycle
-
-### No Clear Architecture
-
-**Problem**: Hard to understand, difficult to change
-**Solution**:
-
-- Identify layers from dependency analysis
-- Enforce dependency rules
-- Refactor toward pattern
-
-## Advanced Analysis Techniques
-
-### Technique 1: Dependency Depth Analysis
-
-```python
-# Trace how deep dependencies go
-Level 0: mypackage.api
-Level 1: mypackage.services, mypackage.auth
-Level 2: mypackage.models
-Level 3: sqlalchemy
-
-Max depth = 3 (reasonable)
-```
-
-### Technique 2: Change Impact Prediction
-
-```python
-# If changing mypackage.models:
-Direct impact: services, auth (from imported_by)
-Indirect impact: api (imports services and auth)
-Total modules affected: 3
-```
-
-### Technique 3: Dependency Violation Detection
-
-```python
-# Define rule: API should not import Models directly
-analyze_dependencies("mypackage.api")
-→ Check if "mypackage.models" in imports
-→ Violation if present
-```
-
-### Technique 4: External Dependency Audit
-
-```python
-# Collect all external dependencies
-for module in list_modules():
-    deps = analyze_dependencies(module)
-    external = [d for d in deps["imports"] if d["type"] == "external"]
-
-# Result: Complete list of third-party dependencies
-# Use for security audits, license compliance
-```
-
-## Visualization Tips
-
-**Dependency Graph**:
-
-- Nodes = modules
-- Edges = import relationships
-- Color = instability (red = unstable, green = stable)
-
-**Layering Diagram**:
-
-- Horizontal layers = architectural tiers
-- Arrows point downward = valid dependencies
-- Upward arrows = violations
-
-**Circular Dependency Detection**:
-
-- Highlight cycles in red
-- Show all modules in cycle
-- Indicate break points
+- **High fan-out** (depends on too many things): extract interfaces, use
+  dependency injection, or split into smaller modules.
+- **High fan-in** (many dependents): ensure stability with comprehensive tests,
+  use semantic versioning, and add deprecation warnings before changes.
+- **Circular dependencies**: extract shared code to a new module, use lazy
+  imports, or refactor to break the cycle.
+- **No clear architecture**: identify layers from the dependency data, then
+  enforce dependency rules and refactor toward a pattern.
 
 ## Limitations and Considerations
 
-**Known Limitations**:
+**Known limitations:**
 
-- Dynamic imports not detected (`importlib.import_module()`)
-- Conditional imports may be missed
-- Plugin systems with runtime loading
-- External packages only shown as names, not analyzed
+- Dynamic imports are not detected (`importlib.import_module()`).
+- Conditional imports may be missed.
+- Plugin systems with runtime loading are invisible.
+- External packages are shown as names only, not analyzed.
 
-**Best Practices**:
+**Best practices:**
 
-- Run analysis regularly (CI/CD integration)
-- Track metrics over time (coupling trends)
-- Enforce architecture rules (linting)
-- Document dependency decisions
-
-**Performance Tips**:
-
-- Cache results for large projects
-- Analyze only changed modules in incremental builds
-- Use scope parameter to limit analysis depth
+- Run analysis regularly (CI/CD integration).
+- Track coupling metrics over time.
+- Enforce architecture rules via linting.
+- Document dependency decisions.
 
 ## Success Indicators
 
-✅ **Clear architecture**: Identified pattern (layered, hexagonal, etc.)
-✅ **No circular dependencies**: All cycles resolved
-✅ **Manageable coupling**: Fan-in/fan-out within reasonable limits
-✅ **Change impact understood**: Know what breaks when module changes
-✅ **External deps tracked**: All third-party dependencies documented
+- **Clear architecture**: identified a pattern (layered, hexagonal, etc.)
+- **No circular dependencies**: all cycles resolved
+- **Manageable coupling**: fan-in/fan-out within reasonable limits
+- **Change impact understood**: you know what breaks when a module changes
+- **External deps tracked**: all third-party dependencies documented
 
 ## Related Workflows
 
-- [Refactoring](workflows://refactoring) - Use dependency analysis to plan safe refactoring
-- [Code Understanding](workflows://code-understanding) - Understand module context
-- [Find All References](workflows://find-references) - See actual import statements
+- [Refactoring](workflows://refactoring) — use dependency analysis to plan safe refactoring
+- [Code Understanding](workflows://code-understanding) — understand module context
 
 ## Related Tools
 
-- `analyze_dependencies` - Core dependency analysis
-- `list_modules` - Project structure overview
-- `get_module_info` - Detailed module information
-- `find_imports` - Find import statements
+- `analyze_dependencies` — core dependency analysis (imports, importers, cycles)
+- `outline` — project/module structure overview
+- `expand` (edge `imports` / `imported_by`) — a single import edge from a module
+- `trace` (`follow=["imports"]`) — multi-hop import closure
+- `inspect` — structural detail for a resolved module or symbol
 
 ## Related Issues
 
-- Issue #236: Standalone scripts not in dependency graph (workaround: manual tracking)
+- Issue #236: standalone scripts not in dependency graph (workaround: manual tracking)

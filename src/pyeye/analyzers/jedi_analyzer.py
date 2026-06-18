@@ -3066,7 +3066,7 @@ class JediAnalyzer:
 
         return False
 
-    # DEPRECATED: replaced by inspect(handle).edge_counts.subclasses (count) and future expand(handle, edge="subclasses") (list). Will be removed in the legacy-tool cleanup phase.
+    # DEPRECATED: replaced by expand(handle, edge="subclasses") for the list (and len() for the count); subclasses is expand-only, not in inspect's edge_counts (#392). Will be removed in the legacy-tool cleanup phase.
     async def find_subclasses(
         self,
         base_class: str,
@@ -3076,9 +3076,9 @@ class JediAnalyzer:
     ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
 
-        **Deprecated:** Replaced by ``inspect(handle).edge_counts.subclasses``
-        (count) and future ``expand(handle, edge="subclasses")`` (list) in the
-        redesigned API. See
+        **Deprecated:** Replaced by ``expand(handle, edge="subclasses")`` for the
+        list (use ``len(...)`` for the count) in the redesigned API.  ``subclasses``
+        is an expand-only edge — ``inspect`` does not measure it (#392). See
         docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
         for the migration plan. This method will be removed once the legacy
         MCP tools are deprecated (Phase B of the migration).
