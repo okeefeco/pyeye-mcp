@@ -94,6 +94,17 @@ reliably today:
 | `imports` | module → what it imports | the module's top-level imports |
 | `imported_by` | module → its importers | project modules that import this module |
 
+**Static-surface ceiling.** These structural edges are complete over what is
+*written in source*, not over what exists at runtime. `members` / `outline` /
+`subclasses` do not see runtime-injected relationships — metaclass injection,
+`setattr`, `__getattr__`, `type(...)`, `__init_subclass__` registration, or
+`importlib` with computed targets. So `outline` of a Django `Model` omits its
+metaclass-injected `_meta` / `objects` / `DoesNotExist`, and a "full subclass
+closure" covers literal `class B(A):` subclassing only. An absent member or
+subclass means "not in source," **not** "not at runtime" — don't report a static
+result as runtime-exhaustive. (Same boundary `imported_by` already names for
+dynamic imports.)
+
 ## ⭐ Honest Limits — Reverse References Are NOT Available
 
 This is the most important rule in this skill.

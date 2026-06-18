@@ -416,7 +416,11 @@ async def expand(
     Supported edges (the complete static/outbound set):
       - ``members``  — class/module → direct members (attributes, methods, nested
         classes).  ``stubs: []`` means the class/module was found but has no
-        members; that is NOT the same as unsupported.
+        members; that is NOT the same as unsupported.  Static-surface ceiling:
+        members are read from source; runtime-injected members (metaclass /
+        ``setattr`` / ``__getattr__`` / ``type()`` / ``__init_subclass__``) are
+        NOT captured — e.g. a Django ``Model`` shows none of its metaclass-injected
+        ``_meta`` / ``objects`` / ``DoesNotExist``.
       - ``callees``  — function/method → forward static call targets.  Includes
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
@@ -438,6 +442,10 @@ async def expand(
         handle also returns the supported branch with ``stubs: []`` — only a
         class CAN be subclassed,
         so ``[]`` is true by definition, not an absence-vs-zero lie.
+        Static-surface ceiling: the "full closure" is full only over literal
+        ``class B(A):`` subclassing; dynamically-created subclasses
+        (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
+        registration) are NOT captured.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle
         returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).
@@ -598,6 +606,13 @@ async def outline(
     Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
     ``outline()`` to see the complete structural skeleton in one call — the
     single-call answer to "show me the structure of this scope."
+
+    **Static-surface ceiling.** The tree walks the ``members`` edge, so it is
+    complete over what is *statically defined in source* but not over runtime.
+    Runtime-injected members (metaclass / ``setattr`` / ``__getattr__`` /
+    ``type()`` / ``__init_subclass__``) are NOT captured — e.g. ``outline`` of a
+    Django ``Model`` omits its metaclass-injected ``_meta`` / ``objects`` /
+    ``DoesNotExist``.  An absent member is "not in source," not "not at runtime."
 
     **Absence contracts — an agent MUST read these before consuming the tree.**
 

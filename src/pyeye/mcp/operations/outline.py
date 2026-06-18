@@ -97,7 +97,15 @@ async def outline(
 
     Walks the ``members`` edge from *handle* via BFS-bounded recursion, building
     each node with ``stubs.build_stub`` and stopping at depth, budget, or
-    external-scope limits.  The §4.2 absence contracts are enforced on every node:
+    external-scope limits.
+
+    Static-surface ceiling: because the walk is over ``members``, the tree is
+    complete over statically-defined members but NOT over runtime-injected ones
+    (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+    ``__init_subclass__``) — e.g. a Django ``Model`` omits its metaclass-injected
+    ``_meta`` / ``objects`` / ``DoesNotExist``.
+
+    The §4.2 absence contracts are enforced on every node:
 
     - ``children`` present ⇔ the node was expanded (walked).
     - ``truncated: true`` + ``truncation_reason`` present ⇔ a cap prevented expansion.
