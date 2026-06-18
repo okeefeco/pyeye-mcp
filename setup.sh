@@ -10,16 +10,10 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
-# Create virtual environment
-echo "📦 Creating virtual environment..."
-uv venv
-
-# Activate virtual environment
-echo "🔧 Installing dependencies..."
-source .venv/bin/activate
-
-# Install package with dev dependencies
-uv pip install -e ".[dev]"
+# Install the package + dev dependencies into a uv-managed .venv (lock-driven).
+# `dev` is uv's default group, so a bare `uv sync` includes all dev tooling.
+echo "📦 Installing dependencies (uv sync)..."
+uv sync
 
 # Install pre-commit hooks
 echo "🪝 Installing pre-commit hooks..."
@@ -28,7 +22,7 @@ pre-commit install --hook-type commit-msg
 
 # Generate secrets baseline
 echo "🔒 Generating secrets baseline..."
-detect-secrets scan > .secrets.baseline
+uv run detect-secrets scan > .secrets.baseline
 
 # Run initial checks (optional)
 echo "✅ Running initial quality checks..."

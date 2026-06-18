@@ -880,6 +880,82 @@ class TestResolveAt:
 
 
 # ---------------------------------------------------------------------------
+# Method-kind consistency (issue #406)
+# ---------------------------------------------------------------------------
+
+
+class TestMethodKindConsistency:
+    """Regression tests for #406: every resolve path must report a method as
+    ``kind="method"``, consistent with ``inspect``/``outline``.
+
+    The fixture method is ``Widget.greet`` at ``widgets.py:37`` (``def greet``;
+    column 8 is the ``g`` of ``greet``).  Before the fix, the resolve path mapped
+    Jedi's ``type="function"`` straight to ``"function"`` while ``inspect`` and the
+    stub builder promoted it to ``"method"`` via ``_is_method`` — three primitives,
+    two answers, one symbol.
+    """
+
+    METHOD_HANDLE = "mypackage._core.widgets.Widget.greet"
+
+    @pytest.mark.asyncio
+    async def test_resolve_at_method_kind_is_method(self, analyzer: JediAnalyzer) -> None:
+        """resolve_at on a method reports kind='method', not 'function'."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        # Line 37: "    def greet(self) -> str:" — column 8 is 'g' of greet.
+        result = await resolve_at(widgets_path, 37, 8, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == self.METHOD_HANDLE
+        assert (
+            result["kind"] == "method"
+        ), f"resolve_at should report a method as 'method', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_resolve_dotted_method_kind_is_method(self, analyzer: JediAnalyzer) -> None:
+        """resolve on a dotted method handle reports kind='method'."""
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve(self.METHOD_HANDLE, analyzer)
+
+        assert result["found"] is True, f"Expected found=True, got: {result}"
+        assert result["handle"] == self.METHOD_HANDLE
+        assert (
+            result["kind"] == "method"
+        ), f"resolve (dotted) should report a method as 'method', got: {result['kind']!r}"
+
+    @pytest.mark.asyncio
+    async def test_kind_for_canonical_method_is_method(self, analyzer: JediAnalyzer) -> None:
+        """The _kind_for_canonical fallback re-derives a method as 'method'."""
+        from pyeye.mcp.operations.resolve import _kind_for_canonical
+
+        kind = _kind_for_canonical(self.METHOD_HANDLE, analyzer)
+        assert (
+            kind == "method"
+        ), f"_kind_for_canonical should recover 'method' for a method, got: {kind!r}"
+
+    @pytest.mark.asyncio
+    async def test_resolve_at_and_inspect_agree_on_method_kind(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """resolve_at and inspect must report the SAME kind for one method symbol."""
+        from pyeye.mcp.operations.inspect import inspect
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        widgets_path = str(_FIXTURE / "mypackage" / "_core" / "widgets.py")
+        resolved = await resolve_at(widgets_path, 37, 8, analyzer)
+        assert resolved["found"] is True
+
+        inspected = await inspect(resolved["handle"], analyzer)
+
+        assert resolved["kind"] == inspected["kind"], (
+            "resolve_at and inspect disagree on kind for the same symbol: "
+            f"resolve_at={resolved['kind']!r} inspect={inspected['kind']!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Identifier form parser — edge cases
 # ---------------------------------------------------------------------------
 

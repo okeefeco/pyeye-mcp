@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -59,7 +60,11 @@ class TestAutomationSetup:
     def test_dogfooding_metrics_cli_help(self):
         """Test that dogfooding metrics CLI shows help."""
         result = subprocess.run(
-            ["python", "scripts/dogfooding_metrics.py", "--help"], capture_output=True, text=True
+            # sys.executable (the venv interpreter under `uv run`), NOT bare "python"
+            # which would hit a system interpreter without the project's deps (#414).
+            [sys.executable, "scripts/dogfooding_metrics.py", "--help"],
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "Dogfooding metrics" in result.stdout
@@ -104,7 +109,9 @@ class TestAutomationSetup:
         """Test that automation scripts handle errors gracefully."""
         # Test dogfooding metrics with no session
         result = subprocess.run(
-            ["python", "scripts/dogfooding_metrics.py", "end"], capture_output=True, text=True
+            [sys.executable, "scripts/dogfooding_metrics.py", "end"],
+            capture_output=True,
+            text=True,
         )
         # Should not crash - either shows "No active session" or a summary
         assert result.returncode == 0

@@ -98,11 +98,9 @@ With setuptools_scm:
 ## Building Packages
 
 ```bash
-# Install build tools
-uv pip install build setuptools_scm[toml]
-
-# Build distributions
-uv run python -m build
+# Build distributions (uv provides the build frontend; setuptools_scm comes
+# from [build-system].requires)
+uv build
 
 # Files created in dist/
 ls dist/
@@ -126,7 +124,7 @@ If `__version__` shows "0.0.0+unknown":
 
 ```bash
 # Reinstall in development mode
-uv pip install -e .
+uv sync
 ```
 
 ### Clean vs Dev Versions

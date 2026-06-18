@@ -96,12 +96,10 @@ Please follow these steps for your contribution:
    cd pyeye-mcp
    ```
 
-2. Create a virtual environment and install dependencies:
+2. Install dependencies (creates a uv-managed `.venv`; `dev` is uv's default group):
 
    ```bash
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
+   uv sync
    ```
 
 3. Install pre-commit hooks:

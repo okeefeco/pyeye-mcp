@@ -12,7 +12,7 @@ Start in the main repo checkout (`/home/mark/GitHub/pyeye-mcp`) or in an existin
 
 ## Isolated workspaces (worktrees)
 
-For feature work that needs isolation, create a worktree via native tooling — the superpowers `using-git-worktrees` skill (which uses `EnterWorktree`). Worktrees live under `.claude/worktrees` (gitignored) and the harness manages their lifecycle. Set up each worktree's environment with `uv sync --all-extras`. See `04-agent-triggers.md` → Worktrees for the full trigger map.
+For feature work that needs isolation, create a worktree via native tooling — the superpowers `using-git-worktrees` skill (which uses `EnterWorktree`). Worktrees live under `.claude/worktrees` (gitignored) and the harness manages their lifecycle. Set up each worktree's environment with `uv sync` (installs main + the default `dev` group; add `--group docs` only when building docs). See `04-agent-triggers.md` → Worktrees for the full trigger map.
 
 ## Working directory
 

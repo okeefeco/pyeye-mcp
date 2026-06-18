@@ -38,12 +38,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install setuptools_scm first for version generation
-          uv pip install --system setuptools_scm
+          # Installs the package (editable) + dev group, incl. setuptools_scm
+          uv sync
           # Generate version file from git tag
-          python -m setuptools_scm
-          # Then install the package with dependencies
-          uv pip install --system -e ".[dev]"
+          uv run python -m setuptools_scm
 
       - name: Extract version from tag
         id: version
@@ -55,7 +53,7 @@ jobs:
       - name: Verify tag matches package version
         run: |
           # With setuptools_scm, version is derived from git tag
-          PACKAGE_VERSION=$(python -c "from pyeye import __version__; print(__version__)")
+          PACKAGE_VERSION=$(uv run python -c "from pyeye import __version__; print(__version__)")
           TAG_VERSION="${{ steps.version.outputs.version }}"
 
           echo "Package version: $PACKAGE_VERSION"
@@ -115,12 +113,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install setuptools_scm first for version generation
-          uv pip install --system setuptools_scm
+          # Installs the package (editable) + dev group, incl. setuptools_scm
+          uv sync
           # Generate version file from git tag
-          python -m setuptools_scm
-          # Then install the package with dependencies
-          uv pip install --system -e ".[dev]"
+          uv run python -m setuptools_scm
 
       - name: Extract version info
         id: version
@@ -163,7 +159,7 @@ jobs:
           echo "Created release: $RELEASE_URL"
 
       - name: Upload dist artifacts for PyPI publishing
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/

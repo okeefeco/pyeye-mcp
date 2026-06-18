@@ -55,7 +55,10 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members, resolve_superclasses
-from pyeye.mcp.operations.resolve import _normalise_kind  # reuse kind table
+
+# Kind normalisation + method detection live in resolve (the lower-level module)
+# so resolve, inspect, and stubs share one source of truth (#406).
+from pyeye.mcp.operations.resolve import _normalise_kind_from_name
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
 
@@ -127,33 +130,6 @@ def _make_location(
     if column_end is not None:
         loc["column_end"] = column_end
     return loc
-
-
-def _is_method(jedi_name: Any) -> bool:
-    """Return True if *jedi_name* is a method (a function enclosed by a class).
-
-    Reads the resolved Jedi ``Name``'s parent scope directly via
-    ``Name.parent()`` instead of re-deriving the enclosing scope from the dotted
-    handle.  Dotted-name string arithmetic plus a filesystem module lookup
-    cannot see class nesting — for ``module.Outer.Inner.method`` it treats
-    ``Outer`` as a module, fails to find it, and misclassifies the nested-class
-    method as a plain function (issue #337).  Using ``parent()`` also avoids a
-    redundant per-call Jedi ``Script`` load.
-
-    Args:
-        jedi_name: The resolved Jedi ``Name`` object for the symbol.
-
-    Returns:
-        ``True`` when the symbol is a function whose immediate enclosing scope
-        is a class (at any nesting depth).
-    """
-    if getattr(jedi_name, "type", None) != "function":
-        return False
-    try:
-        parent = jedi_name.parent()
-    except Exception:
-        return False
-    return parent is not None and getattr(parent, "type", None) == "class"
 
 
 def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, bool, bool]:
@@ -316,13 +292,16 @@ def _build_signature(jedi_name: Any) -> str | None:
 
     Uses Jedi's ``get_signatures()[0].to_string()`` to obtain the signature.
     Returns ``None`` if no signatures are available.  The returned string is
-    guaranteed to be single-line (no embedded newlines).
+    guaranteed to be single-line (no embedded newlines) and non-empty — an
+    empty/whitespace render normalises to ``None`` so callers never have to
+    distinguish ``""`` from "absent" (the stub contract: present-with-real-value
+    or omitted, never ``""``; issue #407).
 
     Args:
         jedi_name: A Jedi ``Name`` object.
 
     Returns:
-        A single-line signature string, or ``None``.
+        A non-empty single-line signature string, or ``None``.
     """
     try:
         sigs = jedi_name.get_signatures()
@@ -331,7 +310,8 @@ def _build_signature(jedi_name: Any) -> str | None:
             # Guard: must be single-line
             if "\n" in sig_str:
                 sig_str = sig_str.split("\n")[0]
-            return str(sig_str)
+            # Normalise an empty/whitespace render to None — never return "".
+            return str(sig_str) if sig_str and sig_str.strip() else None
     except Exception:
         pass
     return None
@@ -923,10 +903,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 
-    jedi_type: str = getattr(jedi_name, "type", None) or "statement"
-    # Determine if this function is actually a method
-    raw_kind = _normalise_kind(jedi_type)
-    kind = "method" if raw_kind == "function" and _is_method(jedi_name) else raw_kind
+    # Normalise kind, promoting class-enclosed functions to "method" (#406).
+    kind = _normalise_kind_from_name(jedi_name)
 
     location = location_from_name(file_str, jedi_name)
 
@@ -1069,8 +1047,12 @@ async def _build_function_fields(
     """
     fields: dict[str, Any] = {}
 
+    # Signature is OMITTED (never "") when Jedi can't render one — consistent with
+    # the class branch and the stub contract (#407).  The structured ``parameters``
+    # below remain available regardless, so consumers don't lose information.
     sig = _build_signature(jedi_name)
-    fields["signature"] = sig or ""
+    if sig is not None:
+        fields["signature"] = sig
 
     fields["parameters"] = await _build_parameters(jedi_name, file_path, analyzer)
     fields["return_type"] = await _extract_return_type(jedi_name, file_path, analyzer)

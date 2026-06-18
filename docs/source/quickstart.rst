@@ -18,8 +18,7 @@ Using uv (recommended for development):
 
    git clone https://github.com/okeefeco/python-code-intelligence-mcp.git
    cd python-code-intelligence-mcp
-   uv venv
-   uv pip install -e ".[dev]"
+   uv sync
 
 MCP Server Setup
 ---------------
