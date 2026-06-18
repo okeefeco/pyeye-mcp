@@ -20,10 +20,10 @@ class TestDogfoodingWorkflow:
         assert server_file.exists(), "Server module should exist"
 
         content = server_file.read_text(encoding="utf-8")
-        # Check for key MCP tool functions
-        assert "find_symbol" in content
-        assert "list_packages" in content
-        assert "analyze_dependencies" in content
+        # Check for key MCP tool functions (progressive-disclosure surface)
+        assert "def resolve" in content
+        assert "def inspect" in content
+        assert "def analyze_dependencies" in content
 
     def test_plugin_architecture_exists(self):
         """Verify the plugin architecture exists."""

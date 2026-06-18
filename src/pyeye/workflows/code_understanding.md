@@ -1,8 +1,14 @@
 # Code Understanding Workflow
 
+Tool mechanics (call signatures, return shapes, handles, edges) live in the
+python-explore skill (`skills/python-explore/SKILL.md`). This workflow only sequences
+the primitives; it does not restate them.
+
 ## Goal
 
-Quickly understand unfamiliar code by systematically exploring its structure, purpose, relationships, and usage patterns. This workflow guides you from "What is this?" to "How does this work?" to "Where is this used?"
+Quickly understand unfamiliar code by exploring its structure, purpose, and
+relationships. This workflow guides you from "What is this?" to "How does this work?"
+using pyeye's progressive-disclosure primitives.
 
 ## When to Use This Workflow
 
@@ -13,345 +19,86 @@ Quickly understand unfamiliar code by systematically exploring its structure, pu
 
 ## Steps
 
-### Step 1: Locate the Symbol
+### Step 1: Orient on the symbol
 
-Use `find_symbol` to locate the definition of the class, function, or module you want to understand:
+`resolve` the name (or `resolve_at` a `file:line`) to a canonical handle. If `resolve`
+reports the name is ambiguous, pick the intended candidate or re-resolve with the full
+dotted handle. The handle is what every later step consumes.
 
-```python
-# Example: Find a class
-find_symbol(
-    name="DataProcessor",
-    fuzzy=False
-)
+### Step 2: Inspect what it is
 
-# Returns:
-# [
-#     {
-#         "name": "DataProcessor",
-#         "type": "class",
-#         "file": "/project/processing/processor.py",
-#         "line": 45,
-#         "column": 0,
-#         "import_paths": ["processing.processor.DataProcessor"]
-#     }
-# ]
-```
+`inspect` the handle for kind, signature, docstring, and `edge_counts`. This answers
+"what is this and what does it claim to do?" Read the docstring, note base classes for
+a class, and use `edge_counts` to decide which edges are worth drilling. When you want
+the actual source, `Read` the `file:line` the handle points at.
 
-**Fuzzy Search**: If you don't know the exact name, use `fuzzy=True`:
+### Step 3: Map structure
 
-```python
-find_symbol(name="process", fuzzy=True)
-# Finds: DataProcessor, process_data, ProcessManager, etc.
-```
+- For a module or class, `outline` the handle for its skeleton (members, nested defs)
+  in one call.
+- For inheritance, `expand` the `subclasses` edge (classes that extend it) and the
+  `superclasses` edge (its bases).
+- For any container, `expand` the `members` edge; for a nested symbol, `expand`
+  `enclosing_scope` to find the scope around it.
 
-### Step 2: Inspect the Symbol
+### Step 4: Follow the forward flow (for functions)
 
-Use `get_type_info` to understand what the symbol is and what it does:
+`expand` the `callees` edge to see what a function calls. To follow the call structure
+across several hops, `trace` from the handle following `callees`.
 
-```python
-# Example call
-get_type_info(
-    file="/project/processing/processor.py",
-    line=45,
-    column=0,
-    detailed=True
-)
+> **Honest limit — reverse references are not available.** "Who calls this?" and "what
+> references this?" cannot be answered reliably yet; those edges are deferred to the
+> Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)). Do not
+> substitute `grep` or legacy reference tools — they under-report. Say so plainly, then
+> offer what pyeye *can* answer: `callees` (forward), `imported_by`/`imports` (around a
+> module), and `subclasses`/`superclasses` (inheritance).
 
-# Returns:
-# {
-#     "name": "DataProcessor",
-#     "type": "class",
-#     "full_name": "processing.processor.DataProcessor",
-#     "docstring": "Processes raw data into structured format...",
-#     "base_classes": ["BaseProcessor"],
-#     "mro": ["DataProcessor", "BaseProcessor", "object"],
-#     "methods": ["process", "validate", "transform"],
-#     "attributes": ["config", "logger"]
-# }
-```
+### Step 5: Understand module context (for modules)
 
-**Key Information to Extract**:
-
-- **Docstring**: What the code is supposed to do
-- **Base classes**: What it inherits from (for classes)
-- **Methods/Attributes**: Available functionality (if `detailed=True`)
-- **Type hints**: Expected input/output types
-
-### Step 3: Understand the Hierarchy (For Classes)
-
-If the symbol is a class, explore its inheritance relationships:
-
-**Option A: Find Parent Classes**
-Already shown in Step 2's `base_classes` and `mro` (Method Resolution Order)
-
-**Option B: Find Child Classes**
-Use `find_subclasses` to see what inherits from this class:
-
-```python
-find_subclasses(
-    base_class="DataProcessor",
-    show_hierarchy=True
-)
-
-# Returns:
-# [
-#     {
-#         "name": "CSVProcessor",
-#         "hierarchy": ["DataProcessor", "CSVProcessor"]
-#     },
-#     {
-#         "name": "JSONProcessor",
-#         "hierarchy": ["DataProcessor", "JSONProcessor"]
-#     }
-# ]
-```
-
-**Insight**: This shows you:
-
-- How the class is extended/specialized
-- Common patterns in the codebase
-- The design hierarchy
-
-### Step 4: Trace Execution Flow (For Functions)
-
-Use `get_call_hierarchy` to understand how functions are called and what they call:
-
-```python
-get_call_hierarchy(
-    function_name="process_data",
-    file="/project/processing/processor.py"
-)
-
-# Returns:
-# {
-#     "function": "process_data",
-#     "callers": [
-#         {"function": "main", "file": "/project/app.py", "line": 23},
-#         {"function": "batch_process", "file": "/project/batch.py", "line": 67}
-#     ],
-#     "callees": [
-#         {"function": "validate", "file": "/project/processing/processor.py"},
-#         {"function": "transform", "file": "/project/processing/processor.py"}
-#     ]
-# }
-```
-
-**Insight**:
-
-- **Callers**: Where is this function used? (entry points)
-- **Callees**: What does this function do? (implementation details)
-
-### Step 5: See Usage Patterns
-
-Use the **[Find All References Workflow](workflows://find-references)** to see real-world usage:
-
-1. Get fully qualified name (already have from Step 2)
-2. Find all references in packages and scripts
-3. Examine actual usage code
-
-**Why this matters**: Documentation tells you what code *should* do, usage shows what it *actually* does.
-
-Example insights from usage:
-
-- Common parameter patterns
-- Typical use cases
-- Integration patterns
-- Error handling approaches
-
-### Step 6: Understand Module Context (For Modules)
-
-Use `get_module_info` to understand the module's structure and purpose:
-
-```python
-get_module_info(
-    module_path="processing.processor"
-)
-
-# Returns:
-# {
-#     "module": "processing.processor",
-#     "file": "/project/processing/processor.py",
-#     "exports": ["DataProcessor", "process_data", "validate_input"],
-#     "classes": [{"name": "DataProcessor", "line": 45}],
-#     "functions": [{"name": "process_data", "line": 12}],
-#     "imports": ["logging", "typing", "processing.base"],
-#     "metrics": {"lines": 234, "classes": 1, "functions": 5}
-# }
-```
-
-**Insight**:
-
-- **Exports**: Public API of the module
-- **Imports**: Dependencies and relationships
-- **Metrics**: Size and complexity
-
-## Complete Example: Understanding a New Class
-
-**Goal**: Understand the `UserManager` class in an unfamiliar codebase
-
-### Discovery Phase
-
-```text
-Step 1: find_symbol(name="UserManager")
-→ Found at: /project/auth/manager.py:30
-
-Step 2: get_type_info(file="/project/auth/manager.py", line=30, detailed=True)
-→ Class: UserManager
-→ Docstring: "Manages user authentication and authorization"
-→ Base classes: [BaseManager]
-→ Methods: [authenticate, authorize, create_user, delete_user]
-→ Attributes: [db, cache, logger]
-
-Step 3: find_subclasses(base_class="UserManager", show_hierarchy=True)
-→ Subclasses: AdminUserManager, GuestUserManager
-→ Hierarchy: BaseManager → UserManager → [Admin/Guest]UserManager
-```
-
-### Understanding Phase
-
-```text
-Step 4: get_call_hierarchy(function_name="authenticate")
-→ Callers: login_endpoint, api_auth_middleware (entry points)
-→ Callees: validate_credentials, create_session (implementation)
-
-Step 5: Find All References (using workflow)
-→ 23 references found across 12 files
-→ Common pattern: manager = UserManager(db); user = manager.authenticate(...)
-
-Step 6: get_module_info(module_path="auth.manager")
-→ Exports: UserManager, authenticate_user, create_user
-→ Imports: auth.base, database.models, cache.redis
-→ Module provides: Authentication and user management layer
-```
-
-### Knowledge Gained
-
-- **Purpose**: Central authentication/authorization manager
-- **Design**: Follows manager pattern, inherits from BaseManager
-- **Usage**: Used by API endpoints and middleware
-- **Architecture**: Sits between API layer and database layer
-- **Variants**: Admin and Guest have specialized versions
+`outline` the module for its top-level structure, then `expand` the `imports` edge to
+see its dependencies and the `imported_by` edge to see which project modules depend on
+it. For a wider dependency picture, use `analyze_dependencies`.
 
 ## Progressive Understanding Levels
 
-### Level 1: Basic (Steps 1-2)
-
-- What is it? (class/function/module)
-- Where is it defined?
-- What's it supposed to do? (docstring)
-
-### Level 2: Structure (Steps 3-4)
-
-- How does it relate to other code? (inheritance/calls)
-- What's the execution flow?
-
-### Level 3: Integration (Steps 5-6)
-
-- How is it actually used?
-- Where does it fit in the system?
-
-## Understanding Checklist
-
-Quick understanding:
-
-- [ ] Located symbol with `find_symbol`
-- [ ] Read docstring with `get_type_info`
-- [ ] Understood immediate context
-
-Deep understanding:
-
-- [ ] Explored inheritance with `find_subclasses` (for classes)
-- [ ] Traced execution with `get_call_hierarchy` (for functions)
-- [ ] Examined usage with find-references workflow
-- [ ] Understood module context with `get_module_info`
+- **Level 1 — Basic (Steps 1-2):** what is it, where is it defined, what should it do.
+- **Level 2 — Structure (Steps 3-4):** how it relates to other code and what it calls.
+- **Level 3 — Integration (Step 5):** how it fits into the module and dependency graph.
 
 ## Common Understanding Patterns
 
-### Pattern 1: Top-Down (Architecture First)
-
-1. Start with module structure (`list_modules`, `get_module_info`)
-2. Identify key classes/functions
-3. Drill into specifics with `get_type_info`
-
-### Pattern 2: Bottom-Up (Symbol First)
-
-1. Start with specific symbol (`find_symbol`)
-2. Understand the symbol (`get_type_info`)
-3. Expand to context (hierarchy, callers, module)
-
-### Pattern 3: Flow-Based (Execution Path)
-
-1. Find entry point (main, endpoint, handler)
-2. Trace execution (`get_call_hierarchy`)
-3. Understand each step along the path
-
-### Pattern 4: Usage-Based (Learn by Example)
-
-1. Find the symbol
-2. Find all references (usage examples)
-3. Learn patterns from real usage
-4. Understand design from patterns
-
-## Tips for Faster Understanding
-
-**For Classes**:
-
-- Check base classes to understand inherited behavior
-- Look at subclasses to see how it's extended
-- Examine **init** to understand initialization
-
-**For Functions**:
-
-- Check callers to understand purpose/context
-- Check callees to understand implementation
-- Look at usage for parameter patterns
-
-**For Modules**:
-
-- Start with exports (public API)
-- Check imports (dependencies)
-- Review metrics (complexity)
-
-**For Large Codebases**:
-
-- Use fuzzy search to explore naming patterns
-- Follow dependency chains (`analyze_dependencies`)
-- Look for README or docs in module docstrings
+- **Top-down (architecture first):** `outline` a module, identify key symbols, then
+  `inspect` each.
+- **Bottom-up (symbol first):** `resolve` a symbol, `inspect` it, then `expand` outward
+  to context.
+- **Flow-based (execution path):** start at an entry point, `expand`/`trace` `callees`
+  to follow the forward path.
 
 ## Limitations and Considerations
 
-**Known Limitations**:
-
-- Dynamic code (eval, exec) won't be fully understood
-- Decorator behavior may not be evident
-- Magic methods require manual inspection
-
-**Best Practices**:
-
-- Start broad, then narrow (module → class → method)
-- Look for tests - they're excellent usage examples
-- Check commit history for context on "why"
-- Draw diagrams of relationships for complex systems
+- Reverse references (callers/references) are deferred (#333) — caller impact cannot be
+  statically confirmed; state this on any change that touches shared code.
+- Dynamic code (`eval`, `exec`) and some decorator behaviour won't be fully captured.
+- Tests are excellent usage examples; check them when you need real-world patterns.
 
 ## Success Indicators
 
-✅ **Can explain what it does**: Clear understanding of purpose
-✅ **Know where it's used**: Identified all usage points
-✅ **Understand relationships**: Clear picture of inheritance/calls
-✅ **See integration**: Know how it fits in the system
-✅ **Ready to modify**: Confident enough to make changes
+- Can explain what it does and where it is defined.
+- Understand its inheritance and forward call structure.
+- Know its module dependencies and importers.
+- Confident enough to make changes (acknowledging unverified caller impact, #333).
 
 ## Related Workflows
 
-- [Find All References](workflows://find-references) - See real usage patterns (Step 5)
 - [Refactoring](workflows://refactoring) - Apply understanding to safe changes
 - [Dependency Analysis](workflows://dependency-analysis) - Deep dive into module relationships
 
 ## Related Tools
 
-- `find_symbol` - Locate definitions
-- `get_type_info` - Inspect symbols
-- `find_subclasses` - Explore inheritance
-- `get_call_hierarchy` - Trace execution
-- `get_module_info` - Module structure
-- `list_modules` - Project overview
+- `resolve` / `resolve_at` - Name or position to a canonical handle
+- `inspect` - What a symbol is (kind, signature, docstring, edge counts)
+- `outline` - Module or class skeleton in one call
+- `expand` - Walk one edge (members, callees, imported_by, subclasses, superclasses,
+  imports, enclosing_scope)
+- `trace` - Walk edges across multiple hops
+- `analyze_dependencies` - Module dependency relationships

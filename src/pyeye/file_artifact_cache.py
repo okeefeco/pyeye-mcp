@@ -115,9 +115,19 @@ class FileArtifactCache:
 
     def __init__(
         self,
-        ast_max_entries: int = 500,
+        ast_max_entries: int | None = None,
     ) -> None:
-        """Initialise the cache with the given combined entry cap."""
+        """Initialise the cache with the given combined entry cap.
+
+        When *ast_max_entries* is ``None`` the cap is taken from
+        ``settings.artifact_cache_max_entries`` (env ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES``),
+        so large codebases can grow the cache without code changes (#397). An
+        explicit argument always wins — used by tests and targeted tuning.
+        """
+        if ast_max_entries is None:
+            from .settings import settings
+
+            ast_max_entries = settings.artifact_cache_max_entries
         self._ast_max_entries = ast_max_entries
 
         # AST store: _FileKey -> ast.Module (LRU, shared count cap with Script)

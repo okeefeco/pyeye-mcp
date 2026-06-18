@@ -1267,38 +1267,41 @@ class TestFindSubclassesIndirectIdentity:
         assert names == {"SportsCar"}, f"Unrelated Car must own only SportsCar; got {names}"
 
 
-class TestInspectEdgeCountsSubclassesIssue335:
-    """Issue #335 criterion 3: inspect().edge_counts.subclasses matches truth.
+class TestExpandSubclassesIssue335:
+    """Issue #335 criterion 3: expand(handle, "subclasses") matches truth.
 
-    edge_counts.subclasses delegates to find_subclasses with the canonical FQN,
-    so the Bug A / Bug B fixes must flow through to the inspect surface.
+    subclasses is an expand-only edge (inspect no longer measures it — #392), and
+    the expand resolver delegates to find_subclasses with the canonical FQN, so
+    the Bug A / Bug B fixes must flow through to the expand surface.
     """
 
     @pytest.mark.asyncio
-    async def test_shape_edge_count_includes_reexport_subclasses(self) -> None:
-        """inspect(Shape).edge_counts.subclasses counts both re-export subclasses."""
-        from pyeye.mcp.server import inspect
+    async def test_shape_expand_includes_reexport_subclasses(self) -> None:
+        """expand(Shape, "subclasses") counts both re-export subclasses."""
+        from pyeye.mcp.server import expand
 
-        result = await inspect(
+        result = await expand(
             handle="pkg.shapes._impl.Shape",
+            edge="subclasses",
             project_path=str(_ISSUE_335_FIXTURE),
         )
         assert (
-            result["edge_counts"].get("subclasses") == 2
-        ), f"Expected subclasses count 2 for Shape; got {result['edge_counts']!r}"
+            len(result["stubs"]) == 2
+        ), f"Expected 2 subclass stubs for Shape; got {result['stubs']!r}"
 
     @pytest.mark.asyncio
-    async def test_vehicle_edge_count_excludes_unrelated_grandchild(self) -> None:
-        """inspect(Vehicle).edge_counts.subclasses == 2 (Car, RaceCar), not 3."""
-        from pyeye.mcp.server import inspect
+    async def test_vehicle_expand_excludes_unrelated_grandchild(self) -> None:
+        """expand(Vehicle, "subclasses") == 2 stubs (Car, RaceCar), not 3."""
+        from pyeye.mcp.server import expand
 
-        result = await inspect(
+        result = await expand(
             handle="pkg.vehicles_a.Vehicle",
+            edge="subclasses",
             project_path=str(_ISSUE_335_FIXTURE),
         )
         assert (
-            result["edge_counts"].get("subclasses") == 2
-        ), f"Expected subclasses count 2 for Vehicle; got {result['edge_counts']!r}"
+            len(result["stubs"]) == 2
+        ), f"Expected 2 subclass stubs for Vehicle; got {result['stubs']!r}"
 
 
 class TestFindSubclassesJediIndependence:

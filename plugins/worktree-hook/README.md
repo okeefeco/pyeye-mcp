@@ -1,8 +1,9 @@
 # worktree-hook
 
-A Claude Code plugin that augments the native `EnterWorktree` tool with a
-`WorktreeCreate` hook. Installed separately from the `pyeye` MCP plugin but
-managed in the same marketplace.
+A Claude Code plugin that augments the native `EnterWorktree`/`ExitWorktree`
+tools with a matched pair of hooks — `WorktreeCreate` (custom directory/branch
+naming) and `WorktreeRemove` (clean teardown). Installed separately from the
+`pyeye` MCP plugin but managed in the same marketplace.
 
 ## What it does
 
@@ -42,6 +43,12 @@ naming:
 
 - **Fresh branches** — new branches are created from `origin/<default>` when a
   remote tracking ref exists, falling back to the local default branch.
+
+- **Clean teardown** — when Claude Code removes one of these worktrees
+  (`ExitWorktree` or session-exit cleanup), the companion `WorktreeRemove` hook
+  force-removes the worktree directory and deletes its branch. The branch is
+  deleted with the *safe* `git branch -d`: if it still holds unmerged commits
+  the hook leaves it in place rather than destroy work.
 
 ## Configuration
 
@@ -94,11 +101,28 @@ restart.)
 
 ### Removing a worktree this hook created
 
-Because the worktree is created out-of-band by the hook, `ExitWorktree` may
-refuse to remove it ("could not verify worktree state"). Remove it with git
-directly:
+The companion `WorktreeRemove` hook handles cleanup automatically: when Claude
+Code removes one of these worktrees it fires the hook, which force-removes the
+directory and safely deletes the branch (see *Clean teardown* above). You do not
+need to clean up by hand in the normal case.
+
+This is necessary because the harness delegates teardown *entirely* to the hook
+for worktrees created out-of-band — verified by testing: `ExitWorktree` fires
+`WorktreeRemove` but does not remove anything itself, so without this hook the
+directory, its `git worktree` registration, and the branch are all left behind.
+(As with the create side, this is observed behaviour that could change across
+Claude Code versions.)
+
+Two things to know:
+
+- `ExitWorktree` still first **refuses** with "could not verify worktree state";
+  confirm the removal (e.g. `discard_changes: true`) and the hook then runs.
+- If the branch holds unmerged commits the hook **keeps it on purpose**. Delete
+  it deliberately once you're sure: `git branch -D <type>/<name>`.
+
+Manual fallback, if you ever need to remove one yourself:
 
 ```bash
 git worktree remove --force .claude/worktrees/<type>/<name>
-git branch -D <type>/<name>
+git branch -d <type>/<name>   # -D to force-drop an unmerged branch
 ```
