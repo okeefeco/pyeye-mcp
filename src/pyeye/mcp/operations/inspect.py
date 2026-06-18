@@ -292,13 +292,16 @@ def _build_signature(jedi_name: Any) -> str | None:
 
     Uses Jedi's ``get_signatures()[0].to_string()`` to obtain the signature.
     Returns ``None`` if no signatures are available.  The returned string is
-    guaranteed to be single-line (no embedded newlines).
+    guaranteed to be single-line (no embedded newlines) and non-empty — an
+    empty/whitespace render normalises to ``None`` so callers never have to
+    distinguish ``""`` from "absent" (the stub contract: present-with-real-value
+    or omitted, never ``""``; issue #407).
 
     Args:
         jedi_name: A Jedi ``Name`` object.
 
     Returns:
-        A single-line signature string, or ``None``.
+        A non-empty single-line signature string, or ``None``.
     """
     try:
         sigs = jedi_name.get_signatures()
@@ -307,7 +310,8 @@ def _build_signature(jedi_name: Any) -> str | None:
             # Guard: must be single-line
             if "\n" in sig_str:
                 sig_str = sig_str.split("\n")[0]
-            return str(sig_str)
+            # Normalise an empty/whitespace render to None — never return "".
+            return str(sig_str) if sig_str and sig_str.strip() else None
     except Exception:
         pass
     return None
@@ -1043,8 +1047,12 @@ async def _build_function_fields(
     """
     fields: dict[str, Any] = {}
 
+    # Signature is OMITTED (never "") when Jedi can't render one — consistent with
+    # the class branch and the stub contract (#407).  The structured ``parameters``
+    # below remain available regardless, so consumers don't lose information.
     sig = _build_signature(jedi_name)
-    fields["signature"] = sig or ""
+    if sig is not None:
+        fields["signature"] = sig
 
     fields["parameters"] = await _build_parameters(jedi_name, file_path, analyzer)
     fields["return_type"] = await _extract_return_type(jedi_name, file_path, analyzer)

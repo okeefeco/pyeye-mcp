@@ -410,6 +410,82 @@ class TestInspectMethod:
 
 
 # ---------------------------------------------------------------------------
+# TestInspectSignatureContract — issue #407
+# ---------------------------------------------------------------------------
+
+
+class TestInspectSignatureContract:
+    """Regression tests for #407: ``signature`` is a non-empty string or OMITTED,
+    NEVER ``""``.
+
+    A class omits ``signature`` when Jedi yields none, but ``_build_function_fields``
+    emitted ``fields["signature"] = sig or ""`` — so a method/function whose Jedi
+    signature couldn't be rendered (e.g. Django's ``Model.save``) got ``""``,
+    which reads as "measured: no signature" and violates the stub contract
+    (``stubs.py`` design notes: present-with-real-value or omitted, never ``""``).
+    """
+
+    @pytest.mark.asyncio
+    async def test_method_omits_signature_when_jedi_yields_none(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """When ``_build_signature`` returns None for a method, the key is omitted
+        (matching the class branch) — never set to ``""``."""
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        with patch.object(inspect_ops, "_build_signature", return_value=None):
+            result = await inspect(_GREET_HANDLE, analyzer)
+
+        assert result["kind"] == "method"
+        assert (
+            result.get("signature", "<omitted>") != ""
+        ), "signature must never be the empty string"
+        assert "signature" not in result, "signature must be OMITTED when unavailable, not empty"
+
+    @pytest.mark.asyncio
+    async def test_function_omits_signature_when_jedi_yields_none(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Same contract for a plain function — both flow through _build_function_fields."""
+        from unittest.mock import patch
+
+        from pyeye.mcp.operations.inspect import inspect
+
+        with patch.object(inspect_ops, "_build_signature", return_value=None):
+            result = await inspect(_MAKE_WIDGET_HANDLE, analyzer)
+
+        assert result["kind"] == "function"
+        assert result.get("signature", "<omitted>") != ""
+        assert "signature" not in result
+
+    def test_build_signature_normalises_empty_to_none(self) -> None:
+        """_build_signature returns None (never "") when Jedi renders an empty string."""
+
+        class _EmptySig:
+            def to_string(self) -> str:
+                return ""
+
+        class _FakeName:
+            def get_signatures(self) -> list[_EmptySig]:
+                return [_EmptySig()]
+
+        assert inspect_ops._build_signature(_FakeName()) is None
+
+    @pytest.mark.asyncio
+    async def test_signature_never_empty_string_across_kinds(self, analyzer: JediAnalyzer) -> None:
+        """Across class/function/method handles, signature is a non-empty string or absent."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        for handle in (_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE, _GREET_HANDLE):
+            result = await inspect(handle, analyzer)
+            if "signature" in result:
+                assert result["signature"] != "", f"{handle} has empty-string signature"
+                assert isinstance(result["signature"], str)
+
+
+# ---------------------------------------------------------------------------
 # TestInspectModule — fixture: mypackage._core.widgets
 # ---------------------------------------------------------------------------
 
