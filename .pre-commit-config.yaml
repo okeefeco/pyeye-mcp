@@ -37,32 +37,38 @@ repos:
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
 
-  # Code formatting
-  - repo: https://github.com/psf/black
-    rev: 26.3.1
+  # Formatting / linting / type-checking run from the uv-managed venv via
+  # `uv run`, so their versions come from the single pin in pyproject.toml
+  # (dev group) rather than separate hook `rev:`s. This keeps pre-commit,
+  # `uv run <tool>`, and CI on the exact same binary — no drift (#413).
+  # Requires a synced env (`uv sync --all-extras`); CI does this before
+  # running pre-commit.
+  - repo: local
     hooks:
+      # Code formatting
       - id: black
-        language_version: python3.12
+        name: black
+        entry: uv run black
+        language: system
+        types: [python]
         args: ['--line-length=100']
 
-  # Linting (Note: Ruff handles import sorting via the "I" rule)
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.10
-    hooks:
+      # Linting (Note: Ruff handles import sorting via the "I" rule;
+      # ruff-format disabled since we use black for formatting)
       - id: ruff
+        name: ruff
+        entry: uv run ruff check
+        language: system
+        types: [python]
         args: ['--fix', '--exit-non-zero-on-fix']
-      # Note: ruff-format disabled since we use black for formatting
 
-  # Type checking
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1
-    hooks:
+      # Type checking (src only — mypy type stubs live in the pyproject dev
+      # group so `uv run mypy` picks them up)
       - id: mypy
-        additional_dependencies:
-          - types-setuptools
-          - types-requests
-          - types-PyYAML
-          - types-aiofiles
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
         args: ['--ignore-missing-imports']
         exclude: ^tests/
 
