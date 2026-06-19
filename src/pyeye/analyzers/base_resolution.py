@@ -30,42 +30,53 @@ from collections.abc import Callable, Mapping
 #: (as opposed to ``"import"``, which marks a re-exported name to be followed).
 _DEFINITION_KINDS = frozenset({"class", "func", "other"})
 
-#: Hard ceiling on re-export hops. Real chains are short; this only bounds
-#: pathological mutual re-exports so resolution always terminates.
-_MAX_HOPS = 20
+#: Runaway backstop on total nodes visited during one resolution. Real
+#: re-export graphs are tiny; this only bounds pathological cases. The ``seen``
+#: set is what actually guarantees termination on cyclic graphs.
+_MAX_RESOLUTION_NODES = 1000
 
 
 def _follow(
     path: str,
     import_tables: Mapping[str, Mapping[str, str]],
     module_defines: Mapping[str, Mapping[str, str]],
+    star_sources: Mapping[str, list[str]],
+    seen: set[str],
 ) -> str | None:
-    """Follow re-export bindings from *path* to a definition site, or ``None``.
+    """Follow re-export bindings (explicit and star) from *path* to a def site.
 
-    Each hop splits ``path`` into ``owning_module`` + ``leaf``:
+    Splits ``path`` into ``owning_module`` + ``leaf``:
     - a definition kind (class/func/other) is the answer;
-    - ``"import"`` means *leaf* is re-exported — jump to its target and continue;
-    - anything else (unknown leaf, external module) yields ``None``.
+    - ``"import"`` → *leaf* is an explicit re-export; follow its target;
+    - otherwise → try the owning module's ``from x import *`` sources (a star
+      re-export of *leaf*) and recurse into each in order; the first that
+      resolves wins (explicit imports above already take precedence).
 
-    A ``seen`` set bounds mutual re-export cycles; ``_MAX_HOPS`` bounds depth.
+    ``seen`` prevents mutual-re-export cycles (and is shared across star
+    branches); ``_MAX_RESOLUTION_NODES`` is a runaway backstop.
     """
-    seen: set[str] = set()
-    for _ in range(_MAX_HOPS):
-        if path in seen:
-            return None
-        seen.add(path)
-        *mod_parts, leaf = path.split(".")
-        owning_module = ".".join(mod_parts)
-        kind = module_defines.get(owning_module, {}).get(leaf)
-        if kind in _DEFINITION_KINDS:
-            return f"{owning_module}.{leaf}"
-        if kind == "import":
-            nxt = import_tables.get(owning_module, {}).get(leaf)
-            if not nxt:
-                return None
-            path = nxt
-            continue
+    if path in seen or len(seen) >= _MAX_RESOLUTION_NODES:
         return None
+    seen.add(path)
+
+    *mod_parts, leaf = path.split(".")
+    owning_module = ".".join(mod_parts)
+    kind = module_defines.get(owning_module, {}).get(leaf)
+    if kind in _DEFINITION_KINDS:
+        return f"{owning_module}.{leaf}"
+    if kind == "import":
+        nxt = import_tables.get(owning_module, {}).get(leaf)
+        if not nxt:
+            return None
+        return _follow(nxt, import_tables, module_defines, star_sources, seen)
+
+    # leaf is neither defined nor an explicit import here — try star re-exports.
+    for source_module in star_sources.get(owning_module, ()):
+        resolved = _follow(
+            f"{source_module}.{leaf}", import_tables, module_defines, star_sources, seen
+        )
+        if resolved is not None:
+            return resolved
     return None
 
 
@@ -74,6 +85,7 @@ def resolve_base(
     base_dotted: str,
     import_tables: Mapping[str, Mapping[str, str]],
     module_defines: Mapping[str, Mapping[str, str]],
+    star_sources: Mapping[str, list[str]] | None = None,
 ) -> str | None:
     """Resolve a class-base reference to its canonical definition-site path.
 
@@ -87,6 +99,10 @@ def resolve_base(
         module_defines: ``module -> {top-level name: kind}`` where ``kind`` is
             ``"class"``/``"func"``/``"other"`` for a real definition or
             ``"import"`` for a re-exported name.
+        star_sources: Optional ``module -> [star-imported source modules]``
+            (from :func:`build_star_sources`). When provided, a name re-exported
+            via ``from x import *`` is followed into ``x``; omit it to disable
+            star following (backward-compatible default).
 
     Returns:
         The canonical definition-site dotted path, or ``None`` if the AST cannot
@@ -99,7 +115,7 @@ def resolve_base(
     # as a base).
     full = ".".join([tbl[head], *rest]) if head in tbl else f"{module}.{base_dotted}"
 
-    return _follow(full, import_tables, module_defines)
+    return _follow(full, import_tables, module_defines, star_sources or {}, set())
 
 
 def build_import_table(
@@ -143,6 +159,38 @@ def build_import_table(
                 surface = alias.asname or alias.name
                 table[surface] = f"{base}.{alias.name}" if base else alias.name
     return table
+
+
+def build_star_sources(
+    tree: ast.Module,
+    module: str,
+    resolve_relative: Callable[[str, str | None, int], str | None],
+) -> list[str]:
+    """Return the modules this module star-imports (``from X import *``).
+
+    ``build_import_table`` deliberately skips star imports (the names they bring
+    in can't be known from this module's AST alone).  This records the star
+    *source modules* instead, so re-export following can resolve a name a
+    package re-exports via ``*`` by looking it up in the source.  Relative
+    sources are made absolute via *resolve_relative*; order is source order.
+
+    Args:
+        tree: Parsed module AST.
+        module: Dotted name of this module (for relative-import resolution).
+        resolve_relative: ``(module, imported_module_or_None, level) -> abs path``.
+
+    Returns:
+        Absolute dotted names of the star-imported source modules.
+    """
+    sources: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
+            base = (
+                resolve_relative(module, node.module, node.level) if node.level > 0 else node.module
+            )
+            if base:
+                sources.append(base)
+    return sources
 
 
 def build_module_defines(tree: ast.Module) -> dict[str, str]:

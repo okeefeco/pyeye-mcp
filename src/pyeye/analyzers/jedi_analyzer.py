@@ -28,7 +28,12 @@ from ..scope_utils import (
     parallel_search,
 )
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
-from .base_resolution import build_import_table, build_module_defines, resolve_base
+from .base_resolution import (
+    build_import_table,
+    build_module_defines,
+    build_star_sources,
+    resolve_base,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -3206,7 +3211,9 @@ class JediAnalyzer:
             # AST-first (resolve_base — no Jedi, #335-robust) with a Jedi goto
             # fallback only when the AST cannot commit; both routes yield the
             # same definition-site key.
-            import_tables, module_defines = self._build_ast_resolution_tables(py_files)
+            import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
+                py_files
+            )
             resolved_index: dict[str, set[str]] = {}
             for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
                 child_module = self._get_import_path_for_file(child_file) or child_file.stem
@@ -3221,6 +3228,7 @@ class JediAnalyzer:
                         child_file,
                         import_tables,
                         module_defines,
+                        star_sources,
                         resolved_cache,
                         canonical_cache,
                     )
@@ -3229,7 +3237,9 @@ class JediAnalyzer:
 
             async def direct_children(target_fqn: str) -> set[str]:
                 """Children whose base resolves to *target_fqn* (def-site exact or re-export)."""
-                key = self._target_index_key(target_fqn, import_tables, module_defines)
+                key = self._target_index_key(
+                    target_fqn, import_tables, module_defines, star_sources
+                )
                 if key is None:
                     canon = await self._canonical_cached(target_fqn, canonical_cache)
                     key = str(canon) if canon is not None else target_fqn
@@ -3354,16 +3364,19 @@ class JediAnalyzer:
 
     def _build_ast_resolution_tables(
         self, py_files: list[Path]
-    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
-        """Build per-module AST import/define tables for AST-first base resolution (#405).
+    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, list[str]]]:
+        """Build per-module AST import/define/star tables for AST-first resolution (#405).
 
-        Returns ``(import_tables, module_defines)`` keyed by the same module
-        derivation (:meth:`_get_import_path_for_file`) used to build class FQNs,
-        so resolution keys line up.  ASTs come from the shared cache; relative
-        imports reuse ``ImportAnalyzer``'s resolver.
+        Returns ``(import_tables, module_defines, star_sources)`` keyed by the
+        same module derivation (:meth:`_get_import_path_for_file`) used to build
+        class FQNs, so resolution keys line up.  ``star_sources`` lets
+        :func:`resolve_base` follow ``from x import *`` re-exports (#419 — fewer
+        Jedi ``goto`` fallbacks, which are the non-deterministic ones).  ASTs
+        come from the shared cache; relative imports reuse ``ImportAnalyzer``.
         """
         import_tables: dict[str, dict[str, str]] = {}
         module_defines: dict[str, dict[str, str]] = {}
+        star_sources: dict[str, list[str]] = {}
         resolve_relative = ImportAnalyzer(self.project_path)._resolve_relative_import
         for py_file in py_files:
             module_name = self._get_import_path_for_file(py_file) or py_file.stem
@@ -3375,7 +3388,10 @@ class JediAnalyzer:
                 continue
             import_tables[module_name] = build_import_table(tree, module_name, resolve_relative)
             module_defines[module_name] = build_module_defines(tree)
-        return import_tables, module_defines
+            stars = build_star_sources(tree, module_name, resolve_relative)
+            if stars:
+                star_sources[module_name] = stars
+        return import_tables, module_defines, star_sources
 
     async def _resolve_base_to_key(
         self,
@@ -3385,20 +3401,24 @@ class JediAnalyzer:
         child_file: Path,
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
+        star_sources: dict[str, list[str]],
         resolved_cache: dict[tuple[str, int, int], str | None],
         canonical_cache: dict[str, Handle | None],
     ) -> str | None:
         """Resolve one class base to its definition-site index key, or ``None``.
 
         AST-first via :func:`resolve_base` (path-independent — this is what
-        preserves the old fast-path's macOS-symlink robustness, issue #335).
+        preserves the old fast-path's macOS-symlink robustness, issue #335;
+        ``star_sources`` lets it follow ``import *`` re-exports too, #419).
         Only when the AST cannot commit does it fall back to Jedi ``goto``
         (memoised by source position) plus canonicalisation, exactly as the old
         resolver did across re-export boundaries.  Both routes yield the same
         definition-site string, so index keys are consistent regardless of which
         path resolved a given base.
         """
-        ast_resolved = resolve_base(child_module, base_dotted, import_tables, module_defines)
+        ast_resolved = resolve_base(
+            child_module, base_dotted, import_tables, module_defines, star_sources
+        )
         if ast_resolved is not None:
             return ast_resolved
 
@@ -3428,18 +3448,20 @@ class JediAnalyzer:
         target_fqn: str,
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
+        star_sources: dict[str, list[str]],
     ) -> str | None:
         """Resolve a target FQN to its AST definition-site key, or ``None``.
 
         Splits the FQN into ``module.leaf`` and reuses :func:`resolve_base`, so a
-        target is keyed the same way bases are (following re-exports via AST).
-        ``None`` means the AST cannot resolve it — the caller then falls back to
-        Jedi canonicalisation to stay byte-identical with the old re-export match.
+        target is keyed the same way bases are (following re-exports, including
+        ``import *``, via AST).  ``None`` means the AST cannot resolve it — the
+        caller then falls back to Jedi canonicalisation to stay byte-identical
+        with the old re-export match.
         """
         if "." not in target_fqn:
             return None
         target_module, target_leaf = target_fqn.rsplit(".", 1)
-        return resolve_base(target_module, target_leaf, import_tables, module_defines)
+        return resolve_base(target_module, target_leaf, import_tables, module_defines, star_sources)
 
     async def _resolve_aliased_bases(
         self,

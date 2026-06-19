@@ -17,6 +17,7 @@ from pathlib import Path
 from pyeye.analyzers.base_resolution import (
     build_import_table,
     build_module_defines,
+    build_star_sources,
     resolve_base,
 )
 from pyeye.import_analyzer import ImportAnalyzer
@@ -149,3 +150,73 @@ def test_definition_wins_over_prior_import_of_same_name() -> None:
     # `from lib import Widget` then `class Widget` — the real definition wins,
     # so the name resolves here, not to the (shadowed) re-export.
     assert _defines("from lib import Widget\nclass Widget:\n    pass\n")["Widget"] == "class"
+
+
+# ---------------------------------------------------------------------------
+# Star (`from x import *`) re-export following — optional star_sources arg
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_base_follows_star_reexport() -> None:
+    # 'app' imports Thing from pkg, which STAR-re-exports it from pkg.impl
+    # (so Thing is NOT a direct name in pkg's import table or defines).
+    import_tables = {"app": {"Thing": "pkg.Thing"}}
+    module_defines = {"pkg": {}, "pkg.impl": {"Thing": "class"}}
+    star_sources = {"pkg": ["pkg.impl"]}
+    assert (
+        resolve_base("app", "Thing", import_tables, module_defines, star_sources)
+        == "pkg.impl.Thing"
+    )
+
+
+def test_resolve_base_without_star_sources_is_unchanged() -> None:
+    # Same setup, no star_sources → still None (backward-compatible default).
+    import_tables = {"app": {"Thing": "pkg.Thing"}}
+    module_defines = {"pkg": {}, "pkg.impl": {"Thing": "class"}}
+    assert resolve_base("app", "Thing", import_tables, module_defines) is None
+
+
+def test_resolve_base_star_chain_followed_transitively() -> None:
+    # pkg star-imports mid, mid star-imports impl which defines Thing.
+    import_tables = {"app": {"Thing": "pkg.Thing"}}
+    module_defines = {"pkg": {}, "mid": {}, "impl": {"Thing": "class"}}
+    star_sources = {"pkg": ["mid"], "mid": ["impl"]}
+    assert resolve_base("app", "Thing", import_tables, module_defines, star_sources) == "impl.Thing"
+
+
+def test_resolve_base_star_cycle_terminates() -> None:
+    # Mutual star imports must terminate with None, never hang.
+    import_tables = {"app": {"X": "a.X"}}
+    module_defines = {"a": {}, "b": {}}
+    star_sources = {"a": ["b"], "b": ["a"]}
+    assert resolve_base("app", "X", import_tables, module_defines, star_sources) is None
+
+
+def test_resolve_base_direct_import_beats_star_source() -> None:
+    # An explicit re-export in pkg shadows a star source that also defines Thing.
+    import_tables = {"app": {"Thing": "pkg.Thing"}, "pkg": {"Thing": "real.Thing"}}
+    module_defines = {
+        "pkg": {"Thing": "import"},
+        "pkg_star": {"Thing": "class"},
+        "real": {"Thing": "class"},
+    }
+    star_sources = {"pkg": ["pkg_star"]}
+    assert resolve_base("app", "Thing", import_tables, module_defines, star_sources) == "real.Thing"
+
+
+def test_build_star_sources_absolute() -> None:
+    assert build_star_sources(ast.parse("from pkg.impl import *"), "pkg", _resolve_relative) == [
+        "pkg.impl"
+    ]
+
+
+def test_build_star_sources_relative_made_absolute() -> None:
+    assert build_star_sources(ast.parse("from .impl import *"), "pkg", _resolve_relative) == [
+        "pkg.impl"
+    ]
+
+
+def test_build_star_sources_empty_without_star() -> None:
+    assert (
+        build_star_sources(ast.parse("from pkg.impl import Thing"), "pkg", _resolve_relative) == []
+    )
