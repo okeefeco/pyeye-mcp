@@ -18,10 +18,11 @@ _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "subclasses
 _ROOT_HANDLE = "pkg.core.Root"
 _EXPECTED_CLOSURE = {
     "consumers.Direct",  # direct-name base, direct import
-    "consumers.Aliased",  # `as R` alias
+    "consumers.Aliased",  # `as R` alias (top-level)
     "consumers.Dotted",  # `core.Root` dotted reference
     "consumers.ViaReexport",  # base via `pkg.Root` re-export
     "consumers.GrandChild",  # indirect, through the resolved Direct child
+    "conditional.ConditionalAlias",  # `as` alias imported under try/except (Jedi-fallback path)
 }
 
 

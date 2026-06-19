@@ -3340,28 +3340,6 @@ class JediAnalyzer:
             canonical_cache[identifier] = await resolve_canonical(identifier, self)
         return canonical_cache[identifier]
 
-    async def _fqn_matches_target(
-        self,
-        resolved: str | None,
-        target_fqn: str,
-        canonical_target: Handle | None,
-        canonical_cache: dict[str, Handle | None],
-    ) -> bool:
-        """Return True if a resolved base FQN identifies ``target_fqn``.
-
-        Matches on exact equality first (cheap, the common case), then falls
-        back to comparing canonical (definition-site) handles so a base that
-        resolves across a re-export boundary is not dropped (issue #335 Bug A).
-        """
-        if resolved is None:
-            return False
-        if resolved == target_fqn:
-            return True
-        if canonical_target is None:
-            return False
-        resolved_canonical = await self._canonical_cached(resolved, canonical_cache)
-        return resolved_canonical is not None and str(resolved_canonical) == str(canonical_target)
-
     def _build_ast_resolution_tables(
         self, py_files: list[Path]
     ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, list[str]]]:
@@ -3429,8 +3407,16 @@ class JediAnalyzer:
             resolved_fqn: str | None = None
             try:
                 script = file_artifact_cache.get_script(child_file, self.project)
+                # ``goto`` is already aimed at the base's leaf token via
+                # ``_get_ast_leaf_position``, so the first result carrying a
+                # ``full_name`` IS the resolved base.  Do NOT gate on
+                # ``gr.name == leaf_name``: for an aliased base (``class X(A)``
+                # where ``A`` aliases ``Animal``) Jedi returns the *resolved*
+                # name (``Animal``), not the alias, so that gate silently drops
+                # the subclass when the alias isn't statically followable
+                # (e.g. a try/except / TYPE_CHECKING import — #420 review #1).
                 for gr in script.goto(goto_line, goto_col, follow_imports=True):
-                    if gr.name == leaf_name and gr.full_name:
+                    if gr.full_name:
                         resolved_fqn = gr.full_name
                         break
             except Exception:
@@ -3468,43 +3454,31 @@ class JediAnalyzer:
         base_class: str,
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
         parent_to_children: dict[str, set[str]],
-        target_fqn: str | None = None,
-        canonical_target: Handle | None = None,
-        canonical_cache: dict[str, Handle | None] | None = None,
     ) -> set[str]:
-        """Use Jedi goto() to resolve aliased base class references.
+        """Resolve aliased base references for the **simple-name** seed path.
 
-        Handles cases like 'from module import Animal as A; class Foo(A):'
-        where AST name matching alone would miss the relationship.
+        Handles ``from module import Animal as A; class Foo(A):`` where AST
+        simple-name matching alone would miss the relationship: any class whose
+        aliased base goto-resolves to a definition named ``base_class`` is
+        included.  This is the only mode left — the FQN path's resolved index
+        (#405) already handles FQN-strict aliasing, so the former
+        ``target_fqn``/canonical-match mode (and ``_fqn_matches_target``) was
+        removed as dead code (#420 review #2).
 
         Args:
             base_class: The simple name (leaf) of the base class to match.
             classes_by_fqn: FQN -> (node, tree, file) mapping.
             parent_to_children: parent name -> set of child FQNs.
-            target_fqn: When set (FQN-strict mode), only include children
-                        whose resolved parent FQN equals this value (matched
-                        exactly or via canonical definition site — issue #335).
-                        When None (simple-name mode), any class named base_class
-                        is accepted.
-            canonical_target: Pre-resolved canonical handle for ``target_fqn``
-                        (computed if omitted).  Ignored when ``target_fqn`` is None.
-            canonical_cache: Shared identifier -> canonical Handle cache.
         """
         resolved_fqns: set[str] = set()
 
-        if canonical_cache is None:
-            canonical_cache = {}
-        if target_fqn is not None and canonical_target is None:
-            canonical_target = await self._canonical_cached(target_fqn, canonical_cache)
-
-        # Only check parent names that didn't match the base_class by simple name
-        # These are candidates for aliased imports
+        # Only check parent names that didn't match base_class by simple name —
+        # these are the aliased-import candidates.
         candidate_parents = {
             name
             for name in parent_to_children
             if name != base_class and not name.endswith(f".{base_class}")
         }
-
         if not candidate_parents:
             return resolved_fqns
 
@@ -3530,26 +3504,14 @@ class JediAnalyzer:
                         if parent_name not in candidate_parents:
                             continue
 
-                        # Use goto() to resolve what this base name points to
+                        # goto() resolves what this base name points to; include
+                        # the child when it resolves to a definition named base_class.
                         try:
-                            goto_results = script.goto(
+                            for result in script.goto(
                                 base.lineno, base.col_offset, follow_imports=True
-                            )
-                            for result in goto_results:
+                            ):
                                 if result.name == base_class:
-                                    if target_fqn is not None:
-                                        # FQN-strict: match exactly or via canonical
-                                        # definition site so re-exported bases are
-                                        # not dropped (issue #335 Bug A).
-                                        if await self._fqn_matches_target(
-                                            result.full_name,
-                                            target_fqn,
-                                            canonical_target,
-                                            canonical_cache,
-                                        ):
-                                            resolved_fqns.add(fqn)
-                                    else:
-                                        resolved_fqns.add(fqn)
+                                    resolved_fqns.add(fqn)
                                     break
                         except Exception:
                             pass

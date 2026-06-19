@@ -1335,37 +1335,3 @@ class TestFindSubclassesJediIndependence:
             "Unique-name subclass chain must resolve from the AST without Jedi "
             f"goto/canonicalisation; got {names}"
         )
-
-
-class TestFqnMatchesTarget:
-    """Unit coverage for the _fqn_matches_target equality/canonical logic (issue #335)."""
-
-    @pytest.mark.asyncio
-    async def test_none_resolved_never_matches(self) -> None:
-        """An unresolved base (None) never matches a target."""
-        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
-        assert await analyzer._fqn_matches_target(None, "pkg.shapes._impl.Shape", None, {}) is False
-
-    @pytest.mark.asyncio
-    async def test_exact_match_short_circuits(self) -> None:
-        """Exact string equality matches without needing canonicalisation."""
-        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
-        # canonical_target deliberately None to prove the exact branch is taken
-        # before any canonical comparison.
-        assert (
-            await analyzer._fqn_matches_target(
-                "pkg.shapes._impl.Shape", "pkg.shapes._impl.Shape", None, {}
-            )
-            is True
-        )
-
-    @pytest.mark.asyncio
-    async def test_no_canonical_target_and_no_exact_match_returns_false(self) -> None:
-        """When the target cannot be canonicalised and is not an exact match, no match."""
-        analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
-        assert (
-            await analyzer._fqn_matches_target(
-                "pkg.shapes.Shape", "pkg.shapes._impl.Shape", None, {}
-            )
-            is False
-        )
