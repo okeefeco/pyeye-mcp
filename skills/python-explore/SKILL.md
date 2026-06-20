@@ -89,7 +89,7 @@ reliably today:
 | `members` | container → children | a class's methods/attributes, or a module's top-level defs |
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
-| `subclasses` | class → its subclasses | project classes that extend this class |
+| `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
 | `superclasses` | class → its bases | the class's direct base classes |
 | `imports` | module → what it imports | the module's top-level imports |
 | `imported_by` | module → its importers | project modules that import this module |
@@ -99,11 +99,12 @@ reliably today:
 `subclasses` do not see runtime-injected relationships — metaclass injection,
 `setattr`, `__getattr__`, `type(...)`, `__init_subclass__` registration, or
 `importlib` with computed targets. So `outline` of a Django `Model` omits its
-metaclass-injected `_meta` / `objects` / `DoesNotExist`, and a "full subclass
-closure" covers literal `class B(A):` subclassing only. An absent member or
-subclass means "not in source," **not** "not at runtime" — don't report a static
-result as runtime-exhaustive. (Same boundary `imported_by` already names for
-dynamic imports.)
+metaclass-injected `_meta` / `objects` / `DoesNotExist`, and the `subclasses`
+edge (direct children) plus a `trace` subclass closure cover literal
+`class B(A):` subclassing only. An absent member or subclass means "not in
+source," **not** "not at runtime" — don't report a static result as
+runtime-exhaustive. (Same boundary `imported_by` already names for dynamic
+imports.)
 
 ## ⭐ Honest Limits — Reverse References Are NOT Available
 
@@ -221,10 +222,15 @@ expand("myapp.cache.Cache.evict", edge="callees")  -> stubs for each call target
 expand("myapp.cache", edge="imported_by")  -> module stubs that import myapp.cache
 ```
 
-**"What subclasses this base?"** — inheritance down:
+**"What subclasses this base?"** — inheritance down. `expand` returns the
+**direct** children (one hop); for the full transitive closure use `trace` with
+explicit bounds (the class result carries a static `transitive_hint` pointing
+there):
 
 ```text
-expand("myapp.plugins.Base", edge="subclasses")  -> project classes extending Base
+expand("myapp.plugins.Base", edge="subclasses")  -> project classes DIRECTLY extending Base
+trace("myapp.plugins.Base", follow=["subclasses"], max_depth=3)
+  -> bounded subtree of the full subclass closure (capped + `truncated`)
 ```
 
 **Multi-hop closure** — structure across hops:

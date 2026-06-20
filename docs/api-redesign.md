@@ -499,7 +499,7 @@ replacements. Use this table to migrate existing agent code:
 | `get_type_info(file, line, col)` | `inspect(handle)` | Richer Node, no source content |
 | `get_module_info(module)` | `inspect(module_handle)` | Same Node contract; `edge_counts.members` |
 | `find_imports(module)` | `expand(handle, edge="imported_by")` | Stub-based, canonical handles |
-| `find_subclasses(class)` | `expand(handle, edge="subclasses")` | Full project subclass closure (use `len(...)` for the count — `subclasses` is expand-only, not in `edge_counts`, per #392) |
+| `find_subclasses(class)` | `expand(handle, edge="subclasses")` (direct) / `trace(follow=["subclasses"], max_depth=k)` (closure) | Direct subclasses only since #422 (one hop); full transitive closure via `trace`. `subclasses` is expand-only, not in `edge_counts` (#392; cheap count gated on #333/#397) |
 | `list_packages` / `list_modules` | `outline` | One structural lister |
 | `list_project_structure` | `outline` | ″ |
 | `lookup(identifier)` | `resolve` → `inspect` | Progressive disclosure |

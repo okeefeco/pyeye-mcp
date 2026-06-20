@@ -720,14 +720,15 @@ async def _subclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
 
 
 class TestResolveSubclassesClass:
-    """``subclasses`` = the project classes that subclass a base, as canonical handles.
+    """``subclasses`` = the project classes that DIRECTLY subclass a base (#422).
 
-    The resolver reuses ``find_subclasses(scope="main", include_indirect=True)``,
-    so the result is the full project subclass closure (direct + indirect). The
-    dedicated fixture pins a known topology:
+    The resolver reuses ``find_subclasses(scope="main", include_indirect=False)``,
+    so the result is the DIRECT (depth-1) subclasses only — one hop, symmetric
+    with ``superclasses``; the full closure is served by ``trace``. The dedicated
+    fixture pins a known topology:
 
-    - ``pkg.middle.Mammal``     — DIRECT subclass (importable module)
-    - ``pkg.middle.Dog``        — INDIRECT (grandchild) via Mammal
+    - ``pkg.middle.Mammal``     — DIRECT subclass (importable module) → included
+    - ``pkg.middle.Dog``        — INDIRECT (grandchild) via Mammal → EXCLUDED
     - ``script_animal.Lizard``  — DIRECT subclass in a NON-importable root script
     """
 
@@ -745,16 +746,18 @@ class TestResolveSubclassesClass:
         assert _MAMMAL_HANDLE in handles, f"direct subclass Mammal missing; got {handles}"
 
     @pytest.mark.asyncio
-    async def test_indirect_grandchild_subclass_present(
+    async def test_indirect_grandchild_subclass_excluded(
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
-        # Dog(Mammal) is a grandchild of Animal — include_indirect=True must
-        # surface it (the single-hop subclasses edge intentionally returns the
-        # full project closure; subclasses is expand-only, #392).
+        # Dog(Mammal) is a grandchild of Animal — since #422 the edge is a single
+        # hop (include_indirect=False), so the grandchild must NOT appear. The
+        # transitive closure is reached via trace(follow=["subclasses"]).
         handles = {
             str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
         }
-        assert _DOG_HANDLE in handles, f"indirect subclass Dog missing; got {handles}"
+        assert (
+            _DOG_HANDLE not in handles
+        ), f"indirect grandchild Dog must be excluded; got {handles}"
 
     @pytest.mark.asyncio
     async def test_non_importable_file_subclass_present(
@@ -772,11 +775,12 @@ class TestResolveSubclassesClass:
 
     @pytest.mark.asyncio
     async def test_exact_subclass_handle_set(self, subclasses_analyzer: JediAnalyzer) -> None:
-        # The full project subclass closure of Animal is exactly these three.
+        # The DIRECT subclasses of Animal are exactly these two (#422); the
+        # grandchild Dog is excluded (it is reached via trace).
         handles = {
             str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
         }
-        assert handles == {_MAMMAL_HANDLE, _DOG_HANDLE, _LIZARD_HANDLE}, f"got {handles}"
+        assert handles == {_MAMMAL_HANDLE, _LIZARD_HANDLE}, f"got {handles}"
 
     @pytest.mark.asyncio
     async def test_adjacents_are_handle_name_pairs_building_class_stubs(
@@ -807,7 +811,7 @@ class TestResolveSubclassesClass:
         # comparison would pass even with the bug, since set order is fixed
         # within a process). Run under multiple PYTHONHASHSEED values to prove
         # cross-process stability.
-        expected_order = sorted([_MAMMAL_HANDLE, _DOG_HANDLE, _LIZARD_HANDLE])
+        expected_order = sorted([_MAMMAL_HANDLE, _LIZARD_HANDLE])
         first = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
         second = await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)
         assert [str(h) for h in first.handles] == expected_order

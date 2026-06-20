@@ -704,12 +704,14 @@ class TestExpandSubclassesClassEndToEnd:
         assert len(stubs) > 0, "Animal has known project subclasses — stubs must be non-empty"
 
     @pytest.mark.asyncio
-    async def test_subclasses_class_full_closure_present(self) -> None:
-        """The supported result carries the full direct+indirect closure over the wire.
+    async def test_subclasses_class_direct_children_only(self) -> None:
+        """The supported result carries the DIRECT subclasses only over the wire (#422).
 
-        The fixture's known closure is exactly {Mammal, Dog, Lizard} — including
+        The fixture's direct subclasses are exactly {Mammal, Lizard} — including
         ``script_animal.Lizard`` defined in a non-importable root script, proving
-        the file-based stub construction survives the wire.
+        the file-based stub construction survives the wire.  The grandchild
+        ``pkg.middle.Dog`` is INDIRECT and must NOT appear — since #422 the edge
+        is a single hop and the closure is served by ``trace``.
         """
         from pyeye.mcp.server import expand
 
@@ -722,9 +724,9 @@ class TestExpandSubclassesClassEndToEnd:
         handles = {stub["handle"] for stub in result["stubs"]}
         assert handles == {
             "pkg.middle.Mammal",
-            "pkg.middle.Dog",
             "script_animal.Lizard",
-        }, f"expected the full Animal subclass closure; got {sorted(handles)!r}"
+        }, f"expected the DIRECT Animal subclasses; got {sorted(handles)!r}"
+        assert "pkg.middle.Dog" not in handles, "indirect grandchild Dog must not appear"
 
     @pytest.mark.asyncio
     async def test_subclasses_class_stubs_have_required_fields(self) -> None:
