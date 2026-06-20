@@ -1963,20 +1963,28 @@ class JediAnalyzer:
             try:
                 importer_module = self._get_import_path_for_file(py_file)
                 # Pre-filter (avoids AST parse for unrelated files; the AST
-                # check below is authoritative).  Parse when EITHER the
-                # absolute path appears textually (absolute imports) OR the
-                # file shares the target's top-level package — a relative
-                # import (`from .x import y`) can resolve into the target
-                # without ever spelling its absolute path (#343).  Source is
-                # read but not cached or returned — a heuristic, not content.
+                # check below is authoritative).  Parse when ANY of:
+                #   - the absolute path appears textually (absolute imports);
+                #   - the file shares the target's top-level package — a
+                #     relative import (`from .x import y`) can resolve into the
+                #     target without ever spelling its absolute path (#343);
+                #   - the target's PARENT package appears textually — the
+                #     `from <parent> import <submodule>` idiom (#436) spells the
+                #     parent, never the submodule's dotted path, and may live in
+                #     a different top-level package than the target (so
+                #     `shares_package` does not cover it).
+                # Source is read but not cached or returned — a heuristic, not
+                # content.
                 source = await read_file_async(py_file)
                 shares_package = bool(
                     importer_module and importer_module.split(".")[0] == target_root
                 )
+                parent_pkg = module_path.rsplit(".", 1)[0] if "." in module_path else None
                 if (
                     module_path in source
                     or module_path.replace(".", "/") in source
                     or shares_package
+                    or (parent_pkg is not None and parent_pkg in source)
                 ):
                     importer_is_package = py_file.name == "__init__.py"
                     # Bucket 1: AST for the precise check comes from cache.
@@ -1998,8 +2006,22 @@ class JediAnalyzer:
                                 importer_module or "",
                                 importer_is_package,
                             )
+                            # The `from` clause names a package/module; an
+                            # imported NAME may itself be the target submodule
+                            # (`from <pkg> import <submodule>`, #436).  Match
+                            # both: the from-clause directly (dotted-path form
+                            # `from <pkg>.<sub> import <name>`), and each name
+                            # normalized to `<resolved>.<name>` (submodule form).
+                            # A from-import names a leaf, so the submodule match
+                            # is exact equality — never a `startswith` prefix.
                             if resolved and (
-                                resolved == module_path or resolved.startswith(module_path + ".")
+                                resolved == module_path
+                                or resolved.startswith(module_path + ".")
+                                or any(
+                                    f"{resolved}.{alias.name}" == module_path
+                                    for alias in node.names
+                                    if alias.name != "*"
+                                )
                             ):
                                 if importer_module and importer_module not in importers:
                                     importers[importer_module] = py_file
