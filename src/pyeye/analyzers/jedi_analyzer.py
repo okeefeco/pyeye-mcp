@@ -2723,6 +2723,10 @@ class JediAnalyzer:
             return result
 
         sig = sigs[0]
+        # FOLLOW-UP (#437): dual-source smell — this deprecated path still leaks a
+        # decorator wrapper's signature/params (e.g. functools.cache → _lru_cache_wrapper),
+        # whereas inspect._build_signature now detects and reconstructs from the AST.
+        # The two signature sources should converge on the AST-first builder.
         result["signature"] = sig.to_string()
 
         # Create script for contextual type resolution

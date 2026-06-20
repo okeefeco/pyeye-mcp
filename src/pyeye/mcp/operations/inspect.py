@@ -287,6 +287,36 @@ async def _build_parameters(
     return params
 
 
+def _signature_from_source_ast(jedi_name: Any) -> str | None:
+    """Reconstruct a function/method signature string from the source AST.
+
+    Used to recover the real signature when Jedi leaks a decorator wrapper's
+    signature (issue #437).  Returns ``None`` when the defining ``FunctionDef``
+    cannot be located in source (builtins, C extensions, stub-only externals),
+    so the caller can fall back to Jedi's render.
+
+    Args:
+        jedi_name: A Jedi ``Name`` object for a function/method.
+
+    Returns:
+        A single-line ``name(args) -> ret`` string, or ``None``.
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    line = getattr(jedi_name, "line", None)
+    name = getattr(jedi_name, "name", None)
+    if module_path is None or not line or not name:
+        return None
+    fn_node = _find_function_def_at_line(Path(module_path), line)
+    if fn_node is None:
+        return None
+    try:
+        args = ast.unparse(fn_node.args)
+        ret = f" -> {ast.unparse(fn_node.returns)}" if fn_node.returns is not None else ""
+    except Exception:
+        return None
+    return f"{name}({args}){ret}"
+
+
 def _build_signature(jedi_name: Any) -> str | None:
     """Extract a single-line signature string from a Jedi Name object.
 
@@ -296,6 +326,14 @@ def _build_signature(jedi_name: Any) -> str | None:
     empty/whitespace render normalises to ``None`` so callers never have to
     distinguish ``""`` from "absent" (the stub contract: present-with-real-value
     or omitted, never ``""``; issue #407).
+
+    Decorator wrapper leak (issue #437): a decorated symbol resolves to the
+    wrapper the decorator returns (e.g. ``@functools.cache`` →
+    ``_lru_cache_wrapper(*args, **kwargs)``), so Jedi renders the wrapper's
+    signature, not the symbol's own.  This is detected by the rendered leading
+    identifier not matching the symbol name; when it happens the real signature
+    is reconstructed from the source AST, falling back to the Jedi render if the
+    source definition cannot be located.
 
     Args:
         jedi_name: A Jedi ``Name`` object.
@@ -311,7 +349,15 @@ def _build_signature(jedi_name: Any) -> str | None:
             if "\n" in sig_str:
                 sig_str = sig_str.split("\n")[0]
             # Normalise an empty/whitespace render to None — never return "".
-            return str(sig_str) if sig_str and sig_str.strip() else None
+            if not (sig_str and sig_str.strip()):
+                return None
+            rendered_name = sig_str.split("(", 1)[0]
+            symbol_name = getattr(jedi_name, "name", None)
+            if symbol_name and rendered_name != symbol_name:
+                ast_sig = _signature_from_source_ast(jedi_name)
+                if ast_sig is not None:
+                    return ast_sig
+            return str(sig_str)
     except Exception:
         pass
     return None

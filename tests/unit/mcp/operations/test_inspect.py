@@ -118,6 +118,7 @@ _GREET_HANDLE = "mypackage._core.widgets.Widget.greet"
 _SLOW_GREET_HANDLE = "mypackage._core.widgets.Widget.slow_greet"
 _DEFAULT_HANDLE = "mypackage._core.widgets.Widget.default"
 _NORMALIZE_HANDLE = "mypackage._core.widgets.Widget.normalize"
+_CACHED_COMPUTE_HANDLE = "mypackage._core.decorated.Cached.cached_method"
 _DISPLAY_NAME_HANDLE = "mypackage._core.widgets.Widget.display_name"
 _COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
 _MODULE_HANDLE = "mypackage._core.widgets"
@@ -407,6 +408,54 @@ class TestInspectMethod:
         assert result["kind"] == "method"
         assert result["is_staticmethod"] is True
         assert result["is_classmethod"] is False
+
+
+# ---------------------------------------------------------------------------
+# TestInspectDecoratedMethodSignature — issue #437
+# ---------------------------------------------------------------------------
+
+
+class TestInspectDecoratedMethodSignature:
+    """Regression tests for #437: a decorated method must render its OWN
+    signature, not the decorator wrapper's.
+
+    ``@functools.cache`` (and ``@functools.lru_cache`` without ``maxsize``)
+    resolves through typeshed to ``_lru_cache_wrapper``, so Jedi's
+    ``get_signatures()`` returns ``_lru_cache_wrapper(*args: Hashable,
+    **kwargs: Hashable) -> _T_co``.  ``_build_signature`` must detect that the
+    rendered identifier does not match the symbol name and reconstruct the real
+    signature from the source AST.
+    """
+
+    @pytest.mark.asyncio
+    async def test_decorated_method_renders_own_signature(self, analyzer: JediAnalyzer) -> None:
+        """inspect reports the method's real signature, not the wrapper's."""
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_CACHED_COMPUTE_HANDLE, analyzer)
+
+        assert result["kind"] == "method"
+        assert result["signature"] == "cached_method(self, a: int, b: int=2) -> int"
+        # The wrapper artifact must NOT leak through.
+        assert "_lru_cache_wrapper" not in result["signature"]
+
+    @pytest.mark.asyncio
+    async def test_decorated_method_signature_matches_parameters(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """The signature string must agree with the AST-derived parameters list.
+
+        Before the fix, inspect self-contradicted: a wrapper signature string
+        (``*args, **kwargs``) alongside the correct AST parameters.
+        """
+        from pyeye.mcp.operations.inspect import inspect
+
+        result = await inspect(_CACHED_COMPUTE_HANDLE, analyzer)
+
+        param_names = [p["name"] for p in result["parameters"]]
+        assert param_names == ["self", "a", "b"]
+        for name in param_names:
+            assert name in result["signature"]
 
 
 # ---------------------------------------------------------------------------
