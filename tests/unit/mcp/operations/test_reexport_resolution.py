@@ -138,6 +138,32 @@ class TestReexportResolvesToDefinition:
         assert node["location"]["file"] == at_location["file"]
         assert node["location"]["line_start"] == at_location["line_start"]
 
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("simulate_deepest_miss")
+    async def test_inspect_agrees_with_resolve_at_when_deepest_pass_misses(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Criterion #2 must hold on the path that actually broke.
+
+        The plain agreement check passes even without the fix, because the
+        deepest-module pass normally matches the definition directly. Forcing
+        that pass to miss (the #419 fall-through) is the only path where the
+        unfixed walk lands ``inspect`` on the ``__init__`` re-export line while
+        ``resolve_at`` (position-based) stays on the definition — so this is the
+        case where FQN-string and position resolution would *disagree*.
+        """
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        node = await inspect(_HANDLE, analyzer)
+
+        def_file = _FIXTURE / "gp" / "sub" / _DEFINITION_FILE
+        at = await resolve_at(str(def_file), _DEFINITION_LINE, 6, analyzer)
+
+        assert at["found"] is True
+        at_location = cast(dict[str, Any], at)["location"]
+        assert node["location"]["file"] == at_location["file"]
+        assert node["location"]["line_start"] == at_location["line_start"]
+
 
 class _FakeTarget:
     def __init__(self, full_name: str | None, module_path: Path | None) -> None:
