@@ -65,7 +65,7 @@ from pyeye.mcp.operations.edges import (
     STATUS_NOT_YET_IMPLEMENTED,
     edge_status,
 )
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.resolve import _normalise_kind
 from pyeye.mcp.operations.stubs import build_stub
 
@@ -163,7 +163,7 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # ------------------------------------------------------------------
     # Implemented edge — resolve the source handle to a Jedi Name.
     # ------------------------------------------------------------------
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
 
     if jedi_name is None:
         # Source handle unresolvable → graceful supported-empty result, mirroring

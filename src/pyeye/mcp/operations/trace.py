@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import EDGE_RESOLVERS, STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -173,7 +173,7 @@ async def trace(
     queue: deque[tuple[str, Any, int]] = deque()
 
     for root in starts:
-        jedi_name = _find_jedi_name_for_handle(root, analyzer)
+        jedi_name = await _resolve_handle_to_jedi_name(root, analyzer)
         if jedi_name is None:
             continue
         canonical = getattr(jedi_name, "full_name", None) or root

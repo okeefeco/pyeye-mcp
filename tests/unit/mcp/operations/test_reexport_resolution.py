@@ -56,6 +56,12 @@ _DEFINITION_MODULE = "gp.sub.related"
 _DEFINITION_FILE = "related.py"
 _DEFINITION_LINE = 24  # ``class OneToOneField(ForeignKey):`` in the fixture
 
+# Re-export *alias* path (issue #431): the public import path created by the
+# grouped re-export in ``gp/sub/__init__.py``. ``resolve()`` accepts it and
+# canonicalizes it to ``_HANDLE``; ``inspect``/``expand``/``trace``/``outline``
+# must resolve it to the same definition site, not a not-found ``variable`` node.
+_ALIAS = "gp.sub.OneToOneField"
+
 
 @pytest.fixture
 def analyzer() -> JediAnalyzer:
@@ -213,3 +219,62 @@ class TestAnchorOnDefinitionFallbacks:
         target = _FakeTarget(full_name=_HANDLE, module_path=Path("related.py"))
         name = _FakeName([target])
         assert _anchor_on_definition(name, _HANDLE) is target
+
+
+class TestAliasResolvesToDefinition:
+    """#431 — a re-export *alias* FQN must resolve to the definition, not 404.
+
+    Distinct from #429: the alias never matches any ``full_name`` (Jedi reports
+    the binding's ``full_name`` as the canonical handle, not the alias string),
+    so the handle->Name walk misses entirely and ``inspect`` emits its minimal
+    ``kind: variable`` fallback. The fix canonicalizes the input on a miss.
+    """
+
+    @pytest.mark.asyncio
+    async def test_inspect_alias_resolves_to_class_definition(self, analyzer: JediAnalyzer) -> None:
+        """inspect(alias) must report the class at its definition site, not 404."""
+        node = await inspect(_ALIAS, analyzer)
+
+        assert node["kind"] == "class"
+        assert node["location"]["file"].endswith(_DEFINITION_FILE)
+        assert node["location"]["line_start"] == _DEFINITION_LINE
+        assert node["edge_counts"].get("members", 0) > 0
+        assert node["edge_counts"].get("superclasses", 0) == 1
+
+    @pytest.mark.asyncio
+    async def test_inspect_alias_agrees_with_canonical_and_resolve_at(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """Acceptance #2: inspect(alias) == inspect(canonical) == resolve_at(def)."""
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        alias_node = await inspect(_ALIAS, analyzer)
+        canon_node = await inspect(_HANDLE, analyzer)
+
+        def_file = _FIXTURE / "gp" / "sub" / _DEFINITION_FILE
+        at = await resolve_at(str(def_file), _DEFINITION_LINE, 6, analyzer)
+        assert at["found"] is True
+        at_location = cast(dict[str, Any], at)["location"]
+
+        assert alias_node["location"]["file"] == canon_node["location"]["file"]
+        assert alias_node["location"]["line_start"] == canon_node["location"]["line_start"]
+        assert alias_node["location"]["file"] == at_location["file"]
+        assert alias_node["location"]["line_start"] == at_location["line_start"]
+
+    @pytest.mark.asyncio
+    async def test_expand_alias_resolves_superclasses(self, analyzer: JediAnalyzer) -> None:
+        """expand(alias, 'superclasses') must resolve via the same path (not empty)."""
+        from pyeye.mcp.operations.expand import expand
+
+        result = await expand(_ALIAS, "superclasses", analyzer)
+        bases = [s.get("handle") for s in result.get("stubs", [])]
+        assert "gp.sub.related.ForeignKey" in bases
+
+    @pytest.mark.asyncio
+    async def test_outline_alias_resolves_to_class(self, analyzer: JediAnalyzer) -> None:
+        """outline(alias) must produce the class node, not a not-found stub."""
+        from pyeye.mcp.operations.outline import outline
+
+        result = await outline(_ALIAS, analyzer)
+        assert result["node"]["kind"] == "class"
+        assert result["node"]["line_start"] == _DEFINITION_LINE
