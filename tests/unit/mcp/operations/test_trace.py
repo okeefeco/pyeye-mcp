@@ -29,6 +29,16 @@ from pyeye.mcp.operations.trace import _stops_at, trace
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
+#: The subclasses_edge fixture (#348/#422): ``pkg.base.Animal`` has DIRECT
+#: subclasses {Mammal, Lizard} and the grandchild {Dog} one hop deeper.  Because
+#: the ``subclasses`` edge is now a single hop (#422), ``trace`` over it must
+#: walk level-by-level — Dog appears only at depth ≥ 2, never at depth 1.
+_SUBCLASSES_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "subclasses_edge"
+_ANIMAL_HANDLE = "pkg.base.Animal"
+_MAMMAL_HANDLE = "pkg.middle.Mammal"  # direct subclass of Animal
+_DOG_HANDLE = "pkg.middle.Dog"  # indirect (grandchild) of Animal via Mammal
+_LIZARD_HANDLE = "script_animal.Lizard"  # direct subclass in a non-importable script
+
 _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
 #: A MODULE whose members include the ``Widget`` class, which itself has members
 #: (methods) — a genuine two-level ``members`` tree for depth/truncation tests.
@@ -45,6 +55,12 @@ _STUB_REQUIRED_KEYS = {"handle", "kind", "scope", "line_start", "line_end"}
 def analyzer() -> JediAnalyzer:
     """JediAnalyzer pointed at the resolve_project fixture."""
     return JediAnalyzer(str(_FIXTURE))
+
+
+@pytest.fixture
+def subclasses_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the subclasses_edge fixture (#348/#422)."""
+    return JediAnalyzer(str(_SUBCLASSES_FIXTURE))
 
 
 def _assert_is_stub(stub: dict) -> None:
@@ -361,6 +377,47 @@ class TestTraceMultiHopAndMultiEdge:
         for edge in result["edges"]:
             assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"
             assert edge["to"] in result["nodes"], f"edge to-handle not a node: {edge}"
+
+
+class TestTraceSubclassesPerHop:
+    """``trace`` over the now-single-hop ``subclasses`` edge walks level-by-level (#422).
+
+    Before #422 the resolver returned the full closure at every hop, so the whole
+    closure collapsed onto depth 1 and ``max_depth`` was meaningless.  With the
+    resolver returning DIRECT children only, ``trace`` does a proper BFS: the
+    grandchild ``Dog`` is reachable only at depth ≥ 2.
+    """
+
+    @pytest.mark.asyncio
+    async def test_depth_1_yields_direct_children_not_grandchild(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace(
+            _ANIMAL_HANDLE, ["subclasses"], subclasses_analyzer, max_depth=1, max_nodes=100
+        )
+        nodes = set(result["nodes"])
+        assert _MAMMAL_HANDLE in nodes, "direct subclass Mammal must be at depth 1"
+        assert _LIZARD_HANDLE in nodes, "direct subclass Lizard must be at depth 1"
+        # The defining assertion: the grandchild is NOT one hop away — it must not
+        # appear at depth 1 (it would have, under the old per-hop-closure bug).
+        assert _DOG_HANDLE not in nodes, "grandchild Dog must NOT appear at depth 1"
+        # A reachable node was cut at the depth frontier → truncated via max_depth.
+        assert result["truncated"] is True
+        assert "max_depth" in result["truncation_reasons"]
+
+    @pytest.mark.asyncio
+    async def test_depth_2_reaches_grandchild(self, subclasses_analyzer: JediAnalyzer) -> None:
+        result = await trace(
+            _ANIMAL_HANDLE, ["subclasses"], subclasses_analyzer, max_depth=2, max_nodes=100
+        )
+        nodes = set(result["nodes"])
+        assert {
+            _MAMMAL_HANDLE,
+            _LIZARD_HANDLE,
+            _DOG_HANDLE,
+        } <= nodes, f"depth 2 must reach the grandchild Dog; got {sorted(nodes)!r}"
+        # The closure is fully explored at depth 2 → natural termination.
+        assert result["truncated"] is False
 
 
 class TestTraceCycleSafe:

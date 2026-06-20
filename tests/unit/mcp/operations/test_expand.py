@@ -44,7 +44,7 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.mcp.operations.expand import expand
+from pyeye.mcp.operations.expand import SUBCLASSES_TRANSITIVE_HINT, expand
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -63,8 +63,11 @@ _MODULE_NO_IMPORTERS_HANDLE = "mypackage._core.module_forms"
 
 #: subclasses fixtures (#348, Phase 2): a dedicated fixture project with a known
 #: direct + indirect + non-importable-file topology. ``Animal`` is the base whose
-#: full project subclass closure is exactly {Mammal, Dog, Lizard}; ``Loner`` is a
-#: sibling base nobody subclasses (measured-empty class case).
+#: DIRECT subclasses are exactly {Mammal, Lizard} and whose full closure adds the
+#: grandchild {Dog}.  Since #422 the ``subclasses`` edge returns DIRECT children
+#: only (the closure is served by ``trace``), so the edge result over ``Animal``
+#: is {Mammal, Lizard} — ``Dog`` is reachable only via ``trace`` at depth ≥ 2.
+#: ``Loner`` is a sibling base nobody subclasses (measured-empty class case).
 _SUBCLASSES_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "subclasses_edge"
 _ANIMAL_HANDLE = "pkg.base.Animal"
 _LONER_HANDLE = "pkg.base.Loner"
@@ -488,11 +491,13 @@ class TestExpandSubclassesSupported:
     """``expand`` over ``subclasses`` for a CLASS returns the supported shape.
 
     The resolver (``resolve_subclasses``) is async and returns an ``EdgeResult``
-    of canonical CLASS handles for the full project subclass closure (direct +
-    indirect, including subclasses defined in non-importable root scripts).
-    ``expand`` awaits it and builds a class stub per subclass.  This is a
-    callees-free supported branch — ``unresolved_call_sites`` is ABSENT (the
-    resolver carries it as ``None`` for this edge).
+    of canonical CLASS handles for the DIRECT project subclasses only (#422 —
+    one hop, mirroring ``superclasses``; the full closure is served by
+    ``trace(follow=["subclasses"], …)``).  Direct subclasses defined in
+    non-importable root scripts are still included.  ``expand`` awaits it and
+    builds a class stub per subclass.  This is a callees-free supported branch —
+    ``unresolved_call_sites`` is ABSENT (the resolver carries it as ``None`` for
+    this edge).
     """
 
     @pytest.mark.asyncio
@@ -520,15 +525,18 @@ class TestExpandSubclassesSupported:
             assert stub["kind"] == "class", f"subclass stub should be a class: {stub}"
 
     @pytest.mark.asyncio
-    async def test_class_subclasses_full_closure_present(
+    async def test_class_subclasses_direct_children_only(
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
-        # include_indirect=True → the full project subclass closure: the direct
-        # subclass (Mammal), the indirect grandchild (Dog), AND the subclass in a
+        # #422: the edge returns DIRECT subclasses only — the direct subclass in
+        # an importable module (Mammal) AND the direct subclass in a
         # non-importable root script (Lizard, preserved by file-based stub build).
+        # The grandchild Dog is INDIRECT and must NOT appear (it is reachable only
+        # via trace(follow=["subclasses"]) at depth ≥ 2).
         result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
         handles = {stub["handle"] for stub in result["stubs"]}
-        assert handles == {_MAMMAL_HANDLE, _DOG_HANDLE, _LIZARD_HANDLE}, f"got {handles}"
+        assert handles == {_MAMMAL_HANDLE, _LIZARD_HANDLE}, f"got {handles}"
+        assert _DOG_HANDLE not in handles, "indirect grandchild Dog must not appear in the edge"
 
     @pytest.mark.asyncio
     async def test_class_subclasses_omits_unresolved_call_sites(
@@ -538,6 +546,21 @@ class TestExpandSubclassesSupported:
         # subclasses edge (the resolver carries it as None).
         result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
         assert "unresolved_call_sites" not in result
+
+    @pytest.mark.asyncio
+    async def test_class_subclasses_carries_static_trace_pointer(
+        self, subclasses_analyzer: JediAnalyzer
+    ) -> None:
+        # #422 discoverability: a class subclasses result points the agent to the
+        # trace route for the full closure (the edge is direct-only).  The pointer
+        # is a STATIC string — it names the trace primitive and its bounds, and
+        # MUST NOT compute "N deeper descendants" (that is the expensive reverse
+        # scan gated on #333/#397).
+        result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
+        assert result["transitive_hint"] == SUBCLASSES_TRANSITIVE_HINT
+        assert "trace" in result["transitive_hint"]
+        assert "subclasses" in result["transitive_hint"]
+        assert "max_depth" in result["transitive_hint"]
 
 
 class TestExpandSubclassesClassNoSubclassesSupported:
@@ -558,6 +581,10 @@ class TestExpandSubclassesClassNoSubclassesSupported:
         assert "reason" not in result
         assert result["edge"] == "subclasses"
         assert "unresolved_call_sites" not in result
+        # The pointer is STATIC, not computed: a class with ZERO subclasses still
+        # carries the identical hint string as a class with many (proves it never
+        # encodes a count).
+        assert result["transitive_hint"] == SUBCLASSES_TRANSITIVE_HINT
 
 
 class TestExpandSubclassesNonClassMeasuredEmpty:
@@ -594,6 +621,11 @@ class TestExpandSubclassesNonClassMeasuredEmpty:
         assert "reason" not in result, f"non-class subclasses must NOT carry a reason: {result}"
         # subclasses never reports unresolved_call_sites (callees-only).
         assert "unresolved_call_sites" not in result
+        # The trace pointer is class-only — a non-class cannot be subclassed, so
+        # the "use trace for the closure" hint would be misleading noise here.
+        assert (
+            "transitive_hint" not in result
+        ), f"non-class subclasses must NOT carry the trace pointer: {result}"
 
     @pytest.mark.asyncio
     async def test_non_class_distinct_from_imported_by_non_module(
@@ -611,22 +643,24 @@ class TestExpandSubclassesNonClassMeasuredEmpty:
 
 
 class TestExpandSubclassesEnumeration:
-    """``expand(handle, "subclasses")`` enumerates the project subclass closure.
+    """``expand(handle, "subclasses")`` enumerates the DIRECT project subclasses.
 
-    subclasses is an expand-only edge (inspect no longer measures it — #392), so
-    these tests pin expand's enumeration directly against the fixture topology
-    rather than cross-checking an inspect count.
+    subclasses is an expand-only edge (inspect no longer measures it — #392) and,
+    since #422, returns DIRECT children only.  These tests pin expand's
+    enumeration directly against the fixture topology rather than cross-checking
+    an inspect count.
     """
 
     @pytest.mark.asyncio
-    async def test_expand_returns_full_project_closure(
+    async def test_expand_returns_direct_subclasses_only(
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
         expand_result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
         stub_count = len(expand_result["stubs"])
-        # The fixture's known closure is exactly 3 (Mammal, Dog, Lizard); pin it
-        # so a fixture-topology change surfaces loudly.
-        assert stub_count == 3, f"fixture Animal closure should be 3 subclasses; got {stub_count}"
+        # The fixture's DIRECT subclasses are exactly 2 (Mammal, Lizard); the
+        # grandchild Dog is INDIRECT and excluded (#422).  Pin it so a fixture
+        # -topology change surfaces loudly.
+        assert stub_count == 2, f"fixture Animal direct subclasses should be 2; got {stub_count}"
 
     @pytest.mark.asyncio
     async def test_class_with_no_subclasses_returns_empty(

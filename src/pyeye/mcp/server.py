@@ -432,17 +432,22 @@ async def expand(
         with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
         not yet implemented).  Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
-      - ``subclasses``  — class → the project classes that subclass it (class
-        Stubs), computed by an AST class-graph walk + forward ``goto`` (no
-        reverse symbol search).  Returns the full project subclass closure
-        (direct + indirect).  ``subclasses`` is an expand-only edge: ``inspect``
-        does NOT measure it (dropped in #392 — counting requires this same
-        project-wide scan, so it has no cheap-preview value).  ``stubs: []``
-        means the class has no project subclasses (measured-none).  A non-class
-        handle also returns the supported branch with ``stubs: []`` — only a
-        class CAN be subclassed,
-        so ``[]`` is true by definition, not an absence-vs-zero lie.
-        Static-surface ceiling: the "full closure" is full only over literal
+      - ``subclasses``  — class → the project classes that **directly** subclass
+        it (class Stubs), computed by an AST class-graph walk + forward ``goto``
+        (no reverse symbol search).  Returns the DIRECT (depth-1) subclasses only
+        (#422) — one hop, symmetric with ``superclasses``; the full transitive
+        closure is served by ``trace(follow=["subclasses"], max_depth=k,
+        max_nodes=N)``, which carries the cap + ``truncated`` contract.  A class
+        result includes a static ``transitive_hint`` field pointing to that trace
+        route.  ``subclasses`` is an expand-only edge: ``inspect`` does NOT
+        measure it (dropped in #392); a cheap direct count is gated on the Pyright
+        reference backend / class-graph cache (#333/#397), because even the direct
+        count is a reverse query needing the same project-wide scan as
+        ``callers``/``references``.  ``stubs: []`` means the class has no project
+        subclasses (measured-none).  A non-class handle also returns the supported
+        branch with ``stubs: []`` (and no ``transitive_hint``) — only a class CAN
+        be subclassed, so ``[]`` is true by definition, not an absence-vs-zero
+        lie.  Static-surface ceiling: the result is complete only over literal
         ``class B(A):`` subclassing; dynamically-created subclasses
         (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
         registration) are NOT captured.

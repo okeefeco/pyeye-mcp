@@ -73,6 +73,17 @@ if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
+#: Static discoverability pointer attached to a CLASS ``subclasses`` result
+#: (#422).  ``expand(subclasses)`` returns DIRECT children only (one hop); this
+#: constant tells the agent where the full transitive closure lives.  It is
+#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count, as
+#: counting deeper subclasses is the expensive reverse scan gated on #333/#397.
+SUBCLASSES_TRANSITIVE_HINT = (
+    "expand returns DIRECT subclasses only; for the full transitive closure use "
+    "trace(follow=['subclasses'], max_depth=k, max_nodes=N)"
+)
+
+
 # ---------------------------------------------------------------------------
 # Unsupported-reason detail messages
 # ---------------------------------------------------------------------------
@@ -214,5 +225,10 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # key absent.  This automatically yields the callees-only field.
     if edge_result.unresolved_call_sites is not None:
         result["unresolved_call_sites"] = edge_result.unresolved_call_sites
+    # subclasses is direct-only (#422); a CLASS result carries a static pointer to
+    # the trace route for the full closure.  Class-gated: a non-class subclasses
+    # result is a measured-empty [], where the "use trace" hint would be noise.
+    if edge == "subclasses" and _normalise_kind(getattr(jedi_name, "type", None)) == "class":
+        result["transitive_hint"] = SUBCLASSES_TRANSITIVE_HINT
 
     return result

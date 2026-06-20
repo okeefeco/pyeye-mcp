@@ -1362,8 +1362,13 @@ class TestExpandSubclassesIssue335:
         ), f"Expected 2 subclass stubs for Shape; got {result['stubs']!r}"
 
     @pytest.mark.asyncio
-    async def test_vehicle_expand_excludes_unrelated_grandchild(self) -> None:
-        """expand(Vehicle, "subclasses") == 2 stubs (Car, RaceCar), not 3."""
+    async def test_vehicle_expand_direct_child_only(self) -> None:
+        """expand(Vehicle, "subclasses") == 1 stub (Car only) — direct, #422.
+
+        The genuine grandchild RaceCar is INDIRECT and excluded from the
+        single-hop edge; the unrelated ``vehicles_b.Car``/``SportsCar`` hierarchy
+        (simple-name collision, Bug B) must never appear either.
+        """
         from pyeye.mcp.server import expand
 
         result = await expand(
@@ -1371,9 +1376,36 @@ class TestExpandSubclassesIssue335:
             edge="subclasses",
             project_path=str(_ISSUE_335_FIXTURE),
         )
+        handles = {stub["handle"] for stub in result["stubs"]}
+        assert handles == {
+            "pkg.vehicles_a.Car"
+        }, f"Expected only the direct subclass Car for Vehicle; got {sorted(handles)!r}"
+
+    @pytest.mark.asyncio
+    async def test_vehicle_trace_closure_keeps_grandchild_identity(self) -> None:
+        """trace(Vehicle, [subclasses]) reaches the real grandchild, not the collision (Bug B).
+
+        The transitive closure now lives in ``trace``.  At depth 2 it must reach
+        the genuine grandchild ``RaceCar`` (via the REAL Car) while the simple-name
+        collision ``vehicles_b.Car``/``SportsCar`` stays out — the grandchild walk
+        carries FQN identity rather than re-keying on the simple name ``Car``.
+        """
+        from pyeye.mcp.server import trace
+
+        result = await trace(
+            start="pkg.vehicles_a.Vehicle",
+            follow=["subclasses"],
+            project_path=str(_ISSUE_335_FIXTURE),
+            max_depth=2,
+            max_nodes=100,
+        )
+        nodes = set(result["nodes"])
+        assert "pkg.vehicles_a.Car" in nodes, "direct subclass Car must be reached"
+        assert "pkg.vehicles_a.RaceCar" in nodes, "genuine grandchild RaceCar must be reached"
         assert (
-            len(result["stubs"]) == 2
-        ), f"Expected 2 subclass stubs for Vehicle; got {result['stubs']!r}"
+            "pkg.vehicles_b.SportsCar" not in nodes
+        ), "unrelated SportsCar (simple-name collision) must NOT appear in the closure"
+        assert "pkg.vehicles_b.Car" not in nodes, "unrelated Car must NOT appear in the closure"
 
 
 class TestFindSubclassesJediIndependence:

@@ -684,18 +684,27 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     forward ``goto``/``resolve_canonical`` (NO ``get_references`` /
     ``find_references``, the same load-bearing trust constraint as ``callees`` /
     ``imported_by``).  ``subclasses`` is an **expand-only** edge: ``inspect``
-    does NOT measure it (dropped in #392 — counting it requires this same
-    project-wide scan, so it has no cheap-preview value).  As a single-hop edge
-    it intentionally returns the full project subclass closure (direct +
-    indirect), a deliberate divergence from ``members``/``callees`` direct-only
-    semantics — appropriate because the caller asked to walk the edge explicitly.
+    does NOT measure it (dropped in #392; a cheap direct count is gated on the
+    Pyright reference backend / class-graph cache — #333/#397 — because even the
+    DIRECT count needs the same project-wide scan, exactly like ``callers`` /
+    ``references``).
 
-    Static-surface ceiling: the closure is "full" only over literal
+    Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
+    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1,
+    ``include_indirect=False``) — symmetric with ``superclasses`` (direct bases).
+    The full transitive closure is served exclusively by
+    ``trace(follow=["subclasses"], max_depth=k, max_nodes=N)``, which already owns
+    the cap + ``truncated`` contract; ``expand`` carries a static pointer to that
+    route.  (Before #422 this returned the full direct+indirect closure, which
+    overflowed the MCP token cap on widely-subclassed bases and collapsed trace's
+    per-hop BFS onto depth 1.)
+
+    Static-surface ceiling: the result is "complete" only over literal
     ``class B(A):`` subclassing.  Dynamically-created subclasses
     (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
     registration) are NOT captured — the same static-only boundary
     ``resolve_imported_by`` carries for dynamic imports.  ``[]`` therefore means
-    "no statically-declared subclasses," not "no subclasses at runtime."
+    "no statically-declared direct subclasses," not "no subclasses at runtime."
 
     Each adjacent's ``Name`` is built from the subclass's OWN FILE (via
     :func:`_subclass_name_from_file`) — never by re-resolving the dotted handle —
@@ -733,11 +742,17 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     if not handle:
         return EdgeResult(adjacents=[])
 
-    # Project-internal subclass closure (direct + indirect), project-scoped.
+    # Project-internal DIRECT subclasses only (#422), project-scoped.  ``expand``
+    # walks ONE edge to the IMMEDIATE neighbours, so ``subclasses`` returns the
+    # depth-1 children — symmetric with ``superclasses`` (direct bases).  The full
+    # transitive closure is served by ``trace(follow=["subclasses"], max_depth=k)``,
+    # which already owns the cap + ``truncated`` contract; routing it there also
+    # makes trace's per-hop BFS correct (a closure-per-hop resolver collapsed the
+    # whole closure onto depth 1).
     result = await analyzer.find_subclasses(
         handle,
         scope="main",
-        include_indirect=True,
+        include_indirect=False,
         show_hierarchy=False,
     )
     # An FQN input never triggers the ambiguous variant.  Carry a defensive
@@ -791,8 +806,9 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     The inbound-but-reliably-static ``superclasses`` edge for a **class**
     handle.  Returns only DIRECT bases (no MRO closure), mirroring the count
-    in ``inspect.edge_counts.superclasses``.  This is a deliberate asymmetry
-    with ``subclasses``, which returns the full project closure.
+    in ``inspect.edge_counts.superclasses``.  Symmetric with ``subclasses``,
+    which also returns DIRECT children only since #422 (expand = one hop in
+    both inheritance directions; the closure is served by ``trace``).
 
     Mechanics:
 
