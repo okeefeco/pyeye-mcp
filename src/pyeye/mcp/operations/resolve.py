@@ -264,6 +264,113 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
     )
 
 
+def _project_roots(analyzer: JediAnalyzer) -> list[Path]:
+    """Return the resolved project roots a top-level package may sit directly under.
+
+    The ``project_path`` plus any src-layout ``source_roots`` (e.g. ``src/``),
+    resolved for symlink-stable comparison.  Used by
+    :func:`_is_top_level_package` clause (2) to test whether a package directory's
+    parent is a genuine project root.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for root in (analyzer.project_path, *analyzer.source_roots):
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        key = resolved.as_posix()
+        if key not in seen:
+            seen.add(key)
+            roots.append(resolved)
+    return roots
+
+
+def _parent_is_root(path: Path, roots: list[Path]) -> bool:
+    """Return whether *path*'s parent resolves to one of the project *roots*."""
+    try:
+        parent = path.parent.resolve()
+    except OSError:
+        return False
+    return any(parent == root for root in roots)
+
+
+def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyzer) -> bool:
+    """Return whether *candidate* is the top-level package named *name* (§7.1).
+
+    A **structural** predicate (keys on file layout, NOT the name string beyond
+    the exact-match clause) so a deeper symbol that merely shares the root's name
+    is never promoted.  Both clauses must hold:
+
+    1. the candidate's handle has **no dots** and equals *name* (a deeper
+       ``foo.bar.name`` has dots → never qualifies); and
+    2. its ``location.file`` ``F`` is a **root-level package anchor** — either
+       a ``__init__.py`` whose parent dir is named *name* and whose grandparent
+       is a project root (regular package), or a directory ``D`` named *name*
+       directly under a project root (PEP 420 directory-anchored root).
+
+    Args:
+        candidate: The resolve candidate under test.
+        name: The bare queried name.
+        analyzer: Active analyzer (supplies the project roots).
+
+    Returns:
+        ``True`` iff *candidate* is the top-level package for *name*.
+    """
+    # Clause 1 — handle is exactly the bare name (no dots).
+    handle = candidate["handle"]
+    if "." in handle or handle != name:
+        return False
+
+    # Clause 2 — root-level package anchor.
+    file_str = candidate["location"]["file"]
+    if not file_str:
+        return False
+    path = Path(file_str)
+    roots = _project_roots(analyzer)
+
+    if path.name == "__init__.py":
+        # Regular package: <root>/<name>/__init__.py
+        pkg_dir = path.parent
+        return pkg_dir.name == name and _parent_is_root(pkg_dir, roots)
+
+    # Directory-anchored (PEP 420) root: <root>/<name>/  (a bare directory).
+    try:
+        is_dir = path.is_dir()
+    except OSError:
+        is_dir = False
+    if is_dir and path.name == name:
+        return _parent_is_root(path, roots)
+    return False
+
+
+def _select_root_package(
+    candidates: list[_Candidate], name: str, analyzer: JediAnalyzer
+) -> _Candidate | None:
+    """Promote a unique top-level package from *candidates*, else ``None`` (§7.1).
+
+    Keeps the candidates satisfying :func:`_is_top_level_package`, dedupes them by
+    handle string, and returns the single qualifying candidate iff exactly one
+    DISTINCT handle survives — so same-handle namespace portions collapse to one
+    (promoted) while a genuinely ambiguous set (zero or >1 distinct root handles)
+    stays ambiguous.
+
+    Args:
+        candidates: The ambiguous candidate set.
+        name: The bare queried name.
+        analyzer: Active analyzer.
+
+    Returns:
+        The promoted candidate, or ``None`` to keep the ambiguous result.
+    """
+    kept = [c for c in candidates if _is_top_level_package(c, name, analyzer)]
+    if not kept:
+        return None
+    if len({c["handle"] for c in kept}) != 1:
+        return None
+    return kept[0]
+
+
 def _make_location(file_str: str, line: int | None, column: int | None) -> _Location:
     """Build a :class:`_Location` from raw file/line/column values.
 
@@ -506,6 +613,20 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
             kind=c["kind"],
             scope=c["scope"],
             location=c["location"],
+        )
+
+    # Root-package disambiguation (#423): a bare top-level package name should
+    # resolve to its single root handle, not an ambiguous set.  This runs BEFORE
+    # the ambiguous fallback and keys on file structure (not the name string), so
+    # a submodule sharing the root's name is never wrongly promoted.
+    root = _select_root_package(candidates, name, analyzer)
+    if root is not None:
+        return _SuccessResult(
+            found=True,
+            handle=root["handle"],
+            kind=root["kind"],
+            scope=root["scope"],
+            location=root["location"],
         )
 
     # Sort candidates deterministically: (scope, file, line_start)
