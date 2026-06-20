@@ -312,7 +312,14 @@ class TestImportAnalyzerRelativeImports:
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        test_file = pkg_dir / "consumer.py"
+        # consumer lives in a NESTED subpackage so that `from .. import` is a
+        # valid (resolvable) relative import into mypkg — not an above-top-level
+        # import, which Python rejects and the resolver correctly drops (#426).
+        nested_dir = pkg_dir / "nested"
+        nested_dir.mkdir()
+        (nested_dir / "__init__.py").write_text("")
+
+        test_file = nested_dir / "consumer.py"
         test_file.write_text("""\"\"\"Consumer with various relative imports.\"\"\"
 
 from . import sibling
@@ -331,7 +338,7 @@ def consume():
 
         pkg_dir = simple_relative_import_file / "mypkg"
         analyzer = ImportAnalyzer(simple_relative_import_file)
-        result = analyzer.analyze_imports(pkg_dir / "consumer.py")
+        result = analyzer.analyze_imports(pkg_dir / "nested" / "consumer.py")
 
         # Check import_details is populated
         assert "import_details" in result
@@ -352,7 +359,7 @@ def consume():
 
         pkg_dir = simple_relative_import_file / "mypkg"
         analyzer = ImportAnalyzer(simple_relative_import_file)
-        result = analyzer.analyze_imports(pkg_dir / "consumer.py")
+        result = analyzer.analyze_imports(pkg_dir / "nested" / "consumer.py")
 
         # Find the 'from .. import' (double dot)
         double_dot_imports = [d for d in result["import_details"] if d.get("level", 0) == 2]

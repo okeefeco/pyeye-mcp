@@ -1904,20 +1904,13 @@ class JediAnalyzer:
         Returns:
             The absolute dotted module path, or ``None`` if it cannot be resolved
             (e.g. the relative level walks above the project root).
+
+        Note:
+            Thin delegate to :func:`import_analyzer.resolve_relative_import`, the
+            single source of truth (#426). Kept as a method so its callers and
+            signature are unchanged while the algorithm lives in one place.
         """
-        if level <= 0:
-            return module
-        if importer_is_package:
-            anchor_parts = importer_module.split(".") if importer_module else []
-        else:
-            anchor_parts = importer_module.split(".")[:-1]
-        strip = level - 1
-        if strip > len(anchor_parts):
-            return None
-        base = anchor_parts[: len(anchor_parts) - strip] if strip else anchor_parts
-        suffix = module.split(".") if module else []
-        combined = base + suffix
-        return ".".join(combined) if combined else None
+        return resolve_relative_import(importer_module, module, level, importer_is_package)
 
     async def find_importers(
         self, module_path: str, target_file: Path, scope: Scope = "all"
@@ -3412,11 +3405,12 @@ class JediAnalyzer:
                 tree = file_artifact_cache.get_ast(py_file)
             except Exception:
                 continue
+            is_package = py_file.name == "__init__.py"
             import_tables[module_name] = build_import_table(
-                tree, module_name, resolve_relative_import
+                tree, module_name, resolve_relative_import, is_package
             )
             module_defines[module_name] = build_module_defines(tree)
-            stars = build_star_sources(tree, module_name, resolve_relative_import)
+            stars = build_star_sources(tree, module_name, resolve_relative_import, is_package)
             if stars:
                 star_sources[module_name] = stars
         return import_tables, module_defines, star_sources

@@ -121,7 +121,8 @@ def resolve_base(
 def build_import_table(
     tree: ast.Module,
     module: str,
-    resolve_relative: Callable[[str, str | None, int], str | None],
+    resolve_relative: Callable[[str, str | None, int, bool], str | None],
+    is_package: bool = False,
 ) -> dict[str, str]:
     """Build the surface-name → target-path table for one module's AST.
 
@@ -134,8 +135,10 @@ def build_import_table(
     Args:
         tree: Parsed module AST.
         module: Dotted name of this module (for relative-import resolution).
-        resolve_relative: ``(module, imported_module_or_None, level) -> abs path``
-            — typically ``import_analyzer.resolve_relative_import``.
+        resolve_relative: ``(module, imported_module_or_None, level, is_package)
+            -> abs path`` — typically ``import_analyzer.resolve_relative_import``.
+        is_package: ``True`` when *module* is a package ``__init__`` — required
+            for correct relative resolution of nested-package re-exports (#426).
 
     Returns:
         ``{surface name: target dotted path}``.
@@ -151,7 +154,9 @@ def build_import_table(
                     table[head] = head
         elif isinstance(node, ast.ImportFrom):
             base = (
-                resolve_relative(module, node.module, node.level) if node.level > 0 else node.module
+                resolve_relative(module, node.module, node.level, is_package)
+                if node.level > 0
+                else node.module
             )
             for alias in node.names:
                 if alias.name == "*":
@@ -164,7 +169,8 @@ def build_import_table(
 def build_star_sources(
     tree: ast.Module,
     module: str,
-    resolve_relative: Callable[[str, str | None, int], str | None],
+    resolve_relative: Callable[[str, str | None, int, bool], str | None],
+    is_package: bool = False,
 ) -> list[str]:
     """Return the modules this module star-imports (``from X import *``).
 
@@ -177,7 +183,10 @@ def build_star_sources(
     Args:
         tree: Parsed module AST.
         module: Dotted name of this module (for relative-import resolution).
-        resolve_relative: ``(module, imported_module_or_None, level) -> abs path``.
+        resolve_relative: ``(module, imported_module_or_None, level, is_package)
+            -> abs path``.
+        is_package: ``True`` when *module* is a package ``__init__`` — required
+            for correct relative resolution of nested-package re-exports (#426).
 
     Returns:
         Absolute dotted names of the star-imported source modules.
@@ -186,7 +195,9 @@ def build_star_sources(
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
             base = (
-                resolve_relative(module, node.module, node.level) if node.level > 0 else node.module
+                resolve_relative(module, node.module, node.level, is_package)
+                if node.level > 0
+                else node.module
             )
             if base:
                 sources.append(base)
