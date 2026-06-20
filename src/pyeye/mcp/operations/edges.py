@@ -1135,6 +1135,66 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
 
 
 # ---------------------------------------------------------------------------
+# submodules edge (#423) — package → on-disk directory base case
+# ---------------------------------------------------------------------------
+
+
+def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
+    """Return the on-disk directories a *package* handle maps to.
+
+    This is the base case the ``submodules`` enumerator (Task 3) builds on: a
+    package handle is resolved to the directory (or directories) whose children
+    are its candidate submodules / subpackages.
+
+    The regular-vs-namespace decision is made **once**, here, by inspecting the
+    resolved handle's ``module_path``:
+
+    - ends in ``__init__.py`` → **regular package** → return the SINGLE parent
+      directory of that ``__init__.py`` (a regular package has exactly one
+      on-disk directory).
+    - otherwise → the **namespace branch**.  A PEP 420 namespace package has no
+      ``__init__.py`` and may be spread across several portions; a plain
+      ``X.py`` module is not a package at all.  Both fall here and Task 2
+      returns ``[]`` for them.
+
+    Task 4 will implement the namespace branch (the PEP 420 portion union over
+    ``analyzer.added_sys_path``, first-portion-wins on name collisions).  Until
+    then the marked branch below returns ``[]`` — a non-package module and a
+    class/function handle (whose ``module_path`` is an ``X.py``) therefore both
+    yield ``[]`` here too, which is correct for them permanently.
+
+    A ``None`` ``module_path`` (e.g. a builtin or unresolved handle) yields
+    ``[]``.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``module_path`` drives the regular-vs-namespace split.
+        analyzer: Active analyzer.  Unused in Task 2 (the regular case needs no
+            project lookup); Task 4's namespace branch will consult
+            ``analyzer.added_sys_path``.
+
+    Returns:
+        For a regular package, a single-element ``[<package dir>]``.  For any
+        non-regular handle (plain module, class/function, namespace portion —
+        until Task 4 — or a ``None`` ``module_path``), ``[]``.
+    """
+    _ = analyzer  # unused in Task 2; Task 4's namespace branch will consult added_sys_path
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is None:
+        return []
+
+    module_path = Path(module_path)
+    if module_path.name == "__init__.py":
+        # Regular package: exactly one on-disk directory — the __init__'s parent.
+        return [module_path.parent]
+
+    # Task 4: namespace branch — PEP 420 portion union over added_sys_path
+    # (first-portion-wins on name collisions) goes here.  A plain X.py module
+    # and a class/function handle also land here and stay [] permanently.
+    return []
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
