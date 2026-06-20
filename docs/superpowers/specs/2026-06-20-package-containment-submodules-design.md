@@ -138,16 +138,19 @@ must not be recomputed ad hoc in `edges.py` (that would be a second source of pa
 truth). The codebase's established search-root idiom is
 `list(self.source_roots) + [self.project_path]` (source roots first, project root
 last — see `jedi_analyzer.py` `_resolve_*` helpers); `roots` follows that same
-precedence, with the exposed `added_sys_path` appended:
+precedence, with the exposed `added_sys_path` appended. The **starting hypothesis**
+(to verify, not asserted) is:
 
 ```text
 roots = [*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path]
 ```
 
 The exact order is not free to choose — it **must** match Python's `sys.path`
-precedence for the project, and the plan will verify it against the existing idiom and
-a namespace fixture. All three inputs are **lists** (never set-derived), so the order
-is stable run-to-run.
+precedence for the project. This has **not** been empirically confirmed here; the plan
+must verify it against the existing idiom and a multi-portion namespace fixture (the
+collision test that asserts *which* portion wins is the check that pins it). All three
+inputs are **lists** (never set-derived), so whatever the verified order, it is stable
+run-to-run.
 
 **Collision rule — first portion wins.** When two portions define a child of the same
 name, the first portion in `roots` order supplies the winning `file` (and kind). This
