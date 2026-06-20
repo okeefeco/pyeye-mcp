@@ -54,7 +54,11 @@ from pyeye._jedi_location import location_from_name
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.canonicalization import collect_re_exports, find_module_file, resolve_canonical
 from pyeye.handle import Handle
-from pyeye.mcp.operations.edges import resolve_members, resolve_superclasses
+from pyeye.mcp.operations.edges import (
+    _enumerate_submodule_paths,
+    resolve_members,
+    resolve_superclasses,
+)
 
 # Kind normalisation + method detection live in resolve (the lower-level module)
 # so resolve, inspect, and stubs share one source of truth (#406).
@@ -788,6 +792,37 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     return len(resolve_members(jedi_name, analyzer).handles)
 
 
+async def _count_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> int:
+    """Count a package's direct child modules/subpackages (#423).
+
+    Delegates to :func:`edges._enumerate_submodule_paths` — the single
+    containment source-of-truth — so the count can never diverge from the
+    ``submodules`` expand edge:
+    ``inspect(pkg).edge_counts["submodules"] == len(expand(pkg, "submodules").stubs)``.
+    The enumerator is a pure ``iterdir`` scan (NO file reads), so this is the
+    cheap counts-first signal the spec (§4) asks for.
+
+    **Why ``async def`` with no ``await``**: identical to
+    :func:`_count_module_members` — ``_build_edge_counts`` gathers coroutines
+    as ``Awaitable[int]`` under per-edge budgets, so the coroutine protocol is
+    required by that gather/budget contract.
+
+    Caller gating (in ``_build_edge_counts``) restricts this to *package*
+    handles, so a plain module never reports ``submodules`` (absence-vs-zero):
+    a non-package handle would measure 0 here, but the count is simply not
+    requested for it.
+
+    Args:
+        jedi_name: Jedi ``Name`` or ``ModuleSentinel`` for the package.
+        analyzer: Active analyzer.
+
+    Returns:
+        Count of direct child modules + subpackages (a measured zero for an
+        empty package).
+    """
+    return len(_enumerate_submodule_paths(jedi_name, analyzer))
+
+
 async def _count_superclasses(
     jedi_name: Any, analyzer: JediAnalyzer, superclasses: list[str] | None = None
 ) -> int:
@@ -898,6 +933,14 @@ async def _build_edge_counts(
 
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
+        # submodules is a PACKAGE-only edge (#423): present (possibly a measured
+        # 0) for a package handle, ABSENT for a plain module — the absence-vs-zero
+        # invariant.  is_package == its module_path is an __init__.py (the same
+        # rule _build_module_fields uses); a namespace package has no single
+        # resolvable handle so it never reaches here.
+        module_path = getattr(jedi_name, "module_path", None)
+        if module_path is not None and Path(module_path).name == "__init__.py":
+            coros["submodules"] = _count_submodules(jedi_name, analyzer)
 
     # function, method, attribute, property, variable, statement: no measured
     # edges remain after callers/references were removed → counts stays empty.
