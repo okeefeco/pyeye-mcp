@@ -211,6 +211,21 @@ resolve_at("myapp/cache.py", line=42, column=8)  -> { handle: "myapp.cache.Cache
 outline("myapp.cache")  -> tree of (Cache, DependencyTracker, ...) with their methods
 ```
 
+**Cold start: "what's in this package / project?"** — orient top-down, drill on
+demand. `outline` on a *package* surveys its child modules/subpackages (depth-1
+by default — subpackages marked `truncated: max_depth`, modules as leaves); pass a
+higher `max_depth`, or `expand`/`trace` the `submodules` edge, to go deeper:
+
+```text
+resolve("myapp")                  -> { handle: "myapp", kind: "module", scope: "project" }
+outline("myapp")                  -> direct submodules/subpackages (depth-1 survey)
+expand("myapp.db", "submodules")  -> one hop of a subpackage's children
+trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (capped + `truncated`)
+```
+
+Then drill: `resolve(root) → outline(pkg) | expand(pkg, "submodules") → pick a
+module → inspect / expand("members") / trace`.
+
 **"What does this function call?"** — forward, reliable:
 
 ```text
