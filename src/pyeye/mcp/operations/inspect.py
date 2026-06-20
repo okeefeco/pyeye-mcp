@@ -503,6 +503,43 @@ def _resolve_base_class_via_jedi(
 # ---------------------------------------------------------------------------
 
 
+def _anchor_on_definition(name: Any, handle: str) -> Any:
+    """Anchor a matched Jedi ``Name`` on its definition site (issue #429).
+
+    A re-export import binding in an ``__init__.py`` reports the *same*
+    ``full_name`` as the class it re-exports — Jedi follows the import one hop —
+    and even reports ``type == "class"``. So the handle→``Name`` walk can match
+    that binding and land on the re-export line instead of the class body,
+    silently reporting ``members: 0`` for a real class. This happens whenever
+    the deepest (definition) module's pass fails to produce a ``full_name``
+    match (the #419-class non-determinism) and the walk falls through to a
+    shallower ``__init__``.
+
+    ``goto`` repairs this deterministically: it is idempotent on a true
+    definition (returns itself) and follows a re-export binding through to the
+    definition. It rides the same ``goto(follow_imports=True)`` path
+    ``resolve_at`` uses, so it does not depend on the flaky ``full_name`` match —
+    making ``inspect``/``expand``/``trace``/``outline`` agree with ``resolve_at``
+    (acceptance criterion #2). The ``full_name``/``module_path`` guard keeps a
+    genuine definition if ``goto`` ever wanders.
+
+    Args:
+        name: The matched Jedi ``Name`` (definition or re-export binding).
+        handle: The canonical dotted-name string being resolved.
+
+    Returns:
+        The definition-site ``Name`` when ``goto`` resolves it, else *name*.
+    """
+    try:
+        targets = name.goto(follow_imports=True)
+    except Exception:
+        return name
+    for target in targets:
+        if target.full_name == handle and target.module_path is not None:
+            return target
+    return name
+
+
 def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | None:
     """Find the Jedi Name object that corresponds to *handle*.
 
@@ -556,7 +593,9 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
             script = file_artifact_cache.get_script(mod_file, analyzer.project)
             for name in script.get_names(all_scopes=True, definitions=True, references=False):
                 if name.full_name == handle:
-                    return name
+                    # Anchor on the definition: a match here may be a re-export
+                    # import binding in an __init__ (issue #429) — goto-follow it.
+                    return _anchor_on_definition(name, handle)
         except Exception:
             continue
 
