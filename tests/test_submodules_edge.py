@@ -31,7 +31,11 @@ import pytest
 
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.mcp.operations.edges import _package_dirs
+from pyeye.mcp.operations.edges import (
+    _dir_shallow_qualifies,
+    _enumerate_submodule_paths,
+    _package_dirs,
+)
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 
 _CONTAINMENT = Path(__file__).parent / "fixtures" / "containment"
@@ -91,3 +95,79 @@ class TestPackageDirsEmpty:
         sentinel = ModuleSentinel(_MYPKG / "__init__.py", "mypkg", analyzer)
         sentinel.module_path = None
         assert _package_dirs(sentinel, analyzer) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — _enumerate_submodule_paths: pure directory scan of a regular package
+# ---------------------------------------------------------------------------
+
+
+def _mypkg_sentinel(analyzer: JediAnalyzer) -> ModuleSentinel:
+    """A ``ModuleSentinel`` for the ``mypkg`` regular-package fixture."""
+    return ModuleSentinel(_MYPKG / "__init__.py", "mypkg", analyzer)
+
+
+class TestEnumerateSubmodulePathsRegular:
+    """Enumerating a regular package's DIRECT children from a pure dir scan."""
+
+    def test_children_handles_exact_set(self, analyzer: JediAnalyzer) -> None:
+        # EXACTLY the three real children — no __init__, __pycache__, or data.
+        entries = _enumerate_submodule_paths(_mypkg_sentinel(analyzer), analyzer)
+        handles = {e.handle for e in entries}
+        assert handles == {"mypkg.alpha", "mypkg.beta", "mypkg.sub"}
+
+    def test_sorted_by_child_name(self, analyzer: JediAnalyzer) -> None:
+        # Deterministic order: sorted by the last dotted component (child name).
+        entries = _enumerate_submodule_paths(_mypkg_sentinel(analyzer), analyzer)
+        assert [e.handle for e in entries] == ["mypkg.alpha", "mypkg.beta", "mypkg.sub"]
+
+    def test_module_child_is_not_subpackage(self, analyzer: JediAnalyzer) -> None:
+        entries = _enumerate_submodule_paths(_mypkg_sentinel(analyzer), analyzer)
+        alpha = next(e for e in entries if e.handle == "mypkg.alpha")
+        assert alpha.is_subpackage is False
+        assert alpha.file.name == "alpha.py"
+
+    def test_regular_subpackage_points_at_init(self, analyzer: JediAnalyzer) -> None:
+        entries = _enumerate_submodule_paths(_mypkg_sentinel(analyzer), analyzer)
+        sub = next(e for e in entries if e.handle == "mypkg.sub")
+        assert sub.is_subpackage is True
+        assert sub.file.name == "__init__.py"
+        assert sub.file.parent.name == "sub"
+
+    def test_pycache_and_data_excluded(self, analyzer: JediAnalyzer) -> None:
+        # Neither the __pycache__ dir nor the data/ junk dir become children.
+        entries = _enumerate_submodule_paths(_mypkg_sentinel(analyzer), analyzer)
+        names = {e.file.name for e in entries} | {e.handle.rsplit(".", 1)[-1] for e in entries}
+        assert "__pycache__" not in names
+        assert "data" not in names
+
+    def test_non_package_handle_returns_empty(self, analyzer: JediAnalyzer) -> None:
+        # A plain module handle: _package_dirs returns [] → no children.
+        plain = ModuleSentinel(_MYPKG / "alpha.py", "mypkg.alpha", analyzer)
+        assert _enumerate_submodule_paths(plain, analyzer) == []
+
+    def test_class_handle_returns_empty(self, analyzer: JediAnalyzer) -> None:
+        # A class handle resolved through the real analyzer/Jedi → not a package.
+        jedi_name = _find_jedi_name_for_handle(_A_HANDLE, analyzer)
+        assert jedi_name is not None, f"Could not resolve handle {_A_HANDLE!r}"
+        assert _enumerate_submodule_paths(jedi_name, analyzer) == []
+
+    def test_none_handle_returns_empty(self, analyzer: JediAnalyzer) -> None:
+        assert _enumerate_submodule_paths(None, analyzer) == []
+
+
+class TestDirShallowQualifies:
+    """The §3.5 one-level-capped importable-dir filter."""
+
+    def test_dir_with_direct_py_qualifies(self) -> None:
+        # sub/ contains gamma.py directly → qualifies.
+        assert _dir_shallow_qualifies(_MYPKG / "sub") is True
+
+    def test_data_dir_does_not_qualify(self) -> None:
+        # data/ holds only notes.txt → junk, does not qualify.
+        assert _dir_shallow_qualifies(_MYPKG / "data") is False
+
+    def test_pycache_does_not_qualify(self) -> None:
+        # __pycache__ holds only a .pyc → does not qualify (and is name-skipped
+        # by the enumerator regardless).
+        assert _dir_shallow_qualifies(_MYPKG / "__pycache__") is False

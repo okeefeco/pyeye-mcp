@@ -61,7 +61,7 @@ import ast
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
@@ -112,6 +112,29 @@ class EdgeResult:
         ``(handle, name)`` refactor stays backwards-compatible.
         """
         return [h for h, _ in self.adjacents]
+
+
+class _SubmoduleEntry(NamedTuple):
+    """One DIRECT child of a package, derived from a pure directory scan.
+
+    Produced by :func:`_enumerate_submodule_paths` — the single containment
+    source-of-truth for the ``submodules`` edge (#423).  Each field comes from
+    ``iterdir`` metadata only (name / suffix / ``is_dir`` / ``exists``); NO file
+    is read, so a later task can ``len()`` the list as a cheap count.
+
+    Attributes:
+        handle: The child's dotted handle (parent ``full_name`` + ``.`` + the
+            child's name), e.g. ``"mypkg.alpha"``.
+        file: The on-disk path that *anchors* the child — ``X.py`` for a module,
+            ``X/__init__.py`` for a regular subpackage, or the bare ``X/``
+            directory for a PEP 420 namespace subpackage.
+        is_subpackage: ``True`` for a (regular or namespace) subpackage, ``False``
+            for a plain module child.
+    """
+
+    handle: str
+    file: Path
+    is_subpackage: bool
 
 
 # ---------------------------------------------------------------------------
@@ -1192,6 +1215,171 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     # (first-portion-wins on name collisions) goes here.  A plain X.py module
     # and a class/function handle also land here and stay [] permanently.
     return []
+
+
+def _dir_shallow_qualifies(path: Path) -> bool:
+    """Return whether *path* looks like an importable dir (the §3.5 filter).
+
+    This separates PEP 420 namespace subpackages from obvious junk/data dirs
+    WITHOUT reading any file.  The check is deliberately **shallow and capped at
+    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
+    would be both slow and over-eager).
+
+    A directory qualifies iff, among its DIRECT entries, ANY of:
+
+    - **(a)** a direct ``*.py`` file; or
+    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
+      subpackage one level down); or
+    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
+      ``_recurse=False`` so the recursion stops after exactly ONE extra level
+      (a namespace subpackage one level down).
+
+    Purpose: skip junk such as a ``data/`` dir holding only ``notes.txt`` or a
+    ``__pycache__`` dir holding only ``.pyc`` files.  NO file reads — ``iterdir``,
+    ``.suffix``, ``.is_dir`` / ``.is_file`` and ``.exists`` only.
+
+    Args:
+        path: The candidate directory.
+
+    Returns:
+        ``True`` if *path* qualifies as an importable dir per the rules above,
+        else ``False`` (including when *path* is unreadable).
+    """
+    return _dir_shallow_qualifies_capped(path, _recurse=True)
+
+
+def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
+    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
+
+    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
+    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
+    rules (a)/(b) — never trigger a further descent.  This caps the total depth
+    at one extra level (see the public wrapper's docstring for the rule list).
+
+    Args:
+        path: The candidate directory.
+        _recurse: Whether a rule-(c) one-level descent is still permitted.
+
+    Returns:
+        ``True`` if *path* qualifies, else ``False`` (including on read errors).
+    """
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return False
+
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") or name == "__pycache__":
+            continue
+        # (a) a direct .py file.
+        if entry.is_file() and entry.suffix == ".py":
+            return True
+        if entry.is_dir():
+            # (b) a direct child dir that is a regular package.
+            if (entry / "__init__.py").exists():
+                return True
+            # (c) a direct child dir that itself shallow-qualifies — but only
+            # one extra level deep (cap: _recurse=False on the descent).
+            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
+                return True
+    return False
+
+
+def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_SubmoduleEntry]:
+    """Enumerate a package's DIRECT children from a PURE directory scan (#423).
+
+    This is the single containment source-of-truth for the ``submodules`` edge:
+    given a package handle, it returns its direct module / subpackage children as
+    :class:`_SubmoduleEntry` tuples, derived ENTIRELY from ``iterdir`` metadata —
+    NO file is read (so a later task can ``len()`` this list as a cheap count).
+
+    The package-vs-non-package decision and the directory resolution are both
+    delegated to :func:`_package_dirs` (no duplication): a non-package handle
+    (plain module, class/function, ``None``) yields ``[]`` because
+    ``_package_dirs`` yields ``[]``.  The enumerator loops over EVERY directory
+    ``_package_dirs`` returns; for Task 3 that is at most one (the regular case),
+    but iterating already prepares for Task 4's multi-portion namespace union
+    (which extends ``_package_dirs`` + adds cross-directory dedup, not this body).
+
+    Per directory, scanning DIRECT entries only (one ``iterdir``), with
+    ``__pycache__`` and dot-names always skipped:
+
+    - ``X.py`` (``X != "__init__"``) → module child, ``file = X.py``,
+      ``is_subpackage=False``.
+    - ``X/`` with ``X/__init__.py`` → regular subpackage, ``file = X/__init__.py``,
+      ``is_subpackage=True``.
+    - ``X/`` with no ``__init__.py`` that :func:`_dir_shallow_qualifies` →
+      namespace subpackage, ``file = X/`` (the directory itself),
+      ``is_subpackage=True``.
+
+    The parent handle for building child handles is the resolved name's
+    ``full_name`` (e.g. parent ``"mypkg"`` + child ``alpha`` → ``"mypkg.alpha"``).
+    The result is sorted by child name (the last dotted component) for
+    determinism.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``full_name`` seeds the child handles; ``_package_dirs`` resolves it
+            to the directory(ies) scanned.
+        analyzer: Active analyzer (passed through to :func:`_package_dirs`).
+
+    Returns:
+        The direct children as :class:`_SubmoduleEntry` tuples, sorted by child
+        name.  ``[]`` for any non-package handle.
+    """
+    dirs = _package_dirs(jedi_name, analyzer)
+    if not dirs:
+        return []
+
+    parent_handle = getattr(jedi_name, "full_name", None)
+    if not parent_handle:
+        return []
+
+    entries: list[_SubmoduleEntry] = []
+    for pkg_dir in dirs:
+        try:
+            children = list(pkg_dir.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            name = child.name
+            if name.startswith(".") or name == "__pycache__":
+                continue
+
+            if child.is_file():
+                if child.suffix != ".py" or child.stem == "__init__":
+                    continue
+                entries.append(
+                    _SubmoduleEntry(
+                        handle=f"{parent_handle}.{child.stem}",
+                        file=child,
+                        is_subpackage=False,
+                    )
+                )
+                continue
+
+            if child.is_dir():
+                init_py = child / "__init__.py"
+                if init_py.exists():
+                    entries.append(
+                        _SubmoduleEntry(
+                            handle=f"{parent_handle}.{name}",
+                            file=init_py,
+                            is_subpackage=True,
+                        )
+                    )
+                elif _dir_shallow_qualifies(child):
+                    entries.append(
+                        _SubmoduleEntry(
+                            handle=f"{parent_handle}.{name}",
+                            file=child,
+                            is_subpackage=True,
+                        )
+                    )
+
+    entries.sort(key=lambda e: e.handle.rsplit(".", 1)[-1])
+    return entries
 
 
 # ---------------------------------------------------------------------------
