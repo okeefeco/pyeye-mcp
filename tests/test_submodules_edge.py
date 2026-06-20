@@ -32,11 +32,16 @@ import pytest
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.edges import (
+    EDGE_RESOLVERS,
     _dir_shallow_qualifies,
     _enumerate_submodule_paths,
     _package_dirs,
+    edge_status,
+    resolve_submodules,
 )
+from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.trace import trace
 
 _CONTAINMENT = Path(__file__).parent / "fixtures" / "containment"
 _REGULAR = _CONTAINMENT / "regular"
@@ -171,3 +176,94 @@ class TestDirShallowQualifies:
         # __pycache__ holds only a .pyc → does not qualify (and is name-skipped
         # by the enumerator regardless).
         assert _dir_shallow_qualifies(_MYPKG / "__pycache__") is False
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — resolve_submodules resolver + dir-stub contract + edge registration
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSubmodules:
+    """The ``submodules`` edge resolver wraps the enumerator as adjacents."""
+
+    def test_handles_match_enumeration(self, analyzer: JediAnalyzer) -> None:
+        result = resolve_submodules(_mypkg_sentinel(analyzer), analyzer)
+        handles = {str(h) for h in result.handles}
+        assert handles == {"mypkg.alpha", "mypkg.beta", "mypkg.sub"}
+
+    def test_each_adjacent_carries_module_sentinel(self, analyzer: JediAnalyzer) -> None:
+        # The children come from a pure dir scan (no Jedi Name) — each adjacent
+        # carries a ModuleSentinel so build_stub needs no goto.
+        result = resolve_submodules(_mypkg_sentinel(analyzer), analyzer)
+        assert result.adjacents  # non-empty
+        for _, name in result.adjacents:
+            assert isinstance(name, ModuleSentinel)
+
+    def test_unresolved_call_sites_absent(self, analyzer: JediAnalyzer) -> None:
+        # submodules is not callees → the count notion does not apply.
+        result = resolve_submodules(_mypkg_sentinel(analyzer), analyzer)
+        assert result.unresolved_call_sites is None
+
+    def test_non_package_returns_empty_not_none(self, analyzer: JediAnalyzer) -> None:
+        # Wrong kind → measured-empty EdgeResult([]), never None.
+        plain = ModuleSentinel(_MYPKG / "alpha.py", "mypkg.alpha", analyzer)
+        result = resolve_submodules(plain, analyzer)
+        assert result is not None
+        assert result.adjacents == []
+
+
+class TestEdgeRegistration:
+    """``submodules`` is a first-class implemented edge."""
+
+    def test_edge_status_implemented(self) -> None:
+        assert edge_status("submodules") == "implemented"
+
+    def test_in_resolver_registry(self) -> None:
+        assert "submodules" in EDGE_RESOLVERS
+        assert EDGE_RESOLVERS["submodules"] is resolve_submodules
+
+
+class TestDirAnchoredStubContract:
+    """A namespace-subpackage stub is dir-anchored and never byte-read (§3.6)."""
+
+    def test_dir_sentinel_docstring_empty_no_raise(self, analyzer: JediAnalyzer) -> None:
+        # A ModuleSentinel anchored on a directory returns "" (empty str, NOT
+        # None) and does not raise.
+        ds = ModuleSentinel(_MYPKG / "sub", "mypkg.sub", analyzer).docstring()
+        assert ds == ""
+
+    def test_dir_sentinel_never_reads_bytes(
+        self, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Guard: constructing a dir-anchored sentinel must not call read_text on
+        # a directory.  Patch Path.read_text to fail loudly if it ever runs on a
+        # path that is a directory.
+        real_read_text = Path.read_text
+
+        def _guarded_read_text(self: Path, *args: object, **kwargs: object) -> str:
+            assert not self.is_dir(), f"byte read attempted on directory {self}"
+            return real_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", _guarded_read_text)
+        # A namespace-subpackage dir anchor: data/ is a non-package dir, but any
+        # directory exercises the guard.  Use sub/ (a real dir under mypkg).
+        sentinel = ModuleSentinel(_MYPKG / "sub", "mypkg.sub", analyzer)
+        assert sentinel.docstring() == ""
+
+
+class TestExpandTraceSmoke:
+    """``submodules`` flows through expand/trace for free via registration."""
+
+    @pytest.mark.asyncio
+    async def test_expand_returns_child_stubs(self, analyzer: JediAnalyzer) -> None:
+        result = await expand("mypkg", "submodules", analyzer)
+        assert result.get("unsupported") is not True
+        handles = {s["handle"] for s in result["stubs"]}
+        assert handles == {"mypkg.alpha", "mypkg.beta", "mypkg.sub"}
+
+    @pytest.mark.asyncio
+    async def test_trace_one_hop_tree(self, analyzer: JediAnalyzer) -> None:
+        result = await trace("mypkg", follow=["submodules"], analyzer=analyzer, max_depth=1)
+        # The one-hop children appear as nodes reachable from the root.
+        assert "mypkg.alpha" in result["nodes"]
+        assert "mypkg.sub" in result["nodes"]

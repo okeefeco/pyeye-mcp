@@ -8,9 +8,9 @@ This module is the **single source of truth** for which traversal edges
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
    names (``members``, ``callees``, ``imported_by``, ``subclasses``,
-   ``superclasses``, ``imports``, ``enclosing_scope``) to their resolver
-   callables.  ``members``/``callees``/``superclasses``/``imports``/
-   ``enclosing_scope`` are synchronous and always return an
+   ``superclasses``, ``imports``, ``enclosing_scope``, ``submodules``) to their
+   resolver callables.  ``members``/``callees``/``superclasses``/``imports``/
+   ``enclosing_scope``/``submodules`` are synchronous and always return an
    :class:`EdgeResult` or ``None``; ``imported_by`` and ``subclasses`` are
    **async**.  ``imported_by`` and ``imports`` return ``EdgeResult | None``
    — ``None`` is their wrong-kind signal (the handle is not a module).
@@ -29,7 +29,8 @@ status                          edges
 ==============================  =========================================
 ``"implemented"``               ``members``, ``callees``, ``imported_by``,
                                 ``subclasses``, ``superclasses``,
-                                ``imports``, ``enclosing_scope``
+                                ``imports``, ``enclosing_scope``,
+                                ``submodules``
 ``"not_yet_implemented"``       *(currently empty — all recognised edges
                                 are implemented)*
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
@@ -157,6 +158,7 @@ _IMPLEMENTED_EDGES = frozenset(
         "superclasses",
         "imports",
         "enclosing_scope",
+        "submodules",
     }
 )
 
@@ -1435,14 +1437,55 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
     return entries
 
 
+def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
+    """Return a package's DIRECT child modules/subpackages as canonical handles.
+
+    The ``submodules`` containment edge (#423): a thin wrapper over the
+    :func:`_enumerate_submodule_paths` source-of-truth.  It adds NO containment
+    logic of its own — it turns each :class:`_SubmoduleEntry` into a
+    ``(Handle, ModuleSentinel)`` adjacent so ``expand``/``outline`` can build the
+    child's stub WITHOUT a Jedi ``goto`` (the children come from a pure directory
+    scan, so there is no Jedi ``Name`` to carry — the sentinel is the stand-in).
+
+    The sentinel is anchored on the child's ``file`` — ``X.py`` /
+    ``X/__init__.py`` for module / regular-subpackage children, or the bare
+    ``X/`` DIRECTORY for a PEP 420 namespace subpackage.  A directory-anchored
+    sentinel is never byte-read (the §3.6 dir-anchored stub contract;
+    :class:`ModuleSentinel` guards its docstring read on ``is_file()``).
+
+    Synchronous (the enumerator is a pure ``iterdir`` scan — no Jedi, no I/O
+    beyond directory listing).  ``expand`` happily runs a sync resolver.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``module_path``/``full_name`` drive the enumeration.
+        analyzer: Active analyzer (passed through to the enumerator).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` are the child
+        ``(Handle, ModuleSentinel)`` pairs.  For any non-package handle the
+        enumerator yields no entries, so this returns ``EdgeResult([])`` — the
+        "wrong kind → measured-empty, never ``None``" convention.
+    """
+    adjacents: list[tuple[Handle, Any]] = []
+    for entry in _enumerate_submodule_paths(jedi_name, analyzer):
+        handle = _try_handle(entry.handle)
+        if handle is None:
+            continue
+        sentinel = ModuleSentinel(entry.file, entry.handle, analyzer)
+        adjacents.append((handle, sentinel))
+    return EdgeResult(adjacents=adjacents)
+
+
 # ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
 #: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
-#: ``superclasses``/``imports``/``enclosing_scope`` are synchronous;
-#: ``members``/``callees``/``superclasses``/``enclosing_scope`` always return an
-#: :class:`EdgeResult`; ``imports`` returns ``EdgeResult | None`` (``None`` for
+#: ``superclasses``/``imports``/``enclosing_scope``/``submodules`` are synchronous;
+#: ``members``/``callees``/``superclasses``/``enclosing_scope``/``submodules``
+#: always return an :class:`EdgeResult` (``submodules`` → ``EdgeResult([])`` for a
+#: non-package handle); ``imports`` returns ``EdgeResult | None`` (``None`` for
 #: non-module handles, mirroring ``imported_by``).  ``imported_by`` and
 #: ``subclasses`` are async.  ``imported_by`` may return ``None`` (its
 #: wrong-kind signal); ``subclasses``, ``superclasses``, and ``enclosing_scope``
@@ -1460,4 +1503,5 @@ EDGE_RESOLVERS: dict[
     "superclasses": resolve_superclasses,
     "imports": resolve_imports,
     "enclosing_scope": resolve_enclosing_scope,
+    "submodules": resolve_submodules,
 }

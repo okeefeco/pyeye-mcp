@@ -82,11 +82,12 @@ Notes that matter:
 `expand` and `trace` walk these edges. This is the **complete** set pyeye can answer
 reliably today:
 
-<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope -->
+<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope submodules -->
 
 | Edge | Direction | Meaning |
 |------|-----------|---------|
 | `members` | container → children | a class's methods/attributes, or a module's top-level defs |
+| `submodules` | package → child modules/subpackages | a package's direct child modules and subpackages (one hop; full tree via `trace`) |
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
