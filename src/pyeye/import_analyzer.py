@@ -27,6 +27,8 @@ def resolve_relative_import(
     denotes the package):
     - level=1 (``.``) resolves to ``pkg.sub`` (same package)
     - level=2 (``..``) resolves to ``pkg``
+    - ``level`` ≥ 3 strips one further parent component per level, returning
+      ``None`` once it would walk above the package root.
 
     Args:
         current_module: Current module name (for ``__init__.py`` this is the
