@@ -106,7 +106,18 @@ class TestEnumerateNamespaceUnion:
     def test_child_handles_union_deduped(self, ns_analyzer: JediAnalyzer) -> None:
         entries = _enumerate_submodule_paths(_company(), ns_analyzer)
         handles = {e.handle for e in entries}
-        assert handles == {"company.auth", "company.api", "company.shared"}
+        # auth/api/shared are modules; plugins is a PEP 420 namespace SUBpackage
+        # (a dir under portion A with no __init__.py that shallow-qualifies).
+        assert handles == {"company.auth", "company.api", "company.shared", "company.plugins"}
+
+    def test_namespace_subpackage_child_is_dir_anchored(self, ns_analyzer: JediAnalyzer) -> None:
+        # company.plugins has no __init__.py → its entry is a subpackage anchored
+        # on the DIRECTORY itself (never byte-read downstream).
+        entries = _enumerate_submodule_paths(_company(), ns_analyzer)
+        plugins = next(e for e in entries if e.handle == "company.plugins")
+        assert plugins.is_subpackage is True
+        assert plugins.file.as_posix() == (_NS_A / "company" / "plugins").as_posix()
+        assert not (plugins.file / "__init__.py").exists()
 
     def test_collision_winner_is_portion_a(self, ns_analyzer: JediAnalyzer) -> None:
         # company.shared exists in BOTH portions; ns_a precedes ns_b in roots,
@@ -130,5 +141,6 @@ class TestEnumerateNamespaceUnion:
         assert [e.handle for e in entries] == [
             "company.api",
             "company.auth",
+            "company.plugins",
             "company.shared",
         ]
