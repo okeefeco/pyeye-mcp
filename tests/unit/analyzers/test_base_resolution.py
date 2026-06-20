@@ -211,12 +211,24 @@ def test_build_star_sources_absolute() -> None:
 
 
 def test_build_star_sources_relative_made_absolute() -> None:
-    assert build_star_sources(ast.parse("from .impl import *"), "pkg", _resolve_relative) == [
-        "pkg.impl"
-    ]
+    # `pkg` here is a top-level package __init__ re-exporting `from .impl import *`;
+    # is_package=True anchors `.` at the package itself → pkg.impl (#426).
+    assert build_star_sources(
+        ast.parse("from .impl import *"), "pkg", _resolve_relative, is_package=True
+    ) == ["pkg.impl"]
 
 
 def test_build_star_sources_empty_without_star() -> None:
     assert (
         build_star_sources(ast.parse("from pkg.impl import Thing"), "pkg", _resolve_relative) == []
     )
+
+
+def test_build_star_sources_relative_in_nested_package() -> None:
+    # A nested package __init__ (`pkg.sub`) doing `from .impl import *` re-exports
+    # from `pkg.sub.impl`. The old `level == len(parts)` heuristic resolved this
+    # to `pkg.impl` (wrong), so find_subclasses could miss star-re-exported
+    # subclasses. With the explicit package bit the source is correct (#426).
+    assert build_star_sources(
+        ast.parse("from .impl import *"), "pkg.sub", _resolve_relative, is_package=True
+    ) == ["pkg.sub.impl"]
