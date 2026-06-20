@@ -9,12 +9,26 @@ Design contract
 ---------------
 - Returns the **definition site** (where ``class X`` physically appears), never
   a re-export path.
-- Returns ``None`` when the AST cannot commit (star/`__all__` re-exports,
-  externals/builtins, dynamic constructs). ``None`` means "ask Jedi" — the
-  caller falls back to ``goto``, which remains the authority.
+- Returns ``None`` when the AST cannot commit (conditional / ``TYPE_CHECKING``
+  imports, externals/builtins, dynamic constructs). ``None`` means "ask Jedi" —
+  the caller falls back to ``goto``, which remains the authority.
 - It must NEVER return a *wrong* definition: the #405 Django measurement found
   0 disagreements with Jedi, and that safety property is what lets the caller
   trust the committed answer instead of verifying it.
+
+Determinism (#419)
+------------------
+This AST resolution is **deterministic** — it is pure string/table logic with
+no process-state dependence. Jedi forward ``goto``, the fallback for the
+``None`` cases, is **not**: it can return different targets across fresh
+processes for some bases (conditional imports, package re-exports), so any
+``find_subclasses`` result whose membership depends on a ``goto``-resolved base
+can vary run-to-run. Following ``import *`` re-exports here (#405) moved most
+bases onto this deterministic path — measured ≈93% AST hits on Django,
+``scripts/measure_subclass_fallback.py`` — shrinking but not eliminating the
+non-deterministic surface. The residual is the second, forward-resolution
+argument for a deterministic backend (#333), independent of the reverse-
+reference one (#332).
 
 The function is pure (no filesystem, no Jedi): it operates on pre-built tables,
 so it is cheap and trivially testable. Building those tables from ASTs is a
