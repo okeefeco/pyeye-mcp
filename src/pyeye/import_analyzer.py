@@ -9,64 +9,61 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_relative_import(
-    current_module: str, imported_module: str | None, level: int
+    current_module: str,
+    imported_module: str | None,
+    level: int,
+    is_package: bool = False,
 ) -> str | None:
     """Resolve a relative import to an absolute module path.
 
-    Stable module-level seam (#421) so callers outside :class:`ImportAnalyzer`
-    (e.g. the ``find_subclasses`` AST resolution tables in ``jedi_analyzer``)
-    can resolve relative imports without reaching into a private method on an
-    unrelated class. :meth:`ImportAnalyzer._resolve_relative_import` delegates
-    here, so there is a single source of truth.
+    Single source of truth for relative-import resolution (#426). The stable
+    module-level seam (#421) so callers outside :class:`ImportAnalyzer` (e.g.
+    the ``find_subclasses`` AST resolution tables in ``jedi_analyzer``) can
+    resolve relative imports without reaching into a private method on an
+    unrelated class. :meth:`ImportAnalyzer._resolve_relative_import` and
+    :meth:`JediAnalyzer._resolve_relative_import` both delegate here.
 
-    For a module ``pkg.sub.module``:
-    - level=1 (``.``) resolves to ``pkg.sub``
-    - level=2 (``..``) resolves to ``pkg``
+    The anchor is the importer's **containing package**, which depends on
+    whether the importer is a package ``__init__`` — this is why *is_package*
+    must be passed explicitly rather than inferred from the dotted string (a
+    module ``pkg.sub`` and a package ``pkg.sub`` are indistinguishable by name).
+    This mirrors Python's own ``importlib`` semantics:
 
-    For a package ``pkg.sub`` (from ``__init__.py``, whose module name already
-    denotes the package):
-    - level=1 (``.``) resolves to ``pkg.sub`` (same package)
-    - level=2 (``..``) resolves to ``pkg``
-    - ``level`` ≥ 3 strips one further parent component per level, returning
-      ``None`` once it would walk above the package root.
+    - a regular module ``pkg.sub.mod`` (``is_package=False``) has containing
+      package ``pkg.sub``; ``level=1`` (``.``) anchors there, each extra level
+      strips one more trailing component.
+    - a package ``pkg.sub`` (``is_package=True``, its ``__init__``) IS its own
+      package; ``level=1`` anchors at ``pkg.sub`` itself, ``level=2`` at ``pkg``.
+    - resolving above the top-level package yields ``None`` (a relative import
+      that walks past the root, which Python rejects as an ``ImportError``).
 
     Args:
-        current_module: Current module name (for ``__init__.py`` this is the
-            package name).
-        imported_module: Relative module being imported (``None`` for
+        current_module: The importer's dotted module name (for a package
+            ``__init__`` this is the package name itself).
+        imported_module: Relative module text after the dots (``None`` for
             ``from . import X``).
-        level: Number of parent levels (leading dots; 0 = absolute import).
+        level: Number of leading dots (0 = absolute import, returned unchanged).
+        is_package: ``True`` when the importer is a package ``__init__`` (its
+            name already denotes the package, so it is not stripped).
 
     Returns:
         Absolute module name, or ``None`` if it cannot be resolved.
     """
-    try:
-        # Split current module into parts
-        parts = current_module.split(".")
-
-        if level > len(parts):
-            return None
-
-        # Adjust for __init__.py case: if we would end up with empty parts,
-        # it means we're in a package's __init__.py and . refers to the package
-        # itself. In this case, base_parts should be the package (all parts).
-        if level > 0 and level == len(parts):
-            # We're at package level, . means this package
-            base_parts = parts
-        elif level > 0:
-            base_parts = parts[:-level]
-        else:
-            base_parts = parts
-
-        # Add the imported module
-        if imported_module:
-            return ".".join(base_parts + imported_module.split("."))
-        else:
-            # Import from package (e.g., "from . import X" without module)
-            return ".".join(base_parts) if base_parts else None
-
-    except Exception:
+    if level <= 0:
+        # Absolute import: the imported module is already absolute.
+        return imported_module
+    parts = current_module.split(".") if current_module else []
+    # The containing package: a package __init__ IS its own package; a regular
+    # module's package is its parent (drop the module's own trailing component).
+    anchor_parts = parts if is_package else parts[:-1]
+    strip = level - 1
+    if strip > len(anchor_parts):
+        # Walks above the top-level package — Python rejects this.
         return None
+    base = anchor_parts[: len(anchor_parts) - strip] if strip else anchor_parts
+    suffix = imported_module.split(".") if imported_module else []
+    combined = base + suffix
+    return ".".join(combined) if combined else None
 
 
 class ImportAnalyzer:
@@ -144,6 +141,11 @@ class ImportAnalyzer:
             if not module_name:
                 return result
 
+            # A package __init__ anchors relative imports at the package itself
+            # (not its parent) — pass this explicitly so nested-package
+            # re-exports resolve correctly (#426).
+            is_package = file_path.name == "__init__.py"
+
             result["module_name"] = module_name
 
             # Read and parse the file
@@ -178,7 +180,9 @@ class ImportAnalyzer:
                     # In this case, each imported name is a submodule
                     if is_relative and original_module is None:
                         # Get the base package for relative import
-                        base_module = self._resolve_relative_import(module_name, None, node.level)
+                        base_module = self._resolve_relative_import(
+                            module_name, None, node.level, is_package
+                        )
                         if not base_module:
                             continue
 
@@ -210,7 +214,7 @@ class ImportAnalyzer:
                     if is_relative:
                         # Convert relative to absolute
                         resolved_module = self._resolve_relative_import(
-                            module_name, original_module, node.level
+                            module_name, original_module, node.level, is_package
                         )
                         if resolved_module:
                             module = resolved_module
@@ -267,23 +271,28 @@ class ImportAnalyzer:
         return result
 
     def _resolve_relative_import(
-        self, current_module: str, imported_module: str | None, level: int
+        self,
+        current_module: str,
+        imported_module: str | None,
+        level: int,
+        is_package: bool = False,
     ) -> str | None:
         """Resolve a relative import to absolute.
 
         Thin instance-method wrapper over the module-level
-        :func:`resolve_relative_import` (the stable seam, #421). Kept so
+        :func:`resolve_relative_import` (the stable seam, #421/#426). Kept so
         existing callers/tests that reach it as a method stay unchanged.
 
         Args:
             current_module: Current module name (for __init__.py, this is the package name)
             imported_module: Relative module being imported (None for "from . import X")
             level: Number of parent levels (dots)
+            is_package: ``True`` when the importer is a package ``__init__``.
 
         Returns:
             Absolute module name or None
         """
-        return resolve_relative_import(current_module, imported_module, level)
+        return resolve_relative_import(current_module, imported_module, level, is_package)
 
     def build_dependency_graph(self, python_files: list[Path]) -> dict[str, Any]:
         """Build a complete dependency graph for the project.

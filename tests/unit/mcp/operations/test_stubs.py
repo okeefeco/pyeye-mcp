@@ -60,6 +60,7 @@ _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_pr
 _WIDGET_HANDLE = "mypackage._core.widgets.Widget"
 _MAKE_WIDGET_HANDLE = "mypackage._core.widgets.make_widget"
 _GREET_HANDLE = "mypackage._core.widgets.Widget.greet"
+_CACHED_COMPUTE_HANDLE = "mypackage._core.decorated.Cached.cached_method"
 _MODULE_HANDLE = "mypackage._core.widgets"
 _DISPLAY_NAME_HANDLE = "mypackage._core.widgets.Widget.display_name"
 _COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
@@ -225,6 +226,14 @@ class TestStubMethod:
         """Method stub carries no source content."""
         stub = _get_stub(_GREET_HANDLE, analyzer)
         _assert_no_content(stub)
+
+    def test_decorated_method_renders_own_signature(self, analyzer: JediAnalyzer) -> None:
+        """A @functools.cache-decorated method stub must carry its OWN signature,
+        not the ``_lru_cache_wrapper`` artifact (#437) — this is the outline path.
+        """
+        stub = _get_stub(_CACHED_COMPUTE_HANDLE, analyzer)
+        assert stub["signature"] == "cached_method(self, a: int, b: int=2) -> int"
+        assert "_lru_cache_wrapper" not in stub["signature"]
 
 
 # ---------------------------------------------------------------------------

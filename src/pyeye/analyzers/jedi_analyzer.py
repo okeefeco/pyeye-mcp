@@ -1913,20 +1913,13 @@ class JediAnalyzer:
         Returns:
             The absolute dotted module path, or ``None`` if it cannot be resolved
             (e.g. the relative level walks above the project root).
+
+        Note:
+            Thin delegate to :func:`import_analyzer.resolve_relative_import`, the
+            single source of truth (#426). Kept as a method so its callers and
+            signature are unchanged while the algorithm lives in one place.
         """
-        if level <= 0:
-            return module
-        if importer_is_package:
-            anchor_parts = importer_module.split(".") if importer_module else []
-        else:
-            anchor_parts = importer_module.split(".")[:-1]
-        strip = level - 1
-        if strip > len(anchor_parts):
-            return None
-        base = anchor_parts[: len(anchor_parts) - strip] if strip else anchor_parts
-        suffix = module.split(".") if module else []
-        combined = base + suffix
-        return ".".join(combined) if combined else None
+        return resolve_relative_import(importer_module, module, level, importer_is_package)
 
     async def find_importers(
         self, module_path: str, target_file: Path, scope: Scope = "all"
@@ -1972,20 +1965,28 @@ class JediAnalyzer:
             try:
                 importer_module = self._get_import_path_for_file(py_file)
                 # Pre-filter (avoids AST parse for unrelated files; the AST
-                # check below is authoritative).  Parse when EITHER the
-                # absolute path appears textually (absolute imports) OR the
-                # file shares the target's top-level package — a relative
-                # import (`from .x import y`) can resolve into the target
-                # without ever spelling its absolute path (#343).  Source is
-                # read but not cached or returned — a heuristic, not content.
+                # check below is authoritative).  Parse when ANY of:
+                #   - the absolute path appears textually (absolute imports);
+                #   - the file shares the target's top-level package — a
+                #     relative import (`from .x import y`) can resolve into the
+                #     target without ever spelling its absolute path (#343);
+                #   - the target's PARENT package appears textually — the
+                #     `from <parent> import <submodule>` idiom (#436) spells the
+                #     parent, never the submodule's dotted path, and may live in
+                #     a different top-level package than the target (so
+                #     `shares_package` does not cover it).
+                # Source is read but not cached or returned — a heuristic, not
+                # content.
                 source = await read_file_async(py_file)
                 shares_package = bool(
                     importer_module and importer_module.split(".")[0] == target_root
                 )
+                parent_pkg = module_path.rsplit(".", 1)[0] if "." in module_path else None
                 if (
                     module_path in source
                     or module_path.replace(".", "/") in source
                     or shares_package
+                    or (parent_pkg is not None and parent_pkg in source)
                 ):
                     importer_is_package = py_file.name == "__init__.py"
                     # Bucket 1: AST for the precise check comes from cache.
@@ -2007,8 +2008,22 @@ class JediAnalyzer:
                                 importer_module or "",
                                 importer_is_package,
                             )
+                            # The `from` clause names a package/module; an
+                            # imported NAME may itself be the target submodule
+                            # (`from <pkg> import <submodule>`, #436).  Match
+                            # both: the from-clause directly (dotted-path form
+                            # `from <pkg>.<sub> import <name>`), and each name
+                            # normalized to `<resolved>.<name>` (submodule form).
+                            # A from-import names a leaf, so the submodule match
+                            # is exact equality — never a `startswith` prefix.
                             if resolved and (
-                                resolved == module_path or resolved.startswith(module_path + ".")
+                                resolved == module_path
+                                or resolved.startswith(module_path + ".")
+                                or any(
+                                    f"{resolved}.{alias.name}" == module_path
+                                    for alias in node.names
+                                    if alias.name != "*"
+                                )
                             ):
                                 if importer_module and importer_module not in importers:
                                     importers[importer_module] = py_file
@@ -2732,6 +2747,10 @@ class JediAnalyzer:
             return result
 
         sig = sigs[0]
+        # FOLLOW-UP (#437): dual-source smell — this deprecated path still leaks a
+        # decorator wrapper's signature/params (e.g. functools.cache → _lru_cache_wrapper),
+        # whereas inspect._build_signature now detects and reconstructs from the AST.
+        # The two signature sources should converge on the AST-first builder.
         result["signature"] = sig.to_string()
 
         # Create script for contextual type resolution
@@ -3395,11 +3414,12 @@ class JediAnalyzer:
                 tree = file_artifact_cache.get_ast(py_file)
             except Exception:
                 continue
+            is_package = py_file.name == "__init__.py"
             import_tables[module_name] = build_import_table(
-                tree, module_name, resolve_relative_import
+                tree, module_name, resolve_relative_import, is_package
             )
             module_defines[module_name] = build_module_defines(tree)
-            stars = build_star_sources(tree, module_name, resolve_relative_import)
+            stars = build_star_sources(tree, module_name, resolve_relative_import, is_package)
             if stars:
                 star_sources[module_name] = stars
         return import_tables, module_defines, star_sources

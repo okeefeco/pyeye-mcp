@@ -575,3 +575,37 @@ class TestFindImporters:
 
         result = await analyzer.analyze_dependencies(_TARGET, scope="all")
         assert result["imported_by"] == expected
+
+    @pytest.mark.asyncio
+    async def test_find_importers_reports_from_package_import_submodule(self):
+        """``from package import submodule`` importers are attributed (#436).
+
+        ``submod_importer`` reaches the target via
+        ``from mypackage._core import widgets`` — the submodule idiom whose
+        ``from`` clause names the *package* (``mypackage._core``) and whose
+        imported name (``widgets``) completes the target's dotted handle. The
+        reverse scan must reconstruct ``mypackage._core.widgets`` and attribute
+        the importer, matching the forward ``imports`` edge which already
+        resolves this idiom.
+        """
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+
+        modules = {m for m, _ in pairs}
+        assert "mypackage._core.submod_importer" in modules
+
+    @pytest.mark.asyncio
+    async def test_find_importers_reports_cross_package_submodule_script(self):
+        """A cross-package ``from package import submodule`` importer is found.
+
+        ``submod_script_importer`` lives at the fixture root (top-level handle
+        ``submod_script_importer``), so it shares no top-level package with the
+        target and cannot be admitted by ``shares_package``. Only the
+        parent-package textual trigger (``mypackage._core`` appears in source)
+        lets the AST check run — exercising the pre-filter half of the #436 fix.
+        """
+        analyzer = JediAnalyzer(str(_FIXTURE))
+        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+
+        modules = {m for m, _ in pairs}
+        assert "submod_script_importer" in modules
