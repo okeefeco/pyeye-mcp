@@ -52,7 +52,7 @@ from pyeye._ast_targets import (
 )
 from pyeye._jedi_location import location_from_name
 from pyeye._module_sentinel import ModuleSentinel
-from pyeye.canonicalization import collect_re_exports, find_module_file
+from pyeye.canonicalization import collect_re_exports, find_module_file, resolve_canonical
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import resolve_members, resolve_superclasses
 
@@ -629,6 +629,46 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
     return None
 
 
+async def _resolve_handle_to_jedi_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
+    """Resolve a handle to a Jedi ``Name``, canonicalizing re-export aliases (#431).
+
+    First tries the direct handle→``Name`` walk (:func:`_find_jedi_name_for_handle`).
+    A re-export *alias* path — a public import path such as
+    ``package.Thing`` rather than the canonical definition handle
+    ``package._impl.Thing`` — never matches any ``full_name``: Jedi reports the
+    re-export binding's ``full_name`` as the *canonical* handle, not the alias
+    string, so the direct walk misses and ``inspect`` would emit a not-found
+    ``kind: variable`` node.
+
+    On a miss, canonicalize via :func:`resolve_canonical` (which matches by
+    *name*, not ``full_name``, so it resolves the alias) and retry once with the
+    canonical handle. This is the shared entry point for
+    ``inspect``/``expand``/``trace``/``outline`` so all four agree with
+    ``resolve``/``resolve_at`` on alias inputs (issue #431, acceptance #2).
+
+    The canonicalization is paid only on a miss — the common case (a canonical
+    handle that resolves directly) returns from the first call with no extra
+    work.
+
+    Args:
+        handle: Any dotted-name handle (canonical or re-export alias).
+        analyzer: Active analyzer for the project.
+
+    Returns:
+        A Jedi ``Name`` object, or ``None`` if the handle cannot be resolved
+        even after canonicalization.
+    """
+    name = _find_jedi_name_for_handle(handle, analyzer)
+    if name is not None:
+        return name
+
+    canonical = await resolve_canonical(handle, analyzer)
+    if canonical is not None and str(canonical) != handle:
+        return _find_jedi_name_for_handle(str(canonical), analyzer)
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Edge-count helpers
 # ---------------------------------------------------------------------------
@@ -918,9 +958,9 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         with kind ``"variable"`` as the safest default.
     """
     # ------------------------------------------------------------------
-    # Step 1 — Locate the symbol
+    # Step 1 — Locate the symbol (canonicalizing re-export aliases, #431)
     # ------------------------------------------------------------------
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
 
     if jedi_name is None:
         # Minimal fallback — handle not found

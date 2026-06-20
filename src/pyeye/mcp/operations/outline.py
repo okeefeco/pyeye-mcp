@@ -55,7 +55,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import resolve_members
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -132,7 +132,7 @@ async def outline(
     # ------------------------------------------------------------------
     # 1. Resolve root handle to a Jedi Name.
     # ------------------------------------------------------------------
-    root_jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    root_jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
 
     if root_jedi_name is None:
         # Unresolvable — return minimal single-node fallback (mirrors inspect).
