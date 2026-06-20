@@ -1175,46 +1175,102 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     - ends in ``__init__.py`` → **regular package** → return the SINGLE parent
       directory of that ``__init__.py`` (a regular package has exactly one
       on-disk directory).
-    - otherwise → the **namespace branch**.  A PEP 420 namespace package has no
-      ``__init__.py`` and may be spread across several portions; a plain
-      ``X.py`` module is not a package at all.  Both fall here and Task 2
-      returns ``[]`` for them.
+    - a ``.py`` ``module_path`` that is not ``__init__.py`` → a plain module or
+      a class/function handle (defined in some ``X.py``) → NOT a package → ``[]``.
+    - otherwise (``None`` or a directory ``module_path``) → the **namespace
+      branch**.  A PEP 420 namespace package has no ``__init__.py`` and may be
+      spread across several portions; its directory(ies) are found by matching
+      the dotted ``full_name`` under each :func:`_analyzer_roots` root.
 
-    Task 4 will implement the namespace branch (the PEP 420 portion union over
-    ``analyzer.added_sys_path``, first-portion-wins on name collisions).  Until
-    then the marked branch below returns ``[]`` — a non-package module and a
-    class/function handle (whose ``module_path`` is an ``X.py``) therefore both
-    yield ``[]`` here too, which is correct for them permanently.
+    The namespace branch returns the **union** of the matching portion
+    directories in ``roots`` (sys.path precedence) order — a regular package
+    portion (one carrying ``__init__.py``) is excluded, and the order is what
+    :func:`_enumerate_submodule_paths` rides on for first-portion-wins collision
+    determinism (#419 class).
 
-    A ``None`` ``module_path`` (e.g. a builtin or unresolved handle) yields
-    ``[]``.
+    A ``None``/empty ``full_name`` (e.g. a builtin or unresolved handle with no
+    matching root dir) yields ``[]``.
 
     Args:
         jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
-            ``module_path`` drives the regular-vs-namespace split.
-        analyzer: Active analyzer.  Unused in Task 2 (the regular case needs no
-            project lookup); Task 4's namespace branch will consult
-            ``analyzer.added_sys_path``.
+            ``module_path`` drives the regular-vs-namespace split; its
+            ``full_name`` seeds the namespace-portion directory match.
+        analyzer: Active analyzer.  The namespace branch consults
+            :func:`_analyzer_roots` (``source_roots`` / ``project_path`` /
+            ``added_sys_path``).
 
     Returns:
-        For a regular package, a single-element ``[<package dir>]``.  For any
-        non-regular handle (plain module, class/function, namespace portion —
-        until Task 4 — or a ``None`` ``module_path``), ``[]``.
+        For a regular package, a single-element ``[<package dir>]``.  For a
+        namespace package, the union of its portion directories in roots order.
+        For any non-package handle (plain module, class/function, or an
+        unmatched ``full_name``), ``[]``.
     """
-    _ = analyzer  # unused in Task 2; Task 4's namespace branch will consult added_sys_path
     module_path = getattr(jedi_name, "module_path", None)
-    if module_path is None:
+    if module_path is not None:
+        module_path = Path(module_path)
+        if module_path.name == "__init__.py":
+            # Regular package: exactly one on-disk directory — the __init__'s parent.
+            return [module_path.parent]
+        if module_path.suffix == ".py":
+            # A plain X.py module or a class/function handle (defined in some
+            # X.py) — NOT a package.  Stays [] permanently; never a namespace.
+            return []
+        # A directory module_path (some namespace handles) falls through to the
+        # namespace branch below.
+
+    # Namespace branch — PEP 420 portion union (first-portion-wins on name
+    # collisions).  A namespace package has no __init__.py, so Jedi gives it a
+    # None (or directory) module_path; its directory is found by matching the
+    # dotted handle under each sys.path root.
+    full_name = getattr(jedi_name, "full_name", None)
+    if not full_name:
         return []
 
-    module_path = Path(module_path)
-    if module_path.name == "__init__.py":
-        # Regular package: exactly one on-disk directory — the __init__'s parent.
-        return [module_path.parent]
+    parts = full_name.split(".")
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for root in _analyzer_roots(analyzer):
+        candidate = root.joinpath(*parts)
+        try:
+            if not candidate.is_dir():
+                continue
+            if (candidate / "__init__.py").exists():
+                # A regular package portion is not a namespace portion.
+                continue
+        except OSError:
+            continue
+        if not _dir_shallow_qualifies(candidate):
+            continue
+        key = candidate.resolve().as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(candidate)
+    return dirs
 
-    # Task 4: namespace branch — PEP 420 portion union over added_sys_path
-    # (first-portion-wins on name collisions) goes here.  A plain X.py module
-    # and a class/function handle also land here and stay [] permanently.
-    return []
+
+def _analyzer_roots(analyzer: JediAnalyzer) -> list[Path]:
+    """Return the analyzer's sys.path-precedence-ordered package roots.
+
+    Built **list-derived** (never set-derived) from ``source_roots``,
+    ``project_path``, and ``added_sys_path`` so the order is stable run-to-run.
+    The order is the namespace collision-winner's determinism guarantee: the
+    first root holding a portion wins (first-portion-wins, #419 class).  Duplicate
+    roots are dropped, keeping the first (highest-precedence) occurrence.
+    """
+    # roots order = sys.path precedence; collision-winner determinism depends on
+    # it (#419 class).  source_roots (src-layout) and project_path come before
+    # the configured added_sys_path package roots.
+    ordered: list[Path] = [*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path]
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for root in ordered:
+        key = root.resolve().as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(root)
+    return roots
 
 
 def _dir_shallow_qualifies(path: Path) -> bool:
@@ -1337,6 +1393,10 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
         return []
 
     entries: list[_SubmoduleEntry] = []
+    # Dedup children by handle across portions: dirs are in roots (sys.path
+    # precedence) order, so the FIRST occurrence wins — the first-portion-wins
+    # invariant for namespace collisions (e.g. company.shared in two portions).
+    seen_handles: set[str] = set()
     for pkg_dir in dirs:
         try:
             children = list(pkg_dir.iterdir())
@@ -1350,33 +1410,26 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
             if child.is_file():
                 if child.suffix != ".py" or child.stem == "__init__":
                     continue
-                entries.append(
-                    _SubmoduleEntry(
-                        handle=f"{parent_handle}.{child.stem}",
-                        file=child,
-                        is_subpackage=False,
-                    )
-                )
+                handle = f"{parent_handle}.{child.stem}"
+                if handle in seen_handles:
+                    continue
+                seen_handles.add(handle)
+                entries.append(_SubmoduleEntry(handle=handle, file=child, is_subpackage=False))
                 continue
 
             if child.is_dir():
+                handle = f"{parent_handle}.{name}"
                 init_py = child / "__init__.py"
                 if init_py.exists():
-                    entries.append(
-                        _SubmoduleEntry(
-                            handle=f"{parent_handle}.{name}",
-                            file=init_py,
-                            is_subpackage=True,
-                        )
-                    )
+                    if handle in seen_handles:
+                        continue
+                    seen_handles.add(handle)
+                    entries.append(_SubmoduleEntry(handle=handle, file=init_py, is_subpackage=True))
                 elif _dir_shallow_qualifies(child):
-                    entries.append(
-                        _SubmoduleEntry(
-                            handle=f"{parent_handle}.{name}",
-                            file=child,
-                            is_subpackage=True,
-                        )
-                    )
+                    if handle in seen_handles:
+                        continue
+                    seen_handles.add(handle)
+                    entries.append(_SubmoduleEntry(handle=handle, file=child, is_subpackage=True))
 
     entries.sort(key=lambda e: e.handle.rsplit(".", 1)[-1])
     return entries
