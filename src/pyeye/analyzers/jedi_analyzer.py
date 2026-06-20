@@ -17,7 +17,7 @@ from ..config import ProjectConfig
 from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
-from ..import_analyzer import ImportAnalyzer
+from ..import_analyzer import ImportAnalyzer, resolve_relative_import
 from ..path_utils import paths_equal
 from ..scope_utils import (
     LazyNamespaceLoader,
@@ -3130,6 +3130,17 @@ class JediAnalyzer:
             # Get all Python files in scope (cached by get_project_files)
             py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
 
+            # Derive each file's module name ONCE and reuse it everywhere below
+            # (#421 item 3).  The class graph, the resolved index, and the AST
+            # resolution tables each used to re-derive this per file (and the
+            # class graph re-derived it per class node); sharing one map removes
+            # that and makes the "same module derivation" invariant mechanically
+            # true rather than by convention.  ``None`` means "not importable" —
+            # each call site keeps its own ``stem`` fallback, preserving behaviour.
+            file_to_module: dict[Path, str | None] = {
+                py_file: self._get_import_path_for_file(py_file) for py_file in py_files
+            }
+
             # Single pass: parse each file once, extract all class info
             # Maps class simple name -> list of (node, tree, file) for cross-file lookups
             classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
@@ -3142,12 +3153,12 @@ class JediAnalyzer:
                 try:
                     # Bucket 1: AST comes from cache.
                     tree = file_artifact_cache.get_ast(py_file)
+                    module_path = file_to_module[py_file]
 
                     for node in ast.walk(tree):
                         if not isinstance(node, ast.ClassDef):
                             continue
 
-                        module_path = self._get_import_path_for_file(py_file)
                         fqn = (
                             f"{module_path}.{node.name}"
                             if module_path
@@ -3211,29 +3222,39 @@ class JediAnalyzer:
             # AST-first (resolve_base — no Jedi, #335-robust) with a Jedi goto
             # fallback only when the AST cannot commit; both routes yield the
             # same definition-site key.
-            import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
-                py_files
-            )
+            #
+            # Only the FQN-input path and the indirect-traversal path consult
+            # this index; the simple-name + non-indirect path uses
+            # parent_to_children (+ aliased-base goto) alone, so it skips the
+            # build — and the expensive, non-deterministic Jedi goto fallbacks
+            # the build runs — entirely (#421 item 1).
+            import_tables: dict[str, dict[str, str]] = {}
+            module_defines: dict[str, dict[str, str]] = {}
+            star_sources: dict[str, list[str]] = {}
             resolved_index: dict[str, set[str]] = {}
-            for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
-                child_module = self._get_import_path_for_file(child_file) or child_file.stem
-                for base in child_node.bases:
-                    base_dotted = self._get_base_name_from_ast(base)
-                    if not base_dotted or base_dotted.split(".")[-1] == "object":
-                        continue
-                    key = await self._resolve_base_to_key(
-                        base,
-                        base_dotted,
-                        child_module,
-                        child_file,
-                        import_tables,
-                        module_defines,
-                        star_sources,
-                        resolved_cache,
-                        canonical_cache,
-                    )
-                    if key is not None:
-                        resolved_index.setdefault(key, set()).add(child_fqn)
+            if is_fqn_input or include_indirect:
+                import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
+                    py_files, file_to_module
+                )
+                for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
+                    child_module = file_to_module.get(child_file) or child_file.stem
+                    for base in child_node.bases:
+                        base_dotted = self._get_base_name_from_ast(base)
+                        if not base_dotted or base_dotted.split(".")[-1] == "object":
+                            continue
+                        key = await self._resolve_base_to_key(
+                            base,
+                            base_dotted,
+                            child_module,
+                            child_file,
+                            import_tables,
+                            module_defines,
+                            star_sources,
+                            resolved_cache,
+                            canonical_cache,
+                        )
+                        if key is not None:
+                            resolved_index.setdefault(key, set()).add(child_fqn)
 
             async def direct_children(target_fqn: str) -> set[str]:
                 """Children whose base resolves to *target_fqn* (def-site exact or re-export)."""
@@ -3341,32 +3362,35 @@ class JediAnalyzer:
         return canonical_cache[identifier]
 
     def _build_ast_resolution_tables(
-        self, py_files: list[Path]
+        self, py_files: list[Path], file_to_module: dict[Path, str | None]
     ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, list[str]]]:
         """Build per-module AST import/define/star tables for AST-first resolution (#405).
 
         Returns ``(import_tables, module_defines, star_sources)`` keyed by the
-        same module derivation (:meth:`_get_import_path_for_file`) used to build
-        class FQNs, so resolution keys line up.  ``star_sources`` lets
-        :func:`resolve_base` follow ``from x import *`` re-exports (#419 — fewer
-        Jedi ``goto`` fallbacks, which are the non-deterministic ones).  ASTs
-        come from the shared cache; relative imports reuse ``ImportAnalyzer``.
+        same module derivation (:meth:`_get_import_path_for_file`, supplied
+        pre-computed via *file_to_module*, #421) used to build class FQNs, so
+        resolution keys line up.  ``star_sources`` lets :func:`resolve_base`
+        follow ``from x import *`` re-exports (#419 — fewer Jedi ``goto``
+        fallbacks, which are the non-deterministic ones).  ASTs come from the
+        shared cache; relative imports use the module-level
+        :func:`resolve_relative_import` seam (#421).
         """
         import_tables: dict[str, dict[str, str]] = {}
         module_defines: dict[str, dict[str, str]] = {}
         star_sources: dict[str, list[str]] = {}
-        resolve_relative = ImportAnalyzer(self.project_path)._resolve_relative_import
         for py_file in py_files:
-            module_name = self._get_import_path_for_file(py_file) or py_file.stem
+            module_name = file_to_module.get(py_file) or py_file.stem
             if module_name in import_tables:
                 continue
             try:
                 tree = file_artifact_cache.get_ast(py_file)
             except Exception:
                 continue
-            import_tables[module_name] = build_import_table(tree, module_name, resolve_relative)
+            import_tables[module_name] = build_import_table(
+                tree, module_name, resolve_relative_import
+            )
             module_defines[module_name] = build_module_defines(tree)
-            stars = build_star_sources(tree, module_name, resolve_relative)
+            stars = build_star_sources(tree, module_name, resolve_relative_import)
             if stars:
                 star_sources[module_name] = stars
         return import_tables, module_defines, star_sources

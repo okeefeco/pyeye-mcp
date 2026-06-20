@@ -1081,6 +1081,78 @@ class ProdService(Service):
                 assert result["is_direct"] is False, "ProdService should be marked as indirect"
 
 
+class TestFindSubclassesLazyIndexBuild:
+    """#421 item 1: the resolved index is built only when it is consulted.
+
+    The simple-name + ``include_indirect=False`` path resolves direct subclasses
+    from ``parent_to_children`` (plus aliased-base goto) alone — it never reads
+    the resolved index, so it must not pay for (nor run the non-deterministic
+    Jedi ``goto`` fallbacks of) ``_build_ast_resolution_tables``. The FQN-input
+    and indirect-traversal paths DO consult the index and must still build it.
+    """
+
+    @staticmethod
+    def _make_project(temp_project_dir: Path) -> JediAnalyzer:
+        (temp_project_dir / "animals.py").write_text(
+            "class Animal:\n"
+            "    pass\n"
+            "\n"
+            "class Dog(Animal):\n"
+            "    pass\n"
+            "\n"
+            "class Cat(Animal):\n"
+            "    pass\n"
+            "\n"
+            "class Puppy(Dog):\n"  # grandchild — only the indirect path reaches it
+            "    pass\n"
+        )
+        return JediAnalyzer(str(temp_project_dir))
+
+    @pytest.mark.asyncio
+    async def test_simple_name_non_indirect_skips_index_build(self, temp_project_dir):
+        """Simple name + non-indirect: index build is skipped, result still correct."""
+        analyzer = self._make_project(temp_project_dir)
+        with patch.object(
+            analyzer,
+            "_build_ast_resolution_tables",
+            wraps=analyzer._build_ast_resolution_tables,
+        ) as spy:
+            raw = await analyzer.find_subclasses("Animal", include_indirect=False)
+
+        assert spy.call_count == 0, "simple-name + non-indirect path must not build the index"
+        assert not raw.get("ambiguous")
+        assert {r["name"] for r in raw["subclasses"]} == {"Dog", "Cat"}
+
+    @pytest.mark.asyncio
+    async def test_indirect_path_builds_index(self, temp_project_dir):
+        """Indirect traversal consults the index, so it must be built."""
+        analyzer = self._make_project(temp_project_dir)
+        with patch.object(
+            analyzer,
+            "_build_ast_resolution_tables",
+            wraps=analyzer._build_ast_resolution_tables,
+        ) as spy:
+            raw = await analyzer.find_subclasses("Animal", include_indirect=True)
+
+        assert spy.call_count == 1, "indirect path must build the resolved index"
+        assert "Puppy" in {r["name"] for r in raw["subclasses"]}
+
+    @pytest.mark.asyncio
+    async def test_fqn_non_indirect_builds_index(self, temp_project_dir):
+        """FQN input consults the index even when non-indirect, so it must be built."""
+        analyzer = self._make_project(temp_project_dir)
+        with patch.object(
+            analyzer,
+            "_build_ast_resolution_tables",
+            wraps=analyzer._build_ast_resolution_tables,
+        ) as spy:
+            raw = await analyzer.find_subclasses("animals.Animal", include_indirect=False)
+
+        assert spy.call_count == 1, "FQN-input path must build the resolved index"
+        assert not raw.get("ambiguous")
+        assert {r["name"] for r in raw["subclasses"]} == {"Dog", "Cat"}
+
+
 _RESOLVE_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
 
 

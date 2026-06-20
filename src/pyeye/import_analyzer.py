@@ -8,6 +8,67 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def resolve_relative_import(
+    current_module: str, imported_module: str | None, level: int
+) -> str | None:
+    """Resolve a relative import to an absolute module path.
+
+    Stable module-level seam (#421) so callers outside :class:`ImportAnalyzer`
+    (e.g. the ``find_subclasses`` AST resolution tables in ``jedi_analyzer``)
+    can resolve relative imports without reaching into a private method on an
+    unrelated class. :meth:`ImportAnalyzer._resolve_relative_import` delegates
+    here, so there is a single source of truth.
+
+    For a module ``pkg.sub.module``:
+    - level=1 (``.``) resolves to ``pkg.sub``
+    - level=2 (``..``) resolves to ``pkg``
+
+    For a package ``pkg.sub`` (from ``__init__.py``, whose module name already
+    denotes the package):
+    - level=1 (``.``) resolves to ``pkg.sub`` (same package)
+    - level=2 (``..``) resolves to ``pkg``
+    - ``level`` ≥ 3 strips one further parent component per level, returning
+      ``None`` once it would walk above the package root.
+
+    Args:
+        current_module: Current module name (for ``__init__.py`` this is the
+            package name).
+        imported_module: Relative module being imported (``None`` for
+            ``from . import X``).
+        level: Number of parent levels (leading dots; 0 = absolute import).
+
+    Returns:
+        Absolute module name, or ``None`` if it cannot be resolved.
+    """
+    try:
+        # Split current module into parts
+        parts = current_module.split(".")
+
+        if level > len(parts):
+            return None
+
+        # Adjust for __init__.py case: if we would end up with empty parts,
+        # it means we're in a package's __init__.py and . refers to the package
+        # itself. In this case, base_parts should be the package (all parts).
+        if level > 0 and level == len(parts):
+            # We're at package level, . means this package
+            base_parts = parts
+        elif level > 0:
+            base_parts = parts[:-level]
+        else:
+            base_parts = parts
+
+        # Add the imported module
+        if imported_module:
+            return ".".join(base_parts + imported_module.split("."))
+        else:
+            # Import from package (e.g., "from . import X" without module)
+            return ".".join(base_parts) if base_parts else None
+
+    except Exception:
+        return None
+
+
 class ImportAnalyzer:
     """Analyzes Python files to extract import relationships."""
 
@@ -210,15 +271,9 @@ class ImportAnalyzer:
     ) -> str | None:
         """Resolve a relative import to absolute.
 
-        For a module `pkg.sub.module`:
-        - level=1 (.) resolves to `pkg.sub`
-        - level=2 (..) resolves to `pkg`
-        - level=3 (...) resolves to parent of pkg (if exists)
-
-        For a package `pkg.sub` (from __init__.py):
-        - level=1 (.) resolves to `pkg.sub` (same package)
-        - level=2 (..) resolves to `pkg`
-        - level=3 (...) resolves to parent of pkg (if exists)
+        Thin instance-method wrapper over the module-level
+        :func:`resolve_relative_import` (the stable seam, #421). Kept so
+        existing callers/tests that reach it as a method stay unchanged.
 
         Args:
             current_module: Current module name (for __init__.py, this is the package name)
@@ -228,57 +283,7 @@ class ImportAnalyzer:
         Returns:
             Absolute module name or None
         """
-        try:
-            # Split current module into parts
-            parts = current_module.split(".")
-
-            # For relative imports:
-            # - level 1 goes to parent (or stays at package for __init__.py treated as package)
-            # - But for packages, level 1 means "this package"
-            #
-            # Since __init__.py is converted to package name, we need to handle it:
-            # In Python, from . import X in pkg/__init__.py imports pkg.X
-            # The module name is "pkg" and level is 1
-            # We need base_parts to be ["pkg"], not []
-            #
-            # The fix: for level=1 with a single-part module (likely __init__.py),
-            # treat it as the current package, not its parent.
-            # More generally, we adjust: go up (level-1) for packages, or handle differently.
-            #
-            # Actually, the correct logic:
-            # - parts[:-level] goes up 'level' directories from the module
-            # - But a module at pkg/__init__.py has name "pkg", and . should mean "pkg"
-            # - A module at pkg/mod.py has name "pkg.mod", and . should mean "pkg"
-            #
-            # The difference: for pkg/__init__.py (name="pkg"), going up 1 gives "",
-            # but it should give "pkg" because . in __init__.py means the package.
-            #
-            # Fix: if level > 0 and len(parts) == level, this is likely from __init__.py
-            # where . means "this package". Keep the base as the first len(parts)-level+1 parts.
-
-            if level > len(parts):
-                return None
-
-            # Adjust for __init__.py case: if we would end up with empty parts,
-            # it means we're in a package's __init__.py and . refers to the package itself.
-            # In this case, base_parts should be the package (all parts).
-            if level > 0 and level == len(parts):
-                # We're at package level, . means this package
-                base_parts = parts
-            elif level > 0:
-                base_parts = parts[:-level]
-            else:
-                base_parts = parts
-
-            # Add the imported module
-            if imported_module:
-                return ".".join(base_parts + imported_module.split("."))
-            else:
-                # Import from package (e.g., "from . import X" without module)
-                return ".".join(base_parts) if base_parts else None
-
-        except Exception:
-            return None
+        return resolve_relative_import(current_module, imported_module, level)
 
     def build_dependency_graph(self, python_files: list[Path]) -> dict[str, Any]:
         """Build a complete dependency graph for the project.
