@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=ac7f50dc"></script>
+      <script src="../../../_static/documentation_options.js?v=d0bab1eb"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -782,17 +782,22 @@
 <span class="sd">        with ``reason: &quot;not_yet_implemented&quot;`` (symbol-level ``imported_by`` is</span>
 <span class="sd">        not yet implemented).  Ceiling: runtime-dynamic imports</span>
 <span class="sd">        (``importlib``/``__import__`` with computed targets) are not detected.</span>
-<span class="sd">      - ``subclasses``  — class → the project classes that subclass it (class</span>
-<span class="sd">        Stubs), computed by an AST class-graph walk + forward ``goto`` (no</span>
-<span class="sd">        reverse symbol search).  Returns the full project subclass closure</span>
-<span class="sd">        (direct + indirect).  ``subclasses`` is an expand-only edge: ``inspect``</span>
-<span class="sd">        does NOT measure it (dropped in #392 — counting requires this same</span>
-<span class="sd">        project-wide scan, so it has no cheap-preview value).  ``stubs: []``</span>
-<span class="sd">        means the class has no project subclasses (measured-none).  A non-class</span>
-<span class="sd">        handle also returns the supported branch with ``stubs: []`` — only a</span>
-<span class="sd">        class CAN be subclassed,</span>
-<span class="sd">        so ``[]`` is true by definition, not an absence-vs-zero lie.</span>
-<span class="sd">        Static-surface ceiling: the &quot;full closure&quot; is full only over literal</span>
+<span class="sd">      - ``subclasses``  — class → the project classes that **directly** subclass</span>
+<span class="sd">        it (class Stubs), computed by an AST class-graph walk + forward ``goto``</span>
+<span class="sd">        (no reverse symbol search).  Returns the DIRECT (depth-1) subclasses only</span>
+<span class="sd">        (#422) — one hop, symmetric with ``superclasses``; the full transitive</span>
+<span class="sd">        closure is served by ``trace(follow=[&quot;subclasses&quot;], max_depth=k,</span>
+<span class="sd">        max_nodes=N)``, which carries the cap + ``truncated`` contract.  A class</span>
+<span class="sd">        result includes a static ``transitive_hint`` field pointing to that trace</span>
+<span class="sd">        route.  ``subclasses`` is an expand-only edge: ``inspect`` does NOT</span>
+<span class="sd">        measure it (dropped in #392); a cheap direct count is gated on the Pyright</span>
+<span class="sd">        reference backend / class-graph cache (#333/#397), because even the direct</span>
+<span class="sd">        count is a reverse query needing the same project-wide scan as</span>
+<span class="sd">        ``callers``/``references``.  ``stubs: []`` means the class has no project</span>
+<span class="sd">        subclasses (measured-none).  A non-class handle also returns the supported</span>
+<span class="sd">        branch with ``stubs: []`` (and no ``transitive_hint``) — only a class CAN</span>
+<span class="sd">        be subclassed, so ``[]`` is true by definition, not an absence-vs-zero</span>
+<span class="sd">        lie.  Static-surface ceiling: the result is complete only over literal</span>
 <span class="sd">        ``class B(A):`` subclassing; dynamically-created subclasses</span>
 <span class="sd">        (``type(&#39;B&#39;, (A,), {})``, factory-built classes, ``__init_subclass__``</span>
 <span class="sd">        registration) are NOT captured.</span>
