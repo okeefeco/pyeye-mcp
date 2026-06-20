@@ -135,7 +135,7 @@ def build_import_table(
         tree: Parsed module AST.
         module: Dotted name of this module (for relative-import resolution).
         resolve_relative: ``(module, imported_module_or_None, level) -> abs path``
-            — typically ``ImportAnalyzer._resolve_relative_import``.
+            — typically ``import_analyzer.resolve_relative_import``.
 
     Returns:
         ``{surface name: target dotted path}``.
