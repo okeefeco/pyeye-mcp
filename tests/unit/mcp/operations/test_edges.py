@@ -59,6 +59,7 @@ from pyeye.mcp.operations.edges import (
     resolve_superclasses,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from pyeye.mcp.operations.resolve import _normalise_kind
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -1718,4 +1719,81 @@ class TestResolveEnclosingScopeParentNoneDefensive:
         result = resolve_enclosing_scope(mock_jedi_name, analyzer=MagicMock())
         assert isinstance(result, EdgeResult)
         assert result.adjacents == []  # empty, not None
-        assert result is not None  # resolver NEVER returns None
+
+
+class TestImportEdgeRoundTrip:
+    """Forward/reverse conformance over the fixture tree (#436 fix-oracle).
+
+    Invariant: for every project module ``N``, if the forward ``imports`` edge
+    of ``N`` yields a project module ``M``, then ``N`` MUST appear in the reverse
+    ``imported_by(M)``. The forward edge Jedi-resolves each import to its target,
+    so it is trusted ground truth; the reverse pure-AST scan must agree on the
+    same fact. This catches the whole class of reverse under-reports — the
+    ``from package import submodule`` idiom of #436 plus relative, aliased, and
+    grouped forms — not just the single idiom in the report, and is precisely the
+    test that would have caught the regression.
+
+    Uses the committed ``resolve_project`` fixture (a real directory) so Jedi
+    resolution is path-stable (no tmp-dir symlink degradation).
+    """
+
+    @pytest.mark.asyncio
+    async def test_forward_imports_are_mirrored_by_reverse_imported_by(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        imported_by_cache: dict[str, set[str]] = {}
+
+        async def _reverse_importers(module_handle: str) -> set[str]:
+            if module_handle not in imported_by_cache:
+                jedi_name = _find_jedi_name_for_handle(module_handle, analyzer)
+                if jedi_name is None:
+                    imported_by_cache[module_handle] = set()
+                else:
+                    res = await resolve_imported_by(jedi_name, analyzer)
+                    imported_by_cache[module_handle] = (
+                        {str(h) for h in res.handles} if res is not None else set()
+                    )
+            return imported_by_cache[module_handle]
+
+        py_files = sorted(_FIXTURE.rglob("*.py"), key=lambda p: p.as_posix())
+        assert py_files, "fixture tree must contain Python files"
+
+        violations: list[str] = []
+        module_imports_checked = 0
+        for py_file in py_files:
+            n_handle = analyzer._get_import_path_for_file(py_file)
+            if not n_handle:
+                continue
+            n_name = _find_jedi_name_for_handle(n_handle, analyzer)
+            if n_name is None:
+                continue
+            forward = resolve_imports(n_name, analyzer)
+            if forward is None:
+                continue
+            for m_handle, m_name in forward.adjacents:
+                # Module-to-module invariant only: the forward edge also yields
+                # symbol handles (``from mod import Class``); reverse imported_by
+                # is module-level, so restrict to forward targets that are
+                # themselves project modules.
+                if _normalise_kind(getattr(m_name, "type", None)) != "module":
+                    continue
+                m_path = getattr(m_name, "module_path", None)
+                if m_path is None:
+                    continue
+                try:
+                    Path(m_path).relative_to(_FIXTURE)
+                except ValueError:
+                    continue  # external module — outside the fixture project
+                module_imports_checked += 1
+                reverse = await _reverse_importers(str(m_handle))
+                if n_handle not in reverse:
+                    violations.append(
+                        f"{n_handle} imports {m_handle} "
+                        f"but {n_handle} ∉ imported_by({m_handle})"
+                    )
+
+        assert module_imports_checked >= 5, (
+            "expected the fixture tree to exercise several module-level project "
+            f"imports; only checked {module_imports_checked}"
+        )
+        assert not violations, "forward/reverse import disagreement:\n" + "\n".join(violations)
