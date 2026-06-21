@@ -2,6 +2,13 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-06-21 — submodules count==expand invariant scoped to regular packages
+
+**Friction:** The `submodules` edge advertised `inspect(pkg).edge_counts["submodules"] == len(expand(pkg,"submodules").stubs)` **unconditionally**, but a PEP 420 namespace package surfaces (via Jedi) as `kind=="namespace"`/`scope=="external"` and never reaches inspect's `kind=="module"` counting branch — so inspect omitted the count while `expand` still enumerated children. Verified live during the PR #443 review: `expand("acme.plugins","submodules")` → 2 stubs, `inspect("acme.plugins")` → `edge_counts: {}`. The stated invariant was false for namespace packages.
+**Decision:** Scope the count==expand guarantee to **regular** packages (anchored on `__init__.py`); defer namespace-package anchoring through `resolve`/`inspect` to #444 rather than widening inspect's gate now (which would require that anchoring work). Also removed the dead, unreachable directory-anchored PEP 420 clause in `resolve._is_top_level_package` (namespace candidates carry an empty `location.file`, so it never fired). Rejected: widening inspect's gate to `is_dir()` — would re-introduce an external/namespace count path that cannot be reliably anchored yet.
+**Anchor:** `inspect._count_submodules` / `inspect._build_edge_counts` submodules gate; `resolve._is_top_level_package` / `resolve._select_root_package`; design spec §4 + §7.2; #423, PR #443, refs #444.
+**Verify:** PARTIAL — gold: for a regular package `inspect(pkg).edge_counts["submodules"] == len(expand(pkg,"submodules").stubs)` (`tests/test_submodules_integration.py`, `tests/test_inspect_submodules_count.py`). The namespace boundary (inspect omits the count while `expand` enumerates) is checkable today only at the enumerator level; a real-pipeline namespace assertion through `resolve`/`inspect` is deferred to #444.
+
 ## 2026-06-20 — outline(package) switches to submodules survey mode
 
 **Friction:** Removing the legacy `list_packages`/`list_modules`/`list_project_structure` tools left no top-down "what's in this package/project" primitive; every new primitive needed a handle you already knew, forcing a cold-start agent out to `ls`/grep to orient before pyeye could help (#423).
