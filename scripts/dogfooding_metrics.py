@@ -6,6 +6,8 @@ measuring adoption, performance, and identifying patterns.
 """
 
 import json
+import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -21,6 +23,27 @@ if str(src_path) not in sys.path:
 import click  # noqa: E402
 
 from pyeye.constants import METRICS_DIR  # noqa: E402
+
+
+def _extract_issue(branch: str) -> int | None:
+    """Return the first run of digits in a branch name as an issue number.
+
+    Mirrors the old hook's ``grep -oE '[0-9]+' | head -1`` so e.g.
+    ``chore/462-foo`` → ``462`` and ``main`` → ``None``.
+    """
+    match = re.search(r"\d+", branch)
+    return int(match.group()) if match else None
+
+
+def _current_branch() -> str:
+    """Return the current git branch name, or "" if it cannot be determined."""
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip()
 
 
 class DogfoodingMetrics:
@@ -293,6 +316,26 @@ def start(issue: int | None) -> None:
     click.echo(f"Started session: {session['id']}")
     if issue:
         click.echo(f"Working on issue #{issue}")
+
+
+@cli.command(name="start-on-checkout")
+def start_on_checkout() -> None:
+    """Start a session when checking out an issue branch (post-checkout hook).
+
+    Wired via pre-commit so every contributor gets it (#462). Guarded against
+    file checkouts (pre-commit exports ``PRE_COMMIT_CHECKOUT_TYPE="0"``) and
+    made failure-tolerant so it can never disrupt a ``git checkout``.
+    """
+    try:
+        if os.environ.get("PRE_COMMIT_CHECKOUT_TYPE") == "0":
+            return
+        issue = _extract_issue(_current_branch())
+        if issue is None:
+            return
+        click.echo(f"📊 Starting dogfooding metrics for issue #{issue}...")
+        DogfoodingMetrics().start_session(issue)
+    except Exception:  # noqa: BLE001 - a metrics hiccup must never block a checkout
+        return
 
 
 @cli.command()
