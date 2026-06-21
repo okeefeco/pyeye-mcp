@@ -68,9 +68,10 @@ Compare each probe's live result to the recorded baseline row. Every divergence 
 | **Regressed** | a ✅ baseline row now fails | **File an issue** with the probe, expected vs actual, and the build; this is the harness's primary job |
 | **Environment** | difference explained by the build under test, not behavior | Record against that build, tag the build; do NOT treat as a regression |
 
-The classic *environment* case: the `namespace-jaraco` `submodules` row returns
-`unknown_edge` on the global server but is implemented in the PR #443 worktree. Same probe,
-different build — expected, not a regression.
+The classic *environment* case: the `namespace-jaraco` rows 3–5 + 7 (the #444 cold-start
+gap) return `external` / `variable` / empty on the global server, but a build under delivery
+that fixes #444 (the `fix/444-namespace-package-anchoring` worktree) legitimately flips them
+to project-scoped handles. Same probes, different build — expected, not a regression.
 
 > A baseline row tied to an open issue is an **acceptance check**. When that issue's fix
 > lands, this is where you confirm it on real code (e.g. #444 cold-start flipping the

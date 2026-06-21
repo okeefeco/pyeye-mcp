@@ -128,16 +128,18 @@ from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 | 4 | `inspect("jaraco")` | `kind:"variable"`, `scope:"external"`, `edge_counts:{}` | ❌ **#444** |
 | 5 | `outline("jaraco")` | `kind:"variable"`, `children:[]` | ❌ **#444** |
 | 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ confirms "must already know a child handle" |
-| 7 | `expand("jaraco", "submodules")` | `unsupported / unknown_edge` **on the global server** | the `submodules` edge ships only in the **#423 / PR #443** delivery worktree (unmerged) — re-baseline from that worktree, where rows 3–5 + this should improve |
+| 7 | `expand("jaraco", "submodules")` | `{stubs:[]}` (measured-empty) **on the global server** | **#423 / PR #443 merged 2026-06-21**, so the `submodules` edge is recognised globally; it returns empty because the `jaraco` namespace can't be anchored (the **#444** cold-start gap), **not** because the edge is unsupported. When #444 lands this should enumerate `text` / `context` / `functools` |
 
-Rows 3–5 + 7 are the live **#444 / #423** acceptance check: run this scenario against a
-build that fixes them and the ❌ rows should flip to project-scoped handles with a
-populated `submodules` survey.
+Rows 3–5 + 7 are the live **#444** acceptance check: run this scenario against a build
+that fixes the namespace cold-start anchoring and the ❌ rows should flip to project-scoped
+handles, with row 7's `submodules` survey populating `text` / `context` / `functools`
+instead of returning empty.
 
 > ⚠️ **Baselines are environment-tagged.** The tables above were captured against the
 > globally-installed pyeye server on 2026-06-21. A build under active delivery (e.g. the
-> PR #443 worktree) legitimately differs — that divergence is the *signal*, not a
-> regression. Always re-record against the build under test and note which build.
+> `fix/444-namespace-package-anchoring` worktree's server) legitimately differs — that
+> divergence is the *signal*, not a regression. Always re-record against the build under
+> test and note which build.
 
 ---
 
