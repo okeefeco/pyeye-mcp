@@ -282,38 +282,81 @@ def _namespace_roots(analyzer: JediAnalyzer) -> list[Path]:
     return roots
 
 
-def _dir_is_importable(path: Path) -> bool:
-    """Return whether *path* looks like an importable dir (one level, capped).
+def _dir_shallow_qualifies(path: Path) -> bool:
+    """Return whether *path* looks like an importable dir (the §3.5 filter).
 
-    A PEP 420 namespace portion holds importable content but no ``__init__.py``.
-    This distinguishes such a directory from junk/data dirs WITHOUT reading any
-    file: it qualifies if, among its DIRECT entries, there is a ``*.py`` file, a
-    sub-dir with an ``__init__.py``, or a sub-dir that itself has a direct
-    ``*.py``.  The descent is capped at one extra level (never an unbounded
-    subtree walk).  Mirrors ``edges._dir_shallow_qualifies`` but kept here so the
-    below-operations-layer SoT has no upward import.
+    A PEP 420 namespace portion holds importable content but has no
+    ``__init__.py``.  This separates such a directory from obvious junk/data dirs
+    WITHOUT reading any file.  The check is deliberately **shallow and capped at
+    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
+    would be both slow and over-eager).
+
+    A directory qualifies iff, among its DIRECT entries, ANY of:
+
+    - **(a)** a direct ``*.py`` file; or
+    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
+      subpackage one level down); or
+    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
+      ``_recurse=False`` so the recursion stops after exactly ONE extra level
+      (a namespace subpackage one level down).
+
+    This is the **single source of truth** for the namespace-portion importable
+    filter, shared by :func:`find_namespace_package_dirs` (handle anchoring, via
+    ``resolve``/``inspect``) and by ``edges`` (the ``submodules`` enumerator,
+    which imports this function).  Keeping one copy is what stops the anchoring
+    filter and the enumeration filter from drifting apart — a namespace whose
+    only content is a nested regular package (``acme/sub/deep/__init__.py``)
+    qualifies under rule (c) here exactly as it does for the enumerator, so it
+    can never enumerate via ``expand`` yet fail to anchor via ``resolve``.
+
+    No file reads — ``iterdir``, ``.suffix``, ``.is_dir`` / ``.is_file`` and
+    ``.exists`` only.
+
+    Args:
+        path: The candidate directory.
+
+    Returns:
+        ``True`` if *path* qualifies as an importable dir per the rules above,
+        else ``False`` (including when *path* is unreadable).
+    """
+    return _dir_shallow_qualifies_capped(path, _recurse=True)
+
+
+def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
+    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
+
+    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
+    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
+    rules (a)/(b) — never trigger a further descent.  This caps the total depth
+    at one extra level (see the public wrapper's docstring for the rule list).
+
+    Args:
+        path: The candidate directory.
+        _recurse: Whether a rule-(c) one-level descent is still permitted.
+
+    Returns:
+        ``True`` if *path* qualifies, else ``False`` (including on read errors).
     """
     try:
         entries = list(path.iterdir())
     except OSError:
         return False
+
     for entry in entries:
         name = entry.name
         if name.startswith(".") or name == "__pycache__":
             continue
+        # (a) a direct .py file.
         if entry.is_file() and entry.suffix == ".py":
             return True
         if entry.is_dir():
+            # (b) a direct child dir that is a regular package.
             if (entry / "__init__.py").exists():
                 return True
-            try:
-                if any(
-                    c.is_file() and c.suffix == ".py" and not c.name.startswith(".")
-                    for c in entry.iterdir()
-                ):
-                    return True
-            except OSError:
-                continue
+            # (c) a direct child dir that itself shallow-qualifies — but only
+            # one extra level deep (cap: _recurse=False on the descent).
+            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
+                return True
     return False
 
 
@@ -329,7 +372,8 @@ def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> l
 
     A directory qualifies as a portion iff it matches the dotted path, has **no**
     ``__init__.py`` (a regular package is handled by :func:`find_module_file`,
-    not here), and :func:`_dir_is_importable` (so junk/data dirs are excluded).
+    not here), and :func:`_dir_shallow_qualifies` (so junk/data dirs are
+    excluded).
 
     This is the single source of truth for "where does this namespace package
     live"; ``edges`` consumes it for the ``submodules`` enumerator, and
@@ -353,7 +397,7 @@ def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> l
                 continue
         except OSError:
             continue
-        if not _dir_is_importable(candidate):
+        if not _dir_shallow_qualifies(candidate):
             continue
         key = candidate.resolve().as_posix()
         if key in seen:

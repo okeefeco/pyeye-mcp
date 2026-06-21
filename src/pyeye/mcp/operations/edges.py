@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
-from pyeye.canonicalization import find_namespace_package_dirs
+from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
 
@@ -1224,75 +1224,6 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     if not full_name:
         return []
     return find_namespace_package_dirs(full_name, analyzer)
-
-
-def _dir_shallow_qualifies(path: Path) -> bool:
-    """Return whether *path* looks like an importable dir (the §3.5 filter).
-
-    This separates PEP 420 namespace subpackages from obvious junk/data dirs
-    WITHOUT reading any file.  The check is deliberately **shallow and capped at
-    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
-    would be both slow and over-eager).
-
-    A directory qualifies iff, among its DIRECT entries, ANY of:
-
-    - **(a)** a direct ``*.py`` file; or
-    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
-      subpackage one level down); or
-    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
-      ``_recurse=False`` so the recursion stops after exactly ONE extra level
-      (a namespace subpackage one level down).
-
-    Purpose: skip junk such as a ``data/`` dir holding only ``notes.txt`` or a
-    ``__pycache__`` dir holding only ``.pyc`` files.  NO file reads — ``iterdir``,
-    ``.suffix``, ``.is_dir`` / ``.is_file`` and ``.exists`` only.
-
-    Args:
-        path: The candidate directory.
-
-    Returns:
-        ``True`` if *path* qualifies as an importable dir per the rules above,
-        else ``False`` (including when *path* is unreadable).
-    """
-    return _dir_shallow_qualifies_capped(path, _recurse=True)
-
-
-def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
-    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
-
-    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
-    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
-    rules (a)/(b) — never trigger a further descent.  This caps the total depth
-    at one extra level (see the public wrapper's docstring for the rule list).
-
-    Args:
-        path: The candidate directory.
-        _recurse: Whether a rule-(c) one-level descent is still permitted.
-
-    Returns:
-        ``True`` if *path* qualifies, else ``False`` (including on read errors).
-    """
-    try:
-        entries = list(path.iterdir())
-    except OSError:
-        return False
-
-    for entry in entries:
-        name = entry.name
-        if name.startswith(".") or name == "__pycache__":
-            continue
-        # (a) a direct .py file.
-        if entry.is_file() and entry.suffix == ".py":
-            return True
-        if entry.is_dir():
-            # (b) a direct child dir that is a regular package.
-            if (entry / "__init__.py").exists():
-                return True
-            # (c) a direct child dir that itself shallow-qualifies — but only
-            # one extra level deep (cap: _recurse=False on the descent).
-            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
-                return True
-    return False
 
 
 def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_SubmoduleEntry]:

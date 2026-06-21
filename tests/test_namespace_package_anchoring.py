@@ -32,11 +32,27 @@ from pyeye.mcp.operations.resolve import resolve
 _NS420 = Path(__file__).parent / "fixtures" / "ns420"
 _EXPECTED_CHILDREN = {"acme.auth", "acme.api", "acme.plugins", "acme.core"}
 
+# A namespace package (widgets/) whose ONLY importable content is a regular
+# package nested two levels down (widgets/sub/deep/__init__.py).  widgets/ and
+# widgets/sub/ both lack an __init__.py AND any direct *.py, so the dir only
+# qualifies via the one-level-deep rule-(c) recursion of the importable-dir
+# filter.  This is the exact case where the anchoring filter must agree with the
+# `submodules` enumerator's filter — they share one predicate
+# (`canonicalization._dir_shallow_qualifies`) so a namespace can never enumerate
+# via `expand` yet fail to anchor via `resolve` (#444).
+_NS420_NESTED = Path(__file__).parent / "fixtures" / "ns420_nested"
+
 
 @pytest.fixture
 def analyzer() -> JediAnalyzer:
     """Analyzer rooted AT the namespace package's parent (acme has no __init__)."""
     return JediAnalyzer(str(_NS420))
+
+
+@pytest.fixture
+def nested_analyzer() -> JediAnalyzer:
+    """Analyzer rooted at a project whose namespace root nests a regular package."""
+    return JediAnalyzer(str(_NS420_NESTED))
 
 
 class TestResolveAnchorsNamespaceRoot:
@@ -99,3 +115,36 @@ class TestNamespaceSubpackageStillWorks:
         assert result.get("found") is True
         assert result.get("scope") == "project"
         assert result.get("handle") == "acme.core"
+
+
+class TestAnchorAndEnumerateShareOneFilter:
+    """The anchoring filter and the submodules enumerator filter must agree (#444).
+
+    Regression guard for the consolidation of the importable-dir predicate into a
+    single `canonicalization._dir_shallow_qualifies`.  Before consolidation the
+    anchoring copy only checked rules (a)/(b) plus a *direct* `*.py` in a child,
+    so a namespace whose only content was a nested regular package
+    (`widgets/sub/deep/__init__.py`) would ENUMERATE via `expand` (the enumerator
+    used the recursive rule-(c) filter) yet FAIL to anchor via `resolve` (the
+    anchoring copy did not) — a fresh #444-class inconsistency.  With one shared
+    predicate both fire on the rule-(c) corner.
+    """
+
+    @pytest.mark.asyncio
+    async def test_resolve_anchors_nested_regular_package_namespace(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        result = await resolve("widgets", nested_analyzer)
+        assert result.get("found") is True
+        assert result.get("ambiguous") is not True
+        assert result.get("handle") == "widgets"
+        assert result.get("scope") == "project"
+
+    @pytest.mark.asyncio
+    async def test_anchor_and_enumerate_agree(self, nested_analyzer: JediAnalyzer) -> None:
+        # If it enumerates a child, it must also anchor — the shared-filter invariant.
+        expanded = await expand("widgets", "submodules", nested_analyzer)
+        assert expanded.get("unsupported") is not True
+        assert {s["handle"] for s in expanded["stubs"]} == {"widgets.sub"}
+        resolved = await resolve("widgets", nested_analyzer)
+        assert resolved.get("scope") == "project"
