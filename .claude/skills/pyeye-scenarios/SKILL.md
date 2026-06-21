@@ -83,7 +83,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 
-### Probe suite + recorded baseline *(captured 2026-06-21, global server)*
+### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #458; re-verified unchanged vs the 2026-06-21 global-server capture except row 5's `report_issues` key)*
 
 | # | Probe | Expected (baseline) | Demonstrates |
 |---|-------|---------------------|--------------|
@@ -91,7 +91,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 | 2 | `inspect("django.db.models.Model")` | `superclasses:["…utils.AltersData"]`, `signature:"Model()"`, `edge_counts:{members:68, superclasses:1}`, `re_exports:["…operations.fields.Model"]`; **no `callers`/`references` key** | **absence-vs-zero** (no caller key) + **static-surface ceiling** (`members:68` omits metaclass-injected `_meta`/`objects`/`DoesNotExist`) |
 | 3 | `expand("django.db.models.Model", "superclasses")` | one stub: `django.db.models.utils.AltersData` | matches `edge_counts.superclasses` |
 | 4 | `expand("django.core.signing", "imported_by")` | 10 module stubs incl. `django.http.request`, `django.contrib.sessions.backends.base`, and `tests.*` | reverse-static import graph (deterministic) |
-| 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333) | **honest-limit refusal** — not faked, not empty |
+| 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333), plus a `report_issues` URL (**#458**, PR #460) | **honest-limit refusal** — not faked, not empty; refusal now carries the in-band report path |
 
 > Probe 2's `members:68` is a count of *statically written* members. Reporting it as
 > "Model's complete attribute set" would be wrong — `_meta`, `objects`, `DoesNotExist`
