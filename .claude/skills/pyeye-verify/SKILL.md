@@ -68,14 +68,15 @@ Compare each probe's live result to the recorded baseline row. Every divergence 
 | **Regressed** | a ✅ baseline row now fails | **File an issue** with the probe, expected vs actual, and the build; this is the harness's primary job |
 | **Environment** | difference explained by the build under test, not behavior | Record against that build, tag the build; do NOT treat as a regression |
 
-The classic *environment* case: the `namespace-jaraco` rows 3–5 + 7 (the #444 cold-start
-gap) return `external` / `variable` / empty on the global server, but a build under delivery
-that fixes #444 (the `fix/444-namespace-package-anchoring` worktree) legitimately flips them
-to project-scoped handles. Same probes, different build — expected, not a regression.
+The classic *environment* case — now a confirmed before/after: the `namespace-jaraco`
+edge-scope + cold-start rows returned `external` / `variable` / empty on the stale global
+server (2026-06-21), then flipped to project-scoped handles once the server included the
+fixes for #423/#444/#454 (2026-06-22). Same probes, different build — expected, not a
+regression.
 
 > A baseline row tied to an open issue is an **acceptance check**. When that issue's fix
-> lands, this is where you confirm it on real code (e.g. #444 cold-start flipping the
-> `namespace-jaraco` rows 3–5 from `external`/`variable` to project-scoped).
+> lands, this is where you confirm it on real code — exactly what happened for #444/#454 in
+> the `namespace-jaraco` baseline.
 
 ## 2. Agent-consumption rubric
 
@@ -91,13 +92,17 @@ probe evidence.
 | **Right altitude** | cheap by default; truncation flagged (`truncated`, `max_nodes`) | firehose with no bound; silent truncation | jaraco `trace(imports)` caps at `max_nodes` with `truncated:true` |
 | **Canonical handles** | re-exports collapse to definition site | alias path returned as the identity | `resolve("django.db.models.Model")` → `…base.Model` |
 | **Static-surface honesty** | static result not claimed as runtime-exhaustive | a static `members` count sold as the complete runtime surface | django `members:68` excludes metaclass-injected `_meta`/`objects` |
-| **Cross-repo correctness** | a symbol's `scope`/handle consistent across entry points | same symbol labelled differently by different primitives | ⚠️ open: `resolve` says `scope:project` vs `trace` says `external` for jaraco siblings |
+| **Cross-repo correctness** | a symbol's `scope`/handle consistent across entry points | same symbol labelled differently by different primitives | ✅ #454: `resolve` and the `imports`/`callees` edges now agree (`project`) for namespace siblings |
 | **Determinism** | same query → same result across runs | order/contents vary run-to-run | re-run a probe twice and compare |
 
-The last row's ⚠️ is a **live finding** surfaced by this harness, not a settled PASS:
-`resolve("jaraco.context.ExceptionTrap")` reports `scope:"project"` while the same handle
-inside `trace(...imports)` reports `scope:"external"`. Verify whether intended before
-filing — but it is exactly the kind of inconsistency this rubric exists to catch.
+The cross-repo row is a worked example of this rubric earning its keep — it surfaced #454.
+A namespace sibling that was *also* pip-installed split scope across primitives:
+`resolve("jaraco.context.ExceptionTrap")` reported `scope:"project"` while the same handle
+inside `expand`/`trace(...imports)` reported `scope:"external"`, because Jedi's
+`follow_imports` preferred the installed copy on the environment path. Issue #454 filed and
+fixed it (`build_stub` reconciles an edge target's scope to the project definition site when
+the canonical handle names a project module); the edges and `resolve` now agree. Kept here as
+the canonical example of the cross-primitive inconsistency this dimension catches.
 
 ## Report format
 
