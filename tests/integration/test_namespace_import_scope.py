@@ -34,7 +34,7 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations import stubs as stubs_mod
-from pyeye.mcp.operations.stubs import build_stub
+from pyeye.mcp.operations.stubs import _names_project_module, build_stub
 
 _HANDLE = "extpkg.mod.Thing"
 
@@ -114,4 +114,65 @@ def test_genuinely_external_target_stays_external(
     assert stub["scope"] == "external", (
         "a handle that does not map to a project module must remain external; "
         f"got {stub['scope']!r}"
+    )
+
+
+def test_names_project_module_uses_whole_handle_for_module_kind(
+    project_with_sibling: tuple[JediAnalyzer, Path, Path],
+) -> None:
+    """For a ``module`` kind the WHOLE handle is the module portion (the
+    ``imports`` edge yields module stubs, e.g. ``import extpkg.mod``).
+
+    The ``build_stub`` tests above all monkeypatch the kind to ``"class"`` (the
+    ``else`` strip-trailing-component branch), so this exercises the otherwise
+    untested ``kind == "module"`` branch directly on the predicate.
+    """
+    analyzer, _sibling_file, _external_file = project_with_sibling
+
+    assert _names_project_module("extpkg.mod", "module", analyzer) is True
+    # The package handle itself resolves to its ``__init__.py``.
+    assert _names_project_module("extpkg", "module", analyzer) is True
+
+
+def test_names_project_module_rejects_single_component_handle(
+    project_with_sibling: tuple[JediAnalyzer, Path, Path],
+) -> None:
+    """A non-module handle with no module portion (a bare builtin like ``len``)
+    cannot name a project module — the ``len(parts) < 2`` guard returns False."""
+    analyzer, _sibling_file, _external_file = project_with_sibling
+
+    assert _names_project_module("len", "class", analyzer) is False
+
+
+def test_perf_guard_skips_reconciliation_without_sibling_roots(
+    tmp_path: Path,
+) -> None:
+    """The ``additional_paths`` perf short-circuit: with no sibling roots
+    registered, ``build_stub`` does NOT reconcile even when the handle's module
+    is present under the project root.
+
+    This locks in the intentional trade — the #454 split requires a registered
+    sibling that is also installed, so probing the filesystem per external stub
+    is pure waste when no sibling roots exist.  (The only behaviour this skips is
+    a pathological non-editable duplicate install of a project's own package.)
+    """
+    project = tmp_path / "project"
+    (project / "extpkg").mkdir(parents=True)
+    (project / "extpkg" / "__init__.py").write_text("")
+    (project / "extpkg" / "mod.py").write_text("class Thing:\n    pass\n")
+
+    external = tmp_path / "env" / "site-packages"
+    (external / "extpkg").mkdir(parents=True)
+    (external / "extpkg" / "__init__.py").write_text("")
+    external_file = external / "extpkg" / "mod.py"
+    external_file.write_text("class Thing:\n    pass\n")
+
+    analyzer = JediAnalyzer(str(project))
+    # No additional_paths — the perf guard must short-circuit before find_module_file.
+    assert not analyzer.additional_paths
+
+    stub = build_stub(_FakeName(external_file), _HANDLE, analyzer)
+
+    assert stub["scope"] == "external", (
+        "with no sibling roots the perf guard must skip reconciliation; " f"got {stub['scope']!r}"
     )

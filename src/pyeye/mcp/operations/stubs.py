@@ -126,7 +126,22 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
         # symbol regardless of which on-disk copy Jedi happened to follow.  (Only
         # ``scope`` is reconciled — the stub carries no file; line spans stay as
         # Jedi reported them, which match for the common same-version case.)
-        if scope == "external" and _names_project_module(handle, kind, analyzer):
+        #
+        # Perf short-circuit: the split this rescues needs the SAME package to be
+        # importable from BOTH a registered sibling root AND an installed copy
+        # that wins Jedi's precedence — only possible when sibling roots are
+        # registered (``additional_paths``).  With none, skip the per-stub
+        # ``find_module_file`` filesystem probe entirely, keeping the common
+        # single-project ``callees`` / ``imports`` expansion (every stdlib target
+        # is external) free of I/O.  (Theoretical gap: a NON-editable duplicate
+        # install of a project's own ``source_roots`` / ``project_path`` package —
+        # pathological; editable installs resolve to the real path via
+        # ``classify_scope``'s symlink-first rule, #338.)
+        if (
+            scope == "external"
+            and getattr(analyzer, "additional_paths", None)
+            and _names_project_module(handle, kind, analyzer)
+        ):
             scope = "project"
     else:
         # No file (built-ins, dynamic objects) → external by default
