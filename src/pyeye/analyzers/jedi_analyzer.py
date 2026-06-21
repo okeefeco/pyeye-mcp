@@ -3357,6 +3357,11 @@ class JediAnalyzer:
                     "full_name": fqn,
                     "file": py_file.as_posix(),
                     "line": node.lineno,
+                    # end_lineno is the class body's last line (Python 3.8+ AST);
+                    # carried so the subclasses edge can report a real line span
+                    # without re-deriving a Jedi Name (#445). Defensive fallback
+                    # to lineno keeps line_end >= line_start.
+                    "end_line": node.end_lineno or node.lineno,
                     "column": node.col_offset,
                     "direct_parent": direct_parent,
                     "is_direct": is_direct,

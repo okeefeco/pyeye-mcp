@@ -65,7 +65,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
-from pyeye._module_sentinel import ModuleSentinel
+from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
 
@@ -639,43 +639,6 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 # ---------------------------------------------------------------------------
 
 
-def _subclass_name_from_file(
-    subclass_file: str, subclass_fqn: str, analyzer: JediAnalyzer
-) -> Any | None:
-    """Produce a Jedi ``Name`` for *subclass_fqn* by enumerating its OWN file.
-
-    Mirrors :func:`_class_members`' approach: enumerate the file's definitions
-    via Jedi ``get_names`` and return the one whose ``full_name`` matches the
-    subclass's AST-derived FQN.  This is deliberately NOT a dotted-handle
-    re-resolution — re-resolution drops subclasses defined in non-importable
-    files (a root-level ``script.py`` has no importable dotted path) and is
-    fragile on macOS symlinked temp dirs.  Building the ``Name`` from the file
-    the AST scan already located preserves that breadth and is path-independent.
-
-    Args:
-        subclass_file: Posix path to the file declaring the subclass (from the
-            ``find_subclasses`` result dict).
-        subclass_fqn: The subclass's AST-derived ``full_name`` (the canonical
-            handle string to match against Jedi's ``full_name``).
-        analyzer: Active analyzer (for the Jedi project used by ``get_script``).
-
-    Returns:
-        The matching Jedi ``Name``, or ``None`` if the file cannot be scanned or
-        no enumerated definition's ``full_name`` matches (the caller drops the
-        adjacency rather than inventing a partial stub).
-    """
-    try:
-        script = file_artifact_cache.get_script(Path(subclass_file), analyzer.project)
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-    except Exception:
-        return None
-
-    for name in names:
-        if (name.full_name or "") == subclass_fqn:
-            return name
-    return None
-
-
 async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the project classes that subclass a class as canonical handles.
 
@@ -706,10 +669,20 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     ``resolve_imported_by`` carries for dynamic imports.  ``[]`` therefore means
     "no statically-declared direct subclasses," not "no subclasses at runtime."
 
-    Each adjacent's ``Name`` is built from the subclass's OWN FILE (via
-    :func:`_subclass_name_from_file`) — never by re-resolving the dotted handle —
-    so a subclass defined in a non-importable root-level script is preserved and
-    resolution stays path-independent (#335 macOS symlink robustness).
+    Each adjacent's ``Name`` is a :class:`ClassSentinel` built DIRECTLY from the
+    AST facts ``find_subclasses`` already returns (``full_name`` + file + line
+    span) — never by re-deriving a Jedi ``Name`` (#445).  The old re-derivation
+    matched on Jedi's ``full_name``, which is warm-inference-state-dependent
+    (jedi #1796), and SILENTLY DROPPED any subclass it could not rebuild — under
+    cache thrash that lost ~half the results, non-deterministically across
+    result-cache rebuilds, re-importing the very non-determinism #419 removed at
+    the ``find_subclasses`` layer.  The sentinel needs no Jedi (so it never
+    drops and is path-independent — #335 macOS-symlink robustness preserved) and
+    round-trips as a resolver input for multi-hop
+    ``trace(follow=["subclasses"])``.  A subclass stub is a pointer
+    (handle + location + kind); the constructor signature is an ``inspect``
+    detail, not a one-hop ``expand`` field — symmetric with ``imported_by``'s
+    ``ModuleSentinel`` stubs.
 
     Kind gate (the slice's defining decision):
 
@@ -775,13 +748,19 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
         key = str(h)
         if key in seen:
             continue
-        # Build the Name from the subclass's FILE, not by re-resolving the
-        # handle — re-resolution drops non-package scripts (see helper docstring).
-        name = _subclass_name_from_file(subclass_file, fqn, analyzer)
-        if name is None:
-            # No Jedi Name for this subclass — drop the adjacency rather than
-            # invent a partial stub (keeps len(stubs) honest).
-            continue
+        # Build the adjacent Name DIRECTLY from the AST facts find_subclasses
+        # already computed deterministically (#445).  The previous approach
+        # re-derived a Jedi Name (get_script + get_names + full_name match) and
+        # silently DROPPED any subclass whose Name it could not rebuild — and
+        # Jedi's full_name is warm-state-dependent (jedi #1796), so under cache
+        # thrash it dropped ~half the results, non-deterministically across
+        # result-cache rebuilds (re-importing the exact non-determinism #419
+        # removed at the find_subclasses layer).  A ClassSentinel needs no Jedi,
+        # never drops, and round-trips as a resolver input for multi-hop
+        # trace(follow=["subclasses"]).
+        line = subclass.get("line") or 1
+        end_line = subclass.get("end_line") or line
+        name = ClassSentinel(Path(subclass_file), fqn, line, end_line, subclass.get("column", 0))
         seen.add(key)
         adjacents.append((h, name))
 
