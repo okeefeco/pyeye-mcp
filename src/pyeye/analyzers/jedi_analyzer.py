@@ -3128,6 +3128,17 @@ class JediAnalyzer:
         2. Builds a parent->children graph for efficient indirect lookups
         3. Uses Jedi Script.goto() to resolve aliased imports
 
+        Determinism ceiling (#419): bases are resolved AST-first
+        (:func:`base_resolution.resolve_base` — deterministic) with a Jedi
+        forward ``goto`` fallback only when the AST cannot commit (conditional /
+        ``TYPE_CHECKING`` imports, externals, dynamic constructs). Forward
+        ``goto`` is non-deterministic across fresh processes for some bases, so
+        a subclass whose membership hinges on a ``goto``-resolved base can vary
+        run-to-run. AST ``import *`` re-export following (#405) keeps the vast
+        majority of bases on the deterministic path (~93% AST hits on Django);
+        the residual non-determinism is a forward-resolution argument for the
+        deterministic backend tracked in #333.
+
         Args:
             base_class: Name of the base class to find subclasses for
             scope: Search scope (default from smart defaults):
