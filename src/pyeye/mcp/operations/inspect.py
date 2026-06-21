@@ -52,7 +52,12 @@ from pyeye._ast_targets import (
 )
 from pyeye._jedi_location import location_from_name
 from pyeye._module_sentinel import ModuleSentinel
-from pyeye.canonicalization import collect_re_exports, find_module_file, resolve_canonical
+from pyeye.canonicalization import (
+    collect_re_exports,
+    find_module_file,
+    find_namespace_package_dirs,
+    resolve_canonical,
+)
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
     _enumerate_submodule_paths,
@@ -629,6 +634,17 @@ def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | Non
             pass
         return ModuleSentinel(mod_file, handle, analyzer)
 
+    # Case 1.5: PEP 420 namespace package (#444) — no __init__.py, so
+    # find_module_file (Case 1) missed it and Jedi gives it no anchored Name.
+    # Anchor it to its on-disk directory as a dir-anchored ModuleSentinel (never
+    # byte-read), so inspect / outline / expand / trace — which all resolve
+    # through this function — can fire from the package handle.  Only a directory
+    # with importable content and no __init__.py matches, so plain modules,
+    # classes, and functions (which have no matching dir) are never hijacked.
+    ns_dirs = find_namespace_package_dirs(handle, analyzer)
+    if ns_dirs:
+        return ModuleSentinel(ns_dirs[0], handle, analyzer)
+
     # Case 2: leaf symbol inside a module
     if len(parts) < 2:
         return None
@@ -989,16 +1005,14 @@ async def _build_edge_counts(
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
         # submodules is a PACKAGE-only edge (#423): present (possibly a measured
-        # 0) for a regular package handle, ABSENT for a plain module — the
-        # absence-vs-zero invariant.  is_package == its module_path is an
-        # __init__.py (the same rule _build_module_fields uses).  A PEP 420
-        # namespace package surfaces as kind=="namespace"/scope=="external", so it
-        # never reaches this `kind == "module"` branch — its submodules count is
-        # intentionally omitted (count==expand is scoped to regular packages;
-        # namespace anchoring is deferred to #444), even though
-        # expand(pkg, "submodules") can still enumerate its children.
-        module_path = getattr(jedi_name, "module_path", None)
-        if module_path is not None and Path(module_path).name == "__init__.py":
+        # 0) for a package handle, ABSENT for a plain module — the absence-vs-zero
+        # invariant.  is_package == its module_path is an __init__.py (regular
+        # package) OR a directory (a PEP 420 namespace package anchored on its
+        # dir, #444) — the same rule _build_module_fields uses.  Since #444 a
+        # top-level namespace package is anchored as a dir ModuleSentinel and
+        # reaches this branch, so count==expand now holds for namespace packages
+        # too.
+        if _is_package_path(getattr(jedi_name, "module_path", None)):
             coros["submodules"] = _count_submodules(jedi_name, analyzer)
 
     # function, method, attribute, property, variable, statement: no measured
@@ -1253,11 +1267,32 @@ async def _build_function_fields(
     return fields
 
 
+def _is_package_path(module_path: Any) -> bool:
+    """Return whether *module_path* anchors a package (#423/#444).
+
+    A package is anchored either on an ``__init__.py`` (a regular package) or on
+    a bare directory (a PEP 420 namespace package, dir-anchored since #444).  The
+    single rule shared by ``_build_module_fields`` (the ``is_package`` field) and
+    ``_build_edge_counts`` (the package-only ``submodules`` gate), so the two can
+    never disagree about what counts as a package.
+    """
+    if module_path is None:
+        return False
+    path = Path(module_path)
+    if path.name == "__init__.py":
+        return True
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
     """Build kind-dependent fields for a module node.
 
-    Determines whether the module is a package (i.e. its file is
-    ``__init__.py``) and the parent package handle.
+    Determines whether the module is a package (an ``__init__.py`` regular
+    package, or a directory-anchored PEP 420 namespace package — #444) and the
+    parent package handle.
 
     Args:
         jedi_name: Jedi Name (or ``ModuleSentinel``) for the module.
@@ -1268,11 +1303,7 @@ def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
     """
     fields: dict[str, Any] = {}
 
-    file_path = jedi_name.module_path
-    is_package = False
-    if file_path is not None:
-        is_package = file_path.name == "__init__.py"
-    fields["is_package"] = is_package
+    fields["is_package"] = _is_package_path(jedi_name.module_path)
 
     # Parent package (all but the last component of the handle)
     parts = handle.split(".")

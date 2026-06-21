@@ -65,7 +65,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
-from pyeye.canonicalization import resolve_canonical
+from pyeye.canonicalization import find_namespace_package_dirs, resolve_canonical
 from pyeye.handle import Handle
 from pyeye.path_utils import dedupe_paths
 from pyeye.scope import classify_scope
@@ -367,6 +367,44 @@ def _select_root_package(
     return kept[0]
 
 
+def _anchor_namespace_package(name: str, analyzer: JediAnalyzer) -> _SuccessResult | None:
+    """Anchor a top-level PEP 420 namespace package to a directory handle (#444).
+
+    Jedi surfaces a no-``__init__.py`` namespace package as unanchored external
+    symbol(s) with an empty ``module_path`` (or nothing at all), so it never
+    resolves to a project handle and the cold-start survey returns empty.  When
+    *name* is a namespace package on disk (``find_namespace_package_dirs`` finds
+    its portion dirs), return a project/external-scoped success **anchored on the
+    package directory itself** — consistent with the dir-anchored stub contract
+    the ``submodules`` edge already uses (the handle's location ``file`` is a
+    directory, never byte-read).
+
+    The handle is the bare *name* (a top-level package is its own canonical
+    handle).  Scope is classified from the anchor directory, so a namespace
+    package inside the project is ``project`` (the case #444 is about), while one
+    on an external sys.path root stays ``external``.
+
+    Args:
+        name: The bare queried name (a top-level namespace package candidate).
+        analyzer: Active analyzer (supplies the search roots).
+
+    Returns:
+        A dir-anchored :class:`_SuccessResult`, or ``None`` if *name* is not a
+        namespace package on disk (caller falls back to its normal path).
+    """
+    dirs = find_namespace_package_dirs(name, analyzer)
+    if not dirs:
+        return None
+    anchor = dirs[0].as_posix()
+    return _SuccessResult(
+        found=True,
+        handle=name,
+        kind="module",
+        scope=classify_scope(anchor, analyzer),
+        location=_make_location(anchor, 1, 0),
+    )
+
+
 def _make_location(file_str: str, line: int | None, column: int | None) -> _Location:
     """Build a :class:`_Location` from raw file/line/column values.
 
@@ -583,6 +621,18 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
 
     # Filter to matches that have a full_name (resolvable symbols)
     valid_matches = [m for m in matches if m.get("full_name")]
+
+    # Namespace-package anchoring (#444): a top-level PEP 420 namespace package
+    # (no __init__.py) surfaces via Jedi as unanchored external symbol(s) with an
+    # empty module_path — or as nothing at all.  When every match is such an
+    # unanchored symbol (or there are none), anchor the name to its on-disk
+    # directory so the cold-start chain (inspect / outline / expand) can fire
+    # from the top.  Keyed on disk structure, so a genuinely anchored symbol of
+    # the same name (with a real file) is never shadowed.
+    if not valid_matches or all(not (m.get("module_path") or m.get("file")) for m in valid_matches):
+        anchored = _anchor_namespace_package(name, analyzer)
+        if anchored is not None:
+            return anchored
 
     if not valid_matches:
         return _NotFoundResult(found=False, reason="unresolved")

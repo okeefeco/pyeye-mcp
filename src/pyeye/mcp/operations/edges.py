@@ -67,9 +67,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
+from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
-from pyeye.path_utils import dedupe_paths
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -1171,7 +1171,8 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     - otherwise (``None`` or a directory ``module_path``) → the **namespace
       branch**.  A PEP 420 namespace package has no ``__init__.py`` and may be
       spread across several portions; its directory(ies) are found by matching
-      the dotted ``full_name`` under each :func:`_analyzer_roots` root.
+      the dotted ``full_name`` under each sys.path root, delegated to
+      :func:`pyeye.canonicalization.find_namespace_package_dirs` (#444).
 
     The namespace branch returns the **union** of the matching portion
     directories in ``roots`` (sys.path precedence) order — a regular package
@@ -1187,8 +1188,9 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
             ``module_path`` drives the regular-vs-namespace split; its
             ``full_name`` seeds the namespace-portion directory match.
         analyzer: Active analyzer.  The namespace branch consults
-            :func:`_analyzer_roots` (``source_roots`` / ``project_path`` /
-            ``added_sys_path``).
+            :func:`pyeye.canonicalization.find_namespace_package_dirs` (the
+            shared SoT over ``source_roots`` / ``project_path`` /
+            ``added_sys_path`` / ``additional_paths``).
 
     Returns:
         For a regular package, a single-element ``[<package dir>]``.  For a
@@ -1211,126 +1213,17 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
 
     # Namespace branch — PEP 420 portion union (first-portion-wins on name
     # collisions).  A namespace package has no __init__.py, so Jedi gives it a
-    # None (or directory) module_path; its directory is found by matching the
-    # dotted handle under each sys.path root.
+    # None (or directory) module_path; its portion directories are found by
+    # matching the dotted handle under each sys.path root.  Delegated to
+    # ``canonicalization.find_namespace_package_dirs`` — the single source of
+    # truth shared with ``resolve``/``inspect`` (#444), so the namespace-portion
+    # discovery used by the ``submodules`` enumerator and by handle anchoring can
+    # never drift apart.  The enumerator iterates the returned dirs in roots
+    # order, so its child dedup keeps the first-portion-wins winner.
     full_name = getattr(jedi_name, "full_name", None)
     if not full_name:
         return []
-
-    parts = full_name.split(".")
-    dirs: list[Path] = []
-    seen: set[str] = set()
-    for root in _analyzer_roots(analyzer):
-        candidate = root.joinpath(*parts)
-        try:
-            if not candidate.is_dir():
-                continue
-            if (candidate / "__init__.py").exists():
-                # A regular package portion is not a namespace portion.
-                continue
-        except OSError:
-            continue
-        if not _dir_shallow_qualifies(candidate):
-            continue
-        key = candidate.resolve().as_posix()
-        if key in seen:
-            continue
-        seen.add(key)
-        dirs.append(candidate)
-    return dirs
-
-
-def _analyzer_roots(analyzer: JediAnalyzer) -> list[Path]:
-    """Return the analyzer's sys.path-precedence-ordered package roots.
-
-    Built **list-derived** (never set-derived) from ``source_roots``,
-    ``project_path``, and ``added_sys_path`` so the order is stable run-to-run.
-    The order is the namespace collision-winner's determinism guarantee: the
-    first root holding a portion wins (first-portion-wins, #419 class).  Duplicate
-    roots are dropped (by resolved identity), keeping the first (highest-
-    precedence) occurrence.
-
-    Composition note: this list intentionally includes ``added_sys_path`` so the
-    namespace-portion union sees configured package roots.  ``resolve``'s
-    ``_project_roots`` deliberately does NOT — it only promotes a bare name to a
-    root that is the *project's own* top-level package.  Both now share the
-    dedupe-by-resolved-identity helper (:func:`pyeye.path_utils.dedupe_paths`);
-    only the root composition (and resolved-vs-original output) differs.
-    """
-    # roots order = sys.path precedence; collision-winner determinism depends on
-    # it (#419 class).  source_roots (src-layout) and project_path come before
-    # the configured added_sys_path package roots.  Original (unresolved) paths
-    # are kept so child stub paths stay caller-facing.
-    return dedupe_paths([*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path])
-
-
-def _dir_shallow_qualifies(path: Path) -> bool:
-    """Return whether *path* looks like an importable dir (the §3.5 filter).
-
-    This separates PEP 420 namespace subpackages from obvious junk/data dirs
-    WITHOUT reading any file.  The check is deliberately **shallow and capped at
-    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
-    would be both slow and over-eager).
-
-    A directory qualifies iff, among its DIRECT entries, ANY of:
-
-    - **(a)** a direct ``*.py`` file; or
-    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
-      subpackage one level down); or
-    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
-      ``_recurse=False`` so the recursion stops after exactly ONE extra level
-      (a namespace subpackage one level down).
-
-    Purpose: skip junk such as a ``data/`` dir holding only ``notes.txt`` or a
-    ``__pycache__`` dir holding only ``.pyc`` files.  NO file reads — ``iterdir``,
-    ``.suffix``, ``.is_dir`` / ``.is_file`` and ``.exists`` only.
-
-    Args:
-        path: The candidate directory.
-
-    Returns:
-        ``True`` if *path* qualifies as an importable dir per the rules above,
-        else ``False`` (including when *path* is unreadable).
-    """
-    return _dir_shallow_qualifies_capped(path, _recurse=True)
-
-
-def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
-    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
-
-    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
-    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
-    rules (a)/(b) — never trigger a further descent.  This caps the total depth
-    at one extra level (see the public wrapper's docstring for the rule list).
-
-    Args:
-        path: The candidate directory.
-        _recurse: Whether a rule-(c) one-level descent is still permitted.
-
-    Returns:
-        ``True`` if *path* qualifies, else ``False`` (including on read errors).
-    """
-    try:
-        entries = list(path.iterdir())
-    except OSError:
-        return False
-
-    for entry in entries:
-        name = entry.name
-        if name.startswith(".") or name == "__pycache__":
-            continue
-        # (a) a direct .py file.
-        if entry.is_file() and entry.suffix == ".py":
-            return True
-        if entry.is_dir():
-            # (b) a direct child dir that is a regular package.
-            if (entry / "__init__.py").exists():
-                return True
-            # (c) a direct child dir that itself shallow-qualifies — but only
-            # one extra level deep (cap: _recurse=False on the descent).
-            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
-                return True
-    return False
+    return find_namespace_package_dirs(full_name, analyzer)
 
 
 def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_SubmoduleEntry]:
