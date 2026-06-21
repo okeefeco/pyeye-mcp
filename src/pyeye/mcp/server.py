@@ -1,6 +1,7 @@
 """Main MCP server implementation for PyEye."""
 
 import builtins
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
 from ..settings import settings
 from ..validation import validate_mcp_inputs
+from . import meta
 from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
 from .operations.outline import outline as _outline_impl
@@ -62,8 +64,9 @@ from .operations.trace import trace as _trace_impl
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
 
-# Initialize the MCP server
-mcp = FastMCP("PyEye")
+# Initialize the MCP server.  The instructions block carries an in-band pointer
+# to where pyeye bugs are reported (#458), so it is always in the agent's context.
+mcp = FastMCP("PyEye", instructions=meta.server_instructions())
 
 # Initialize unified metrics session
 _unified_session_id = None
@@ -491,7 +494,8 @@ async def expand(
           "unsupported": True,
           "reason":  str,               # deferred_reference_backend |
                                         # not_yet_implemented | unknown_edge
-          "detail":  str }              # human-readable explanation
+          "detail":  str,               # human-readable explanation
+          "report_issues": str }        # #458 — URL to report this limitation
 
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
     ``line_end``, and ``signature`` when Jedi yields one (always for
@@ -550,7 +554,8 @@ async def trace(
           "edges": [ {"from": h, "to": h, "kind": edge}, ... ],
           "truncated": bool,                     # a cap cut off reachable nodes
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
-          "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
+          "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
+          "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
     recorded (so cycles stay visible) but never re-expanded, guaranteeing
@@ -929,6 +934,20 @@ def load_workflow(workflow_name: str) -> str:
     if not workflow_file.exists():
         raise FileNotFoundError(f"Workflow not found: {workflow_name}")
     return workflow_file.read_text(encoding="utf-8")
+
+
+@mcp.resource("pyeye://about")
+def get_about() -> str:
+    """Get pyeye's self-description: version, repository, and issues URL.
+
+    Lets an agent answer "what version are you, and where do I report a problem
+    with you?" deterministically in one round-trip (#458), instead of guessing
+    the repo slug out-of-band.
+
+    Returns:
+        A JSON object with ``name``, ``version``, ``repository`` and ``issues``.
+    """
+    return json.dumps(meta.about())
 
 
 @mcp.resource("workflows://find-references")

@@ -141,6 +141,14 @@ Instead, **say so plainly**: "pyeye can't give reliable caller/reference data ye
 - **Inheritance:** `subclasses` / `superclasses`.
 - **Structure:** `members`, `enclosing_scope`.
 
+### Hit a pyeye bug or limitation? Report it in-band
+
+pyeye tells you where to file. Every `unsupported` result from `expand`, and any
+`trace` that names an unsupported edge, carries a `report_issues` URL. The
+`pyeye://about` resource returns pyeye's version + repository + issues URL on
+demand — fetch it instead of guessing the repo slug. If a limitation looks like a
+real defect (not an expected static-surface ceiling), surface that URL to the user.
+
 ### Absence vs zero
 
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A

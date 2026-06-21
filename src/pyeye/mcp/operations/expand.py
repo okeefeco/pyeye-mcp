@@ -26,7 +26,8 @@ reference edge, or an unknown name)::
       "unsupported": True,
       "reason": "deferred_reference_backend" | "not_yet_implemented"
                 | "unknown_edge",
-      "detail": str }
+      "detail": str,
+      "report_issues": url }   # #458 — where to report this limitation
 
 Design invariants
 -----------------
@@ -58,6 +59,7 @@ from __future__ import annotations
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
+from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import (
     EDGE_RESOLVERS,
     STATUS_DEFERRED_REFERENCE_BACKEND,
@@ -158,6 +160,8 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
             "unsupported": True,
             "reason": status,
             "detail": _unsupported_detail(edge, status),
+            # #458: this is a limitation moment — point at where to report it.
+            "report_issues": meta.issues_url(),
         }
 
     # ------------------------------------------------------------------
@@ -214,6 +218,8 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
                 f"Edge '{edge}' does not apply to a {kind} handle; it is "
                 f"supported for modules only in this slice."
             ),
+            # #458: this is a limitation moment — point at where to report it.
+            "report_issues": meta.issues_url(),
         }
 
     stubs = [

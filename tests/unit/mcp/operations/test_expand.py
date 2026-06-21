@@ -294,6 +294,44 @@ class TestExpandUnsupported:
 
 
 # ---------------------------------------------------------------------------
+# #458 — unsupported branch carries an in-band "report issues" pointer
+# ---------------------------------------------------------------------------
+
+
+class TestExpandUnsupportedCarriesReportIssues:
+    """Every unsupported expand result points at where to report the limitation."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_edge_carries_report_issues(self, analyzer: JediAnalyzer) -> None:
+        from pyeye.mcp import meta
+
+        result = await expand(_WIDGET_HANDLE, "bogus_edge", analyzer)
+        assert result["report_issues"] == meta.issues_url()
+
+    @pytest.mark.asyncio
+    async def test_deferred_edge_carries_report_issues(self, analyzer: JediAnalyzer) -> None:
+        from pyeye.mcp import meta
+
+        result = await expand(_ORCHESTRATE_HANDLE, "callers", analyzer)
+        assert result["report_issues"] == meta.issues_url()
+
+    @pytest.mark.asyncio
+    async def test_wrong_kind_edge_carries_report_issues(self, analyzer: JediAnalyzer) -> None:
+        # imported_by on a CLASS → the inline wrong-kind unsupported path.
+        from pyeye.mcp import meta
+
+        result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
+        assert result["unsupported"] is True
+        assert result["report_issues"] == meta.issues_url()
+
+    @pytest.mark.asyncio
+    async def test_supported_result_has_no_report_issues(self, analyzer: JediAnalyzer) -> None:
+        # The pointer belongs only to the limitation moment, not normal results.
+        result = await expand(_WIDGET_HANDLE, "members", analyzer)
+        assert "report_issues" not in result
+
+
+# ---------------------------------------------------------------------------
 # Task 4.1 — mutual exclusivity invariant (cross-cutting)
 # ---------------------------------------------------------------------------
 

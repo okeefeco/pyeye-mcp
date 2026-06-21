@@ -241,6 +241,30 @@ class TestTraceDeferredEdgeInFollow:
         assert result["unsupported_edges"] == []
 
 
+class TestTraceReportIssuesPointer:
+    """#458 — a trace that hit a limitation points at where to report it.
+
+    The pointer lives once at the top level of the response (not duplicated onto
+    every ``unsupported_edges`` entry), present only when an edge was unsupported.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unsupported_edge_adds_top_level_report_issues(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        from pyeye.mcp import meta
+
+        result = await trace(_WIDGET_HANDLE, ["members", "callers"], analyzer, max_depth=1)
+        assert result["unsupported_edges"], "precondition: an edge must be unsupported"
+        assert result["report_issues"] == meta.issues_url()
+
+    @pytest.mark.asyncio
+    async def test_all_supported_follow_has_no_report_issues(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        assert result["unsupported_edges"] == []
+        assert "report_issues" not in result
+
+
 class TestStopsAtPredicate:
     """Unit tests for the ``_stops_at`` boundary predicate.
 
