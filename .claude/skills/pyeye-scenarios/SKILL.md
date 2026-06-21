@@ -131,28 +131,31 @@ from jaraco.context import ExceptionTrap            # -> ../jaraco.context
 from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 ```
 
-### Probe suite + recorded baseline *(captured 2026-06-21, global server, `project_path = .../jaraco.text`)*
+### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #423/#444/#454, `project_path = .../jaraco.text`)*
 
 | # | Probe | Expected (baseline) | Demonstrates / tracking |
 |---|-------|---------------------|-------------------------|
 | 1 | `resolve("jaraco.context.ExceptionTrap")` | `kind:class`, `scope:project`, file in `../jaraco.context` | ✅ **cross-repo resolution** — sibling repo resolves as project |
-| 2 | `trace("jaraco.text", follow=["imports"])` | edges cross into `jaraco.context.*` and `jaraco.functools.*` with full signatures | ✅ **cross-repo trace** |
-| 3 | `resolve("jaraco")` | `ambiguous:true`, 2× `scope:external` (`namespace`+`module`), `file:""` | ❌ expect a project-scoped handle — **#444** |
-| 4 | `inspect("jaraco")` | `kind:"variable"`, `scope:"external"`, `edge_counts:{}` | ❌ **#444** |
-| 5 | `outline("jaraco")` | `kind:"variable"`, `children:[]` | ❌ **#444** |
-| 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ confirms "must already know a child handle" |
-| 7 | `expand("jaraco", "submodules")` | `{stubs:[]}` (measured-empty) **on the global server** | **#423 / PR #443 merged 2026-06-21**, so the `submodules` edge is recognised globally; it returns empty because the `jaraco` namespace can't be anchored (the **#444** cold-start gap), **not** because the edge is unsupported. When #444 lands this should enumerate `text` / `context` / `functools` |
+| 2 | `expand("jaraco.text", "imports")` (and `trace(... ["imports"])`) | the three `jaraco.*` targets (`context.ExceptionTrap`, `functools.compose`, `functools.method_cache`) report **`scope:project`**; stdlib targets stay `external` | ✅ **cross-repo edge scope** — **#454** (edges agree with `resolve`) |
+| 3 | `resolve("jaraco")` | `kind:module`, `scope:project`, anchored at `jaraco.text/jaraco` | ✅ **#444** namespace cold-start anchoring |
+| 4 | `inspect("jaraco")` | `is_package:true`, `edge_counts:{members:0, submodules:3}` | ✅ **#444 / #423** |
+| 5 | `outline("jaraco")` | `module`/`project` with 3 submodule children (`context`, `functools`, `text`; `text` `truncated:max_depth`) | ✅ **#444 / #423** depth-1 survey |
+| 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ child handle resolves |
+| 7 | `expand("jaraco", "submodules")` | 3 stubs: `jaraco.context`, `jaraco.functools`, `jaraco.text` (all `project`) | ✅ **#423 / #444** namespace union across sibling repos |
 
-Rows 3–5 + 7 are the live **#444** acceptance check: run this scenario against a build
-that fixes the namespace cold-start anchoring and the ❌ rows should flip to project-scoped
-handles, with row 7's `submodules` survey populating `text` / `context` / `functools`
-instead of returning empty.
+Rows 2–5 + 7 are the **#423 / #444 / #454** acceptance check, and now pass. Against the
+*earlier* stale build (the 2026-06-21 global server, pre-#423/#444/#454) row 2's `jaraco.*`
+edges came back `external`, `resolve("jaraco")` was ambiguous-external (`kind:variable`,
+`file:""`), `inspect`/`outline` were empty, and `submodules` was unknown/empty — so this
+scenario doubles as the regression guard for all three fixes.
 
-> ⚠️ **Baselines are environment-tagged.** The tables above were captured against the
-> globally-installed pyeye server on 2026-06-21. A build under active delivery (e.g. the
-> `fix/444-namespace-package-anchoring` worktree's server) legitimately differs — that
-> divergence is the *signal*, not a regression. Always re-record against the build under
-> test and note which build.
+> ⚠️ **Baselines are build-tagged.** The table above was captured against an up-to-date
+> build (`dev416+g406783dd6`, main incl. #423/#444/#454) on 2026-06-22. An earlier capture
+> against the stale globally-installed server (2026-06-21) showed the pre-fix behaviour —
+> `jaraco.*` import edges `external`, `resolve("jaraco")` ambiguous, `submodules`
+> unknown/empty. Same probes, different build: that divergence is the
+> regression-vs-environment **signal**, not a bug. Always re-record against the build under
+> test and note which build (see the `pyeye-verify` classification).
 
 ---
 
