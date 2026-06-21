@@ -25,12 +25,21 @@ Spec §4.1 Stub shape
 Design notes
 ------------
 - ``signature`` is present whenever ``_build_signature`` returns a real Jedi
-  signature, and the key is OMITTED (NOT an empty string) otherwise.  This is
-  always the case for ``class`` / ``function`` / ``method``; it can ALSO occur
-  for an otherwise non-callable kind whose inferred type is callable — e.g. a
-  ``variable`` bound to ``None`` yields ``"NoneType()"``.  The conformance
-  linter (S.2) matches this: ``signature`` is optional and, when present, must
-  be a single-line str — it is NOT gated on kind.
+  signature, and the key is OMITTED (NOT an empty string) otherwise.  For a stub
+  built from a real Jedi ``Name`` this is the case for ``class`` / ``function``
+  / ``method`` (and ALSO any non-callable kind whose inferred type is callable —
+  e.g. a ``variable`` bound to ``None`` yields ``"NoneType()"``).  It is
+  DELIBERATELY ABSENT, however, for stubs built from a lightweight *sentinel*
+  that carries no Jedi inference: the ``subclasses`` edge's ``ClassSentinel`` and
+  the ``imported_by`` edge's ``ModuleSentinel`` are pointers (handle + location +
+  kind), so their stubs never carry ``signature`` even though their kind is
+  ``class`` / ``module`` (#445).  A subclass's constructor signature is an
+  ``inspect`` drill detail, not a one-hop ``expand`` field — and deriving it here
+  faithfully would need an MRO walk per subclass (a child often inherits its
+  constructor), reintroducing the multi-file inference whose non-determinism
+  #445 removed.  The conformance linter (S.2) matches this: ``signature`` is
+  optional and, when present, must be a single-line str — it is NOT gated on
+  kind.
 - ``line_start`` / ``line_end`` are the flattened span: ``line_start`` is the
   symbol's own line; ``line_end`` is ``get_end_line(jedi_name)``.  For a
   class/function this is the end of the definition block.  It is NOT guaranteed
