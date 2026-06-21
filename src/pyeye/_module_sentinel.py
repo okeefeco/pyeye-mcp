@@ -54,14 +54,20 @@ class ModuleSentinel:
         self.line: int = 1
         self.column: int = 0
 
-        # Read docstring from module-level AST
+        # Read docstring from module-level AST.  A sentinel may be anchored on a
+        # PEP 420 namespace-subpackage DIRECTORY (the submodules edge, #423) — a
+        # directory has no module-level docstring AND must never be byte-read
+        # (the §3.6 dir-anchored stub contract).  Guard the read on is_file() so
+        # a directory anchor yields docstring "" WITHOUT touching the filesystem
+        # content; never raises.
         self.docstring_text: str = ""
         try:
-            source = mod_file.read_text(encoding="utf-8", errors="replace")
-            tree = ast.parse(source)
-            ds = ast.get_docstring(tree)
-            if ds:
-                self.docstring_text = ds
+            if mod_file.is_file():
+                source = mod_file.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(source)
+                ds = ast.get_docstring(tree)
+                if ds:
+                    self.docstring_text = ds
         except Exception:
             pass
 

@@ -16,8 +16,9 @@ co-occurring with ``truncation_reason`` and an absent ``children``.  Fully-walke
 nodes OMIT ``truncated`` entirely — never ``truncated: false``.
 
 ``outline`` is a pure *consumer* of the existing edge registry (spec §2 "Out"):
-it CALLS ``edges.resolve_members`` and ``stubs.build_stub``; it adds NO new edge
-logic and MUST NOT modify ``edges.py``/``resolve_members``.
+it CALLS ``edges.resolve_members`` (member mode) or ``edges.resolve_submodules``
+(package survey mode, #423) plus ``stubs.build_stub``; it adds NO new edge logic
+and MUST NOT modify ``edges.py``/the resolvers.
 
 Public API
 ----------
@@ -52,9 +53,10 @@ global bound).  In all cases ``children`` is omitted.
 from __future__ import annotations
 
 from collections import deque
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pyeye.mcp.operations.edges import resolve_members
+from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.stubs import build_stub
 
@@ -82,6 +84,52 @@ def _is_container(kind: str) -> bool:
     return kind in _CONTAINER_KINDS
 
 
+def _is_package(jedi_name: Any) -> bool:
+    """Return whether *jedi_name* is a package (drives survey mode, #423).
+
+    A package is a module whose ``module_path`` is an ``__init__.py`` (regular
+    package) OR a bare directory (a PEP 420 namespace subpackage, anchored on its
+    directory by the ``submodules`` resolver).  A plain ``X.py`` module is not a
+    package; in survey mode it becomes a leaf.
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is None:
+        return False
+    module_path = Path(module_path)
+    if module_path.name == "__init__.py":
+        return True
+    # A namespace-subpackage stub is anchored on its directory (never .py).
+    return module_path.is_dir()
+
+
+def _child_adjacents(
+    jedi_name: Any, analyzer: JediAnalyzer, survey_mode: bool
+) -> list[tuple[Any, Any]]:
+    """Return the adjacents to walk for *jedi_name* under the active mode.
+
+    In **survey mode** a package node yields its ``submodules`` children (the
+    containment edge); in member mode (or for a non-package node) it yields its
+    ``members``.  This is the single switch that makes ``outline(pkg)`` a
+    drillable submodule tree while leaving ``outline(module)`` / ``outline(class)``
+    byte-for-byte unchanged (survey_mode is False for those roots).
+    """
+    if survey_mode and _is_package(jedi_name):
+        return resolve_submodules(jedi_name, analyzer).adjacents
+    return resolve_members(jedi_name, analyzer).adjacents
+
+
+def _is_expandable(jedi_name: Any, kind: str, survey_mode: bool) -> bool:
+    """Return whether a node should be walked under the active mode.
+
+    Survey mode expands ONLY packages (plain modules become leaves — their
+    members are not part of a package survey); member mode expands any container
+    (class or module).
+    """
+    if survey_mode:
+        return _is_package(jedi_name)
+    return _is_container(kind)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -99,6 +147,16 @@ async def outline(
     each node with ``stubs.build_stub`` and stopping at depth, budget, or
     external-scope limits.
 
+    **Package survey mode (#423).** When *handle* resolves to a PACKAGE, the walk
+    switches to the ``submodules`` containment edge instead of ``members``: the
+    tree is the package's child modules/subpackages (drill on demand), plain
+    modules are leaves (their members are not walked), and — when ``max_depth``
+    is left ``None`` — the default depth is **1** (top-level submodules only) so
+    the survey is never a full recursive dump.  A module/class root is unchanged:
+    survey mode is off, ``members`` is walked, and ``max_depth=None`` stays
+    unbounded.  This kind-dependent default (package root → depth-1; module/class
+    root → unbounded) is intentional.
+
     Static-surface ceiling: because the walk is over ``members``, the tree is
     complete over statically-defined members but NOT over runtime-injected ones
     (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
@@ -115,8 +173,10 @@ async def outline(
         handle: Canonical dotted-name handle of the root symbol.
         analyzer: Configured ``JediAnalyzer`` for the project.
         max_depth: Maximum depth of recursion from the root (depth 0).  ``None``
-            means unbounded within scope (the external cap and ``max_nodes`` still
-            apply regardless).
+            means unbounded within scope for a module/class root (the external cap
+            and ``max_nodes`` still apply regardless); for a PACKAGE root, ``None``
+            defaults to depth-1 (survey mode, #423).  An explicit value overrides
+            the package default.
         max_nodes: Maximum total nodes in the tree (root counts as 1, default
             200).  Containers that cannot be expanded due to an exhausted budget
             are marked ``truncated: "max_nodes"`` without peeking.
@@ -142,6 +202,20 @@ async def outline(
     root_stub = build_stub(root_jedi_name, handle, analyzer)
 
     # ------------------------------------------------------------------
+    # Survey mode (#423): a PACKAGE root walks the `submodules` containment edge
+    # instead of `members`, giving a drillable project/package tree.  It is set
+    # from the ROOT handle only — a module/class root keeps the unchanged
+    # members behavior.  Kind-dependent default depth: a package root with no
+    # explicit max_depth is treated as depth-1 (top-level submodules first, drill
+    # on demand) so the survey is not a full recursive dump; module/class roots
+    # keep `None` (unbounded within scope).
+    # ------------------------------------------------------------------
+    survey_mode = _is_package(root_jedi_name)
+    effective_max_depth = max_depth
+    if survey_mode and max_depth is None:
+        effective_max_depth = 1
+
+    # ------------------------------------------------------------------
     # 2. Build root tree node and initialise BFS state.
     # ------------------------------------------------------------------
     root_tree: dict[str, Any] = {"node": root_stub}
@@ -165,9 +239,11 @@ async def outline(
         kind = stub["kind"]
         scope = stub["scope"]
 
-        # Non-containers: always a genuine leaf (resolve_members always returns
-        # [] for them — no need to call it, no budget consumed for the peek).
-        if not _is_container(kind):
+        # Non-expandable nodes: a genuine leaf.  In member mode that is any
+        # non-container; in survey mode a plain module (non-package) is also a
+        # leaf (its members are not part of a package survey).  No adjacents
+        # call, no budget consumed for a peek.
+        if not _is_expandable(jedi_name, kind, survey_mode):
             tree_node["children"] = []
             continue
 
@@ -190,22 +266,23 @@ async def outline(
             tree_node["truncation_reason"] = _REASON_EXTERNAL
             continue
 
-        # Depth-frontier peek (spec §5.3): at max_depth, call resolve_members
-        # ONCE to distinguish genuine empty containers from cut-off ones.
-        if max_depth is not None and depth >= max_depth:
-            adjacents = resolve_members(jedi_name, analyzer).adjacents
+        # Depth-frontier peek (spec §5.3): at the (effective) max_depth, call the
+        # child-adjacents resolver ONCE to distinguish genuine empty containers
+        # from cut-off ones.  In survey mode the peek checks `submodules`.
+        if effective_max_depth is not None and depth >= effective_max_depth:
+            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
             if not adjacents:
-                # Genuine empty container (no members).
+                # Genuine empty container (no members / no submodules).
                 tree_node["children"] = []
             else:
-                # Has members but cannot be walked — cut off.
+                # Has children but cannot be walked — cut off.
                 tree_node["truncated"] = True
                 tree_node["truncation_reason"] = _REASON_MAX_DEPTH
             continue
 
         # --- Expand: add children and enqueue for BFS. ---
 
-        adjacents = resolve_members(jedi_name, analyzer).adjacents
+        adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
 
         children: list[dict[str, Any]] = []
         for child_handle, child_jedi_name in adjacents:

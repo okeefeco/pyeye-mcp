@@ -69,6 +69,10 @@ class JediAnalyzer:
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
         self.source_roots: list[Path] = []  # For src-layout roots (e.g., src/)
+        # Ordered (sys.path-precedence) roots passed to jedi.Project; a future
+        # containment enumerator relies on this being a stable, list-derived
+        # source. Populated below before jedi.Project is constructed (#423).
+        self.added_sys_path: list[Path] = []
         self._additional_projects: dict[Path, jedi.Project] = {}  # Cached Jedi projects
         self.config = config
 
@@ -118,6 +122,11 @@ class JediAnalyzer:
                     if resolved.exists() and resolved.as_posix() not in added_sys_path:
                         added_sys_path.append(resolved.as_posix())
                         logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
+
+            # Store the FINAL merged list (src-layout + namespace roots) as the
+            # public attribute, typed as Path, in the same sys.path-precedence
+            # order that is handed to jedi.Project (#423).
+            self.added_sys_path = [Path(p) for p in added_sys_path]
 
             # When the project_path IS a Python package (has __init__.py),
             # Jedi must be rooted at the PARENT so that the package name is

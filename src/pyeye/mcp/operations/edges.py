@@ -8,9 +8,9 @@ This module is the **single source of truth** for which traversal edges
    string ``expand`` emits for unsupported edges.
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
    names (``members``, ``callees``, ``imported_by``, ``subclasses``,
-   ``superclasses``, ``imports``, ``enclosing_scope``) to their resolver
-   callables.  ``members``/``callees``/``superclasses``/``imports``/
-   ``enclosing_scope`` are synchronous and always return an
+   ``superclasses``, ``imports``, ``enclosing_scope``, ``submodules``) to their
+   resolver callables.  ``members``/``callees``/``superclasses``/``imports``/
+   ``enclosing_scope``/``submodules`` are synchronous and always return an
    :class:`EdgeResult` or ``None``; ``imported_by`` and ``subclasses`` are
    **async**.  ``imported_by`` and ``imports`` return ``EdgeResult | None``
    — ``None`` is their wrong-kind signal (the handle is not a module).
@@ -29,7 +29,8 @@ status                          edges
 ==============================  =========================================
 ``"implemented"``               ``members``, ``callees``, ``imported_by``,
                                 ``subclasses``, ``superclasses``,
-                                ``imports``, ``enclosing_scope``
+                                ``imports``, ``enclosing_scope``,
+                                ``submodules``
 ``"not_yet_implemented"``       *(currently empty — all recognised edges
                                 are implemented)*
 ``"deferred_reference_backend"``  ``callers``, ``references``, ``read_by``,
@@ -61,13 +62,14 @@ import ast
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
+from pyeye.path_utils import dedupe_paths
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -114,6 +116,38 @@ class EdgeResult:
         return [h for h, _ in self.adjacents]
 
 
+class _SubmoduleEntry(NamedTuple):
+    """One DIRECT child of a package, derived from a pure directory scan.
+
+    Produced by :func:`_enumerate_submodule_paths` — the single containment
+    source-of-truth for the ``submodules`` edge (#423).  Each field comes from
+    ``iterdir`` metadata only (name / suffix / ``is_dir`` / ``exists``); NO file
+    is read, so a later task can ``len()`` the list as a cheap count.
+
+    Attributes:
+        handle: The child's dotted handle (parent ``full_name`` + ``.`` + the
+            child's name), e.g. ``"mypkg.alpha"``.
+        file: The on-disk path that *anchors* the child — ``X.py`` for a module,
+            ``X/__init__.py`` for a regular subpackage, or the bare ``X/``
+            directory for a PEP 420 namespace subpackage.
+        is_subpackage: ``True`` for a (regular or namespace) subpackage, ``False``
+            for a plain module child.
+    """
+
+    handle: str
+    file: Path
+    is_subpackage: bool
+
+
+# CPython same-name import precedence within ONE directory: a regular package
+# (``X/__init__.py``) shadows a module (``X.py``), which in turn shadows a PEP 420
+# namespace package (a bare ``X/``).  Lower rank wins (see
+# :func:`_enumerate_submodule_paths`).
+_PRECEDENCE_REGULAR_PKG = 0
+_PRECEDENCE_MODULE = 1
+_PRECEDENCE_NAMESPACE_PKG = 2
+
+
 # ---------------------------------------------------------------------------
 # Edge status model (spec §4.3)
 # ---------------------------------------------------------------------------
@@ -134,6 +168,7 @@ _IMPLEMENTED_EDGES = frozenset(
         "superclasses",
         "imports",
         "enclosing_scope",
+        "submodules",
     }
 )
 
@@ -1114,13 +1149,339 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
 
 
 # ---------------------------------------------------------------------------
+# submodules edge (#423) — package → on-disk directory base case
+# ---------------------------------------------------------------------------
+
+
+def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
+    """Return the on-disk directories a *package* handle maps to.
+
+    This is the base case the ``submodules`` enumerator (Task 3) builds on: a
+    package handle is resolved to the directory (or directories) whose children
+    are its candidate submodules / subpackages.
+
+    The regular-vs-namespace decision is made **once**, here, by inspecting the
+    resolved handle's ``module_path``:
+
+    - ends in ``__init__.py`` → **regular package** → return the SINGLE parent
+      directory of that ``__init__.py`` (a regular package has exactly one
+      on-disk directory).
+    - a ``.py`` ``module_path`` that is not ``__init__.py`` → a plain module or
+      a class/function handle (defined in some ``X.py``) → NOT a package → ``[]``.
+    - otherwise (``None`` or a directory ``module_path``) → the **namespace
+      branch**.  A PEP 420 namespace package has no ``__init__.py`` and may be
+      spread across several portions; its directory(ies) are found by matching
+      the dotted ``full_name`` under each :func:`_analyzer_roots` root.
+
+    The namespace branch returns the **union** of the matching portion
+    directories in ``roots`` (sys.path precedence) order — a regular package
+    portion (one carrying ``__init__.py``) is excluded, and the order is what
+    :func:`_enumerate_submodule_paths` rides on for first-portion-wins collision
+    determinism (#419 class).
+
+    A ``None``/empty ``full_name`` (e.g. a builtin or unresolved handle with no
+    matching root dir) yields ``[]``.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``module_path`` drives the regular-vs-namespace split; its
+            ``full_name`` seeds the namespace-portion directory match.
+        analyzer: Active analyzer.  The namespace branch consults
+            :func:`_analyzer_roots` (``source_roots`` / ``project_path`` /
+            ``added_sys_path``).
+
+    Returns:
+        For a regular package, a single-element ``[<package dir>]``.  For a
+        namespace package, the union of its portion directories in roots order.
+        For any non-package handle (plain module, class/function, or an
+        unmatched ``full_name``), ``[]``.
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is not None:
+        module_path = Path(module_path)
+        if module_path.name == "__init__.py":
+            # Regular package: exactly one on-disk directory — the __init__'s parent.
+            return [module_path.parent]
+        if module_path.suffix == ".py":
+            # A plain X.py module or a class/function handle (defined in some
+            # X.py) — NOT a package.  Stays [] permanently; never a namespace.
+            return []
+        # A directory module_path (some namespace handles) falls through to the
+        # namespace branch below.
+
+    # Namespace branch — PEP 420 portion union (first-portion-wins on name
+    # collisions).  A namespace package has no __init__.py, so Jedi gives it a
+    # None (or directory) module_path; its directory is found by matching the
+    # dotted handle under each sys.path root.
+    full_name = getattr(jedi_name, "full_name", None)
+    if not full_name:
+        return []
+
+    parts = full_name.split(".")
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for root in _analyzer_roots(analyzer):
+        candidate = root.joinpath(*parts)
+        try:
+            if not candidate.is_dir():
+                continue
+            if (candidate / "__init__.py").exists():
+                # A regular package portion is not a namespace portion.
+                continue
+        except OSError:
+            continue
+        if not _dir_shallow_qualifies(candidate):
+            continue
+        key = candidate.resolve().as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(candidate)
+    return dirs
+
+
+def _analyzer_roots(analyzer: JediAnalyzer) -> list[Path]:
+    """Return the analyzer's sys.path-precedence-ordered package roots.
+
+    Built **list-derived** (never set-derived) from ``source_roots``,
+    ``project_path``, and ``added_sys_path`` so the order is stable run-to-run.
+    The order is the namespace collision-winner's determinism guarantee: the
+    first root holding a portion wins (first-portion-wins, #419 class).  Duplicate
+    roots are dropped (by resolved identity), keeping the first (highest-
+    precedence) occurrence.
+
+    Composition note: this list intentionally includes ``added_sys_path`` so the
+    namespace-portion union sees configured package roots.  ``resolve``'s
+    ``_project_roots`` deliberately does NOT — it only promotes a bare name to a
+    root that is the *project's own* top-level package.  Both now share the
+    dedupe-by-resolved-identity helper (:func:`pyeye.path_utils.dedupe_paths`);
+    only the root composition (and resolved-vs-original output) differs.
+    """
+    # roots order = sys.path precedence; collision-winner determinism depends on
+    # it (#419 class).  source_roots (src-layout) and project_path come before
+    # the configured added_sys_path package roots.  Original (unresolved) paths
+    # are kept so child stub paths stay caller-facing.
+    return dedupe_paths([*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path])
+
+
+def _dir_shallow_qualifies(path: Path) -> bool:
+    """Return whether *path* looks like an importable dir (the §3.5 filter).
+
+    This separates PEP 420 namespace subpackages from obvious junk/data dirs
+    WITHOUT reading any file.  The check is deliberately **shallow and capped at
+    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
+    would be both slow and over-eager).
+
+    A directory qualifies iff, among its DIRECT entries, ANY of:
+
+    - **(a)** a direct ``*.py`` file; or
+    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
+      subpackage one level down); or
+    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
+      ``_recurse=False`` so the recursion stops after exactly ONE extra level
+      (a namespace subpackage one level down).
+
+    Purpose: skip junk such as a ``data/`` dir holding only ``notes.txt`` or a
+    ``__pycache__`` dir holding only ``.pyc`` files.  NO file reads — ``iterdir``,
+    ``.suffix``, ``.is_dir`` / ``.is_file`` and ``.exists`` only.
+
+    Args:
+        path: The candidate directory.
+
+    Returns:
+        ``True`` if *path* qualifies as an importable dir per the rules above,
+        else ``False`` (including when *path* is unreadable).
+    """
+    return _dir_shallow_qualifies_capped(path, _recurse=True)
+
+
+def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
+    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
+
+    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
+    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
+    rules (a)/(b) — never trigger a further descent.  This caps the total depth
+    at one extra level (see the public wrapper's docstring for the rule list).
+
+    Args:
+        path: The candidate directory.
+        _recurse: Whether a rule-(c) one-level descent is still permitted.
+
+    Returns:
+        ``True`` if *path* qualifies, else ``False`` (including on read errors).
+    """
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return False
+
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") or name == "__pycache__":
+            continue
+        # (a) a direct .py file.
+        if entry.is_file() and entry.suffix == ".py":
+            return True
+        if entry.is_dir():
+            # (b) a direct child dir that is a regular package.
+            if (entry / "__init__.py").exists():
+                return True
+            # (c) a direct child dir that itself shallow-qualifies — but only
+            # one extra level deep (cap: _recurse=False on the descent).
+            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
+                return True
+    return False
+
+
+def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_SubmoduleEntry]:
+    """Enumerate a package's DIRECT children from a PURE directory scan (#423).
+
+    This is the single containment source-of-truth for the ``submodules`` edge:
+    given a package handle, it returns its direct module / subpackage children as
+    :class:`_SubmoduleEntry` tuples, derived ENTIRELY from ``iterdir`` metadata —
+    NO file is read (so a later task can ``len()`` this list as a cheap count).
+
+    The package-vs-non-package decision and the directory resolution are both
+    delegated to :func:`_package_dirs` (no duplication): a non-package handle
+    (plain module, class/function, ``None``) yields ``[]`` because
+    ``_package_dirs`` yields ``[]``.  The enumerator loops over EVERY directory
+    ``_package_dirs`` returns; for Task 3 that is at most one (the regular case),
+    but iterating already prepares for Task 4's multi-portion namespace union
+    (which extends ``_package_dirs`` + adds cross-directory dedup, not this body).
+
+    Per directory, scanning DIRECT entries only (one ``iterdir``), with
+    ``__pycache__`` and dot-names always skipped:
+
+    - ``X.py`` (``X != "__init__"``) → module child, ``file = X.py``,
+      ``is_subpackage=False``.
+    - ``X/`` with ``X/__init__.py`` → regular subpackage, ``file = X/__init__.py``,
+      ``is_subpackage=True``.
+    - ``X/`` with no ``__init__.py`` that :func:`_dir_shallow_qualifies` →
+      namespace subpackage, ``file = X/`` (the directory itself),
+      ``is_subpackage=True``.
+
+    The parent handle for building child handles is the resolved name's
+    ``full_name`` (e.g. parent ``"mypkg"`` + child ``alpha`` → ``"mypkg.alpha"``).
+    The result is sorted by child name (the last dotted component) for
+    determinism.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``full_name`` seeds the child handles; ``_package_dirs`` resolves it
+            to the directory(ies) scanned.
+        analyzer: Active analyzer (passed through to :func:`_package_dirs`).
+
+    Returns:
+        The direct children as :class:`_SubmoduleEntry` tuples, sorted by child
+        name.  ``[]`` for any non-package handle.
+    """
+    dirs = _package_dirs(jedi_name, analyzer)
+    if not dirs:
+        return []
+
+    parent_handle = getattr(jedi_name, "full_name", None)
+    if not parent_handle:
+        return []
+
+    # Per child NAME, resolve a same-name file-vs-dir clash within ONE directory
+    # by CPython import precedence (regular package > module > namespace package),
+    # then keep the first PORTION's winner across the namespace union (``dirs`` is
+    # in roots/sys.path-precedence order → first-portion-wins, #419 class).  A
+    # single dict keyed by full handle replaces the old per-branch ``seen_handles``
+    # guards AND removes the iterdir-order nondeterminism a ``foo.py`` + ``foo/``
+    # clash would otherwise produce.
+    chosen: dict[str, tuple[int, _SubmoduleEntry]] = {}
+    for pkg_dir in dirs:
+        try:
+            children = list(pkg_dir.iterdir())
+        except OSError:
+            continue
+        local: dict[str, tuple[int, _SubmoduleEntry]] = {}
+        for child in children:
+            name = child.name
+            if name.startswith(".") or name == "__pycache__":
+                continue
+
+            if child.is_dir():
+                handle = f"{parent_handle}.{name}"
+                init_py = child / "__init__.py"
+                if init_py.exists():
+                    cand = (_PRECEDENCE_REGULAR_PKG, _SubmoduleEntry(handle, init_py, True))
+                elif _dir_shallow_qualifies(child):
+                    cand = (_PRECEDENCE_NAMESPACE_PKG, _SubmoduleEntry(handle, child, True))
+                else:
+                    continue
+            elif child.is_file():
+                if child.suffix != ".py" or child.stem == "__init__":
+                    continue
+                handle = f"{parent_handle}.{child.stem}"
+                cand = (_PRECEDENCE_MODULE, _SubmoduleEntry(handle, child, False))
+            else:
+                continue
+
+            current = local.get(handle)
+            if current is None or cand[0] < current[0]:
+                local[handle] = cand
+
+        # First portion wins across the union: never overwrite a handle a higher-
+        # precedence portion already supplied.
+        for handle, cand in local.items():
+            chosen.setdefault(handle, cand)
+
+    # Sort by the FULL handle — a total order independent of iterdir, so output is
+    # deterministic across runs/platforms (not just by bare child name).
+    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
+
+
+def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
+    """Return a package's DIRECT child modules/subpackages as canonical handles.
+
+    The ``submodules`` containment edge (#423): a thin wrapper over the
+    :func:`_enumerate_submodule_paths` source-of-truth.  It adds NO containment
+    logic of its own — it turns each :class:`_SubmoduleEntry` into a
+    ``(Handle, ModuleSentinel)`` adjacent so ``expand``/``outline`` can build the
+    child's stub WITHOUT a Jedi ``goto`` (the children come from a pure directory
+    scan, so there is no Jedi ``Name`` to carry — the sentinel is the stand-in).
+
+    The sentinel is anchored on the child's ``file`` — ``X.py`` /
+    ``X/__init__.py`` for module / regular-subpackage children, or the bare
+    ``X/`` DIRECTORY for a PEP 420 namespace subpackage.  A directory-anchored
+    sentinel is never byte-read (the §3.6 dir-anchored stub contract;
+    :class:`ModuleSentinel` guards its docstring read on ``is_file()``).
+
+    Synchronous (the enumerator is a pure ``iterdir`` scan — no Jedi, no I/O
+    beyond directory listing).  ``expand`` happily runs a sync resolver.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` or :class:`ModuleSentinel`.  Its
+            ``module_path``/``full_name`` drive the enumeration.
+        analyzer: Active analyzer (passed through to the enumerator).
+
+    Returns:
+        An :class:`EdgeResult` whose ``adjacents`` are the child
+        ``(Handle, ModuleSentinel)`` pairs.  For any non-package handle the
+        enumerator yields no entries, so this returns ``EdgeResult([])`` — the
+        "wrong kind → measured-empty, never ``None``" convention.
+    """
+    adjacents: list[tuple[Handle, Any]] = []
+    for entry in _enumerate_submodule_paths(jedi_name, analyzer):
+        handle = _try_handle(entry.handle)
+        if handle is None:
+            continue
+        sentinel = ModuleSentinel(entry.file, entry.handle, analyzer)
+        adjacents.append((handle, sentinel))
+    return EdgeResult(adjacents=adjacents)
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
 #: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
-#: ``superclasses``/``imports``/``enclosing_scope`` are synchronous;
-#: ``members``/``callees``/``superclasses``/``enclosing_scope`` always return an
-#: :class:`EdgeResult`; ``imports`` returns ``EdgeResult | None`` (``None`` for
+#: ``superclasses``/``imports``/``enclosing_scope``/``submodules`` are synchronous;
+#: ``members``/``callees``/``superclasses``/``enclosing_scope``/``submodules``
+#: always return an :class:`EdgeResult` (``submodules`` → ``EdgeResult([])`` for a
+#: non-package handle); ``imports`` returns ``EdgeResult | None`` (``None`` for
 #: non-module handles, mirroring ``imported_by``).  ``imported_by`` and
 #: ``subclasses`` are async.  ``imported_by`` may return ``None`` (its
 #: wrong-kind signal); ``subclasses``, ``superclasses``, and ``enclosing_scope``
@@ -1138,4 +1499,5 @@ EDGE_RESOLVERS: dict[
     "superclasses": resolve_superclasses,
     "imports": resolve_imports,
     "enclosing_scope": resolve_enclosing_scope,
+    "submodules": resolve_submodules,
 }

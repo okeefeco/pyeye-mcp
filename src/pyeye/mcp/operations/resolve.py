@@ -67,6 +67,7 @@ from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
+from pyeye.path_utils import dedupe_paths
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -262,6 +263,108 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
         candidate["location"]["file"],
         candidate["location"]["line_start"],
     )
+
+
+def _project_roots(analyzer: JediAnalyzer) -> list[Path]:
+    """Return the resolved project roots a top-level package may sit directly under.
+
+    The ``project_path`` plus any src-layout ``source_roots`` (e.g. ``src/``),
+    **resolved** for symlink-stable ``==`` comparison.  Used by
+    :func:`_is_top_level_package` clause (2) to test whether a package directory's
+    parent is a genuine project root.
+
+    Deliberately does NOT include ``analyzer.added_sys_path`` (configured external
+    package roots): bare-name promotion is only for the *project's own* top-level
+    package.  Contrast :func:`edges._analyzer_roots`, which includes it for the
+    namespace-portion union; both share :func:`pyeye.path_utils.dedupe_paths`.
+    """
+    return dedupe_paths([analyzer.project_path, *analyzer.source_roots], resolve_output=True)
+
+
+def _parent_is_root(path: Path, roots: list[Path]) -> bool:
+    """Return whether *path*'s parent resolves to one of the project *roots*."""
+    try:
+        parent = path.parent.resolve()
+    except OSError:
+        return False
+    return any(parent == root for root in roots)
+
+
+def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyzer) -> bool:
+    """Return whether *candidate* is the top-level package named *name* (§7.1).
+
+    A **structural** predicate (keys on file layout, NOT the name string beyond
+    the exact-match clause) so a deeper symbol that merely shares the root's name
+    is never promoted.  Both clauses must hold:
+
+    1. the candidate's handle has **no dots** and equals *name* (a deeper
+       ``foo.bar.name`` has dots → never qualifies); and
+    2. its ``location.file`` is a **root-level regular-package anchor**: a
+       ``__init__.py`` whose parent dir is named *name* and whose grandparent is
+       a project root.
+
+    **Regular packages only.** A PEP 420 namespace root (no ``__init__.py``)
+    surfaces via ``find_symbol`` with an *empty* ``location.file``, so it never
+    satisfies clause (2) and is never promoted by bare name.  Anchoring a
+    namespace root to a project handle (so bare-name promotion could work) is
+    deferred to #444; until then a namespace root resolves via ``resolve(path)``
+    (see the §7.2 boundary in the design spec).
+
+    Args:
+        candidate: The resolve candidate under test.
+        name: The bare queried name.
+        analyzer: Active analyzer (supplies the project roots).
+
+    Returns:
+        ``True`` iff *candidate* is the top-level regular package for *name*.
+    """
+    # Clause 1 — handle is exactly the bare name (no dots).
+    handle = candidate["handle"]
+    if "." in handle or handle != name:
+        return False
+
+    # Clause 2 — root-level regular-package anchor: <root>/<name>/__init__.py.
+    file_str = candidate["location"]["file"]
+    if not file_str:
+        return False
+    path = Path(file_str)
+    if path.name != "__init__.py":
+        return False
+    pkg_dir = path.parent
+    return pkg_dir.name == name and _parent_is_root(pkg_dir, _project_roots(analyzer))
+
+
+def _select_root_package(
+    candidates: list[_Candidate], name: str, analyzer: JediAnalyzer
+) -> _Candidate | None:
+    """Promote a unique top-level package from *candidates*, else ``None`` (§7.1).
+
+    Keeps the candidates satisfying :func:`_is_top_level_package`, then promotes
+    only when they identify ONE unambiguous root package:
+
+    - zero survivors → ``None`` (no root package among the candidates);
+    - more than one DISTINCT handle → ``None`` (genuinely ambiguous);
+    - one distinct handle but more than one DISTINCT on-disk file → ``None``: a
+      real **shadow**, two top-level packages sharing an import name across roots
+      (e.g. ``project/<name>`` and ``src/<name>``).  Silently picking one would
+      hide the collision, so stay ambiguous (#423 review).
+
+    Args:
+        candidates: The ambiguous candidate set.
+        name: The bare queried name.
+        analyzer: Active analyzer.
+
+    Returns:
+        The promoted candidate, or ``None`` to keep the ambiguous result.
+    """
+    kept = [c for c in candidates if _is_top_level_package(c, name, analyzer)]
+    if not kept:
+        return None
+    if len({c["handle"] for c in kept}) != 1:
+        return None
+    if len({c["location"]["file"] for c in kept}) != 1:
+        return None
+    return kept[0]
 
 
 def _make_location(file_str: str, line: int | None, column: int | None) -> _Location:
@@ -506,6 +609,20 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
             kind=c["kind"],
             scope=c["scope"],
             location=c["location"],
+        )
+
+    # Root-package disambiguation (#423): a bare top-level package name should
+    # resolve to its single root handle, not an ambiguous set.  This runs BEFORE
+    # the ambiguous fallback and keys on file structure (not the name string), so
+    # a submodule sharing the root's name is never wrongly promoted.
+    root = _select_root_package(candidates, name, analyzer)
+    if root is not None:
+        return _SuccessResult(
+            found=True,
+            handle=root["handle"],
+            kind=root["kind"],
+            scope=root["scope"],
+            location=root["location"],
         )
 
     # Sort candidates deterministically: (scope, file, line_start)
