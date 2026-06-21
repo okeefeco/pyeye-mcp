@@ -115,6 +115,34 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
     if module_path is not None:
         file_str = module_path.as_posix()
         scope = classify_scope(file_str, analyzer)
+        # #454: reconcile an externally-resolved edge target back to the project
+        # definition site.  A forward-goto edge (imports / callees) can land on an
+        # INSTALLED copy of a package that is ALSO registered as a project /
+        # namespace module — Jedi's follow_imports honours the environment
+        # sys.path, which outranks the namespace ``added_sys_path``.  ``resolve`` /
+        # ``inspect`` instead anchor via ``find_module_file`` (the project
+        # boundary) and call the same handle ``project``.  Keep the two consistent:
+        # if the canonical handle names a project module, the symbol IS a project
+        # symbol regardless of which on-disk copy Jedi happened to follow.  (Only
+        # ``scope`` is reconciled — the stub carries no file; line spans stay as
+        # Jedi reported them, which match for the common same-version case.)
+        #
+        # Perf short-circuit: the split this rescues needs the SAME package to be
+        # importable from BOTH a registered sibling root AND an installed copy
+        # that wins Jedi's precedence — only possible when sibling roots are
+        # registered (``additional_paths``).  With none, skip the per-stub
+        # ``find_module_file`` filesystem probe entirely, keeping the common
+        # single-project ``callees`` / ``imports`` expansion (every stdlib target
+        # is external) free of I/O.  (Theoretical gap: a NON-editable duplicate
+        # install of a project's own ``source_roots`` / ``project_path`` package —
+        # pathological; editable installs resolve to the real path via
+        # ``classify_scope``'s symlink-first rule, #338.)
+        if (
+            scope == "external"
+            and getattr(analyzer, "additional_paths", None)
+            and _names_project_module(handle, kind, analyzer)
+        ):
+            scope = "project"
     else:
         # No file (built-ins, dynamic objects) → external by default
         scope = "external"
@@ -142,3 +170,30 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
         stub["signature"] = sig
 
     return stub
+
+
+def _names_project_module(handle: str, kind: str, analyzer: JediAnalyzer) -> bool:
+    """Whether *handle*'s module portion resolves to a project-boundary file.
+
+    Used by :func:`build_stub` to reconcile a #454 scope split: an edge target
+    that Jedi followed to an installed copy is still a project symbol if its
+    canonical handle names a project module.  ``find_module_file`` searches the
+    SAME boundary (``source_roots`` + ``project_path`` + ``additional_paths``)
+    that ``classify_scope`` treats as ``project`` — and excludes
+    ``added_sys_path`` / the environment — so a stdlib / pure-external handle
+    yields ``None`` and is NOT reconciled.
+
+    The module portion is the whole handle for a ``module`` kind, else the handle
+    minus its trailing symbol component.
+    """
+    from pyeye.canonicalization import find_module_file
+
+    if kind == "module":
+        module_dotted = handle
+    else:
+        parts = handle.split(".")
+        if len(parts) < 2:
+            return False
+        module_dotted = ".".join(parts[:-1])
+
+    return find_module_file(module_dotted, analyzer) is not None
