@@ -13,7 +13,8 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "edges": [ {"from": h, "to": h, "kind": edge}, ... ],  # NOT deduped across kinds
       "truncated": bool,                             # caps hit before natural termination
       "truncation_reasons": ["max_depth"? , "max_nodes"?],  # WHICH cap(s) fired
-      "unsupported_edges": [ {"edge", "reason", "detail"}, ... ] }
+      "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
+      "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
 which cap to raise: ``"max_depth"`` (a reachable node was cut at the depth
@@ -39,6 +40,7 @@ from collections import deque
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
+from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import EDGE_RESOLVERS, STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
@@ -216,10 +218,16 @@ async def trace(
                 edges.append({"from": handle, "to": adj_handle, "kind": edge})
                 queue.append((adj_handle, adj_name, depth + 1))
 
-    return {
+    result: dict[str, Any] = {
         "nodes": nodes,
         "edges": edges,
         "truncated": bool(truncation_reasons),
         "truncation_reasons": sorted(truncation_reasons),
         "unsupported_edges": unsupported_edges,
     }
+    # #458: when a requested edge was unsupported, point at where to report it.
+    # Top-level and conditional — not duplicated onto every unsupported entry,
+    # and absent entirely when nothing was unsupported (no noise on clean traces).
+    if unsupported_edges:
+        result["report_issues"] = meta.issues_url()
+    return result
