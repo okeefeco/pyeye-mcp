@@ -254,6 +254,115 @@ def find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
     return None
 
 
+def _namespace_roots(analyzer: JediAnalyzer) -> list[Path]:
+    """Return the analyzer's sys.path-precedence-ordered package roots (#444).
+
+    List-derived (never set-derived) from ``source_roots``, ``project_path``,
+    ``added_sys_path``, and ``additional_paths`` so the order is stable
+    run-to-run — the order a PEP 420 namespace package's portions are searched
+    in, which is the collision-winner determinism guarantee (first-portion-wins,
+    #419 class).  Duplicate roots are dropped, keeping the first occurrence.
+    """
+    ordered: list[Path] = [
+        *getattr(analyzer, "source_roots", []),
+        analyzer.project_path,
+        *getattr(analyzer, "added_sys_path", []),
+        *getattr(analyzer, "additional_paths", []),
+    ]
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for root in ordered:
+        try:
+            key = root.resolve().as_posix()
+        except OSError:
+            continue
+        if key not in seen:
+            seen.add(key)
+            roots.append(root)
+    return roots
+
+
+def _dir_is_importable(path: Path) -> bool:
+    """Return whether *path* looks like an importable dir (one level, capped).
+
+    A PEP 420 namespace portion holds importable content but no ``__init__.py``.
+    This distinguishes such a directory from junk/data dirs WITHOUT reading any
+    file: it qualifies if, among its DIRECT entries, there is a ``*.py`` file, a
+    sub-dir with an ``__init__.py``, or a sub-dir that itself has a direct
+    ``*.py``.  The descent is capped at one extra level (never an unbounded
+    subtree walk).  Mirrors ``edges._dir_shallow_qualifies`` but kept here so the
+    below-operations-layer SoT has no upward import.
+    """
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") or name == "__pycache__":
+            continue
+        if entry.is_file() and entry.suffix == ".py":
+            return True
+        if entry.is_dir():
+            if (entry / "__init__.py").exists():
+                return True
+            try:
+                if any(
+                    c.is_file() and c.suffix == ".py" and not c.name.startswith(".")
+                    for c in entry.iterdir()
+                ):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> list[Path]:
+    """Return the PEP 420 namespace-package portion dirs for *module_dotted* (#444).
+
+    A namespace package has **no** ``__init__.py`` (so :func:`find_module_file`
+    returns ``None`` for it) and may be spread across several *portions* under
+    different sys.path roots.  This returns the **union** of the matching portion
+    directories in :func:`_namespace_roots` (sys.path-precedence) order — the
+    anchor a top-level namespace package needs so ``resolve``/``inspect``/
+    ``outline``/``expand`` can fire from the top.
+
+    A directory qualifies as a portion iff it matches the dotted path, has **no**
+    ``__init__.py`` (a regular package is handled by :func:`find_module_file`,
+    not here), and :func:`_dir_is_importable` (so junk/data dirs are excluded).
+
+    This is the single source of truth for "where does this namespace package
+    live"; ``edges`` consumes it for the ``submodules`` enumerator, and
+    ``resolve``/``inspect`` consume it to anchor the handle.
+
+    Returns:
+        The portion directories, roots-ordered and de-duplicated.  ``[]`` when
+        *module_dotted* is not a namespace package (e.g. a regular package, a
+        plain module, or nothing on disk).
+    """
+    path_parts = module_dotted.split(".")
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for base in _namespace_roots(analyzer):
+        candidate = base.joinpath(*path_parts)
+        try:
+            if not candidate.is_dir():
+                continue
+            if (candidate / "__init__.py").exists():
+                # A regular package portion is not a namespace portion.
+                continue
+        except OSError:
+            continue
+        if not _dir_is_importable(candidate):
+            continue
+        key = candidate.resolve().as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(candidate)
+    return dirs
+
+
 async def _get_full_name_from_file(
     module_file: Path | None, symbol_name: str, analyzer: JediAnalyzer
 ) -> str | None:

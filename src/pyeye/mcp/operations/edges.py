@@ -67,9 +67,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ModuleSentinel
+from pyeye.canonicalization import find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
-from pyeye.path_utils import dedupe_paths
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -1232,57 +1232,17 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
 
     # Namespace branch — PEP 420 portion union (first-portion-wins on name
     # collisions).  A namespace package has no __init__.py, so Jedi gives it a
-    # None (or directory) module_path; its directory is found by matching the
-    # dotted handle under each sys.path root.
+    # None (or directory) module_path; its portion directories are found by
+    # matching the dotted handle under each sys.path root.  Delegated to
+    # ``canonicalization.find_namespace_package_dirs`` — the single source of
+    # truth shared with ``resolve``/``inspect`` (#444), so the namespace-portion
+    # discovery used by the ``submodules`` enumerator and by handle anchoring can
+    # never drift apart.  The enumerator iterates the returned dirs in roots
+    # order, so its child dedup keeps the first-portion-wins winner.
     full_name = getattr(jedi_name, "full_name", None)
     if not full_name:
         return []
-
-    parts = full_name.split(".")
-    dirs: list[Path] = []
-    seen: set[str] = set()
-    for root in _analyzer_roots(analyzer):
-        candidate = root.joinpath(*parts)
-        try:
-            if not candidate.is_dir():
-                continue
-            if (candidate / "__init__.py").exists():
-                # A regular package portion is not a namespace portion.
-                continue
-        except OSError:
-            continue
-        if not _dir_shallow_qualifies(candidate):
-            continue
-        key = candidate.resolve().as_posix()
-        if key in seen:
-            continue
-        seen.add(key)
-        dirs.append(candidate)
-    return dirs
-
-
-def _analyzer_roots(analyzer: JediAnalyzer) -> list[Path]:
-    """Return the analyzer's sys.path-precedence-ordered package roots.
-
-    Built **list-derived** (never set-derived) from ``source_roots``,
-    ``project_path``, and ``added_sys_path`` so the order is stable run-to-run.
-    The order is the namespace collision-winner's determinism guarantee: the
-    first root holding a portion wins (first-portion-wins, #419 class).  Duplicate
-    roots are dropped (by resolved identity), keeping the first (highest-
-    precedence) occurrence.
-
-    Composition note: this list intentionally includes ``added_sys_path`` so the
-    namespace-portion union sees configured package roots.  ``resolve``'s
-    ``_project_roots`` deliberately does NOT — it only promotes a bare name to a
-    root that is the *project's own* top-level package.  Both now share the
-    dedupe-by-resolved-identity helper (:func:`pyeye.path_utils.dedupe_paths`);
-    only the root composition (and resolved-vs-original output) differs.
-    """
-    # roots order = sys.path precedence; collision-winner determinism depends on
-    # it (#419 class).  source_roots (src-layout) and project_path come before
-    # the configured added_sys_path package roots.  Original (unresolved) paths
-    # are kept so child stub paths stay caller-facing.
-    return dedupe_paths([*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path])
+    return find_namespace_package_dirs(full_name, analyzer)
 
 
 def _dir_shallow_qualifies(path: Path) -> bool:
