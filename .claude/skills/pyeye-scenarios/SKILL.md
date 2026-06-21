@@ -21,32 +21,45 @@ path. The catalog is the **axis of variation**:
 
 | Scenario | Shape | Stresses | Provision |
 |----------|-------|----------|-----------|
-| `django` | single tree | depth, scale, canonical-handle collapse, `imported_by`/`superclasses`, static-surface ceiling, honest-limit refusal | reuse existing clone |
+| `django` | single tree | depth, scale, canonical-handle collapse, `imported_by`/`superclasses`, static-surface ceiling, honest-limit refusal | clone (heavy — use `--reference`) |
 | `namespace-jaraco` | 3 repos, PEP 420 namespace | namespace stitching via `.pyeye.json`, cross-repo `resolve`/`trace`, #444 cold-start | clone 3 small repos |
 | `zope` *(planned)* | 2 repos, PEP 420 namespace | deep inheritance + dense cross-import graphs | — |
 | `google-cloud` *(planned)* | monorepo, many dists | scale + 3-segment namespaces | — |
 
 ## Conventions (apply to every scenario)
 
-- **Target dir is a parameter** — default `~/GitHub/test/` (matches the existing django
-  convention). Substitute freely; the `.pyeye.json` paths are relative so siblings just
-  need a common parent.
+- **Target dir is an in-repo, gitignored dir — never a machine-global path.** The default
+  is `<current-worktree-root>/.scenario-repos/`, resolved with
+  `git rev-parse --show-toplevel` so it follows you **into a worktree** automatically
+  (each worktree gets its own isolated clones, removed when the worktree is). Overridable
+  with `PYEYE_SCENARIO_DIR`. The `.pyeye.json` paths are relative, so the scenario's
+  siblings just need this common parent. (`.scenario-repos/` is in the repo's
+  `.gitignore`; do NOT hardcode a personal path like `~/GitHub/test` — it isn't portable
+  and shared external clones collide across worktrees.)
 - **Pin commits.** A recorded baseline is only meaningful against fixed source. Each
   scenario lists exact SHAs.
 - **Full clone, not `--depth 1`.** A shallow clone cannot check out an arbitrary pinned
-  SHA. The jaraco repos are ~350 KB each (free); django is ~366 MB (reuse it).
+  SHA. The jaraco repos are ~350 KB each (free), so a per-worktree clone is trivial.
+  django is ~366 MB — to avoid re-downloading it per worktree, clone with
+  `--reference <shared-django>` (borrows objects from an existing local clone; the
+  per-worktree copy is tiny on disk yet can still check out the pinned SHA), or point
+  `PYEYE_SCENARIO_DIR` at a shared cache for that scenario.
 - **Idempotent.** Skip a repo that already exists; never re-clone over local work.
-- **Never vendor.** Third-party code is cloned on demand, never committed into this repo —
-  same as django is today.
+- **Never vendor.** Third-party code is cloned on demand and **never committed** — a
+  gitignored in-repo dir is never in git history, so "in the worktree" ≠ "vendored." The
+  convention is about git history, not disk presence.
 
 ## Generic provision procedure
 
 For each repo in a scenario's manifest:
 
 ```bash
-TARGET="${TARGET:-$HOME/GitHub/test}"        # parameter
+# In-repo, gitignored, worktree-local by default (override with PYEYE_SCENARIO_DIR).
+TARGET="${PYEYE_SCENARIO_DIR:-$(git rev-parse --show-toplevel)/.scenario-repos}"
+mkdir -p "$TARGET"
 cd "$TARGET"
 [ -d "<repo>" ] || git clone "<url>" "<repo>"   # idempotent, full clone
+                                                # (heavy repos: add --reference <shared-clone>)
 git -C "<repo>" fetch --quiet origin <commit>
 git -C "<repo>" checkout --quiet <commit>
 ```
@@ -66,7 +79,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 |-------|-------|
 | repo | `https://github.com/django/django` |
 | commit | `cd385e6b8c` |
-| size | ~366 MB — **reuse the existing `~/GitHub/test/django`**, don't re-clone |
+| size | ~366 MB — clone with **`--reference <shared-django>`** (or set `PYEYE_SCENARIO_DIR` to a shared cache) to avoid a full per-worktree download |
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 

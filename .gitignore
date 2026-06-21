@@ -149,6 +149,10 @@ cython_debug/
 # Cache directory for our MCP server
 .pyeye_cache/
 
+# Third-party repos cloned on demand for pyeye dogfooding scenarios
+# (pyeye-scenarios skill) — never vendored, worktree-local
+.scenario-repos/
+
 # Local override configuration files
 .pyeye.override.json
 .pyeye.local.json
