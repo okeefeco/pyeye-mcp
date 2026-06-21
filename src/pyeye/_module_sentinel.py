@@ -1,9 +1,10 @@
-"""Shared leaf module: lightweight module stand-in for Jedi Name objects.
+"""Shared leaf module: lightweight stand-ins for Jedi Name objects.
 
-Exists so both :mod:`pyeye.mcp.operations.inspect` and
-:mod:`pyeye.mcp.operations.edges` can reference :class:`ModuleSentinel`
-WITHOUT either importing the other (``edges`` must not import ``inspect`` —
-circular import once ``inspect`` imports ``edges`` for edge-count helpers).
+Hosts :class:`ModuleSentinel` (module stand-in) and :class:`ClassSentinel`
+(class stand-in). Exists so both :mod:`pyeye.mcp.operations.inspect` and
+:mod:`pyeye.mcp.operations.edges` can reference them WITHOUT either importing
+the other (``edges`` must not import ``inspect`` — circular import once
+``inspect`` imports ``edges`` for edge-count helpers).
 
 This mirrors the extraction precedent in :mod:`pyeye._ast_targets`, which was
 created for the same reason: a shared AST helper needed by both ``inspect``
@@ -93,6 +94,80 @@ class ModuleSentinel:
 
     def infer(self) -> list:
         """Return an empty list (no Jedi inference for module sentinels).
+
+        Returns:
+            An empty list, matching the Jedi ``Name.infer()`` shape.
+        """
+        return []
+
+
+class ClassSentinel:
+    """Lightweight stand-in for a Jedi Name when the handle *is* a class.
+
+    Built from the AST-derived facts ``find_subclasses`` already returns
+    (``full_name`` + file + line span) so the ``subclasses`` edge never has to
+    re-derive a Jedi ``Name`` per subclass — a re-derivation whose
+    ``full_name`` match is warm-state-dependent and silently dropped ~half the
+    results across cache rebuilds (#445). Mirrors :class:`ModuleSentinel`.
+
+    Exposes exactly what its two consumers read: the stub builder
+    (``type`` / ``module_path`` / ``line`` / ``end_line`` / ``get_signatures``)
+    AND ``resolve_subclasses`` itself, which receives this object as its input
+    at hop 2+ of ``trace(follow=["subclasses"])`` and reads ``type`` /
+    ``full_name`` to recurse — so the sentinel must round-trip as a resolver
+    input, not merely as a stub source.
+    """
+
+    def __init__(
+        self,
+        class_file: Path,
+        handle: str,
+        line: int,
+        end_line: int,
+        column: int = 0,
+    ) -> None:
+        """Initialise the sentinel from the subclass's AST-derived facts.
+
+        Args:
+            class_file: Absolute path to the file declaring the class.
+            handle: Canonical dotted handle for the class (its AST ``full_name``).
+            line: 1-indexed start line of the ``class`` statement.
+            end_line: 1-indexed end line of the class body (``ClassDef.end_lineno``).
+            column: 0-indexed start column (carried for Name parity; default 0).
+        """
+        self.module_path: Path | None = class_file
+        self.type = "class"
+        self.full_name: str = handle
+        self.name: str = handle.split(".")[-1]
+        self.line: int = line
+        self.end_line: int = end_line
+        self.column: int = column
+
+    def docstring(self, **kwargs: object) -> str:
+        """Return an empty string (pointer-only; the body is the inspect layer).
+
+        Args:
+            **kwargs: Accepted and ignored for Jedi ``Name.docstring()`` compat.
+
+        Returns:
+            An empty string — a subclass stub carries no docstring (drill with
+            ``inspect`` for that).
+        """
+        _ = kwargs
+        return ""
+
+    def get_signatures(self) -> list:
+        """Return an empty list (a stub is a pointer, not a signature).
+
+        Returns:
+            An empty list, matching the Jedi ``Name.get_signatures()`` shape.
+            The constructor signature is an ``inspect`` detail, not a one-hop
+            ``expand`` stub field (#445).
+        """
+        return []
+
+    def infer(self) -> list:
+        """Return an empty list (no Jedi inference for class sentinels).
 
         Returns:
             An empty list, matching the Jedi ``Name.infer()`` shape.

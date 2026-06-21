@@ -44,6 +44,13 @@ def get_end_line(jedi_name: Any) -> int:
         The 1-indexed end line number.
     """
     start_line: int = jedi_name.line or 1
+    # A sentinel that already knows its definition's end line (e.g.
+    # ``ClassSentinel`` from the AST-derived ``ClassDef.end_lineno``, #445)
+    # carries it directly — real Jedi ``Name`` objects have no ``end_line``
+    # attribute, so this branch never fires for them.
+    explicit_end = getattr(jedi_name, "end_line", None)
+    if isinstance(explicit_end, int) and explicit_end >= start_line:
+        return explicit_end
     try:
         internal = getattr(jedi_name, "_name", None)
         if internal is None:
