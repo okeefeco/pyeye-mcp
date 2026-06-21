@@ -108,6 +108,16 @@ Please follow these steps for your contribution:
    pre-commit install
    ```
 
+   This installs every hook type the project configures (`pre-commit`,
+   `commit-msg`, `post-commit`, `post-merge`, and `post-checkout`). The
+   `post-merge`/`post-checkout` hooks keep the local `setuptools_scm` version
+   file fresh after a pull or branch switch and start a dogfooding metrics
+   session when you check out an issue branch. If you cloned before these hook
+   types were added, re-run `pre-commit install` to pick them up. If you have a
+   hand-written `.git/hooks/post-checkout` from an older setup, remove it (and
+   any `.git/hooks/post-checkout.legacy` pre-commit leaves behind) so the
+   metrics session does not start twice.
+
 For detailed setup instructions, including worktree configuration and advanced development workflows, see [Development Setup Guide](docs/development-setup.md).
 
 ### Making Changes

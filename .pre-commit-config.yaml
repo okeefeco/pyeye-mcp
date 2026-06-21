@@ -2,9 +2,12 @@
 default_language_version:
   python: python3.12
 
-# Install pre-commit, commit-msg, AND post-commit hooks on `pre-commit install`
-# (post-commit drives the non-blocking decision-log nudge below).
-default_install_hook_types: [pre-commit, commit-msg, post-commit]
+# Install pre-commit, commit-msg, post-commit, post-merge, AND post-checkout
+# hooks on `pre-commit install`. post-commit drives the decision-log nudge;
+# post-merge/post-checkout drive the version-file refresh and metrics-session
+# start below (#462). Run `pre-commit install` after pulling this change to wire
+# the new hook types.
+default_install_hook_types: [pre-commit, commit-msg, post-commit, post-merge, post-checkout]
 
 repos:
   # Security checks
@@ -168,6 +171,36 @@ repos:
         entry: python scripts/decision_log_nudge.py
         language: system
         stages: [post-commit]
+        pass_filenames: false
+        always_run: true
+        verbose: true
+
+  # Refresh the setuptools_scm version file after the working tree's git state
+  # changes (#462). _version.py is gitignored and only written at install time,
+  # so the self-reported version (pyeye://about) drifts after a pull/merge or
+  # branch switch otherwise. `uv run` because setuptools_scm lives in the venv.
+  # Failure-tolerant (the script always exits 0) so it never blocks git.
+  - repo: local
+    hooks:
+      - id: refresh-version-file
+        name: Refresh setuptools_scm version file
+        entry: uv run python scripts/refresh_version.py
+        language: system
+        stages: [post-merge, post-checkout]
+        pass_filenames: false
+        always_run: true
+
+  # Start a dogfooding metrics session when checking out an issue branch (#462).
+  # Pre-commit-managed (was a local-only .git/hooks/post-checkout) so every
+  # contributor gets it. `uv run` because dogfooding_metrics.py imports click +
+  # pyeye. The command self-guards file checkouts and is failure-tolerant.
+  - repo: local
+    hooks:
+      - id: start-metrics-session
+        name: Start dogfooding metrics session
+        entry: uv run python scripts/dogfooding_metrics.py start-on-checkout
+        language: system
+        stages: [post-checkout]
         pass_filenames: false
         always_run: true
         verbose: true
