@@ -208,6 +208,13 @@ KNOWN_EDGE_TYPES: frozenset[str] = frozenset(
         # Edges inspect measures in edge_counts (symbol-local, current impl):
         "members",
         "superclasses",
+        # ``submodules`` is measured by inspect for PACKAGE handles only (#423):
+        # present (possibly 0) when the module_path is an ``__init__.py``, absent
+        # for plain modules and non-module kinds (conditional-presence edge — see
+        # the note above ``_PHASE4_EXPECTED_EDGES``).  The count delegates to
+        # ``edges._enumerate_submodule_paths`` so it can never diverge from
+        # ``expand(pkg, "submodules")``.
+        "submodules",
         # Known edges NOT measured by inspect (expand-only / deferred):
         "subclasses",  # expand-only — project-wide scan, no cheap preview (#392)
         "callers",
@@ -247,6 +254,14 @@ _PLUGIN_EDGE_RE: re.Pattern[str] = re.compile(r"^\w+@\w+$")
 # ``_PHASE4_UNMEASURED_EDGES`` (forbidden).  function/method/attribute/property/
 # variable handles therefore have NO required edges — an empty edge_counts is
 # valid for them.  They return once an indexed backend lands (#333).
+#
+# ``submodules`` is a CONDITIONAL-PRESENCE edge for the ``module`` kind (#423):
+# it is measured only when the module is a package (module_path == ``__init__.py``),
+# so it is intentionally NOT listed below as a required ``module`` edge — requiring
+# it would force plain modules to emit it, violating the absence-vs-zero invariant
+# (packages: present, possibly 0; plain modules: absent).  It is in
+# ``KNOWN_EDGE_TYPES`` (B.2) but NOT in ``_PHASE4_UNMEASURED_EDGES``, so its
+# presence is permitted but never demanded.
 _PHASE4_EXPECTED_EDGES: dict[str, frozenset[str]] = {
     "class": frozenset({"members", "superclasses"}),
     "module": frozenset({"members"}),

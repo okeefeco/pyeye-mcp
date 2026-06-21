@@ -30,7 +30,44 @@ Common Pitfalls to Avoid:
     template_name = template_file.relative_to(template_dir).as_posix()
 """
 
+from collections.abc import Iterable
 from pathlib import Path
+
+
+def dedupe_paths(paths: Iterable[str | Path], *, resolve_output: bool = False) -> list[Path]:
+    """Dedupe *paths* by resolved identity, preserving first-seen order.
+
+    Each path is keyed by ``Path(p).resolve().as_posix()`` so symlinked/relative
+    duplicates collapse to one; paths that cannot be resolved (``OSError`` for a
+    bad/looping path, ``ValueError`` for an embedded NUL byte) are skipped rather
+    than raising.  Order follows the input — the first occurrence of each resolved
+    identity wins (the highest-precedence root, for sys.path-style root lists).
+
+    Args:
+        paths: The paths to dedupe, in precedence order.
+        resolve_output: When ``True`` the returned paths are the **resolved**
+            forms (stable for ``==`` comparison — e.g. matching a resolved
+            parent dir against project roots); when ``False`` the **original**
+            ``Path`` objects are returned (preserving caller-facing paths, e.g.
+            the unresolved roots scanned by the submodules enumerator).
+
+    Returns:
+        The deduped paths in first-seen order.
+    """
+    out: list[Path] = []
+    seen: set[str] = set()
+    for raw in paths:
+        path = Path(raw)
+        try:
+            resolved = path.resolve()
+        except (OSError, ValueError):
+            continue
+        key = resolved.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(resolved if resolve_output else path)
+    return out
 
 
 def normalize_path(path: str | Path) -> Path:

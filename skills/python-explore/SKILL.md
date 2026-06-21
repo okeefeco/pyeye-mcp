@@ -82,11 +82,12 @@ Notes that matter:
 `expand` and `trace` walk these edges. This is the **complete** set pyeye can answer
 reliably today:
 
-<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope -->
+<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope submodules -->
 
 | Edge | Direction | Meaning |
 |------|-----------|---------|
 | `members` | container → children | a class's methods/attributes, or a module's top-level defs |
+| `submodules` | package → child modules/subpackages | a package's direct child modules and subpackages (one hop; full tree via `trace`) |
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
@@ -209,6 +210,32 @@ resolve_at("myapp/cache.py", line=42, column=8)  -> { handle: "myapp.cache.Cache
 ```text
 outline("myapp.cache")  -> tree of (Cache, DependencyTracker, ...) with their methods
 ```
+
+**Cold start: "what's in this package / project?"** — orient top-down, drill on
+demand. `outline` on a *package* surveys its child modules/subpackages (depth-1
+by default — subpackages marked `truncated: max_depth`, modules as leaves); pass a
+higher `max_depth`, or `expand`/`trace` the `submodules` edge, to go deeper:
+
+```text
+resolve("myapp")                  -> { handle: "myapp", kind: "module", scope: "project" }
+outline("myapp")                  -> direct submodules/subpackages (depth-1 survey)
+expand("myapp.db", "submodules")  -> one hop of a subpackage's children
+trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (capped + `truncated`)
+```
+
+Then drill: `resolve(root) → outline(pkg) | expand(pkg, "submodules") → pick a
+module → inspect / expand("members") / trace`.
+
+> **Cold-start limit — namespace-rooted packages.** The bare-name entry above
+> (`resolve("myapp")`) is reliable for a **regular** package (one with an
+> `__init__.py`). A PEP 420 **namespace** package (no `__init__.py` at its root)
+> may surface as an `external`/`namespace` handle that `resolve`/`inspect` can't
+> anchor, so `resolve("<name>")` can come back ambiguous/not-found and
+> `inspect(<namespace-pkg>)` omits its `submodules` count — even though
+> `expand(<namespace-pkg>, "submodules")` still enumerates children once you hold
+> the handle. End-to-end namespace cold-start is deferred to #444; until then,
+> orient a namespace package via a child handle you already know, or by resolving
+> a concrete module inside it.
 
 **"What does this function call?"** — forward, reliable:
 
