@@ -94,6 +94,11 @@ reliably today:
 | `imports` | module → what it imports | the module's top-level imports |
 | `imported_by` | module → its importers | project modules that import this module |
 
+**Pointer-only stubs.** `subclasses` and `imported_by` stubs are *pointers*
+(handle + location + kind) and intentionally omit `signature` — even though a
+subclass stub's kind is `class`. Drill with `inspect(<handle>)` when you need a
+subclass's constructor signature or docstring.
+
 **Static-surface ceiling.** These structural edges are complete over what is
 *written in source*, not over what exists at runtime. `members` / `outline` /
 `subclasses` do not see runtime-injected relationships — metaclass injection,
