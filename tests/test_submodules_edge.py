@@ -267,3 +267,67 @@ class TestExpandTraceSmoke:
         # The one-hop children appear as nodes reachable from the root.
         assert "mypkg.alpha" in result["nodes"]
         assert "mypkg.sub" in result["nodes"]
+
+
+# ---------------------------------------------------------------------------
+# Same-name file-vs-dir collision: deterministic CPython import precedence (#423
+# review #6). A directory may hold both ``X.py`` and ``X/``; the winner must be
+# precedence-decided (regular package > module > namespace package), NOT decided
+# by arbitrary iterdir() order.
+# ---------------------------------------------------------------------------
+
+_COLLISION_PKG = _CONTAINMENT / "collision" / "pkg"
+
+
+@pytest.fixture
+def collision_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the collision-fixture root."""
+    return JediAnalyzer(str(_CONTAINMENT / "collision"))
+
+
+def _collision_sentinel(analyzer: JediAnalyzer) -> ModuleSentinel:
+    return ModuleSentinel(_COLLISION_PKG / "__init__.py", "pkg", analyzer)
+
+
+class TestSubmoduleNameCollisionPrecedence:
+    """A ``X.py``/``X/`` name clash resolves by CPython import precedence."""
+
+    def test_regular_package_beats_same_name_module(self, collision_analyzer: JediAnalyzer) -> None:
+        # regwins.py (module) AND regwins/__init__.py (regular pkg) → package wins.
+        entries = _enumerate_submodule_paths(
+            _collision_sentinel(collision_analyzer), collision_analyzer
+        )
+        regwins = next(e for e in entries if e.handle == "pkg.regwins")
+        assert regwins.is_subpackage is True
+        assert regwins.file.name == "__init__.py"
+        assert regwins.file.parent.name == "regwins"
+
+    def test_module_beats_same_name_namespace_dir(self, collision_analyzer: JediAnalyzer) -> None:
+        # modwins.py (module) AND modwins/ (namespace dir, no __init__) → module wins.
+        entries = _enumerate_submodule_paths(
+            _collision_sentinel(collision_analyzer), collision_analyzer
+        )
+        modwins = next(e for e in entries if e.handle == "pkg.modwins")
+        assert modwins.is_subpackage is False
+        assert modwins.file.name == "modwins.py"
+
+    def test_each_handle_appears_exactly_once(self, collision_analyzer: JediAnalyzer) -> None:
+        entries = _enumerate_submodule_paths(
+            _collision_sentinel(collision_analyzer), collision_analyzer
+        )
+        handles = [e.handle for e in entries]
+        assert sorted(handles) == handles  # full-handle total order
+        assert len(handles) == len(set(handles))  # no duplicate child handles
+        assert {"pkg.regwins", "pkg.modwins"} <= set(handles)
+
+    def test_winner_is_deterministic_across_runs(self, collision_analyzer: JediAnalyzer) -> None:
+        # Independent of iterdir() order: repeated calls give identical results.
+        first = _enumerate_submodule_paths(
+            _collision_sentinel(collision_analyzer), collision_analyzer
+        )
+        second = _enumerate_submodule_paths(
+            _collision_sentinel(collision_analyzer), collision_analyzer
+        )
+        assert [(e.handle, e.file.as_posix(), e.is_subpackage) for e in first] == [
+            (e.handle, e.file.as_posix(), e.is_subpackage) for e in second
+        ]

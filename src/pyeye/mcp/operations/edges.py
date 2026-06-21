@@ -69,6 +69,7 @@ from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.mcp.operations.resolve import _normalise_kind
+from pyeye.path_utils import dedupe_paths
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -136,6 +137,15 @@ class _SubmoduleEntry(NamedTuple):
     handle: str
     file: Path
     is_subpackage: bool
+
+
+# CPython same-name import precedence within ONE directory: a regular package
+# (``X/__init__.py``) shadows a module (``X.py``), which in turn shadows a PEP 420
+# namespace package (a bare ``X/``).  Lower rank wins (see
+# :func:`_enumerate_submodule_paths`).
+_PRECEDENCE_REGULAR_PKG = 0
+_PRECEDENCE_MODULE = 1
+_PRECEDENCE_NAMESPACE_PKG = 2
 
 
 # ---------------------------------------------------------------------------
@@ -1258,21 +1268,21 @@ def _analyzer_roots(analyzer: JediAnalyzer) -> list[Path]:
     ``project_path``, and ``added_sys_path`` so the order is stable run-to-run.
     The order is the namespace collision-winner's determinism guarantee: the
     first root holding a portion wins (first-portion-wins, #419 class).  Duplicate
-    roots are dropped, keeping the first (highest-precedence) occurrence.
+    roots are dropped (by resolved identity), keeping the first (highest-
+    precedence) occurrence.
+
+    Composition note: this list intentionally includes ``added_sys_path`` so the
+    namespace-portion union sees configured package roots.  ``resolve``'s
+    ``_project_roots`` deliberately does NOT — it only promotes a bare name to a
+    root that is the *project's own* top-level package.  Both now share the
+    dedupe-by-resolved-identity helper (:func:`pyeye.path_utils.dedupe_paths`);
+    only the root composition (and resolved-vs-original output) differs.
     """
     # roots order = sys.path precedence; collision-winner determinism depends on
     # it (#419 class).  source_roots (src-layout) and project_path come before
-    # the configured added_sys_path package roots.
-    ordered: list[Path] = [*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path]
-    roots: list[Path] = []
-    seen: set[str] = set()
-    for root in ordered:
-        key = root.resolve().as_posix()
-        if key in seen:
-            continue
-        seen.add(key)
-        roots.append(root)
-    return roots
+    # the configured added_sys_path package roots.  Original (unresolved) paths
+    # are kept so child stub paths stay caller-facing.
+    return dedupe_paths([*analyzer.source_roots, analyzer.project_path, *analyzer.added_sys_path])
 
 
 def _dir_shallow_qualifies(path: Path) -> bool:
@@ -1394,47 +1404,54 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
     if not parent_handle:
         return []
 
-    entries: list[_SubmoduleEntry] = []
-    # Dedup children by handle across portions: dirs are in roots (sys.path
-    # precedence) order, so the FIRST occurrence wins — the first-portion-wins
-    # invariant for namespace collisions (e.g. company.shared in two portions).
-    seen_handles: set[str] = set()
+    # Per child NAME, resolve a same-name file-vs-dir clash within ONE directory
+    # by CPython import precedence (regular package > module > namespace package),
+    # then keep the first PORTION's winner across the namespace union (``dirs`` is
+    # in roots/sys.path-precedence order → first-portion-wins, #419 class).  A
+    # single dict keyed by full handle replaces the old per-branch ``seen_handles``
+    # guards AND removes the iterdir-order nondeterminism a ``foo.py`` + ``foo/``
+    # clash would otherwise produce.
+    chosen: dict[str, tuple[int, _SubmoduleEntry]] = {}
     for pkg_dir in dirs:
         try:
             children = list(pkg_dir.iterdir())
         except OSError:
             continue
+        local: dict[str, tuple[int, _SubmoduleEntry]] = {}
         for child in children:
             name = child.name
             if name.startswith(".") or name == "__pycache__":
-                continue
-
-            if child.is_file():
-                if child.suffix != ".py" or child.stem == "__init__":
-                    continue
-                handle = f"{parent_handle}.{child.stem}"
-                if handle in seen_handles:
-                    continue
-                seen_handles.add(handle)
-                entries.append(_SubmoduleEntry(handle=handle, file=child, is_subpackage=False))
                 continue
 
             if child.is_dir():
                 handle = f"{parent_handle}.{name}"
                 init_py = child / "__init__.py"
                 if init_py.exists():
-                    if handle in seen_handles:
-                        continue
-                    seen_handles.add(handle)
-                    entries.append(_SubmoduleEntry(handle=handle, file=init_py, is_subpackage=True))
+                    cand = (_PRECEDENCE_REGULAR_PKG, _SubmoduleEntry(handle, init_py, True))
                 elif _dir_shallow_qualifies(child):
-                    if handle in seen_handles:
-                        continue
-                    seen_handles.add(handle)
-                    entries.append(_SubmoduleEntry(handle=handle, file=child, is_subpackage=True))
+                    cand = (_PRECEDENCE_NAMESPACE_PKG, _SubmoduleEntry(handle, child, True))
+                else:
+                    continue
+            elif child.is_file():
+                if child.suffix != ".py" or child.stem == "__init__":
+                    continue
+                handle = f"{parent_handle}.{child.stem}"
+                cand = (_PRECEDENCE_MODULE, _SubmoduleEntry(handle, child, False))
+            else:
+                continue
 
-    entries.sort(key=lambda e: e.handle.rsplit(".", 1)[-1])
-    return entries
+            current = local.get(handle)
+            if current is None or cand[0] < current[0]:
+                local[handle] = cand
+
+        # First portion wins across the union: never overwrite a handle a higher-
+        # precedence portion already supplied.
+        for handle, cand in local.items():
+            chosen.setdefault(handle, cand)
+
+    # Sort by the FULL handle — a total order independent of iterdir, so output is
+    # deterministic across runs/platforms (not just by bare child name).
+    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
 
 
 def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:

@@ -84,9 +84,9 @@ class TestSelectRootPackage:
         ]
         assert _select_root_package(cands, "mypkg", analyzer) is None
 
-    def test_same_handle_portions_collapse(self, analyzer: JediAnalyzer) -> None:
-        # Two same-handle candidates (e.g. namespace portions) dedupe to one
-        # distinct handle → promoted.
+    def test_same_handle_same_file_collapses(self, analyzer: JediAnalyzer) -> None:
+        # Two candidates with the same handle AND the same on-disk file (one
+        # physical package surfaced twice) dedupe to one → promoted.
         cands = [
             _candidate("mypkg", _MYPKG_INIT),
             _candidate("mypkg", _MYPKG_INIT),
@@ -94,6 +94,20 @@ class TestSelectRootPackage:
         chosen = _select_root_package(cands, "mypkg", analyzer)
         assert chosen is not None
         assert chosen["handle"] == "mypkg"
+
+    def test_same_name_shadow_across_roots_stays_ambiguous(self) -> None:
+        # Two genuinely-different top-level packages sharing an import name across
+        # two roots (project root + a src-layout root): same handle, DIFFERENT
+        # files. Promoting either would silently hide the collision → stay
+        # ambiguous (#423 review #7).
+        shadow = Path(__file__).parent / "fixtures" / "root_package_shadow"
+        analyzer = JediAnalyzer(str(shadow))
+        analyzer.source_roots = [shadow / "a", shadow / "b"]
+        cands = [
+            _candidate("mypkg", shadow / "a" / "mypkg" / "__init__.py"),
+            _candidate("mypkg", shadow / "b" / "mypkg" / "__init__.py"),
+        ]
+        assert _select_root_package(cands, "mypkg", analyzer) is None
 
 
 class TestResolveIntegration:

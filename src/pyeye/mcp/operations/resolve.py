@@ -67,6 +67,7 @@ from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
+from pyeye.path_utils import dedupe_paths
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -268,22 +269,16 @@ def _project_roots(analyzer: JediAnalyzer) -> list[Path]:
     """Return the resolved project roots a top-level package may sit directly under.
 
     The ``project_path`` plus any src-layout ``source_roots`` (e.g. ``src/``),
-    resolved for symlink-stable comparison.  Used by
+    **resolved** for symlink-stable ``==`` comparison.  Used by
     :func:`_is_top_level_package` clause (2) to test whether a package directory's
     parent is a genuine project root.
+
+    Deliberately does NOT include ``analyzer.added_sys_path`` (configured external
+    package roots): bare-name promotion is only for the *project's own* top-level
+    package.  Contrast :func:`edges._analyzer_roots`, which includes it for the
+    namespace-portion union; both share :func:`pyeye.path_utils.dedupe_paths`.
     """
-    roots: list[Path] = []
-    seen: set[str] = set()
-    for root in (analyzer.project_path, *analyzer.source_roots):
-        try:
-            resolved = root.resolve()
-        except OSError:
-            continue
-        key = resolved.as_posix()
-        if key not in seen:
-            seen.add(key)
-            roots.append(resolved)
-    return roots
+    return dedupe_paths([analyzer.project_path, *analyzer.source_roots], resolve_output=True)
 
 
 def _parent_is_root(path: Path, roots: list[Path]) -> bool:
@@ -304,10 +299,16 @@ def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyz
 
     1. the candidate's handle has **no dots** and equals *name* (a deeper
        ``foo.bar.name`` has dots → never qualifies); and
-    2. its ``location.file`` ``F`` is a **root-level package anchor** — either
-       a ``__init__.py`` whose parent dir is named *name* and whose grandparent
-       is a project root (regular package), or a directory ``D`` named *name*
-       directly under a project root (PEP 420 directory-anchored root).
+    2. its ``location.file`` is a **root-level regular-package anchor**: a
+       ``__init__.py`` whose parent dir is named *name* and whose grandparent is
+       a project root.
+
+    **Regular packages only.** A PEP 420 namespace root (no ``__init__.py``)
+    surfaces via ``find_symbol`` with an *empty* ``location.file``, so it never
+    satisfies clause (2) and is never promoted by bare name.  Anchoring a
+    namespace root to a project handle (so bare-name promotion could work) is
+    deferred to #444; until then a namespace root resolves via ``resolve(path)``
+    (see the §7.2 boundary in the design spec).
 
     Args:
         candidate: The resolve candidate under test.
@@ -315,33 +316,22 @@ def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyz
         analyzer: Active analyzer (supplies the project roots).
 
     Returns:
-        ``True`` iff *candidate* is the top-level package for *name*.
+        ``True`` iff *candidate* is the top-level regular package for *name*.
     """
     # Clause 1 — handle is exactly the bare name (no dots).
     handle = candidate["handle"]
     if "." in handle or handle != name:
         return False
 
-    # Clause 2 — root-level package anchor.
+    # Clause 2 — root-level regular-package anchor: <root>/<name>/__init__.py.
     file_str = candidate["location"]["file"]
     if not file_str:
         return False
     path = Path(file_str)
-    roots = _project_roots(analyzer)
-
-    if path.name == "__init__.py":
-        # Regular package: <root>/<name>/__init__.py
-        pkg_dir = path.parent
-        return pkg_dir.name == name and _parent_is_root(pkg_dir, roots)
-
-    # Directory-anchored (PEP 420) root: <root>/<name>/  (a bare directory).
-    try:
-        is_dir = path.is_dir()
-    except OSError:
-        is_dir = False
-    if is_dir and path.name == name:
-        return _parent_is_root(path, roots)
-    return False
+    if path.name != "__init__.py":
+        return False
+    pkg_dir = path.parent
+    return pkg_dir.name == name and _parent_is_root(pkg_dir, _project_roots(analyzer))
 
 
 def _select_root_package(
@@ -349,11 +339,15 @@ def _select_root_package(
 ) -> _Candidate | None:
     """Promote a unique top-level package from *candidates*, else ``None`` (§7.1).
 
-    Keeps the candidates satisfying :func:`_is_top_level_package`, dedupes them by
-    handle string, and returns the single qualifying candidate iff exactly one
-    DISTINCT handle survives — so same-handle namespace portions collapse to one
-    (promoted) while a genuinely ambiguous set (zero or >1 distinct root handles)
-    stays ambiguous.
+    Keeps the candidates satisfying :func:`_is_top_level_package`, then promotes
+    only when they identify ONE unambiguous root package:
+
+    - zero survivors → ``None`` (no root package among the candidates);
+    - more than one DISTINCT handle → ``None`` (genuinely ambiguous);
+    - one distinct handle but more than one DISTINCT on-disk file → ``None``: a
+      real **shadow**, two top-level packages sharing an import name across roots
+      (e.g. ``project/<name>`` and ``src/<name>``).  Silently picking one would
+      hide the collision, so stay ambiguous (#423 review).
 
     Args:
         candidates: The ambiguous candidate set.
@@ -367,6 +361,8 @@ def _select_root_package(
     if not kept:
         return None
     if len({c["handle"] for c in kept}) != 1:
+        return None
+    if len({c["location"]["file"] for c in kept}) != 1:
         return None
     return kept[0]
 
