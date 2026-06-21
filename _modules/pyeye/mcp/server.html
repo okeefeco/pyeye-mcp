@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=375c2f94"></script>
+      <script src="../../../_static/documentation_options.js?v=b01dad94"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -348,6 +348,7 @@
 <span></span><span class="sd">&quot;&quot;&quot;Main MCP server implementation for PyEye.&quot;&quot;&quot;</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">builtins</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
@@ -397,6 +398,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">..project_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_project_manager</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">settings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.</span><span class="w"> </span><span class="kn">import</span> <span class="n">meta</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.expand</span><span class="w"> </span><span class="kn">import</span> <span class="n">expand</span> <span class="k">as</span> <span class="n">_expand_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.inspect</span><span class="w"> </span><span class="kn">import</span> <span class="n">inspect</span> <span class="k">as</span> <span class="n">_inspect_impl</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.operations.outline</span><span class="w"> </span><span class="kn">import</span> <span class="n">outline</span> <span class="k">as</span> <span class="n">_outline_impl</span>
@@ -409,8 +411,9 @@
 <span class="c1"># Logger — configured by __main__.py or caller; fallback to basic stderr.</span>
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
-<span class="c1"># Initialize the MCP server</span>
-<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;PyEye&quot;</span><span class="p">)</span>
+<span class="c1"># Initialize the MCP server.  The instructions block carries an in-band pointer</span>
+<span class="c1"># to where pyeye bugs are reported (#458), so it is always in the agent&#39;s context.</span>
+<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;PyEye&quot;</span><span class="p">,</span> <span class="n">instructions</span><span class="o">=</span><span class="n">meta</span><span class="o">.</span><span class="n">server_instructions</span><span class="p">())</span>
 
 <span class="c1"># Initialize unified metrics session</span>
 <span class="n">_unified_session_id</span> <span class="o">=</span> <span class="kc">None</span>
@@ -841,7 +844,8 @@
 <span class="sd">          &quot;unsupported&quot;: True,</span>
 <span class="sd">          &quot;reason&quot;:  str,               # deferred_reference_backend |</span>
 <span class="sd">                                        # not_yet_implemented | unknown_edge</span>
-<span class="sd">          &quot;detail&quot;:  str }              # human-readable explanation</span>
+<span class="sd">          &quot;detail&quot;:  str,               # human-readable explanation</span>
+<span class="sd">          &quot;report_issues&quot;: str }        # #458 — URL to report this limitation</span>
 
 <span class="sd">    Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,</span>
 <span class="sd">    ``line_end``, and ``signature`` when Jedi yields one (always for</span>
@@ -900,7 +904,8 @@
 <span class="sd">          &quot;edges&quot;: [ {&quot;from&quot;: h, &quot;to&quot;: h, &quot;kind&quot;: edge}, ... ],</span>
 <span class="sd">          &quot;truncated&quot;: bool,                     # a cap cut off reachable nodes</span>
 <span class="sd">          &quot;truncation_reasons&quot;: [&quot;max_depth&quot;?, &quot;max_nodes&quot;?],  # which cap(s) fired</span>
-<span class="sd">          &quot;unsupported_edges&quot;: [ {&quot;edge&quot;, &quot;reason&quot;, &quot;detail&quot;}, ... ] }</span>
+<span class="sd">          &quot;unsupported_edges&quot;: [ {&quot;edge&quot;, &quot;reason&quot;, &quot;detail&quot;}, ... ],</span>
+<span class="sd">          &quot;report_issues&quot;: str }   # #458 — present ONLY when unsupported_edges non-empty</span>
 
 <span class="sd">    Edges are NOT deduped across kinds; edges to already-visited handles are</span>
 <span class="sd">    recorded (so cycles stay visible) but never re-expanded, guaranteeing</span>
@@ -1288,6 +1293,20 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
         <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Workflow not found: </span><span class="si">{</span><span class="n">workflow_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;pyeye://about&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_about</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get pyeye&#39;s self-description: version, repository, and issues URL.</span>
+
+<span class="sd">    Lets an agent answer &quot;what version are you, and where do I report a problem</span>
+<span class="sd">    with you?&quot; deterministically in one round-trip (#458), instead of guessing</span>
+<span class="sd">    the repo slug out-of-band.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A JSON object with ``name``, ``version``, ``repository`` and ``issues``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">meta</span><span class="o">.</span><span class="n">about</span><span class="p">())</span>
 
 
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://find-references&quot;</span><span class="p">)</span>
