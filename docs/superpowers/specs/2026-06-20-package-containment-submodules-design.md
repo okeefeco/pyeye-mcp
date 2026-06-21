@@ -236,12 +236,22 @@ _count_submodules(jedi_name, analyzer) = len(_enumerate_submodule_paths(jedi_nam
 ```
 
 No `ModuleSentinel` construction, no file reads — the cheapest path. Containment and
-PEP 420 logic live **only** in the enumerator; the count cannot drift from the edge.
+PEP 420 logic live **only** in the enumerator; the count cannot drift from the edge
+**for regular packages** (see the scope note below).
 
-- Present **only** for package handles. The value may be `0` (a genuinely empty
-  package — a measured zero, valid under absence-vs-zero).
+- Present **only** for **regular** package handles (anchored on an `__init__.py`).
+  The value may be `0` (a genuinely empty package — a measured zero, valid under
+  absence-vs-zero).
 - **Absent** for non-package modules and all non-module kinds (submodules is
   not-applicable, not zero — mirroring how `enclosing_scope` on a module is `[]`).
+- **Scope — regular packages only (count==expand boundary, #444).** A PEP 420
+  namespace package surfaces as a `kind=="namespace"`/`scope=="external"` handle
+  and never reaches the `kind == "module"` counting branch, so `inspect` omits its
+  `submodules` count even though `expand(pkg, "submodules")` can still enumerate
+  children. The `count == len(expand)` equality is therefore guaranteed for
+  regular packages only; making it hold for namespace packages requires anchoring
+  them to a project handle first (deferred to #444, consistent with the
+  best-effort namespace-root boundary in §7.2).
 - Wired into `_build_edge_counts` under the same per-edge budget machinery as
   `members`/`superclasses`.
 
@@ -403,8 +413,12 @@ Real on-disk package trees as fixtures (including a no-`__init__.py` namespace d
    read; `ModuleSentinel(dir).docstring() == ""` and does not raise.
 4. **Shallow importable-dir filter:** `__pycache__`/data dirs skipped; one-level
    qualification only (no recursive subtree walk).
-5. **`edge_counts`:** `inspect(pkg).edge_counts.submodules == len(expand(pkg, "submodules").stubs)`;
+5. **`edge_counts`:** for a **regular** package,
+   `inspect(pkg).edge_counts.submodules == len(expand(pkg, "submodules").stubs)`;
    absent for non-package modules and non-modules; `0` for an empty package.
+   (Namespace packages are out of scope for this equality — see §4 scope note /
+   #444 — and the namespace cases here are covered at the enumerator level via a
+   `_NameStub`, not through the real `inspect`/`expand` pipeline.)
 6. **`trace(follow=["submodules"])`** on a deep package: bounded by `max_nodes`/
    `max_depth` with honest `truncated`/`truncation_reason`.
 7. **`outline(pkg)`:** depth-1 default — subpackages `truncated: max_depth`, modules

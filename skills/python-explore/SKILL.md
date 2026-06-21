@@ -226,6 +226,17 @@ trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (cap
 Then drill: `resolve(root) → outline(pkg) | expand(pkg, "submodules") → pick a
 module → inspect / expand("members") / trace`.
 
+> **Cold-start limit — namespace-rooted packages.** The bare-name entry above
+> (`resolve("myapp")`) is reliable for a **regular** package (one with an
+> `__init__.py`). A PEP 420 **namespace** package (no `__init__.py` at its root)
+> may surface as an `external`/`namespace` handle that `resolve`/`inspect` can't
+> anchor, so `resolve("<name>")` can come back ambiguous/not-found and
+> `inspect(<namespace-pkg>)` omits its `submodules` count — even though
+> `expand(<namespace-pkg>, "submodules")` still enumerates children once you hold
+> the handle. End-to-end namespace cold-start is deferred to #444; until then,
+> orient a namespace package via a child handle you already know, or by resolving
+> a concrete module inside it.
+
 **"What does this function call?"** — forward, reliable:
 
 ```text

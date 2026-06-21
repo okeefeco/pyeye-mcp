@@ -842,11 +842,20 @@ async def _count_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     """Count a package's direct child modules/subpackages (#423).
 
     Delegates to :func:`edges._enumerate_submodule_paths` — the single
-    containment source-of-truth — so the count can never diverge from the
-    ``submodules`` expand edge:
+    containment source-of-truth — so for a **regular** package (one anchored on
+    an ``__init__.py``) the count can never diverge from the ``submodules``
+    expand edge:
     ``inspect(pkg).edge_counts["submodules"] == len(expand(pkg, "submodules").stubs)``.
     The enumerator is a pure ``iterdir`` scan (NO file reads), so this is the
     cheap counts-first signal the spec (§4) asks for.
+
+    **Scope — regular packages only.** The equality above is guaranteed for
+    regular packages. A PEP 420 **namespace** package surfaces (via Jedi) as an
+    ``external``/``namespace`` handle that never reaches the package-counting
+    branch in :func:`_build_edge_counts`, so ``inspect`` omits its ``submodules``
+    count even though ``expand(pkg, "submodules")`` can still enumerate its
+    children. Closing that asymmetry needs the namespace package anchored to a
+    project handle first — deferred to #444.
 
     **Why ``async def`` with no ``await``**: identical to
     :func:`_count_module_members` — ``_build_edge_counts`` gathers coroutines
@@ -980,10 +989,14 @@ async def _build_edge_counts(
     elif kind == "module":
         coros["members"] = _count_module_members(jedi_name, analyzer)
         # submodules is a PACKAGE-only edge (#423): present (possibly a measured
-        # 0) for a package handle, ABSENT for a plain module — the absence-vs-zero
-        # invariant.  is_package == its module_path is an __init__.py (the same
-        # rule _build_module_fields uses); a namespace package has no single
-        # resolvable handle so it never reaches here.
+        # 0) for a regular package handle, ABSENT for a plain module — the
+        # absence-vs-zero invariant.  is_package == its module_path is an
+        # __init__.py (the same rule _build_module_fields uses).  A PEP 420
+        # namespace package surfaces as kind=="namespace"/scope=="external", so it
+        # never reaches this `kind == "module"` branch — its submodules count is
+        # intentionally omitted (count==expand is scoped to regular packages;
+        # namespace anchoring is deferred to #444), even though
+        # expand(pkg, "submodules") can still enumerate its children.
         module_path = getattr(jedi_name, "module_path", None)
         if module_path is not None and Path(module_path).name == "__init__.py":
             coros["submodules"] = _count_submodules(jedi_name, analyzer)
