@@ -7,13 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BREAKING CHANGES
+
+#### MCP tool surface redesigned around progressive-disclosure primitives
+
+The Jedi-shaped navigation tools have been replaced by six primitives that
+operate on **canonical handles** (re-exported paths collapse to the definition
+site), return small structural responses by default (no source content), and
+honour an absence-vs-zero invariant. See `docs/api-redesign.md` for the full
+rationale.
+
+**New interface:** `resolve` / `resolve_at` / `inspect` / `outline` / `expand`
+/ `trace`.
+
+##### Removed tools
+
+The clearly-replaced legacy navigation tools were **removed** from the MCP
+surface (#376). Migrate existing agent/integration code as follows:
+
+| Removed tool | Replacement | Notes |
+|--------------|-------------|-------|
+| `find_symbol(name)` | `resolve(name)` | Canonical handle; ambiguity surfaced explicitly |
+| `goto_definition(file, line, col)` | `resolve_at(file, line, col)` | Returns a canonical handle directly |
+| `get_type_info(file, line, col)` | `inspect(handle)` | Richer Node; no source content |
+| `get_module_info(module)` | `inspect(module_handle)` | Same Node contract; member count via `edge_counts.members` |
+| `find_imports(module)` | `expand(handle, edge="imported_by")` | Stub-based, canonical handles |
+| `find_subclasses(class)` | `expand(handle, edge="subclasses")` (direct) / `trace(follow=["subclasses"], max_depth=k)` (closure) | Direct subclasses are one hop (#422); full transitive closure via `trace`. Not in `edge_counts` (cheap count gated on #333/#397). |
+| `list_packages` / `list_modules` | `outline` | One structural lister |
+| `list_project_structure` | `outline` | One structural lister |
+
+Note: the same-named `JediAnalyzer` methods (e.g. `analyzer.find_symbol`,
+`analyzer.list_modules`) are internal implementation and remain — they back the
+new operations. Only the MCP **tool wrappers** were removed.
+
+##### Deprecated tools (still registered, no live replacement yet)
+
+These remain available but are deprecated and will be removed in a later
+legacy-tool cleanup phase:
+
+| Deprecated tool | Eventual replacement | Why still present |
+|-----------------|----------------------|-------------------|
+| `find_references` | `expand(handle, edge="references")` | Inbound/caller edges depend on the deferred Pyright reference backend (#333) |
+| `get_call_hierarchy` | `expand(handle, edge="callees")` (forward); callers via #333 | Forward edges covered by `expand`; inbound edges await #333 |
+| `analyze_dependencies` | `trace(follow=["imports"])` | Retained until `trace` emits a derived `circular_dependencies` summary (#404) |
+
+`configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
+are orthogonal to the navigation redesign and are unchanged.
+
+### Added
+
+- Progressive-disclosure operations over canonical handles: `resolve`,
+  `resolve_at`, `inspect`, `outline`, `expand`, and `trace`. Supported `expand`
+  / `trace` edges: `members`, `callees`, `imports`, `imported_by`,
+  `subclasses`, `superclasses`, `enclosing_scope`, and `submodules`.
+- `pyeye://about` MCP resource and in-band issue-reporting pointers (server
+  `instructions`, `report_issues` keys on unsupported `expand`/`trace`
+  payloads).
+
 ### Removed
 
 - `worktree-manager` agent and the `claude/development` "learning hub" workflow. Worktrees now use native tooling (the `EnterWorktree` tool / superpowers `using-git-worktrees` skill) under `.claude/worktrees`; removal safety remains via `scripts/worktree_safety.py` and the rules in `01-core-rules.md`. Also removed the now-obsolete `docs/CLAUDE_WORKTREE_WORKFLOW.md` and `.claude/startup-context.md`.
 
 ### Changed
 
-- Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync --all-extras`.
+- Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
 
 ## [1.0.0] - 2025-10-04
 
