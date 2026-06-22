@@ -40,10 +40,18 @@ Truncation reasons (spec §5.4)
 - ``"max_depth"`` — node is at the depth frontier and has non-empty members
   (detected by a single peek call to ``resolve_members``).  Genuine empty
   containers at the frontier receive ``children: []`` instead of truncation.
-- ``"max_nodes"`` — the node budget is exhausted.  No peek is performed.
+- ``"max_nodes"`` — the node budget cannot admit ALL of the container's direct
+  members, so it is **reserved-before-expand**: rather than expand partway and
+  silently drop the rest (the #358 bug), the whole container is cut off.  A
+  single peek counts the members (adding no nodes) so the cut-off node carries an
+  honest ``member_count`` — the count of direct members withheld — alongside
+  ``truncated``/``truncation_reason``.  Recovery is a fresh re-outline with a
+  larger budget or a targeted subtree.  Genuinely empty containers are leaves
+  (``children: []``), never a ``max_nodes`` truncation.
 - ``"external"`` — the node is an external-scope container at depth ≥ 1.  The
   external cap allows one level of members from the root and one from its
-  immediate children, but no deeper walk into third-party code.  No peek.
+  immediate children, but no deeper walk into third-party code.  No peek, no
+  ``member_count``.
 
 Tiebreaker (spec §5.4): when both ``max_nodes`` AND ``max_depth``/``external``
 could fire on the same node, ``truncation_reason`` is ``"max_nodes"`` (the harder
@@ -252,10 +260,18 @@ async def outline(
         # TIEBREAKER (spec §5.4): budget check wins over depth/external.
         # Check it FIRST so that when both could fire, we report "max_nodes".
         if node_count >= max_nodes:
-            # Budget is full; this container was added but cannot be expanded.
-            # No peek — that would defeat the budget.
-            tree_node["truncated"] = True
-            tree_node["truncation_reason"] = _REASON_MAX_NODES
+            # Budget already full: this container cannot admit any child.  Peek
+            # the member count ONCE so a max_nodes truncation carries an honest
+            # signpost (#358 / spec §3) — the peek counts members but adds no
+            # nodes, so it does not "defeat" the budget.  A genuinely empty
+            # container is a leaf (children: []), never a truncation.
+            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+            if not adjacents:
+                tree_node["children"] = []
+            else:
+                tree_node["truncated"] = True
+                tree_node["truncation_reason"] = _REASON_MAX_NODES
+                tree_node["member_count"] = len(adjacents)
             continue
 
         # External-scope cap: external containers at depth ≥ 1 are capped.
@@ -280,21 +296,27 @@ async def outline(
                 tree_node["truncation_reason"] = _REASON_MAX_DEPTH
             continue
 
-        # --- Expand: add children and enqueue for BFS. ---
-
+        # --- Expand: reserve-before-expand (spec §4, #358). ---
+        # Peek the direct members ONCE.  Reserve the whole set up front: if the
+        # remaining budget cannot admit ALL of them, do NOT produce a partial
+        # children list — mark this container truncated: "max_nodes" with an
+        # honest member_count and omit children (Contract 1/2).  Recovery is a
+        # fresh re-outline with a larger budget or a targeted subtree.  The old
+        # code broke mid-loop and assigned the partial list with no marker.
         adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+        if not adjacents:
+            # Genuine empty container — a measured leaf, not a truncation.
+            tree_node["children"] = []
+            continue
+
+        if node_count + len(adjacents) > max_nodes:
+            tree_node["truncated"] = True
+            tree_node["truncation_reason"] = _REASON_MAX_NODES
+            tree_node["member_count"] = len(adjacents)
+            continue
 
         children: list[dict[str, Any]] = []
         for child_handle, child_jedi_name in adjacents:
-            # Budget: add a child only if there is room.
-            if node_count >= max_nodes:
-                # Budget exhausted mid-expansion: remaining children silently
-                # not added.  (The parent's children list is partial, but the
-                # contract does not require a sentinel — the consumer can infer
-                # incompleteness from any truncated nodes elsewhere in the tree
-                # and from the tree's overall node count vs the budget.)
-                break
-
             child_handle_str = str(child_handle)
             child_stub = build_stub(child_jedi_name, child_handle_str, analyzer)
             child_tree: dict[str, Any] = {"node": child_stub}

@@ -237,11 +237,23 @@ cut-off container. The rule differs by cause:
   once on the node (one hop, do not recurse). Empty → emit `children: []` (genuine
   leaf). Non-empty → emit `truncated: "max_depth"`, omit `children`. This mirrors
   `trace` resolving edges one hop past its frontier to detect truncation.
-- **`max_nodes` — do not peek.** When the budget is exhausted, a not-yet-expanded
-  container is marked `truncated: "max_nodes"` with `children` omitted, WITHOUT
-  calling `resolve_members` — peeking would defeat the budget. Honest: "didn't
-  walk," not a false `[]`.
+- **`max_nodes` — reserve-before-expand (amended by #358).** A container is
+  expanded only if the budget can admit ALL its direct members; otherwise it is
+  cut off **whole** (`truncated: "max_nodes"`, `children` omitted). One peek
+  counts the members (adding no nodes) so the cut-off node carries an honest
+  `member_count`. Genuinely empty containers are leaves (`children: []`), never a
+  `max_nodes` truncation. Honest: "didn't walk," not a false `[]`, and never a
+  *partial* `children` list.
 - **`external` cap — do not peek deeper.** See §5.4.
+
+> **Amendment (#358, 2026-06-22).** The original rule above said "do not peek"
+> and treated `max_nodes` as a per-node dequeue check. That left a hole: when the
+> budget was exhausted *mid-enumeration of a container's children*, the loop
+> broke and assigned the **partial** `children` list with no truncation marker —
+> a Contract-1 violation (a partial set read as complete). The fix is
+> **reserve-before-expand** + a `member_count` signpost on every `max_nodes`
+> truncation, so a container is never partially expanded. See the cross-interface
+> design in `2026-06-22-bounded-response-firehose-contract-design.md` (§4).
 
 ### 5.4 Bounds
 

@@ -103,10 +103,12 @@ class TestOutlineAcceptsValid:
         lint_response(tree, "outline")
 
     def test_truncated_max_nodes_passes(self) -> None:
+        """O.5 — a max_nodes truncation carries member_count (the withheld count)."""
         tree = {
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_nodes",
+            "member_count": 7,
         }
         lint_response(tree, "outline")
 
@@ -177,6 +179,47 @@ class TestOutlineStructuralFloor:
         }
         with pytest.raises(ConformanceViolation, match="children"):
             lint_response(tree, "outline")
+
+    def test_max_nodes_truncation_without_member_count_rejected(self) -> None:
+        """O.5 — a max_nodes truncation MUST signpost member_count (#358)."""
+        tree = {
+            "node": _STUB_CLASS,
+            "truncated": True,
+            "truncation_reason": "max_nodes",
+        }
+        with pytest.raises(ConformanceViolation, match="member_count"):
+            lint_response(tree, "outline")
+
+    def test_member_count_bool_rejected(self) -> None:
+        """O.5 — member_count must be a plain int, not a bool."""
+        tree = {
+            "node": _STUB_CLASS,
+            "truncated": True,
+            "truncation_reason": "max_nodes",
+            "member_count": True,
+        }
+        with pytest.raises(ConformanceViolation, match="member_count"):
+            lint_response(tree, "outline")
+
+    def test_member_count_negative_rejected(self) -> None:
+        """O.5 — member_count must be non-negative."""
+        tree = {
+            "node": _STUB_CLASS,
+            "truncated": True,
+            "truncation_reason": "max_nodes",
+            "member_count": -1,
+        }
+        with pytest.raises(ConformanceViolation, match="member_count"):
+            lint_response(tree, "outline")
+
+    def test_max_depth_truncation_needs_no_member_count(self) -> None:
+        """O.5 is scoped to max_nodes — a max_depth truncation needs no member_count."""
+        tree = {
+            "node": _STUB_CLASS,
+            "truncated": True,
+            "truncation_reason": "max_depth",
+        }
+        lint_response(tree, "outline")
 
     def test_truncation_reason_without_truncated_rejected(self) -> None:
         """O.3 — truncation_reason present without truncated is rejected."""
