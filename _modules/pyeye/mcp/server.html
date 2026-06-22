@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=9ecd3e81"></script>
+      <script src="../../../_static/documentation_options.js?v=427827b3"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -996,7 +996,11 @@
 <span class="sd">    - ``&quot;max_depth&quot;`` — at the depth frontier; ``resolve_members`` was peeked</span>
 <span class="sd">      once and found members (a genuine empty container at the frontier gets</span>
 <span class="sd">      ``children: []`` instead).</span>
-<span class="sd">    - ``&quot;max_nodes&quot;`` — total-node budget exhausted; no peek performed.</span>
+<span class="sd">    - ``&quot;max_nodes&quot;`` — node-budget reserve-before-expand: a container is</span>
+<span class="sd">      expanded only if the budget admits ALL its direct members, else it is cut</span>
+<span class="sd">      off whole.  Such a node ALSO carries ``member_count`` — the count of</span>
+<span class="sd">      direct members withheld (a fresh count; the children were never partially</span>
+<span class="sd">      listed).  Recover with a larger ``max_nodes`` or by targeting the subtree.</span>
 <span class="sd">    - ``&quot;external&quot;`` — external-scope container at depth ≥ 1; no deeper walk</span>
 <span class="sd">      into third-party code.</span>
 
@@ -1011,8 +1015,9 @@
 <span class="sd">            still apply.  At the frontier, ``resolve_members`` is peeked once</span>
 <span class="sd">            to distinguish a genuine empty container from a cut-off one.</span>
 <span class="sd">        max_nodes: Total-node budget for the tree (root counts as 1, default</span>
-<span class="sd">            200).  Containers that exceed the budget are marked</span>
-<span class="sd">            ``truncated: &quot;max_nodes&quot;`` without peeking.</span>
+<span class="sd">            200).  A container the budget cannot fully admit is cut off whole</span>
+<span class="sd">            (``truncated: &quot;max_nodes&quot;`` + ``member_count``), never partially</span>
+<span class="sd">            expanded — so ``children`` is always the complete direct-member set.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        ``OutlineTree`` dict — ``{&quot;node&quot;: Stub, &quot;children&quot;: [OutlineTree, ...]}``.</span>
