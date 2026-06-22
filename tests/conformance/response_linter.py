@@ -89,6 +89,10 @@ O.3 ``truncated`` absent ⇒ ``truncation_reason`` absent.
 O.4 ``children`` present ⇒ it is a list (possibly empty) of OutlineTree; each
     item is validated recursively (applies the same O.* + A.* rules at every
     depth).
+O.5 a ``max_nodes`` truncation MUST carry ``member_count`` (a non-negative plain
+    int — the count of withheld direct members); any ``member_count`` present is
+    a non-negative int.  SHAPE only — the value invariant
+    (``member_count == inspect.edge_counts.members``) is covered by unit tests.
 
 Note: Check A layering (no source content) is applied to the whole tree by
 ``_check_layering`` / ``_walk``, which already recurses into nested dicts and
@@ -1290,6 +1294,35 @@ def _check_outline_tree_node(
             "'truncation_reason' must only appear alongside 'truncated': true. "
             "See spec §4.2 Contract 2."
         )
+
+    # O.5 — member_count: a "max_nodes" truncation MUST signpost the fresh count
+    # of direct members it withheld; it is a non-negative plain int.  This is the
+    # honest "how much did you hide" signal that lets reserve-before-expand stay
+    # honest instead of silently shortening a children list (#358 / spec §4 +
+    # §6.4).  The linter checks SHAPE only — the count's VALUE
+    # (== inspect.edge_counts.members) is a runtime invariant covered by tests.
+    has_member_count = "member_count" in tree
+    is_max_nodes_trunc = (
+        tree.get("truncated") is True and tree.get("truncation_reason") == "max_nodes"
+    )
+    if is_max_nodes_trunc and not has_member_count:
+        violations.append(
+            f"[O.5 outline member_count required] {path}: a 'max_nodes' truncation "
+            "must carry 'member_count' (the count of withheld direct members). "
+            "See spec §4 reserve-before-expand / §6.4 count-consistency."
+        )
+    if has_member_count:
+        mc = tree["member_count"]
+        if isinstance(mc, bool) or not isinstance(mc, int):
+            violations.append(
+                f"[O.5 outline member_count type] {path}.member_count: "
+                f"expected a non-negative plain int; got {_truncate(mc)} "
+                f"(type={type(mc).__name__!r})."
+            )
+        elif mc < 0:
+            violations.append(
+                f"[O.5 outline member_count range] {path}.member_count: " f"must be >= 0; got {mc}."
+            )
 
     # O.4 — children: if present, must be a list of OutlineTree
     if has_children:
