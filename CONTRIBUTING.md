@@ -128,7 +128,7 @@ silently re-resolves. Resolution happens in exactly one place: a deliberate
 `uv lock` / `uv add`, committed and reviewed.
 
 - **Hooks** pin `uv run --frozen` (use the lock as-is; never block, never rewrite it).
-- **CI** sets `UV_LOCKED=1` (assert `uv.lock` equals `pyproject.toml` and fail on drift).
+- **CI** pins `uv sync --locked` (assert `uv.lock` equals `pyproject.toml` and fail on drift). A per-step flag, not a `UV_LOCKED` env var — `UV_LOCKED` is mutually exclusive with the hooks' `--frozen`, and CI's `pre-commit` job runs those hooks.
 - **Changing dependencies** is the only sanctioned re-resolution: edit `pyproject.toml`, run `uv lock` (or `uv add`), and commit the updated `uv.lock` in the same change.
 
 If CI fails with *"the lockfile needs to be updated, but `--locked` was provided,"*

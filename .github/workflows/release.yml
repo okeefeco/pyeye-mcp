@@ -13,11 +13,6 @@ permissions:
   contents: write  # Needed to create releases
   id-token: write  # Needed for Trusted Publisher (PyPI OIDC)
 
-env:
-  # Lockfile is authoritative: every uv step (sync/run) asserts uv.lock == pyproject
-  # and fails on drift — release builds the exact locked config, never re-resolves (#481).
-  UV_LOCKED: "1"
-
 jobs:
   # Validate the release before creating it
   validate:
@@ -44,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           # Installs the package (editable) + dev group, incl. setuptools_scm
-          uv sync
+          uv sync --locked
           # Generate version file from git tag
           uv run python -m setuptools_scm
 
@@ -119,7 +114,7 @@ jobs:
       - name: Install dependencies
         run: |
           # Installs the package (editable) + dev group, incl. setuptools_scm
-          uv sync
+          uv sync --locked
           # Generate version file from git tag
           uv run python -m setuptools_scm
 
