@@ -67,6 +67,7 @@ are orthogonal to the navigation redesign and are unchanged.
 ### Removed
 
 - `worktree-manager` agent and the `claude/development` "learning hub" workflow. Worktrees now use native tooling (the `EnterWorktree` tool / superpowers `using-git-worktrees` skill) under `.claude/worktrees`; removal safety remains via `scripts/worktree_safety.py` and the rules in `01-core-rules.md`. Also removed the now-obsolete `docs/CLAUDE_WORKTREE_WORKFLOW.md` and `.claude/startup-context.md`.
+- `cross-platform-validator` agent (`.claude/agents/cross-platform-validator.md` + `cross-platform-issues.yaml`) and its `scripts/test_cross_platform_agent.py` harness (#483). It was built on the Jedi-shaped tools removed in this release and re-implemented, semantically, a textual pattern check that `scripts/check_cross_platform_paths.py` already does statically. Cross-platform path validation now uses that script plus the rules in `.claude/instructions/10-cross-platform.md`.
 
 ### Changed
 
