@@ -120,6 +120,20 @@ Please follow these steps for your contribution:
 
 For detailed setup instructions, including worktree configuration and advanced development workflows, see [Development Setup Guide](docs/development-setup.md).
 
+#### Dependency lockfile policy
+
+`uv.lock` is **authoritative**: every environment — pre-commit hooks, CI, local
+dev, and release — builds from the *exact* locked dependency set, and no command
+silently re-resolves. Resolution happens in exactly one place: a deliberate
+`uv lock` / `uv add`, committed and reviewed.
+
+- **Hooks** pin `uv run --frozen` (use the lock as-is; never block, never rewrite it).
+- **CI** sets `UV_LOCKED=1` (assert `uv.lock` equals `pyproject.toml` and fail on drift).
+- **Changing dependencies** is the only sanctioned re-resolution: edit `pyproject.toml`, run `uv lock` (or `uv add`), and commit the updated `uv.lock` in the same change.
+
+If CI fails with *"the lockfile needs to be updated, but `--locked` was provided,"*
+you changed `pyproject.toml` without re-locking — run `uv lock` and commit the result.
+
 ### Making Changes
 
 1. **Create a feature branch**:

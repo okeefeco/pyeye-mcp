@@ -26,6 +26,11 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  # Lockfile is authoritative: every uv step (sync/run) asserts uv.lock == pyproject
+  # and fails on drift — CI builds the exact locked config, never re-resolves (#481).
+  UV_LOCKED: "1"
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
