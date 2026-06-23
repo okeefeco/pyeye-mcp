@@ -9,6 +9,15 @@ default_language_version:
 # the new hook types.
 default_install_hook_types: [pre-commit, commit-msg, post-commit, post-merge, post-checkout]
 
+# Default stage for hooks that don't declare their own `stages`. Without this,
+# pre-commit runs an unscoped hook in EVERY installed stage — so widening the
+# install types above (#462) made the lint/format/security/conformance hooks
+# (notably the always_run `conformance-linter`, a pytest run) fire on every
+# `git checkout`/`pull`/`merge` too (#477). Scoping the default to commit time
+# keeps those at `git commit`; the four hooks that intentionally run on other
+# stages declare their own `stages` and are unaffected.
+default_stages: [pre-commit]
+
 repos:
   # Security checks
   - repo: https://github.com/Yelp/detect-secrets
