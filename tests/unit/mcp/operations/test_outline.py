@@ -59,6 +59,11 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 # macOS symlinked temp paths, see feedback_jedi_macos_tmp_symlink.md).
 _FIXTURE_NESTED = Path(__file__).parent.parent.parent.parent / "fixtures" / "nested_class_inspect"
 _FIXTURE_RESOLVE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
+# All-leaf module (#358 worst case): pkg.mod = 5 module-level functions, no
+# nested containers, so a mid-enumeration cut drops only leaves.
+_FIXTURE_FLAT_LEAVES = (
+    Path(__file__).parent.parent.parent.parent / "fixtures" / "outline_flat_leaves"
+)
 
 # Canonical handles — nested_class_inspect
 _MOD_HANDLE = "pkg.mod"
@@ -90,6 +95,12 @@ def nested_analyzer() -> JediAnalyzer:
 def resolve_analyzer() -> JediAnalyzer:
     """JediAnalyzer pointed at resolve_project fixture."""
     return JediAnalyzer(str(_FIXTURE_RESOLVE))
+
+
+@pytest.fixture
+def flat_leaves_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the all-leaf-members fixture (#358 worst case)."""
+    return JediAnalyzer(str(_FIXTURE_FLAT_LEAVES))
 
 
 # ---------------------------------------------------------------------------
@@ -485,38 +496,51 @@ class TestOutlineMaxNodesTiebreaker:
     async def test_max_nodes_wins_over_max_depth_tiebreaker(
         self, nested_analyzer: JediAnalyzer
     ) -> None:
-        """Set max_depth=1 (Outer would be truncated "max_depth") AND max_nodes=3
-        so both caps apply to Outer simultaneously.
+        """Set max_depth=1 (Outer would be truncated "max_depth") AND a budget
+        that is exactly full when Outer is reached, so both caps apply to Outer
+        simultaneously.
 
-        Structure at budget=3, depth=1:
-          root (node 1): walked (depth 0)
+        Under reserve-before-expand (#358), the root only expands if the budget
+        admits ALL its direct members; ``pkg.mod`` has 3 (func, Outer, Empty), so
+        the smallest budget that lets the root expand is 4 (root + 3 members).
+
+        Structure at budget=4, depth=1:
+          root (node 1):               depth 0, expands (1 + 3 == 4, fits)
           top_level_function (node 2): depth 1 = frontier, non-container → children: []
-          Outer (node 3): depth 1 = frontier, container, budget now full
+          Outer (node 3):              depth 1 = frontier, container, budget now full
+          Empty (node 4):              depth 1 = frontier, empty container → children: []
 
         Outer is at the depth frontier (has non-empty members → would be
         truncated: "max_depth") AND the budget is full (node_count == max_nodes →
         would be truncated: "max_nodes").  Both caps could fire.  The tiebreaker
-        rule (spec §5.4) says max_nodes wins: truncation_reason must be "max_nodes".
+        rule (spec §5.4) says max_nodes wins: truncation_reason must be "max_nodes",
+        and it carries an honest member_count.
         """
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1, max_nodes=3)
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1, max_nodes=4)
         _assert_contract1(tree)
-        assert _count_nodes(tree) == 3
+        assert _count_nodes(tree) == 4
 
-        # Both func and Outer are children of root (3 nodes total).
         func_node = _find_child(tree, _TOP_LEVEL_FUNC_HANDLE)
         outer_node = _find_child(tree, _OUTER_HANDLE)
+        empty_node = _find_child(tree, _EMPTY_HANDLE)
         assert func_node is not None, "top_level_function must be a child"
         assert outer_node is not None, "Outer must be a child"
+        assert empty_node is not None, "Empty must be a child"
 
         # func (non-container, depth frontier): genuine leaf.
         assert func_node.get("children") == [], "top_level_function must be a genuine leaf"
         assert "truncated" not in func_node
 
+        # Empty (empty container at full budget): a measured leaf, NOT truncated —
+        # an empty container has no members to hide.
+        assert empty_node.get("children") == [], "Empty must be a genuine leaf (children: [])"
+        assert "truncated" not in empty_node
+
         # Outer: BOTH depth-frontier (has members → would be max_depth) AND
-        # budget-full (node 3 = max_nodes → would be max_nodes).
-        # Tiebreaker: max_nodes must win.
+        # budget-full (node 4 == max_nodes → would be max_nodes).
+        # Tiebreaker: max_nodes must win, with an honest member_count.
         assert (
             "truncated" in outer_node
         ), "Outer at depth frontier with full budget must be truncated"
@@ -525,6 +549,10 @@ class TestOutlineMaxNodesTiebreaker:
             f"got {outer_node['truncation_reason']!r}"
         )
         assert "children" not in outer_node
+        assert outer_node["member_count"] == 2, (
+            "max_nodes truncation must carry a fresh member_count "
+            "(Outer has outer_method + Inner)"
+        )
 
 
 class TestOutlineExternalCap:
@@ -888,6 +916,139 @@ class TestOutlineTruncatedAbsenceContracts:
         ), "Outer at max_depth=1 frontier with non-empty members must be truncated"
         assert outer_node["truncation_reason"] == "max_depth"
         assert "children" not in outer_node, "truncated node must NOT have children key"
+
+
+class TestOutlineMidExpansionTruncation:
+    """Regression for #358: a node-budget cutoff that lands *mid-enumeration* of
+    a container's children must never present a **partial** ``children`` list as
+    complete.
+
+    The honesty contract (spec §4.2 Contract 1, §6.4 count-consistency) is: a
+    node that carries ``children`` carries ALL of its direct members.  If the
+    budget cannot admit them all, the node is ``truncated`` (children absent) —
+    not silently shortened.  The old code ``break``-ed mid-loop and assigned the
+    partial list with no marker, which ``_assert_contract1`` cannot catch (the
+    partial list is shape-valid).
+    """
+
+    @staticmethod
+    def _direct_member_truth(full_tree: dict[str, Any]) -> dict[str, set[str]]:
+        """handle -> complete set of direct child handles, from an unbounded tree."""
+        truth: dict[str, set[str]] = {}
+
+        def walk(t: dict[str, Any]) -> None:
+            if "children" in t:
+                truth[t["node"]["handle"]] = {c["node"]["handle"] for c in t["children"]}
+                for c in t["children"]:
+                    walk(c)
+
+        walk(full_tree)
+        return truth
+
+    @classmethod
+    def _assert_no_silent_partial(cls, tree: dict[str, Any], truth: dict[str, set[str]]) -> None:
+        """Every node with ``children`` present must list ALL its direct members."""
+        handle = tree["node"]["handle"]
+        if "children" in tree:
+            present = {c["node"]["handle"] for c in tree["children"]}
+            if handle in truth:
+                missing = truth[handle] - present
+                assert not missing, (
+                    f"{handle}: children present but incomplete — missing {missing}. "
+                    f"A partial children list presented as complete is the #358 bug; "
+                    f"the node must be truncated (children absent) instead."
+                )
+            for child in tree["children"]:
+                cls._assert_no_silent_partial(child, truth)
+
+    @pytest.mark.asyncio
+    async def test_budget_cut_never_yields_unmarked_partial_children(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        """Across every budget that forces a mid-enumeration cut, no node ever
+        presents a partial ``children`` list as complete.
+
+        ``pkg.mod`` has 3 direct members (full tree = 7 nodes).  At budget 2-3
+        the old code starts expanding the module root, adds 1-2 members, then
+        ``break``s — dropping the trailing member(s) with no truncation marker on
+        the root.  The root then claims fewer members than it has.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        full = await outline(_MOD_HANDLE, nested_analyzer, max_nodes=10_000)
+        truth = self._direct_member_truth(full)
+
+        for budget in range(2, _count_nodes(full) + 1):
+            tree = await outline(_MOD_HANDLE, nested_analyzer, max_nodes=budget)
+            _assert_contract1(tree)
+            self._assert_no_silent_partial(tree, truth)
+
+    @pytest.mark.asyncio
+    async def test_all_leaf_siblings_worst_case_is_marked(
+        self, flat_leaves_analyzer: JediAnalyzer
+    ) -> None:
+        """The #358 worst case: the dropped siblings are ALL leaves.
+
+        ``pkg.mod`` here is 5 module-level functions (no nested containers).  A
+        budget that cuts mid-enumeration of the root drops only leaves, so under
+        the old code NO node anywhere carried a truncation marker — yet the root
+        showed a partial ``children`` list.  A consumer saw "N members, complete"
+        with zero signal that anything was hidden.
+
+        After the fix the root cannot admit all 5 members within a budget of 3,
+        so it is truncated as a whole, with a marker and an honest member_count.
+        """
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        full = await outline("pkg.mod", flat_leaves_analyzer, max_nodes=10_000)
+        truth = self._direct_member_truth(full)
+        assert truth["pkg.mod"] == {
+            f"pkg.mod.{n}" for n in ("alpha", "beta", "gamma", "delta", "epsilon")
+        }, "fixture sanity: pkg.mod must have exactly 5 leaf members"
+
+        # Budget 3 < 1 (root) + 5 (members): necessarily incomplete.
+        tree = await outline("pkg.mod", flat_leaves_analyzer, max_nodes=3)
+        _assert_contract1(tree)
+        self._assert_no_silent_partial(tree, truth)
+
+        # The crux of the worst case: an incomplete tree must carry a truncation
+        # marker SOMEWHERE.  Old code: zero markers anywhere.
+        def _has_truncation(t: dict[str, Any]) -> bool:
+            if "truncated" in t:
+                return True
+            return any(_has_truncation(c) for c in t.get("children", []))
+
+        assert _has_truncation(tree), (
+            "an incomplete all-leaf tree must carry a truncation marker — "
+            "the old code produced none (silent partial)"
+        )
+        assert (
+            tree.get("truncation_reason") == "max_nodes"
+        ), "root must be the max_nodes-truncated node"
+        assert "children" not in tree
+        assert tree["member_count"] == 5, "truncated root must signpost its true member count"
+
+    @pytest.mark.asyncio
+    async def test_member_count_matches_inspect_edge_count(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        """A max_nodes truncation's ``member_count`` equals the symbol's true
+        direct-member count (spec §6.4 count-consistency, cross-checked against
+        ``inspect``'s ``edge_counts.members`` — the linter can only check shape,
+        not the value)."""
+        from pyeye.mcp.operations.inspect import inspect  # type: ignore[import]
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        # max_depth=1, max_nodes=4 truncates Outer (depth-1 frontier, budget full).
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=1, max_nodes=4)
+        outer_node = _find_child(tree, _OUTER_HANDLE)
+        assert outer_node is not None and "member_count" in outer_node
+
+        inspected = await inspect(_OUTER_HANDLE, nested_analyzer)
+        assert outer_node["member_count"] == inspected["edge_counts"]["members"], (
+            "outline's truncation member_count must equal inspect's "
+            "edge_counts.members for the same handle"
+        )
 
 
 class TestOutlineUnresolvableHandle:

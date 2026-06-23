@@ -646,7 +646,11 @@ async def outline(
     - ``"max_depth"`` — at the depth frontier; ``resolve_members`` was peeked
       once and found members (a genuine empty container at the frontier gets
       ``children: []`` instead).
-    - ``"max_nodes"`` — total-node budget exhausted; no peek performed.
+    - ``"max_nodes"`` — node-budget reserve-before-expand: a container is
+      expanded only if the budget admits ALL its direct members, else it is cut
+      off whole.  Such a node ALSO carries ``member_count`` — the count of
+      direct members withheld (a fresh count; the children were never partially
+      listed).  Recover with a larger ``max_nodes`` or by targeting the subtree.
     - ``"external"`` — external-scope container at depth ≥ 1; no deeper walk
       into third-party code.
 
@@ -661,8 +665,9 @@ async def outline(
             still apply.  At the frontier, ``resolve_members`` is peeked once
             to distinguish a genuine empty container from a cut-off one.
         max_nodes: Total-node budget for the tree (root counts as 1, default
-            200).  Containers that exceed the budget are marked
-            ``truncated: "max_nodes"`` without peeking.
+            200).  A container the budget cannot fully admit is cut off whole
+            (``truncated: "max_nodes"`` + ``member_count``), never partially
+            expanded — so ``children`` is always the complete direct-member set.
 
     Returns:
         ``OutlineTree`` dict — ``{"node": Stub, "children": [OutlineTree, ...]}``.

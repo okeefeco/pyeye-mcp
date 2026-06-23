@@ -9,6 +9,15 @@ default_language_version:
 # the new hook types.
 default_install_hook_types: [pre-commit, commit-msg, post-commit, post-merge, post-checkout]
 
+# Default stage for hooks that don't declare their own `stages`. Without this,
+# pre-commit runs an unscoped hook in EVERY installed stage — so widening the
+# install types above (#462) made the lint/format/security/conformance hooks
+# (notably the always_run `conformance-linter`, a pytest run) fire on every
+# `git checkout`/`pull`/`merge` too (#477). Scoping the default to commit time
+# keeps those at `git commit`; the four hooks that intentionally run on other
+# stages declare their own `stages` and are unaffected.
+default_stages: [pre-commit]
+
 repos:
   # Security checks
   - repo: https://github.com/Yelp/detect-secrets
@@ -35,7 +44,7 @@ repos:
         # - GHSA-4xh5-x5gv-qwph: pip vulnerability, awaiting pip 25.3
         # - CVE-2025-69872: diskcache pickle deserialization, no fix available (issue #289)
         # - CVE-2026-4539: pygments vulnerability, no fix available yet (latest is 2.19.2)
-        entry: uv run pip-audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
+        entry: uv run --frozen pip-audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph --ignore-vuln CVE-2025-69872 --ignore-vuln CVE-2026-4539
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
@@ -50,7 +59,7 @@ repos:
       # Code formatting
       - id: black
         name: black
-        entry: uv run black
+        entry: uv run --frozen black
         language: system
         types: [python]
         args: ['--line-length=100']
@@ -59,7 +68,7 @@ repos:
       # ruff-format disabled since we use black for formatting)
       - id: ruff
         name: ruff
-        entry: uv run ruff check
+        entry: uv run --frozen ruff check
         language: system
         types: [python]
         args: ['--fix', '--exit-non-zero-on-fix']
@@ -72,7 +81,7 @@ repos:
       # in the pyproject dev group so `uv run mypy` picks them up.
       - id: mypy
         name: mypy
-        entry: uv run mypy
+        entry: uv run --frozen mypy
         language: system
         types: [python]
         pass_filenames: false
@@ -147,7 +156,7 @@ repos:
     hooks:
       - id: conformance-linter
         name: PyEye conformance linter (layering + absence-vs-zero)
-        entry: uv run pytest tests/conformance/ -q --no-header --no-cov
+        entry: uv run --frozen pytest tests/conformance/ -q --no-header --no-cov
         language: system
         pass_filenames: false
         always_run: true
@@ -184,7 +193,7 @@ repos:
     hooks:
       - id: refresh-version-file
         name: Refresh setuptools_scm version file
-        entry: uv run python scripts/refresh_version.py
+        entry: uv run --frozen python scripts/refresh_version.py
         language: system
         stages: [post-merge, post-checkout]
         pass_filenames: false
@@ -198,7 +207,7 @@ repos:
     hooks:
       - id: start-metrics-session
         name: Start dogfooding metrics session
-        entry: uv run python scripts/dogfooding_metrics.py start-on-checkout
+        entry: uv run --frozen python scripts/dogfooding_metrics.py start-on-checkout
         language: system
         stages: [post-checkout]
         pass_filenames: false
