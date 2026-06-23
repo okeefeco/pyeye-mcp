@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           # Installs the package (editable) + dev group, incl. setuptools_scm
-          uv sync
+          uv sync --locked
           # Generate version file from git tag
           uv run python -m setuptools_scm
 
@@ -114,7 +114,7 @@ jobs:
       - name: Install dependencies
         run: |
           # Installs the package (editable) + dev group, incl. setuptools_scm
-          uv sync
+          uv sync --locked
           # Generate version file from git tag
           uv run python -m setuptools_scm
 
