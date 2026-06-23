@@ -348,6 +348,12 @@ class GranularCache(ProjectCache):
                 count = self.invalidate_module(module_name)
                 invalidated_count += count
 
+            # A changed file can add or remove definitions, so drop the
+            # whole-project name index; the next lookup rebuilds it (#457).
+            from pyeye.analyzers import project_graph
+
+            project_graph.invalidate()
+
             self.metrics.total_entries = len(self.cache)
             return invalidated_count
 
@@ -427,6 +433,11 @@ class GranularCache(ProjectCache):
                 self.file_cache.clear()
                 self.module_cache.clear()
                 self.dependency_tracker.clear()
+
+            # Keep the whole-project name index consistent with the cache (#457).
+            from pyeye.analyzers import project_graph
+
+            project_graph.invalidate()
 
             self.metrics.total_entries = len(self.cache)
 
