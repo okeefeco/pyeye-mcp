@@ -15,10 +15,18 @@ Map common requests to the right tool. Some operations use a subagent; most are 
 → **Use**: `Task tool with subagent_type="smart-commit"`
 → **NOT**: manual `git status` / `git add` / `git commit`
 
+## Cross-platform path checks (static script — no agent)
+
 ### "Validate this works on Windows/Mac/Linux" / "Check cross-platform"
 
-→ **Use**: `Task tool with subagent_type="cross-platform-validator"`
-→ **NOT**: manual path checking or grep for `.as_posix()`
+→ Run the static checker, then apply the path-utils patterns:
+
+```bash
+python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
+```
+
+→ Fix per the rules in `10-cross-platform.md` (use `.as_posix()` for display/storage; `path_to_key()` / `paths_equal()` for keys/comparison).
+→ The `cross-platform-validator` agent was retired (#483) — it was built on removed v2.0 tools and re-implemented, semantically, a textual pattern check the static script already does. See "Why no cross-platform-validator agent" below.
 
 ## Worktrees (native tooling + the using-git-worktrees skill — no agent)
 
@@ -110,7 +118,6 @@ git branch -d <feature-branch>
 ## Available agents
 
 - **smart-commit**: git commit workflow with pre-commit validation
-- **cross-platform-validator**: cross-platform compatibility checks
 - **general-purpose**: complex multi-step research
 
 Agents live in `.claude/agents/` and are available via the Task tool.
@@ -123,3 +130,11 @@ There is no `pr-workflow` agent, by design:
 - The few genuinely-useful pieces (CI error parsing, merge composites) are prone to silent-wrong-success bugs (exit codes not checked, race conditions in CI run lookup) and documentation drift.
 
 Use raw `git` and `gh` commands. They're transparent, debuggable, and don't accumulate hidden bugs. `gh pr checks --watch` already does the CI-monitoring loop.
+
+## Why no cross-platform-validator agent
+
+The `cross-platform-validator` agent was retired (#483):
+
+- It was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus deprecated `find_references` / `get_call_hierarchy`, so it could not run as written.
+- A 1:1 rename to the new primitives doesn't restore it: its discovery relied on fuzzy symbol search, find-references, and find-imports of arbitrary modules — capabilities the redesign intentionally dropped.
+- Its core job (finding code matching a *pattern* like `str(path)`) is a textual search, which pyeye is explicitly not for. `scripts/check_cross_platform_paths.py` already does that statically; the rules live in `10-cross-platform.md`.

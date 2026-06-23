@@ -90,23 +90,17 @@ from pyeye.path_utils import paths_equal
 assert paths_equal(result_path, expected_path)
 ```
 
-## Using Cross-Platform Validator Agent
+## Checking Cross-Platform Compatibility
 
-When user asks to validate cross-platform compatibility:
+When asked to validate cross-platform compatibility, run the static checker, then fix per the rules above:
 
 ```bash
-# IMMEDIATELY use:
-Task tool with subagent_type="cross-platform-validator"
-
-# NEVER manually check paths with grep
+python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
 ```
 
-The agent will:
+It flags likely path-handling issues (e.g. `str(path)` in display contexts, missing `.as_posix()`); apply the patterns in this file (`.as_posix()` for display/storage, `path_to_key()` / `paths_equal()` for keys/comparison) and re-run the test suite.
 
-1. Analyze path usage patterns
-2. Identify Windows-specific issues
-3. Check for .as_posix() usage
-4. Validate path utilities are used correctly
+> The former `cross-platform-validator` agent was retired (#483) — it depended on removed v2.0 tools and re-implemented, semantically, the textual check the static script already does. See `04-agent-triggers.md` → "Why no cross-platform-validator agent".
 
 ## Related Resources
 
