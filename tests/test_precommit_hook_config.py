@@ -90,6 +90,26 @@ def test_only_intended_hooks_run_on_checkout_and_merge():
     assert _hooks_at(config, "post-merge") == {"refresh-version-file"}
 
 
+def test_all_uv_run_entries_are_frozen():
+    """No hook may invoke a bare ``uv run`` — it must be ``uv run --frozen`` (#479).
+
+    Bare ``uv run`` can re-resolve and rewrite ``uv.lock`` as a side effect
+    (notably behind a PyPI mirror), which trips pre-commit's framework-level
+    "files were modified by this hook" check and fails the hook — independent of
+    the script's own exit code. ``--frozen`` pins the lock so the hooks run the
+    tools without ever mutating it.
+    """
+    offenders = []
+    for repo in _load()["repos"]:
+        for hook in repo["hooks"]:
+            entry = hook.get("entry", "")
+            if "uv run" in entry and "uv run --frozen" not in entry:
+                offenders.append(hook["id"])
+    assert (
+        not offenders
+    ), f"hooks using a bare 'uv run' (must be 'uv run --frozen', #479): {offenders}"
+
+
 def test_default_stages_scopes_unscoped_hooks_to_commit():
     """The conformance-linter (unscoped, always_run) must resolve to commit-only."""
     config = _load()
