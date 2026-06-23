@@ -39,6 +39,9 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Mapping
+from pathlib import Path
+
+from pyeye._module_sentinel import DefinitionSentinel
 
 #: Kinds in ``module_defines`` that represent a real top-level definition site
 #: (as opposed to ``"import"``, which marks a re-exported name to be followed).
@@ -252,3 +255,106 @@ def build_module_defines(tree: ast.Module) -> dict[str, str]:
                     continue
                 defines.setdefault(alias.asname or alias.name, "import")
     return defines
+
+
+def _name_token_column(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """Return the 0-indexed column of the *name* identifier, Jedi-style.
+
+    AST nodes report ``col_offset`` at the ``class``/``def`` keyword; Jedi
+    reports a definition at its name token. Offset past the keyword (and
+    ``async ``) so dedup keys and the call-hierarchy ``get_references`` consumer
+    see the same coordinates Jedi would.
+
+    Args:
+        node: The class or (async) function definition node.
+
+    Returns:
+        The 0-indexed column of the name identifier.
+    """
+    if isinstance(node, ast.ClassDef):
+        return node.col_offset + len("class ")
+    if isinstance(node, ast.AsyncFunctionDef):
+        return node.col_offset + len("async def ")
+    return node.col_offset + len("def ")
+
+
+def extract_definitions(
+    tree: ast.Module, module_name: str | None, module_path: Path
+) -> list[DefinitionSentinel]:
+    """Extract every definition site in one module's AST as ``DefinitionSentinel``s.
+
+    Walks the module depth-first and yields one stand-in per **class**,
+    **function** (incl. ``async def`` and nested methods/functions), and
+    module-or-class-level **assignment** (``"statement"``). ``full_name`` is
+    composed from *module_name* plus lexical nesting (``pkg.mod.C.m``);
+    ``line``/``column`` are the Jedi-exact name-token position so results dedup
+    and round-trip identically to the ``project.search`` they replace (#457).
+    Pure AST — no ``goto``/``infer``/Jedi search (#449).
+
+    Assignments inside function bodies are skipped (locals are not project
+    "definitions"); nested classes/functions are followed everywhere.
+
+    Args:
+        tree: Parsed module AST.
+        module_name: Dotted module name for ``full_name`` composition (the
+            namespace-prefixed name when the file is in a namespace package);
+            ``None`` / ``""`` yields bare names.
+        module_path: Absolute path to the module's source file.
+
+    Returns:
+        ``DefinitionSentinel``s in deterministic source order.
+    """
+    results: list[DefinitionSentinel] = []
+    root = module_name or ""
+
+    def _full(prefix: str, name: str) -> str:
+        """Join a lexical *prefix* and *name* into a dotted full name."""
+        return f"{prefix}.{name}" if prefix else name
+
+    def _walk(body: list[ast.stmt], prefix: str, in_function: bool) -> None:
+        """Recurse one scope's body, appending a sentinel per definition site."""
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                fqn = _full(prefix, node.name)
+                results.append(
+                    DefinitionSentinel(
+                        module_path=module_path,
+                        full_name=fqn,
+                        kind="class",
+                        line=node.lineno,
+                        column=_name_token_column(node),
+                        docstring_text=ast.get_docstring(node) or "",
+                        description=f"class {node.name}",
+                    )
+                )
+                _walk(node.body, fqn, in_function=False)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fqn = _full(prefix, node.name)
+                results.append(
+                    DefinitionSentinel(
+                        module_path=module_path,
+                        full_name=fqn,
+                        kind="function",
+                        line=node.lineno,
+                        column=_name_token_column(node),
+                        docstring_text=ast.get_docstring(node) or "",
+                        description=f"def {node.name}",
+                    )
+                )
+                _walk(node.body, fqn, in_function=True)
+            elif isinstance(node, ast.Assign) and not in_function:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        results.append(
+                            DefinitionSentinel(
+                                module_path=module_path,
+                                full_name=_full(prefix, target.id),
+                                kind="statement",
+                                line=target.lineno,
+                                column=target.col_offset,
+                                description=f"{target.id} = ...",
+                            )
+                        )
+
+    _walk(tree.body, root, in_function=False)
+    return results

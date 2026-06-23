@@ -1,17 +1,23 @@
 """Shared leaf module: lightweight stand-ins for Jedi Name objects.
 
-Hosts :class:`ModuleSentinel` (module stand-in) and :class:`ClassSentinel`
-(class stand-in). Exists so both :mod:`pyeye.mcp.operations.inspect` and
-:mod:`pyeye.mcp.operations.edges` can reference them WITHOUT either importing
-the other (``edges`` must not import ``inspect`` — circular import once
-``inspect`` imports ``edges`` for edge-count helpers).
+Hosts a shared :class:`NameSentinel` base and three thin subclasses:
+:class:`ModuleSentinel` (module stand-in), :class:`ClassSentinel` (class
+stand-in), and :class:`DefinitionSentinel` (any definition site found by the
+pure-AST name index, #457). Factoring the shared Jedi-``Name`` method surface
+into one base keeps the interface defined once rather than copy-pasted per kind
+(#450).
 
-This mirrors the extraction precedent in :mod:`pyeye._ast_targets`, which was
-created for the same reason: a shared AST helper needed by both ``inspect``
-and ``edges``.
+Exists so that :mod:`pyeye.mcp.operations.inspect`,
+:mod:`pyeye.mcp.operations.edges`, and the name-index extractor in
+:mod:`pyeye.analyzers.base_resolution` can reference these stand-ins WITHOUT
+import cycles (``edges`` must not import ``inspect``; ``base_resolution`` must
+stay Jedi-free).
 
-Runtime dependencies: :mod:`ast` and :mod:`pathlib` only.  ``JediAnalyzer``
-is imported under ``TYPE_CHECKING`` — it is *not* needed at runtime.
+This mirrors the extraction precedent in :mod:`pyeye._ast_targets`, created for
+the same reason: a shared AST helper needed by multiple operations.
+
+Runtime dependencies: :mod:`ast` and :mod:`pathlib` only.  ``JediAnalyzer`` is
+imported under ``TYPE_CHECKING`` — it is *not* needed at runtime.
 """
 
 from __future__ import annotations
@@ -24,7 +30,56 @@ if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
-class ModuleSentinel:
+class NameSentinel:
+    """Shared lightweight stand-in for a Jedi ``Name`` built from AST facts.
+
+    Subclasses set the data attributes in their own ``__init__``; this base
+    supplies the common Jedi-``Name`` method surface (``docstring`` /
+    ``get_signatures`` / ``infer``) so the interface is defined once, not
+    copy-pasted per kind (#450). Built from AST-derived facts only — never a
+    re-derived Jedi ``Name`` (the determinism pattern, #449).
+    """
+
+    # Subclasses populate these in __init__; declared here for the shared surface.
+    module_path: Path | None
+    type: str
+    full_name: str
+    name: str
+    line: int
+    column: int
+    # Default docstring; module/definition subclasses set an instance value.
+    docstring_text: str = ""
+
+    def docstring(self, **kwargs: object) -> str:
+        """Return the stored doc text, or an empty string when none.
+
+        Args:
+            **kwargs: Accepted and ignored for Jedi ``Name.docstring()`` compat.
+
+        Returns:
+            The docstring text, or ``""``.
+        """
+        _ = kwargs  # accepted-and-ignored for Jedi Name.docstring() signature compat
+        return self.docstring_text
+
+    def get_signatures(self) -> list:
+        """Return an empty list (stand-ins carry no call signatures).
+
+        Returns:
+            An empty list, matching the Jedi ``Name.get_signatures()`` shape.
+        """
+        return []
+
+    def infer(self) -> list:
+        """Return an empty list (no Jedi inference for stand-ins).
+
+        Returns:
+            An empty list, matching the Jedi ``Name.infer()`` shape.
+        """
+        return []
+
+
+class ModuleSentinel(NameSentinel):
     """Lightweight stand-in for a Jedi Name when the handle *is* a module.
 
     Stores the module file path and enough info for ``inspect`` to build the
@@ -71,37 +126,8 @@ class ModuleSentinel:
         except Exception:
             pass
 
-    def docstring(self, **kwargs: object) -> str:
-        """Return the module-level docstring.
 
-        Args:
-            **kwargs: Accepted and ignored for Jedi ``Name.docstring()``
-                signature compatibility.
-
-        Returns:
-            The module docstring, or an empty string if none was found.
-        """
-        _ = kwargs  # accepted-and-ignored for Jedi Name.docstring() signature compat
-        return self.docstring_text
-
-    def get_signatures(self) -> list:
-        """Return an empty list (modules have no call signatures).
-
-        Returns:
-            An empty list, matching the Jedi ``Name.get_signatures()`` shape.
-        """
-        return []
-
-    def infer(self) -> list:
-        """Return an empty list (no Jedi inference for module sentinels).
-
-        Returns:
-            An empty list, matching the Jedi ``Name.infer()`` shape.
-        """
-        return []
-
-
-class ClassSentinel:
+class ClassSentinel(NameSentinel):
     """Lightweight stand-in for a Jedi Name when the handle *is* a class.
 
     Built from the AST-derived facts ``find_subclasses`` already returns
@@ -143,33 +169,44 @@ class ClassSentinel:
         self.end_line: int = end_line
         self.column: int = column
 
-    def docstring(self, **kwargs: object) -> str:
-        """Return an empty string (pointer-only; the body is the inspect layer).
+
+class DefinitionSentinel(NameSentinel):
+    """Stand-in for a Jedi ``Name`` at a definition site found by pure-AST scan.
+
+    Produced by :func:`pyeye.analyzers.base_resolution.extract_definitions` for
+    every class / function / module-or-class-level statement, replacing the
+    truncating ``jedi.Project.search`` in ``_search_all_scopes`` (#457). Carries
+    exactly the attributes that method's four callers read, all AST-derived.
+    """
+
+    def __init__(
+        self,
+        module_path: Path | None,
+        full_name: str,
+        kind: str,
+        line: int,
+        column: int,
+        docstring_text: str = "",
+        description: str = "",
+    ) -> None:
+        """Initialise from the AST-derived facts of one definition site.
 
         Args:
-            **kwargs: Accepted and ignored for Jedi ``Name.docstring()`` compat.
-
-        Returns:
-            An empty string — a subclass stub carries no docstring (drill with
-            ``inspect`` for that).
+            module_path: Absolute path to the file declaring the definition.
+            full_name: Canonical dotted handle (module name + lexical nesting).
+            kind: ``"class"`` / ``"function"`` / ``"statement"`` / ``"module"``
+                (stored as ``.type`` for Jedi-``Name`` parity).
+            line: 1-indexed line of the name token (Jedi convention).
+            column: 0-indexed column of the name token (Jedi convention).
+            docstring_text: The definition's docstring, or ``""``.
+            description: Short Jedi-``Name``-style description (e.g.
+                ``"class Field"``).
         """
-        _ = kwargs
-        return ""
-
-    def get_signatures(self) -> list:
-        """Return an empty list (a stub is a pointer, not a signature).
-
-        Returns:
-            An empty list, matching the Jedi ``Name.get_signatures()`` shape.
-            The constructor signature is an ``inspect`` detail, not a one-hop
-            ``expand`` stub field (#445).
-        """
-        return []
-
-    def infer(self) -> list:
-        """Return an empty list (no Jedi inference for class sentinels).
-
-        Returns:
-            An empty list, matching the Jedi ``Name.infer()`` shape.
-        """
-        return []
+        self.module_path: Path | None = module_path
+        self.full_name: str = full_name
+        self.name: str = full_name.split(".")[-1]
+        self.type = kind
+        self.line: int = line
+        self.column: int = column
+        self.docstring_text: str = docstring_text
+        self.description: str = description
