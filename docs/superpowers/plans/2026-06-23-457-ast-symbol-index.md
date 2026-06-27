@@ -133,21 +133,46 @@ The index result object is a third `NameSentinel` subclass (closes #450) and mus
 
 **Acceptance:** Test pins the new default + env override.
 
-## Task 5 — #457 Django regression + store correctness
+## Task 5 — #457 resolve()-level regression (synthetic, CI-real) + manual django dogfood
 
-**Goal:** Prove the user-visible bug is fixed end-to-end against the pinned scenario.
+**Goal:** Prove the user-visible #457 symptom — false-confident *single* `resolve()`
+hits for high-frequency names — is fixed, with an **automated test that runs in CI**,
+and demonstrate it on real django as **one-time manual evidence**.
 
-**Files:** `tests/...` (use the `pyeye-scenarios` Django scenario + the repo's scenario-availability skip; real fixture dirs — macOS-symlink caveat).
+**Why NOT an automated django test:** `.scenario-repos/` is gitignored and cloned on
+demand; CI never provisions it, so a scenario-gated django test would only ever
+**skip** in CI — false confidence, and django isn't ours to pin for green CI. The
+regression logic needs only *many modules defining one name* to trip the 30-file
+cap, which a synthetic `tmp_path` fixture reproduces portably.
 
-**Tests (pin behavior):**
+**Files:** `tests/...` (synthetic, `tmp_path`-generated — no third-party repo, no
+scenario gating).
 
-- `resolve("Field")` on django → **ambiguous**, candidates include all 3 (`django.db.models.fields.Field`, `django.forms.fields.Field`, `django.contrib.gis.gdal.field.Field`).
-- `resolve("django.forms.fields.Field")` → correct handle with a **real line** (class def), not the degraded line-1/col-0 fallback.
-- A high-frequency name exceeding the 30-file cap returns >1 project def.
+**Automated tests (pin behavior — CI-real):**
 
-**Acceptance:** Tests fail on `main` (pre-fix), pass on this branch; full suite + coverage ≥85%; first-`resolve` cold build measured (parse-bound seconds, NOT #405's goto-bound ~150s) via the repo's `PerformanceThresholds` framework (no naive timing assert).
+- Generate the same class name in N>30 `tmp_path` modules; `resolve("Field")` returns
+  **ambiguous with all N candidates** (not a single truncated hit) — the user-facing
+  #457 symptom at the `resolve()` layer (Task 3 already covers the `_search_all_scopes`
+  layer with a 40-module completeness test).
+- `resolve("pkg.modK.Field")` → that specific definition with a **real line** (class
+  def line), not the degraded line-1/col-0 fallback.
+- Cold-build sanity: an N≈40 `tmp_path` build is sub-second (pure-AST, no goto), so no
+  separate perf-threshold test is warranted; real-scale timing is observed in the
+  manual dogfood.
 
-**Risks:** Cold-build cost on django — measure; the pure-AST build avoids #405's goto cost but confirm.
+**Manual dogfood (evidence, NOT committed as a test):**
+
+- Run the django scenario once (`.scenario-repos/django @ cd385e6b8c`, via
+  `pyeye-verify`): `resolve("Field")` → ambiguous with the 3 real project `Field`s
+  (`django.db.models.fields.Field`, `django.forms.fields.Field`,
+  `django.contrib.gis.gdal.field.Field`); `resolve("django.forms.fields.Field")` →
+  real line. Capture the output in the **PR description** as real-world evidence.
+
+**Acceptance:** Synthetic tests fail on `main` (pre-fix: truncated/single hit), pass on
+this branch; full suite + coverage ≥85%. Django dogfood output captured in the PR.
+
+**Risks:** None for the automated path (synthetic, in-repo). The django dogfood is
+manual/one-time, so its cold-build cost never gates CI.
 
 ---
 
