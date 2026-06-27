@@ -2459,10 +2459,12 @@ class JediAnalyzer:
         return info
 
     def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
-        """Build a minimal navigable reference dict from a Jedi Name object.
+        """Build a minimal navigable reference dict from a Name-like object.
 
         Args:
-            name: A Jedi Name object from project.search() or similar.
+            name: A Jedi ``Name`` (from ``goto``) or a ``DefinitionSentinel``
+                from the AST name-index — anything exposing
+                ``name``/``full_name``/``module_path``/``line``.
 
         Returns:
             Dict with keys: name, full_name, file (POSIX or None), line.
