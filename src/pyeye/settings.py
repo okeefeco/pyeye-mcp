@@ -28,13 +28,18 @@ class PerformanceSettings:
             max_val=86400,  # Max 24 hours
         )
 
-        # AST/Script (file_artifact_cache) combined LRU entry cap. Raise this on
-        # large codebases: when the working set exceeds the cap, repeated scans
-        # (e.g. subclasses) evict their own entries and stop benefiting from the
-        # cache. See issue #397.
+        # AST/Script (file_artifact_cache) combined LRU entry cap. The
+        # whole-project name index (#457) and repeated scans (subclasses, #397)
+        # touch every project file, so a small cap makes the working set evict
+        # its own entries. Default 2000 covers a large package's working set
+        # (e.g. Django's ~907 files) ~2x over; at full saturation that is
+        # ~420 MB resident (~209 KB/AST measured on this repo), which only
+        # materialises after 2000 *distinct* files are cached. Bounded and
+        # env-overridable for bigger trees; latency lever only (correctness never
+        # depends on it — the name index lives outside this LRU).
         self.artifact_cache_max_entries: int = self._get_int_env(
             "PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
-            500,
+            2000,
             min_val=1,
             max_val=1_000_000,
         )
