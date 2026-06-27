@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -122,11 +122,12 @@ class TestPathSerialization:
         """Test that JediAnalyzer properly handles Path serialization errors."""
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
-        # Mock Jedi to raise an exception with a Path object
-        with patch("jedi.Project") as mock_project:
-            mock_search = Mock(side_effect=KeyError(Path("/problematic/file.py")))
-            mock_project.return_value.search = mock_search
-
+        # Make the name-index build raise an exception carrying a Path object;
+        # find_symbol's error handling must serialize it (no PosixPath repr).
+        with patch(
+            "pyeye.analyzers.project_graph.get_name_index",
+            side_effect=KeyError(Path("/problematic/file.py")),
+        ):
             analyzer = JediAnalyzer(".")
 
             # This should handle the Path in the exception properly

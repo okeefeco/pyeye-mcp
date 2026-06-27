@@ -119,3 +119,35 @@ def test_project_eviction_clears_name_index(tmp_path: Path) -> None:
 
     idx2 = project_graph.get_name_index(key, [f1], {f1: "a"})
     assert idx2 is not idx1  # eviction cleared this project's index -> rebuilt
+
+
+def test_index_includes_a_module_entry_per_file(tmp_path: Path) -> None:
+    f = _write(tmp_path, "auth.py", "class X:\n    pass\n")
+    project_graph.invalidate()
+    idx = project_graph.get_name_index(str(tmp_path), [f], {f: "acme.auth"})
+    mods = [d for d in idx.get("auth", []) if d.type == "module"]
+    assert len(mods) == 1
+    assert mods[0].full_name == "acme.auth"
+    assert mods[0].module_path == f
+
+
+def test_regular_package_indexed_via_its_init(tmp_path: Path) -> None:
+    # A regular package (dir with __init__.py) is indexed via that __init__.py,
+    # under the package's short name, with the package's dotted full_name.
+    f = _write(tmp_path, "models/__init__.py", "")
+    project_graph.invalidate()
+    idx = project_graph.get_name_index(str(tmp_path), [f], {f: "django.db.models"})
+    pkgs = [d for d in idx.get("models", []) if d.type == "module"]
+    assert len(pkgs) == 1
+    assert pkgs[0].full_name == "django.db.models"
+
+
+def test_methods_are_not_top_level_index_entries(tmp_path: Path) -> None:
+    # Methods/attributes are reached via the parent at lookup, never indexed by
+    # bare name.
+    f = _write(tmp_path, "m.py", "class C:\n    attr = 1\n    def method(self):\n        pass\n")
+    project_graph.invalidate()
+    idx = project_graph.get_name_index(str(tmp_path), [f], {f: "m"})
+    assert "C" in idx  # the class is a top-level entry
+    assert "method" not in idx  # its method is not
+    assert "attr" not in idx  # nor its attribute

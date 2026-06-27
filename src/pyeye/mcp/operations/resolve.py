@@ -616,8 +616,9 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
         logger.debug("_resolve_bare_name(%r): find_symbol failed: %s", name, exc)
         return _NotFoundResult(found=False, reason="unresolved")
 
-    if not matches:
-        return _NotFoundResult(found=False, reason="unresolved")
+    # NOTE: do NOT early-return on empty matches — a PEP 420 namespace package
+    # surfaces as zero matches (the AST name-index has no file-less entry for it)
+    # and must still reach the #444 anchoring below (#457).
 
     # Filter to matches that have a full_name (resolvable symbols)
     valid_matches = [m for m in matches if m.get("full_name")]

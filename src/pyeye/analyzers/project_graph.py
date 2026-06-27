@@ -41,6 +41,37 @@ _lock = threading.Lock()
 _name_indices: dict[str, NameIndex] = {}
 
 
+def _should_index(
+    definition: DefinitionSentinel,
+    kindmap: dict[str, str],
+    module_name: str | None,
+) -> bool:
+    """Return True if *definition* belongs in the name index.
+
+    Indexed: direct module members (top-level classes, functions, statements)
+    plus **nested classes** (a class enclosed directly by another class) so
+    dotted paths like ``Outer.Inner.method`` can resolve their parent. Excluded:
+    methods, class attributes, and anything inside a function — these are reached
+    via the parent at lookup time, not by bare name.
+
+    Args:
+        definition: The candidate definition.
+        kindmap: ``full_name -> type`` for every definition in the same module.
+        module_name: The module's dotted name, or ``None``.
+
+    Returns:
+        True if the definition should be a name-index entry.
+    """
+    full = definition.full_name
+    if "." not in full:
+        return True  # bare top-level name (module_name unknown)
+    parent_full = full.rsplit(".", 1)[0]
+    if parent_full == module_name:
+        return True  # direct module member
+    # Nested: keep only classes enclosed directly by another class.
+    return definition.type == "class" and kindmap.get(parent_full) == "class"
+
+
 def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None]) -> NameIndex:
     """Build a name->definitions index from *py_files* (pure, uncached).
 
@@ -64,8 +95,26 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
             tree = file_artifact_cache.get_ast(path)
         except (OSError, SyntaxError, ValueError):
             continue
-        for definition in extract_definitions(tree, file_to_module.get(path), path):
-            index.setdefault(definition.name, []).append(definition)
+        module_name = file_to_module.get(path)
+        # One module entry per file; for an __init__.py this is the regular
+        # package itself (module_name is the package's dotted name).
+        if module_name:
+            index.setdefault(module_name.rsplit(".", 1)[-1], []).append(
+                DefinitionSentinel(
+                    module_path=path,
+                    full_name=module_name,
+                    kind="module",
+                    line=1,
+                    column=0,
+                )
+            )
+        # Index modules, top-level defs, and nested classes; methods, class
+        # attributes, and locals are excluded (reached via the parent at lookup).
+        defs = extract_definitions(tree, module_name, path)
+        kindmap = {d.full_name: d.type for d in defs}
+        for definition in defs:
+            if _should_index(definition, kindmap, module_name):
+                index.setdefault(definition.name, []).append(definition)
 
     for definitions in index.values():
         definitions.sort(

@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from pyeye.analyzers import project_graph
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import AnalysisError, FileAccessError
 
@@ -24,68 +25,36 @@ class TestJediAnalyzer:
             # to the expected value so the assertion is platform-independent.
             mock_project.assert_called_once_with(path=temp_project_dir.resolve().as_posix())
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
-    async def test_find_symbol(self, mock_project_class, temp_project_dir):
-        """Test finding symbol definitions."""
-        # Setup mock
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Create mock search results
-        mock_result = Mock()
-        mock_result.name = "test_function"
-        mock_result.module_name = "test_module"
-        mock_result.line = 10
-        mock_result.column = 4
-        mock_result.module_path = Path("/test/module.py")
-        mock_result.type = "function"
-        mock_result.description = "def test_function"
-        mock_result.full_name = "test_module.test_function"
-        mock_result.docstring = Mock(return_value="Test docstring")
-
-        mock_project.search.return_value = [mock_result]
-
+    async def test_find_symbol(self, temp_project_dir):
+        """find_symbol returns the project definition of a name (AST name-index)."""
+        (temp_project_dir / "test_module.py").write_text("def test_function():\n    pass\n")
+        project_graph.invalidate()
         analyzer = JediAnalyzer(str(temp_project_dir))
         results = await analyzer.find_symbol("test_function")
 
         assert len(results) == 1
         assert results[0]["name"] == "test_function"
         assert results[0]["type"] == "function"
-        assert results[0]["line"] == 10
+        assert results[0]["line"] == 1
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
-    async def test_find_symbol_fuzzy(self, mock_project_class, temp_project_dir):
-        """Test fuzzy symbol search."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Create multiple results
-        results_list = []
-        for name in ["test_func", "test_function", "testing_function"]:
-            mock_result = Mock()
-            mock_result.name = name
-            mock_result.module_name = "module"
-            mock_result.line = 1
-            mock_result.column = 0
-            mock_result.module_path = Path(f"/{name}.py")
-            mock_result.type = "function"
-            mock_result.description = f"def {name}"
-            mock_result.full_name = f"module.{name}"
-            mock_result.docstring = Mock(return_value="")
-            results_list.append(mock_result)
-
-        mock_project.search.return_value = results_list
-
+    async def test_find_symbol_fuzzy(self, temp_project_dir):
+        """fuzzy=False returns the exact match; fuzzy=True returns substring matches."""
+        (temp_project_dir / "module.py").write_text(
+            "def test_func():\n    pass\n\n\n"
+            "def test_function():\n    pass\n\n\n"
+            "def testing_function():\n    pass\n"
+        )
+        project_graph.invalidate()
         analyzer = JediAnalyzer(str(temp_project_dir))
 
-        # Non-fuzzy should only return exact match
+        # Non-fuzzy returns only the exact match.
         results = await analyzer.find_symbol("test_function", fuzzy=False)
         assert len(results) == 1
         assert results[0]["name"] == "test_function"
 
-        # Fuzzy should return all
+        # Fuzzy returns every indexed name containing the query.
         results = await analyzer.find_symbol("test", fuzzy=True)
         assert len(results) == 3
 
@@ -480,20 +449,19 @@ def main():
         assert len(result["callers"]) == 1
         assert result["callers"][0]["line"] == 3
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
-    async def test_error_handling(self, mock_project_class, temp_project_dir, caplog):
-        """Test error handling in analyzer methods."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Make search raise an exception
-        mock_project.search.side_effect = Exception("Jedi error")
-
+    async def test_error_handling(self, temp_project_dir, caplog):
+        """find_symbol wraps an internal search failure in AnalysisError."""
         analyzer = JediAnalyzer(str(temp_project_dir))
 
-        # Should raise AnalysisError when search fails with no results
-        with pytest.raises(AnalysisError) as exc_info:
+        # Make the name-index build fail; find_symbol must wrap it.
+        with (
+            patch(
+                "pyeye.analyzers.project_graph.get_name_index",
+                side_effect=Exception("Jedi error"),
+            ),
+            pytest.raises(AnalysisError) as exc_info,
+        ):
             await analyzer.find_symbol("test")
 
         assert "Failed to search for symbol 'test'" in str(exc_info.value)
@@ -633,19 +601,18 @@ def main():
         # Should return empty results when files can't be read
         assert results == []
 
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
-    async def test_get_call_hierarchy_search_error(self, mock_project_class, temp_project_dir):
-        """Test get_call_hierarchy when search fails."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Make search raise an exception
-        mock_project.search.side_effect = Exception("Search failed")
-
+    async def test_get_call_hierarchy_search_error(self, temp_project_dir):
+        """get_call_hierarchy wraps an internal search failure in AnalysisError."""
         analyzer = JediAnalyzer(str(temp_project_dir))
 
-        with pytest.raises(AnalysisError) as exc_info:
+        with (
+            patch(
+                "pyeye.analyzers.project_graph.get_name_index",
+                side_effect=Exception("Search failed"),
+            ),
+            pytest.raises(AnalysisError) as exc_info,
+        ):
             await analyzer.get_call_hierarchy("test_func")
         assert "Failed to get call hierarchy" in str(exc_info.value)
 

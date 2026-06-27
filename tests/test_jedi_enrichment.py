@@ -233,10 +233,25 @@ async def test_build_type_ref_union_with_resolvable(analyzer: JediAnalyzer) -> N
 async def _get_method_name(
     analyzer: JediAnalyzer, method: str, full_name_fragment: str | None = None
 ) -> jedi.api.classes.Name:
-    """Search for a method Name object via _search_all_scopes and filter by full_name."""
-    results = await analyzer._search_all_scopes(method)
-    if full_name_fragment is not None:
-        results = [r for r in results if full_name_fragment in (r.full_name or "")]
+    """Return a method's Jedi ``Name`` via a Script, filtered by full_name.
+
+    Methods are deliberately NOT in the AST name-index (#457) — they are reached
+    via their parent. Enrichment is Jedi-tier and production sources method
+    ``Name``s from Jedi (``lookup_builders`` → ``defined_names()``), so this
+    helper does the same: locate the file via the parent class (which IS indexed)
+    and pull the method's ``Name`` from a Jedi ``Script``.
+    """
+    parent = full_name_fragment.rsplit(".", 1)[0] if full_name_fragment else method
+    parents = await analyzer._search_all_scopes(parent)
+    assert parents, f"parent {parent!r} not found for method {method!r}"
+    file_path = Path(parents[0].module_path)
+    script = jedi.Script(file_path.read_text(), path=str(file_path), project=analyzer.project)
+    results = [
+        n
+        for n in script.get_names(all_scopes=True)
+        if n.name == method
+        and (full_name_fragment is None or full_name_fragment in (n.full_name or ""))
+    ]
     assert results, f"No results for method {method!r} (fragment={full_name_fragment!r})"
     return results[0]
 
