@@ -69,6 +69,13 @@ are orthogonal to the navigation redesign and are unchanged.
   `{handle: count}` map, present only when `callees` is traced) surfacing per-node
   calls that didn't resolve — restoring across hops the count `expand(callees)`
   already reports. Conformance-guarded (linter rules T.6/T.7).
+- `unresolved_imports` honesty field on the `imports` edge (#494): a
+  statically-present `from X import Y` that forward-`goto` cannot resolve is now
+  surfaced (by its intended dotted target) instead of being silently dropped —
+  `expand(handle, "imports")` carries a list (`[]` when all resolved) and
+  `trace(follow=["imports"])` a `{handle: [target, …]}` map (present only when
+  `imports` is traced). Closes a silent false-negative in dependency-graph
+  queries. Conformance-guarded (linter rules E.5/T.8).
 
 ### Removed
 

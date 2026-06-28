@@ -198,9 +198,15 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of
   the call graph as exhaustive. An absent field means call sites weren't measured (you
   didn't trace `callees`); `{}` means traced and all resolved.
+- **`unresolved_imports`** (present only when you traced `imports`): a `{handle: [target, …]}`
+  map of nodes whose `imports` walk couldn't resolve a statically-present `from X import Y`
+  (each entry is the intended dotted target). A node listed here has an **incomplete import
+  set** — a dependency closure is missing those edges. `expand(handle, "imports")` carries
+  the same signal as a flat `unresolved_imports: [target, …]` list (`[]` when all resolved).
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
-(for call graphs) the relevant node absent from `unresolved_call_sites`.
+(for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
+claim from `imports` likewise requires the node absent from `unresolved_imports`.
 
 ## Workflow
 

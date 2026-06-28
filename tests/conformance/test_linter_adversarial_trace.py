@@ -14,6 +14,9 @@ Rule tags enforced here:
     T.7  unresolved_call_sites (#488), when present, is a {handle: count} dict
          (non-empty single-line keys, int counts >= 1); optional (absent = not
          measured, i.e. callees not traced)
+    T.8  unresolved_imports (#494), when present, is a {handle: [target, ...]}
+         dict (non-empty single-line keys, non-empty target-string lists);
+         optional (absent = imports not traced)
     A.*  No source content anywhere in the Subgraph (layering)
 """
 
@@ -279,6 +282,48 @@ class TestTraceUnresolvedCallSites:
         sg = _clone()
         sg["unresolved_call_sites"] = {"   ": 2}
         with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
+            lint_response(sg, "trace")
+
+
+class TestTraceUnresolvedImports:
+    """T.8 (#494 interior honesty) — ``unresolved_imports`` map.
+
+    Optional (present only when ``imports`` was traced). When present it is a
+    dict ``{handle: [target, ...]}`` with non-empty single-line handle keys and
+    non-empty lists of non-empty single-line import-target strings.
+    """
+
+    def test_absent_passes(self) -> None:
+        lint_response(_clone(), "trace")  # members-only subgraph omits it
+
+    def test_empty_map_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_imports"] = {}
+        lint_response(sg, "trace")
+
+    def test_populated_map_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_imports"] = {
+            "mypackage._core.imports_fixture": ["_nonexistent_pkg_494.missing_symbol"]
+        }
+        lint_response(sg, "trace")
+
+    def test_must_be_dict(self) -> None:
+        sg = _clone()
+        sg["unresolved_imports"] = ["pkg.thing"]
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(sg, "trace")
+
+    def test_value_must_be_non_empty_list(self) -> None:
+        sg = _clone()
+        sg["unresolved_imports"] = {"mypackage._core.imports_fixture": []}
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(sg, "trace")
+
+    def test_target_must_be_str(self) -> None:
+        sg = _clone()
+        sg["unresolved_imports"] = {"mypackage._core.imports_fixture": [123]}
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
             lint_response(sg, "trace")
 
 
