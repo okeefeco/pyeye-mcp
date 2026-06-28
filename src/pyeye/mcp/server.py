@@ -920,25 +920,7 @@ if settings.enable_performance_metrics:
     mcp.tool()(get_connection_diagnostics)
 
 
-# Workflow Resources
-
-
-def load_workflow(workflow_name: str) -> str:
-    """Load workflow content from workflows directory.
-
-    Args:
-        workflow_name: Name of the workflow file (without .md extension)
-
-    Returns:
-        Workflow content as markdown string
-
-    Raises:
-        FileNotFoundError: If workflow file doesn't exist
-    """
-    workflow_file = Path(__file__).parent.parent / "workflows" / f"{workflow_name}.md"
-    if not workflow_file.exists():
-        raise FileNotFoundError(f"Workflow not found: {workflow_name}")
-    return workflow_file.read_text(encoding="utf-8")
+# MCP Resources
 
 
 @mcp.resource("pyeye://about")
@@ -953,100 +935,6 @@ def get_about() -> str:
         A JSON object with ``name``, ``version``, ``repository`` and ``issues``.
     """
     return json.dumps(meta.about())
-
-
-@mcp.resource("workflows://find-references")
-def get_find_references_workflow() -> str:
-    """Get the Find All References workflow.
-
-    This workflow shows how to find ALL usages of a class/function,
-    including both package code and standalone scripts/notebooks.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("find_references")
-
-
-@mcp.resource("workflows://refactoring")
-def get_refactoring_workflow() -> str:
-    """Get the Safe Refactoring workflow.
-
-    This workflow guides through safe refactoring by analyzing
-    subclasses, references, and dependencies before making changes.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("refactoring")
-
-
-@mcp.resource("workflows://code-understanding")
-def get_code_understanding_workflow() -> str:
-    """Get the Code Understanding workflow.
-
-    This workflow helps understand unfamiliar code by systematically
-    exploring structure, relationships, and usage patterns.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("code_understanding")
-
-
-@mcp.resource("workflows://dependency-analysis")
-def get_dependency_analysis_workflow() -> str:
-    """Get the Dependency Analysis workflow.
-
-    This workflow helps analyze module dependencies, import relationships,
-    and architectural patterns in Python projects.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("dependency_analysis")
-
-
-@mcp.resource("workflows://code-review-standards")
-def get_code_review_standards_workflow() -> str:
-    """Get the Python Code Review Standards workflow.
-
-    This workflow provides industry best practices for Python code review
-    including PEP standards, modern Python features, type safety, testing,
-    and anti-pattern detection with MCP-enhanced semantic analysis.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("code_review_standards")
-
-
-@mcp.resource("workflows://code-review-security")
-def get_code_review_security_workflow() -> str:
-    """Get the Python Security Code Review workflow.
-
-    This workflow provides OWASP security guidelines for Python code review
-    including input validation, injection prevention, authentication patterns,
-    and data flow analysis using MCP tools.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("code_review_security")
-
-
-@mcp.resource("workflows://code-review-pr")
-def get_code_review_pr_workflow() -> str:
-    """Get the Complete Pull Request Review workflow.
-
-    This workflow provides a comprehensive PR review process combining
-    automated checks, semantic analysis, code standards, security review,
-    and manual review best practices.
-
-    Returns:
-        Markdown workflow documentation
-    """
-    return load_workflow("code_review_pr")
 
 
 # Export for __main__.py
