@@ -545,18 +545,6 @@ class JediAnalyzer:
         except ValueError:
             pass
 
-        # Try additional packages (each is a sys.path-style root, mirroring the
-        # per-path Jedi project the old search used).
-        for add_path in self.additional_paths:
-            try:
-                rel_path = py_file.relative_to(add_path)
-                module_parts = list(rel_path.parts[:-1])
-                if py_file.name != "__init__.py":
-                    module_parts.append(py_file.stem)
-                return ".".join(module_parts) if module_parts else py_file.stem
-            except ValueError:
-                continue
-
         # Try namespaces
         for ns_name, ns_paths in self.namespace_paths.items():
             for ns_path in ns_paths:
@@ -588,12 +576,22 @@ class JediAnalyzer:
     def _index_module_name(self, py_file: Path) -> str | None:
         """Dotted module name for the name index (matches Jedi's full_name).
 
-        Like :meth:`_get_import_path_for_file`, but for a **main-project** file
-        when the project root is itself a package (``_jedi_root_is_parent``), the
-        root package name is included — mirroring the ``full_name`` Jedi produced
-        for the old ``project.search`` (e.g. ``pkg.models.X``, not ``models.X``).
-        Other files (additional packages, namespaces) use the standard mapping,
-        which other callers (e.g. ``find_reexports``) rely on staying prefix-free.
+        Like :meth:`_get_import_path_for_file`, but composes the two module names
+        the old per-scope ``project.search`` produced that the shared helper does
+        not — keeping that helper's contract unchanged for its other callers
+        (``find_importers`` / ``resolve`` / ``lookup``, which rely on it staying
+        prefix-free and not resolving additional-package files):
+
+        - **main-project** file when the root is itself a package
+          (``_jedi_root_is_parent``): include the root package name
+          (``pkg.models.X``, not ``models.X``);
+        - **additional-package** file: each additional path is a sys.path-style
+          root (rooted *at* the package dir), so ``shared_lib/utils.py`` is
+          module ``utils`` — mirroring the per-path Jedi project the old
+          ``_search_all_scopes`` used. The shared helper returns ``None`` here.
+
+        Everything else (namespaces, ``src``-layout roots, plain main files)
+        defers to :meth:`_get_import_path_for_file` unchanged.
 
         Args:
             py_file: The file whose module name is needed.
@@ -601,16 +599,19 @@ class JediAnalyzer:
         Returns:
             The dotted module name, or ``None`` if it cannot be determined.
         """
-        if self._jedi_root_is_parent:
-            try:
-                py_file.relative_to(self.project_path)
-            except ValueError:
-                return self._get_import_path_for_file(py_file)
+        if self._jedi_root_is_parent and self._is_subpath(py_file, self.project_path):
             rel = py_file.relative_to(self.project_path.parent)
             parts = list(rel.parts[:-1])
             if py_file.name != "__init__.py":
                 parts.append(py_file.stem)
             return ".".join(parts) if parts else py_file.stem
+        for add_path in self.additional_paths:
+            if self._is_subpath(py_file, add_path):
+                rel = py_file.relative_to(add_path)
+                parts = list(rel.parts[:-1])
+                if py_file.name != "__init__.py":
+                    parts.append(py_file.stem)
+                return ".".join(parts) if parts else py_file.stem
         return self._get_import_path_for_file(py_file)
 
     def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
