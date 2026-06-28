@@ -14,6 +14,8 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "truncated": bool,                             # caps hit before natural termination
       "truncation_reasons": ["max_depth"? , "max_nodes"?],  # WHICH cap(s) fired
       "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
+      "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
+      "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -28,6 +30,32 @@ and kept for back-compat.
 rather than silently dropped from the walk — silently omitting it would falsely
 read as "no such neighbours" (the #332 absence-vs-zero trap).  It is ``[]`` when
 every requested edge is supported.
+
+``unresolved_roots`` (#488) is the same honesty guard applied to *root
+resolution*: a ``start`` handle that Jedi cannot resolve to a ``Name`` (a
+cold-start miss, #419, or a genuinely bad handle) is listed here instead of
+being silently skipped.  Without it an all-roots-miss returns a clean
+``nodes: {}`` that an agent reads as "this root calls/contains nothing" — a
+false-confident negative.  Like ``unsupported_edges`` it is **always present**:
+root resolution is always measured, so it is ``[]`` when every root resolved and
+the failed handles otherwise.  Absence is never a meaningful "all resolved"
+signal — it would be a broken response (the absence-vs-zero invariant reserves
+absence for "not measured").  So ``nodes: {}`` with ``unresolved_roots: []`` is
+a genuine zero, and with a non-empty list it tells the agent to retry or fall
+back to Read/LSP.
+
+``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
+``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or
+a flaky goto miss, #419) leaves that node's outbound calls incomplete.
+``expand(callees)`` already reports the per-node count; ``trace`` surfaces it as
+a ``{source_handle: count}`` map so a populated-but-lossy subgraph never reads as
+complete.  Unlike ``unresolved_roots`` it is **present only when ``callees`` was
+actually traced** — call sites are otherwise not measured, so an absent key is
+the honest "not measured" (absence-vs-zero), ``{}`` means callees were traced and
+every site resolved, and only nodes with a non-zero count appear.  It does NOT
+cover flaky misses on the *other* edges (``members``/``imported_by``/
+``subclasses`` resolve largely via deterministic AST); whole-walk determinism is
+the #419 / #333 backend concern, not something this field claims to solve.
 
 Termination: each handle is visited (expanded) at most once; edges *to* an
 already-visited handle are still recorded so cycles stay visible to the agent,
@@ -50,8 +78,10 @@ if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 
 
-async def _single_hop(jedi_name: Any, edge: str, analyzer: JediAnalyzer) -> list[tuple[str, Any]]:
-    """Resolve ONE edge from *jedi_name*, returning ``(handle_str, jedi_name)`` pairs.
+async def _single_hop(
+    jedi_name: Any, edge: str, analyzer: JediAnalyzer
+) -> tuple[list[tuple[str, Any]], int | None]:
+    """Resolve ONE edge from *jedi_name*.
 
     Pure registry consumption: consults :func:`edge_status` and runs the
     registered resolver (awaiting async resolvers like ``imported_by``).  An
@@ -64,17 +94,25 @@ async def _single_hop(jedi_name: Any, edge: str, analyzer: JediAnalyzer) -> list
         analyzer: Active analyzer.
 
     Returns:
-        A list of ``(canonical_handle_string, adjacent_jedi_name)`` pairs — the
-        adjacent name is carried so the caller can build a stub without a
-        re-resolution (the load-bearing reason ``EdgeResult`` carries Names).
+        A 2-tuple ``(adjacents, unresolved_call_sites)``:
+
+        - ``adjacents``: ``(canonical_handle_string, adjacent_jedi_name)`` pairs —
+          the adjacent name is carried so the caller can build a stub without a
+          re-resolution (the load-bearing reason ``EdgeResult`` carries Names).
+        - ``unresolved_call_sites``: the ``callees`` count of call sites ``goto``
+          could not resolve (dynamic/un-inferable, or a flaky miss, #419), or
+          ``None`` for every non-``callees`` edge (the notion is callees-only).
+          Carried forward so ``trace`` can surface interior call-resolution loss
+          instead of silently dropping it (#488).
     """
     if edge_status(edge) != STATUS_IMPLEMENTED:
-        return []
+        return [], None
     raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
     edge_result = await raw if isawaitable(raw) else raw
     if edge_result is None:
-        return []
-    return [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
+        return [], None
+    adjacents = [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
+    return adjacents, edge_result.unresolved_call_sites
 
 
 def _stops_at(handle: str, scope: str, stop_when: dict[str, Any] | None) -> bool:
@@ -142,8 +180,11 @@ async def trace(
 
     Returns:
         A ``Subgraph`` dict: ``nodes`` (handle → Stub), ``edges`` (``from``/``to``/
-        ``kind``), and ``truncated``.  Never raises; an unresolvable root simply
-        contributes no node.
+        ``kind``), ``truncated``, the always-present ``unresolved_roots`` list, and
+        — when ``callees`` is traced — the ``unresolved_call_sites`` map (#488).
+        Never raises; an unresolvable root contributes no node but is listed in
+        ``unresolved_roots``, and a node's unresolved callee count is surfaced in
+        ``unresolved_call_sites`` rather than silently dropped.
     """
     starts = [start] if isinstance(start, str) else list(start)
 
@@ -174,9 +215,27 @@ async def trace(
     # enqueued together, so membership in ``nodes`` means "already discovered".
     queue: deque[tuple[str, Any, int]] = deque()
 
+    # #488 (interior honesty): per-source-node count of call sites a ``callees``
+    # hop could not resolve (dynamic/un-inferable, or a flaky goto miss, #419).
+    # ``expand(callees)`` already reports this; without carrying it forward a
+    # ``trace`` subgraph would look more complete than it is. Surfaced ONLY when
+    # ``callees`` was actually traced (absent ⇒ not measured), and only nodes with
+    # a non-zero count are recorded.
+    callees_traced = "callees" in supported_follow
+    unresolved_call_sites: dict[str, int] = {}
+
+    # #488: a root that fails to resolve is recorded here, not silently dropped.
+    # Without it an internal resolution miss (cold-start non-determinism, #419)
+    # renders as a confident-empty subgraph — the agent reads ``nodes: {}`` as
+    # "this root has no neighbours" when really the root was never resolved. This
+    # is the absence-vs-zero trap applied to *root resolution*.
+    unresolved_roots: list[str] = []
+
     for root in starts:
         jedi_name = await _resolve_handle_to_jedi_name(root, analyzer)
         if jedi_name is None:
+            if root not in unresolved_roots:
+                unresolved_roots.append(root)
             continue
         canonical = getattr(jedi_name, "full_name", None) or root
         if canonical not in nodes:
@@ -190,7 +249,13 @@ async def trace(
         # neighbour) and how cycle edges back into the closure stay visible.
         can_expand = depth < max_depth
         for edge in supported_follow:
-            for adj_handle, adj_name in await _single_hop(jedi_name, edge, analyzer):
+            adjacents, hop_unresolved = await _single_hop(jedi_name, edge, analyzer)
+            if edge == "callees" and hop_unresolved:
+                # A node is popped (and its callees hop runs) exactly once, so this
+                # records each source node's count a single time. Only > 0 is kept:
+                # 0 means "callees complete here", which the absent key already says.
+                unresolved_call_sites[handle] = hop_unresolved
+            for adj_handle, adj_name in adjacents:
                 if adj_handle in nodes:
                     # Already in the closure: record the (possibly cyclic) edge so
                     # it stays visible, but never re-expand — this bounds the walk.
@@ -224,7 +289,18 @@ async def trace(
         "truncated": bool(truncation_reasons),
         "truncation_reasons": sorted(truncation_reasons),
         "unsupported_edges": unsupported_edges,
+        # #488: always present (root resolution is always measured) — ``[]`` when
+        # every root resolved, the failed handles otherwise.  Like its sibling
+        # ``unsupported_edges``: absence would be a broken response, never a
+        # meaningful "all resolved" signal.
+        "unresolved_roots": unresolved_roots,
     }
+    # #488 (interior honesty): present ONLY when ``callees`` was traced — call
+    # sites are not measured otherwise, so an absent key honestly means "not
+    # measured" (absence-vs-zero), distinct from the always-present
+    # ``unresolved_roots``. ``{}`` means callees were traced and all resolved.
+    if callees_traced:
+        result["unresolved_call_sites"] = unresolved_call_sites
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,
     # and absent entirely when nothing was unsupported (no noise on clean traces).

@@ -63,6 +63,12 @@ are orthogonal to the navigation redesign and are unchanged.
 - `pyeye://about` MCP resource and in-band issue-reporting pointers (server
   `instructions`, `report_issues` keys on unsupported `expand`/`trace`
   payloads).
+- `trace` honesty fields so an empty/clean-looking subgraph is never misread as a
+  real zero (#488): `unresolved_roots` (always present; `[]` when every start
+  handle resolved, the failed handles otherwise) and `unresolved_call_sites` (a
+  `{handle: count}` map, present only when `callees` is traced) surfacing per-node
+  calls that didn't resolve — restoring across hops the count `expand(callees)`
+  already reports. Conformance-guarded (linter rules T.6/T.7).
 
 ### Removed
 
