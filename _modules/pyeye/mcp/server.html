@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=416bc2f6"></script>
+      <script src="../../../_static/documentation_options.js?v=09c68fbe"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -834,7 +834,8 @@
 <span class="sd">        { &quot;source&quot;: str,                 # canonical source handle</span>
 <span class="sd">          &quot;edge&quot;:   str,</span>
 <span class="sd">          &quot;stubs&quot;:  [Stub, ...],         # [] == measured-empty (NOT unsupported)</span>
-<span class="sd">          &quot;unresolved_call_sites&quot;: int   # callees ONLY; absent for members }</span>
+<span class="sd">          &quot;unresolved_call_sites&quot;: int,  # callees ONLY; absent otherwise</span>
+<span class="sd">          &quot;unresolved_imports&quot;: [target, ...] }  # imports ONLY (#494); [] when all resolved</span>
 
 <span class="sd">    *Unsupported branch* (``&quot;stubs&quot;`` key absent):</span>
 <span class="sd">    ::</span>
@@ -907,6 +908,7 @@
 <span class="sd">          &quot;unsupported_edges&quot;: [ {&quot;edge&quot;, &quot;reason&quot;, &quot;detail&quot;}, ... ],</span>
 <span class="sd">          &quot;unresolved_roots&quot;: [ handle, ... ],  # #488 — always present; [] when every root resolved</span>
 <span class="sd">          &quot;unresolved_call_sites&quot;: { handle: count, ... },  # #488 — present iff callees traced</span>
+<span class="sd">          &quot;unresolved_imports&quot;: { handle: [target, ...], ... },  # #494 — present iff imports traced</span>
 <span class="sd">          &quot;report_issues&quot;: str }   # #458 — present ONLY when unsupported_edges non-empty</span>
 
 <span class="sd">    Edges are NOT deduped across kinds; edges to already-visited handles are</span>
