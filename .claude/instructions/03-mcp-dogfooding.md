@@ -32,10 +32,14 @@ absence-vs-zero invariant, and operate on canonical handles that collapse
 re-exported paths to the definition site.
 
 The old Jedi-shaped tools (`find_symbol`, `goto_definition`, `get_type_info`,
-`find_references`, etc.) remain only for backwards compatibility and are
-**deprecated** — do not reach for them, and never use the reverse-reference
-tools to answer "who calls / references this" (see the honest-limits rule in the
-skill). See `docs/api-redesign.md` for the redesign background.
+`find_imports`, `find_subclasses`, `list_packages`, `list_modules`,
+`get_module_info`, `list_project_structure`) have been **removed** from the MCP
+surface — they are gone, not just discouraged. Three legacy tools survive but
+are **deprecated**: `find_references`, `get_call_hierarchy`, and
+`analyze_dependencies`. Do not reach for any of them, and never use the
+reverse-reference tools to answer "who calls / references this" (see the
+honest-limits rule in the skill). See `docs/api-redesign.md` for the redesign
+background.
 
 ## Tool mechanics live in the `python-explore` skill
 
