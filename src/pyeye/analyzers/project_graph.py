@@ -9,7 +9,9 @@ kept **out** of the ``file_artifact_cache`` LRU, so completeness can never depen
 on the AST cache size — an evictable index would silently drop definitions and
 reincarnate #457.
 
-The store is keyed purely by *project identity* and built **whole-project** (the
+The store is keyed purely by *project identity* (the project root, canonicalised
+via :func:`_normalize` so build and eviction can never key it differently) and
+built **whole-project** (the
 union of all scope paths); scope narrowing happens at lookup time in the caller,
 never at build time (baking scope into a project-keyed cache poisons it). Cache
 mechanism is plain invalidate-and-rebuild (no generation counter): a file change
@@ -39,6 +41,29 @@ NameIndex = dict[str, list[DefinitionSentinel]]
 # store is process-wide, mirroring file_artifact_cache's default singleton.
 _lock = threading.Lock()
 _name_indices: dict[str, NameIndex] = {}
+
+
+def _normalize(project_key: str) -> str:
+    """Canonical store key for a project root: resolved, then posix.
+
+    The store is reached from two layers that spell the same root differently:
+    the analyzer **builds** under its *unresolved* ``project_path`` while the
+    project manager **evicts** under the ``.resolve()``d path it keys its own
+    caches by. Canonicalising here, in one place, makes those agree by
+    construction — otherwise a symlinked or relative root (e.g. macOS
+    ``/var`` -> ``/private/var``) builds under one key and is evicted under
+    another, so the non-evicting index silently leaks (#457).
+
+    Args:
+        project_key: A project root path in any spelling.
+
+    Returns:
+        The resolved, posix-form key (lexical posix form if resolution fails).
+    """
+    try:
+        return Path(project_key).resolve().as_posix()
+    except OSError:
+        return Path(project_key).as_posix()
 
 
 def _should_index(
@@ -139,8 +164,9 @@ def get_name_index(
     so concurrent first-callers do not double-build.
 
     Args:
-        project_key: Stable identity for the project (e.g. its root path as a
-            string). The cache key — must NOT encode scope.
+        project_key: Stable identity for the project (its root path in any
+            spelling; canonicalised via :func:`_normalize`). The cache key —
+            must NOT encode scope.
         py_files: The whole-project set of ``.py`` files (union of all scope
             paths); used only when a build is needed.
         file_to_module: Map from each file to its dotted module name.
@@ -148,15 +174,16 @@ def get_name_index(
     Returns:
         The cached :data:`NameIndex` for *project_key*.
     """
-    cached = _name_indices.get(project_key)
+    key = _normalize(project_key)
+    cached = _name_indices.get(key)
     if cached is not None:
         return cached
     with _lock:
-        cached = _name_indices.get(project_key)  # double-checked under lock
+        cached = _name_indices.get(key)  # double-checked under lock
         if cached is not None:
             return cached
         index = build_name_index(py_files, file_to_module)
-        _name_indices[project_key] = index
+        _name_indices[key] = index
         return index
 
 
@@ -174,4 +201,4 @@ def invalidate(project_key: str | None = None) -> None:
         if project_key is None:
             _name_indices.clear()
         else:
-            _name_indices.pop(project_key, None)
+            _name_indices.pop(_normalize(project_key), None)

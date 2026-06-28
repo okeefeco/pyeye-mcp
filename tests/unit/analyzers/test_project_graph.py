@@ -6,7 +6,10 @@ on ``invalidate``. The load-bearing property: completeness can never depend on
 the AST cache size (an evictable index = a name silently missing = #457 again).
 """
 
+import os
 from pathlib import Path
+
+import pytest
 
 from pyeye import file_artifact_cache
 from pyeye.analyzers import project_graph
@@ -119,6 +122,55 @@ def test_project_eviction_clears_name_index(tmp_path: Path) -> None:
 
     idx2 = project_graph.get_name_index(key, [f1], {f1: "a"})
     assert idx2 is not idx1  # eviction cleared this project's index -> rebuilt
+
+
+def test_equivalent_path_spellings_share_one_key(tmp_path: Path) -> None:
+    # The store canonicalises its key, so two spellings of the same root (here a
+    # resolved path vs one with a redundant ".") are one entry — not two.
+    f1 = _write(tmp_path, "a.py", "class Field:\n    pass\n")
+    project_graph.invalidate()
+    idx1 = project_graph.get_name_index(tmp_path.as_posix(), [f1], {f1: "a"})
+    # A different spelling of the same directory must hit the SAME cached object.
+    idx2 = project_graph.get_name_index(f"{tmp_path.as_posix()}/.", [f1], {f1: "a"})
+    assert idx2 is idx1
+    # ...and invalidating via either spelling drops the single shared entry.
+    project_graph.invalidate(f"{tmp_path.as_posix()}/.")
+    idx3 = project_graph.get_name_index(tmp_path.as_posix(), [f1], {f1: "a"})
+    assert idx3 is not idx1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs privilege on Windows")
+@pytest.mark.asyncio
+async def test_eviction_invalidates_the_analyzer_built_index(tmp_path: Path) -> None:
+    # Key-equality guard (#457): the analyzer BUILDS the index under its own
+    # project-root key, while the project manager EVICTS under the resolved key
+    # it stores its caches by. If those two keys disagree (a symlinked or
+    # relative root — e.g. macOS /var -> /private/var), eviction silently misses
+    # the built entry and the non-evicting index LEAKS — the exact failure the
+    # eviction hook exists to prevent. Exercise both real sites, not a synthetic
+    # key, so a key drift is caught.
+    from pyeye.project_manager import ProjectManager
+
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "m.py").write_text("class Field:\n    pass\n")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    project_graph.invalidate()
+    pm = ProjectManager()
+    # Construct the analyzer from the *unresolved* symlink path (what a caller
+    # passes); it builds the index under that path's key.
+    analyzer = pm.get_analyzer(str(link))
+    await analyzer._search_all_scopes("Field")
+    assert project_graph._name_indices, "index should have been built"
+
+    # The project manager evicts under the resolved path it keys its caches by.
+    pm._cleanup_project(Path(str(link)).resolve())
+
+    assert (
+        not project_graph._name_indices
+    ), "eviction did not drop the analyzer-built index — build/eviction keys disagree"
 
 
 def test_index_includes_a_module_entry_per_file(tmp_path: Path) -> None:
