@@ -1,7 +1,8 @@
 # `/architecture-review` (audit scope) — Design Spec
 
-**Status:** Draft (rev 6 — converged; adds build approach) — **UNCOMMITTED** in the
-`feat/492-architecture-review-audit` worktree; to be committed on that branch.
+**Status:** Draft (rev 8 — spike decisions folded; duplication carved out to #495) —
+**UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree (rev 6 committed at
+`80fe484`); to be committed on that branch.
 **Date:** 2026-06-28
 **Issue:** #492
 **Scope:** Increment **A** (project/audit scope). Diff-mode (B), the self-learning loop,
@@ -35,6 +36,12 @@ is real — unknown divergences made visible and ordered by impact — and the �
 is what keeps that queue **coherent run-to-run** instead of shifting under the user. Whoever
 builds this should hold that expectation, not "the AI cleans up its own mess."
 
+**Hard scope caveat.** A addresses *convention divergence*, **not** the duplication pain ("the
+same code written in many places") that partly motivated this work. Semantic duplication is a
+content-similarity problem A structurally cannot do (spike bet-1b; §3) and is tracked
+separately as **#495**. A user who runs A expecting the duplication problem solved will get
+conventions — state that up front.
+
 ## 3. Goals / Non-goals
 
 **Goals (A):** audit a whole Python project; extract mechanical facts + infer observed
@@ -42,15 +49,25 @@ conventions; detect deviations honestly; drive a human-in-the-loop that codifies
 norms *and* records confirmed non-issues; accumulate across runs.
 
 **Non-goals (deferred):** per-diff gate (B); blocking/CI enforcement; a queryable structured
-fact store; auto-codification; norm revision/retirement workflow; non-Python; a dedicated
-duplication/similarity engine (in A, duplication is surfaced by the auditor *reading code over
-pyeye facts*, not a computed index — §6).
+fact store; auto-codification; norm revision/retirement workflow; non-Python.
+
+**Explicit limit — A does not detect semantic duplication.** A detects *convention divergence*
+(a relationship over structural facts); it **structurally cannot** detect semantic duplication
+("these two bodies are near-identical"), a content-similarity computation pyeye ships nothing
+for by design. Spike bet-1b confirmed this empirically: free-reading found 5 cross-module
+duplications, the fact-grounded pipeline found ~1. Duplication is a *different epistemic object*
+with a different honesty profile (a near-dup score is a tunable threshold — a graded judgment,
+not a fact, so it must never enter the Tier-1 substrate) and is handled by a **separate
+similarity engine, #495** — not by A. (This replaces the earlier, now-falsified claim that the
+auditor would surface duplication by reading code over pyeye facts.)
 
 ## 4. Conceptual grounding
 
 - **Fact states.** Three positive tiers plus one negative:
-  1. **Mechanical** — extracted, deterministic, never wrong. Re-derived each run; never stored
-     as source of truth.
+  1. **Mechanical** — extracted and deterministic, **trustworthy modulo extractor bugs** (NOT
+     "never wrong" — see §9: a stable-but-wrong fact reproduces perfectly and is not caught by
+     the §10 gate; spike #494 found exactly this). Re-derived each run; never stored as source
+     of truth.
   2. **Observed** — inferred, prevalence-tagged, **advisory**. Candidate; persisted as
      disposable cross-run state.
   3. **Confirmed (positive)** — human-anchored / fitness-function-enforced. Authoritative; the
@@ -190,6 +207,14 @@ Mirrors pyeye's own epistemics applied to conventions:
   anchor, leaving a residual ambiguity on the unsettled clusters).
 - **No signal** → said honestly.
 
+**Grade by extraction where the convention is mechanical.** A universal convention ("N/N do
+X") is a *counting fact*, not a judgment — so for the mechanically-extractable subset the
+*grade itself* (deterministic-single vs ambiguous) should fall out of extraction, not an LLM
+label. (Spike bet-1 showed LLM-labelled grades on mechanically-determinable conventions —
+layering, all-async — drift across runs; this is §5's "LLM only for judgment" applied one level
+deeper.) The §10 gate then guards only *genuinely* judgment-layer grades, not ones that should
+never have been judgment-layer.
+
 (Confirmed non-issue and contest are *human actions/labels* on findings, not finding states.)
 
 ## 9. Honesty & determinism invariants
@@ -216,6 +241,15 @@ Mirrors pyeye's own epistemics applied to conventions:
 - **Confident path is reproduction-gated** (§10): a finding reaches *deterministic-single*
   only if stable across the reproduction protocol; otherwise it is downgraded to ambiguous.
   Rests on **stable-AST facts** (#488 / #419).
+- **The gate checks reproducibility, not truth** — the spike's deepest lesson. §10 guarantees a
+  confident finding is *stable*, not *correct*: a reproducibly-wrong Tier-1 fact (an extractor
+  bug — e.g. **#494**, the `imports` edge silently dropping a real import, which three
+  independent runs agreed on) sails through as `deterministic_single`, because a stable-but-wrong
+  fact reproduces perfectly. Nothing downstream catches it. This residual risk is **mitigated,
+  not eliminated**, by (i) testing the fact extractors and (ii) evidence-transparency (§5) — the
+  human can catch a wrong fact only if the confirmation surfaces the underlying evidence, not
+  just the conclusion. Tier-1 trust is therefore *conditional on extractor correctness*, which
+  the architecture assumes and the spike proved must be earned.
 - **Advisory-only:** inferred conventions are advisory; only human-confirmed (Tier-3) facts
   may later (in B) block.
 - **Human-gated:** Tier-2 → Tier-3 promotion, and any norm contest/retire, are always
@@ -369,8 +403,12 @@ a continuous score, so the ranking is **two-level**, not a literal product:
   but named so the negative-tier lifecycle isn't silently asymmetric with the positive tier's
   contest path.
 - **Self-learning loop / shadow-mode accumulation;** **queryable fact store;** **blocking/CI;**
-  **different-model auditor** (the model-isolation knob from §5); **multi-language;** dedicated
-  duplication/similarity engine.
+  **different-model auditor** (the model-isolation knob from §5); **multi-language.**
+- **Semantic-duplication detection — #495** (carved out per spike bet-1b; the #1 stated pain; a
+  *separate* similarity engine, not an axis in A — see §3).
+- **Tier-1 extractor correctness** is a load-bearing assumption the §10 gate does **not** verify
+  (#494): extractor test coverage + evidence-transparency (§9) are the only guards against a
+  reproducibly-wrong fact.
 - **Open design points:**
   - Tier-2 cache schema.
   - Bounded-scope unit for very large repos (package-at-a-time assumed).
@@ -401,6 +439,10 @@ a continuous score, so the ranking is **two-level**, not a literal product:
   the def-site, content-edit-stable and alias-collapsing; rename/module-move changes a handle
   (intended re-evaluation).
 - **#489 LSP handoff** — supplies caller-count blast radius (§11) that pyeye defers (#333).
+- **pyeye build-notes (from the spike):** read `async`-ness via `inspect` (not `outline`, which
+  omits it); pass **dotted handles** (a file-path handle to `outline` returns a junk node); do
+  **not** treat the `imports` edge as exhaustive for layering until **#494** is fixed (it can
+  silently drop a real import).
 
 ## 17. Build approach — spike before machinery
 
