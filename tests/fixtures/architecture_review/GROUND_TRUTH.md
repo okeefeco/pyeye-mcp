@@ -141,6 +141,36 @@ This is the central bet-3 test: stakes beat blast as the ranking proxy.
 | 4 | Module-global dep acquisition | `app/core/database.py` (global) vs `app/services/report_service.py` (injection) | `dependency_acquisition` | medium | medium | Neutral; describe both clusters |
 | 5 | Ambiguous result-shape fork | `app/services/{user,order,report}_service.py` (dict / dataclass / tuple) | `naming_api_shape` | low–med | medium | Clusters + evidence; **recommendation = NONE** |
 
-**Proxy-inversion pair:** Plants **2** and **3**. Expected post-prior ranking:
-**Plant 2 (validation_placement) > Plant 3 (naming_api_shape)** despite Plant 3's
-higher blast radius.
+**Proxy-inversion pair:** Plants **2** and **3**. Expected ranking (bucketed-lexicographic,
+spec §11): **Plant 2 (validation_placement, `high` bucket) > Plant 3 (naming_api_shape, `low`
+bucket)** despite Plant 3's higher blast — the stakes bucket dominates; blast only orders within
+a bucket. (Verified: with the explicit `AXIS_STAKES_BUCKET` map, Plant 2 ranks above Plant 3 even
+at blast 0 vs blast 9.)
+
+---
+
+## Promotion-chain dogfood targets (the confident path)
+
+These designate the inputs used to dogfood the gate / cross-derivation guard **live** (the
+divergence plants above are all `ambiguous`, so they exercise detection + ranking, not the
+confident path). See the dogfood report `docs/superpowers/notes/2026-06-29-architecture-review-dogfood.md`.
+
+- **Gate-promote target — genuine universals (N/N).** Within `app/handlers/` every public entry
+  function is `handle_*` (6/6); within `app/services/` every function is `load_*` (4/4). These are
+  counting facts → `deterministic_single`. Expected: stable across N auditor re-runs.
+  **Live finding:** the handle-set + grade reproduce identically across 3 runs, but the shipped
+  reproduction gate **downgrades them anyway** because `findings_equivalent` keys on the claim
+  *string* and LLM phrasing varies run-to-run — a real defect (spec §10 says "phrasing ignored";
+  the impl doesn't). Tracked as **#498**. So this target proves the gate-promote path is currently
+  blocked on real output.
+- **Guard-positive target — `app/services/report_service.py`.** Its real imports (via AST) are
+  `{app.core, app.handlers}`. The guard-positive scenario feeds a `deterministic_single` finding
+  whose claimed import set **drops** `app.handlers` (a #494-shape extractor bug) with a *lying*
+  `evidence` field; the shipped `guard.apply_cross_derivation_guard` + `imports_via_ast` must
+  downgrade it to `ambiguous` + `possible_extractor_bug` (catching it via the independent AST, not
+  the evidence), while the correct finding passes. **Live result: PASS.**
+- **Gate genuine-downgrade (instability) — UN-PLANTABLE.** A "near-universal-but-unstable" finding
+  that the gate should downgrade *because the model disagrees with itself across re-runs* cannot be
+  planted in static fixture code — instability is LLM non-determinism, not a property of the source.
+  This path stays unit-test-only (`tests/test_architecture_review_gate.py`) by nature; the dogfood
+  states this rather than faking it.

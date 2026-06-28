@@ -3,114 +3,134 @@
 **Date:** 2026-06-29 · **Issue:** [#492](https://github.com/okeefeco/pyeye-mcp/issues/492) ·
 **Spec:** `docs/superpowers/specs/2026-06-28-architecture-review-audit-design.md` (§13 value metric, §17 spike measures)
 
-This is the §13 **value metric**, not raw yield. It is a *report*, not a pass/fail gate (per the plan's Task 4.2).
-Measurement target: the committed planted-stakes fixture `tests/fixtures/architecture_review/app/`
-(load-bearing per §17; pyeye-itself-as-tidy-control is the flattering case and was **not** run as a full pass — see Confounds).
+This is the §13 **value metric**, not raw yield. It is a *report*, not a pass/fail gate. Target: the
+committed planted-stakes fixture `tests/fixtures/architecture_review/app/` (load-bearing per §17;
+pyeye-itself-as-tidy-control is the flattering case and was not run).
+
+> **Revision note.** An earlier draft of this report (a) mis-diagnosed the ranking failure as
+> *calibration* and proposed floor/log1p/recalibration remedies that **do not clear bet-3** on the
+> actual numbers; (b) implied the full pipeline was exercised when only the front half was; and
+> (c) under-disclosed that `deterministic_single` findings existed in the run. All three are corrected
+> below, and the ranking has since been re-implemented (product → bucketed-lexicographic).
 
 ## Method
 
-1. **Blind auditor pass.** A fresh-context subagent ran the *shipped* auditor prompt
-   (`skills/architecture-review/auditor.md`) over `app/` only, **blind to `GROUND_TRUTH.md`**.
-   It built a structural model with pyeye primitives (`resolve`/`outline`/`inspect`/`expand` over
-   `imports`/`imported_by`) and corroborated import-critical facts with targeted `Read`. It emitted a
-   JSON findings array in the pinned schema.
-2. **Ranking.** The findings were ranked with the real `pyeye.architecture_review.ranking.rank`, using a
-   `blast_fn` derived from the fixture's actual `imported_by` magnitudes (HUB `app.core.config` = 9
-   importers; LEAF `app.security.permission_check` = 0).
-3. **Evaluation** against `GROUND_TRUTH.md` (the oracle): detection, ranking position of the
-   proxy-inversion pair, prevalence-trap neutrality, empty-recommendation behaviour, cross-derivation.
+1. **Blind auditor pass.** A fresh subagent ran the shipped auditor prompt (`skills/architecture-review/auditor.md`)
+   over `app/` only, blind to `GROUND_TRUTH.md`, using pyeye primitives corroborated by targeted `Read`.
+2. **Ranking** with `pyeye.architecture_review.ranking.rank` and a `blast_fn` from the fixture's real
+   `imported_by` magnitudes (HUB `app.core.config`=9, LEAF `app.security.permission_check`=0).
+3. **Confident-path live dogfood:** 3 blind re-dispatches over a narrow scope to exercise the reproduction
+   gate; the cross-derivation guard run as a shipped stage over real fixture source.
+4. **Evaluation** against `GROUND_TRUTH.md`.
 
-## Detection — 5/5 planted divergences surfaced
+## Tier 1 — validated live (the core thesis, earned)
 
-| Plant | Axis | Detected? | Grade emitted | Notes |
-|------:|------|:---------:|---------------|-------|
-| 1 Prevalence-trap error handling | `error_handling` | ✅ | `ambiguous` | swallow×3 vs propagate×1 reported **neutrally**; **no** recommendation toward the majority |
-| 2 High-stakes validation on a LEAF | `validation_placement` | ✅ | `ambiguous` | boundary `authorize_transfer` unvalidated; deep/partial validation in `_apply_transfer`; `null` rec |
-| 3 Low-stakes naming on a HUB | `naming_api_shape` | ✅ | `ambiguous` | `get_`/`fetch_`/`retrieve_` on `core.config`; `null` rec |
-| 4 Module-global dep acquisition | `dependency_acquisition` | ✅ | `ambiguous` | singleton `DB` / lazy `get_client` / param injection; `null` rec |
-| 5 Ambiguous result-shape fork | `naming_api_shape` | ✅ | `ambiguous` | dict / dataclass / tuple; **`recommendation = null`** (the empty-recommendation fixture) |
+### Detection — 5/5 planted divergences surfaced
 
-Plus legitimate extras (consistent layering, uniform sync/no-annotations, a bare-`except:` mechanical fact).
-**Detection / false-negative check: PASS** — every planted finding was nominated, including the high-stakes leaf.
+| Plant | Axis | Grade | Notes |
+|------:|------|-------|-------|
+| 1 Prevalence-trap error handling | `error_handling` | `ambiguous` | swallow×3 vs propagate×1, **neutral**, no majority rec |
+| 2 High-stakes validation on a LEAF | `validation_placement` | `ambiguous` | boundary unvalidated; `null` rec |
+| 3 Low-stakes naming on a HUB | `naming_api_shape` | `ambiguous` | 3 accessor prefixes; `null` rec |
+| 4 Module-global dep acquisition | `dependency_acquisition` | `ambiguous` | singleton/lazy/injection; `null` rec |
+| 5 Ambiguous result-shape fork | `naming_api_shape` | `ambiguous` | dict/dataclass/tuple; **`null`** (empty-recommendation fixture) |
 
-## Honesty invariants — upheld
+**Disclosure (corrected):** the run ALSO produced three `deterministic_single` findings (consistent
+`layering`, `module_boundaries`, `handle_*`/`load_*` naming) and two `mechanical_fact` findings. The
+earlier draft's detection table showed only the five ambiguous plants. The confident path therefore *did*
+have candidates — see Tier 2 for what happened when they were run through it live.
 
-- **prevalence ≠ correctness:** the error-handling prevalence trap (Plant 1) was reported descriptively
-  (counts given) with **no** recommendation favouring the majority swallow pattern. ✅
-- **recommendation non-null ONLY with an external anchor:** every genuine architecture fork (Plants 2–5)
-  returned `recommendation = null`. The **only** non-null recommendation in the whole run was the
-  bare-`except:` finding, correctly anchored to the **PEP 8 / stdlib idiom** (an allowed anchor) — not to
-  in-codebase prevalence. This is a positive two-sided signal: the anchor ladder yields a rec when a real
-  external anchor exists and stays empty otherwise. ✅
-- **empty-recommendation by design:** Plant 5 produced clusters + evidence + `null` — the correct
-  "you decide" output. ✅
-- **cross-derivation (#494) guard:** the auditor corroborated the `imports` edge against a targeted Read of
-  the actual import statements and found **no** divergence (the fixture plants no extractor bug), so it
-  raised **no** `possible_extractor_bug` flag — the correct silent pass. The guard's *positive* catch is
-  unit-tested in Task 3.1 (`test_494_dropped_import_is_downgraded_via_ast_not_evidence`). ✅
+### Honesty invariants — upheld
 
-## Ranking / proxy validity (§17 measure 3) — **FAIL on this fixture (the load-bearing signal)**
+prevalence ≠ correctness (Plant 1 neutral); every genuine fork `null` (Plants 2–5); the **only** non-null
+recommendation was the bare-`except:` finding, correctly anchored to a PEP 8 idiom (an allowed anchor);
+Plant 5 produced clusters + `null` (the empty-recommendation case).
 
-The central bet-3 claim is that the axis-stakes prior makes the high-stakes **leaf** (Plant 2,
-`validation_placement`) outrank the low-stakes **hub** (Plant 3, `naming_api_shape`) despite the hub's
-larger blast radius. Computed with the real ranker and the fixture's real `imported_by` magnitudes:
+### Ranking dominance (bet-3) — now PASSES by construction
+
+The earlier `prior × blast` **product** FAILED bet-3: a product makes stakes and blast co-equal
+multiplicative factors, so a high-blast low-stakes hub overtakes a low-blast high-stakes leaf; with the
+leaf at blast 0 the product is 0 for *any* prior, making prior calibration structurally inert. The
+proposed floor/log1p/recalibration remedies do **not** fix it (verified): floor@1 → validation `0.9×1=0.90`
+vs naming `0.3×9=2.70`; log1p(floor@1) → `0.624` vs `0.691`; hub wins both. The fix was a **functional-form
+change**, not calibration.
+
+Ranking is now **bucketed-lexicographic** (spec §11, rev 12): an explicit `AXIS_STAKES_BUCKET` map
+(high/med/low — the source of truth for tier, **not** thresholded from the provisional priors) is the
+primary key; blast orders only *within* a bucket; the prior float is demoted to a within-bucket tiebreaker
+that can never cross a bucket. Re-run over the original 10 findings:
 
 ```text
-ambiguous tier (sorts above all confident findings), by prior × blast:
-  0  dependency_acquisition   blast 9  prior 0.60  score 5.40
-  1  naming_api_shape (HUB)   blast 9  prior 0.30  score 2.70   <- Plant 3
-  2  error_handling           blast 1  prior 0.90  score 0.90
-  3  validation_placement     blast 0  prior 0.90  score 0.00   <- Plant 2 (buried)
-  4  naming_api_shape (fork)  blast 0  prior 0.30  score 0.00
+ambiguous tier (above all confident findings), by (bucket, blast, prior):
+  0  error_handling          high   blast 1     <- Plant 1
+  1  validation_placement    high   blast 0     <- Plant 2 (leaf) — now ABOVE Plant 3
+  2  dependency_acquisition  med    blast 9     <- Plant 4
+  3  naming_api_shape (HUB)  low    blast 9     <- Plant 3
+  4  naming_api_shape (fork) low    blast 0     <- Plant 5
+PROXY-INVERSION CHECK (bet-3): Plant 2 at position 1, Plant 3 at position 3 => PASS
 ```
 
-**Plant 2 (validation, leaf) ranks at position 3, BELOW Plant 3 (naming, hub) at position 1 → bet-3 FAIL.**
+Both high-stakes findings lead the queue regardless of blast (Plant 2 is #1–2 at blast 0); blast only
+orders within a bucket. The guarantee is now *by construction* and pinned by
+`test_dominance_independent_of_prior_values` (a prior recalibration cannot re-tier) and
+`test_every_seed_axis_is_explicitly_bucketed` (an unmapped seed axis fails loudly, not silently to `low`).
+Tradeoff (stated honestly): the bucket map is now load-bearing — §15 calibration is a **hard dependency**
+of trusting queue position, not optional polish. Logged in `docs/decisions/DECISIONS.md`.
 
-**Root cause (mechanism is sound; the *default calibration* is not):**
+## Tier 2 — confident path: dogfooded live, one defect found, one path un-plantable
 
-- The leaf's blast magnitude is **0** (`imported_by` = 0), so `prior × blast = 0.9 × 0 = 0`. A zero blast
-  annihilates the stakes weight. The 3:1 prior ratio (`0.9 : 0.3`) cannot overcome a `9 : 0` blast ratio.
-- `max`-aggregation over a finding's handle-set (the §11 default) also floated `dependency_acquisition` to
-  the very top because one of its handles references the hub (`core.database`/handlers) — the exact
-  "a leaf finding that merely *references* a hub gets inflated" caveat §11 names.
-- The Task 1.2 unit test proves the prior mechanism works at *moderate* blast ratios (it inverts a 4:2
-  spread). The fixture's *extreme* `9:0` spread is outside what a 3:1 prior can correct.
+The earlier draft said the promotion chain was "not run live (cost)." That undersold it. Run live:
 
-This is precisely the **§15 "watch for codebases where the prior inverts"** / **§17 measure-3 "top dominated
-by trivial high-centrality findings"** case. It is **descriptive, not a kill** (§13): the high-stakes finding
-*is detected* and *is in the ambiguous tier above all confident findings* — it is mis-ordered *within* that
-tier, not dropped.
+- **Reproduction gate (promote) — DEFECT FOUND ([#498](https://github.com/okeefeco/pyeye-mcp/issues/498)).**
+  Three blind re-dispatches over `app/handlers`+`app/services` returned the universals (`handle_*` 6/6,
+  `load_*` 4/4) as `deterministic_single` with **identical handle-sets and grades in all three runs** — the
+  auditor is structurally stable. But the shipped gate **downgrades them to `ambiguous`** anyway, because
+  `findings_equivalent` keys on the claim *string* (whitespace+case only) and LLM phrasing varies run-to-run
+  (`findings_equivalent(run1, run2) == False` despite identical handles+grade). Spec §10 says equivalence
+  ignores phrasing; the implementation doesn't. **Consequence:** on real LLM output the confident path
+  promotes ~nothing — not from low consensus, but from an over-strict predicate. Unit tests miss this (they
+  use identical mocked claims); only live dogfooding surfaced it. Filed as #498 (preferred fix: a stable
+  structured `claim_key`, echoing the bucket-map lesson — don't rest a stability guarantee on an unstable
+  free-text string).
+- **Cross-derivation guard (#494) — dogfooded live, PASS.** Run as a shipped stage over real committed
+  source (`app/services/report_service.py`, AST imports `{app.core, app.handlers}`): a `deterministic_single`
+  finding claiming a *dropped* import (`{app.core}` only, #494-shape) with a deliberately *lying* `evidence`
+  field was correctly downgraded to `ambiguous` + `possible_extractor_bug` via the independent
+  `imports_via_ast`, while the correct finding passed untouched. This validates the guard one step beyond its
+  unit test (real fixture source, not `tmp_path`). **Limit:** a *fully* end-to-end auditor→guard catch needs a
+  real live extractor bug to exist; with pyeye correct on the fixture, the catch is exercised by injecting the
+  wrong fact, not by a naturally-wrong edge.
+- **Gate genuine-downgrade (instability) — UN-PLANTABLE.** A finding the gate should downgrade *because the
+  model disagrees with itself across re-runs* cannot be planted in static fixture code (instability is LLM
+  non-determinism, not a source property). Stays unit-test-only (`test_architecture_review_gate.py`) by
+  nature. Stated, not faked. (Note the irony: the gate *does* downgrade the stable universals live — but for
+  the wrong reason, #498, not genuine instability.)
 
-**Remedies (all already flagged provisional in §11/§15 — calibrate before trusting queue position):**
+## Tier 3 — unit-test only (not dogfooded)
 
-1. **Blast floor / normalization** so a leaf is not literally 0 (e.g. `log1p`, or a base magnitude of 1 with
-   diminishing hub returns) — a raw count lets one hub dominate by 9× and swamp stakes.
-2. **Recalibrate the default prior vector** against real human-judged stakes (the §15 first-runs-calibrate
-   discipline) — the current 0.9/0.3 spread is a first guess.
-3. **Bring forward the §11 continuous within-tier uncertainty score** (the deferred upgrade) and/or revisit
-   `max` vs hub-centrality aggregation.
+Codification end-to-end (human-confirmed norm → `decision-log` entry + fitness-function stub; dismissal →
+`build_non_issue`) is exercised only by unit tests. The non-issue keying and `build_non_issue` are tested;
+the human-gated decision-log flow is inherently interactive and was not dogfooded.
 
-## §10 confounds (reported so the numbers aren't misread)
+## §10 confounds (so the numbers aren't misread)
 
-- **Codebase consensus:** the fixture is messy *by construction*, so confident-path yield is low — expected,
-  not a kill (§13).
-- **Nomination:** this was a **single** auditor pass; the §10 reproduction gate (N re-dispatches) was **not**
-  run live here (cost) — its mechanism is unit-tested (Task 2.2). Confident-path yield is bounded by
-  first-pass nomination, not just reproduction.
-- **Selection:** closed for the seed axes by the §6.5 taxonomy — the auditor swept all seven axes, so no
-  axis-selection drift.
-- **Tidy control (pyeye itself):** not run as a full pass; per §17 it is only the flattering case and the
-  planted-stakes fixture is the load-bearing measurement.
+- **Codebase consensus:** the fixture is messy by construction → low confident-path yield is expected, not a
+  kill. (But note #498 means yield is *also* suppressed by the equivalence bug, independent of consensus.)
+- **Nomination:** single first-pass auditor; confident-path yield is bounded by nomination quality.
+- **Selection:** closed for seed axes by the §6.5 taxonomy (all seven swept).
+- **Tidy control (pyeye itself):** not run; per §17 it is only the flattering case.
 
-## Go / no-go
+## Go / no-go (three tiers of confidence, not two)
 
-- **GO on the core thesis** (detection + honesty): unknown divergences are made **visible**, **graded**, and
-  **honestly neutral** — 5/5 detection, correct prevalence-trap neutrality, correct empty-recommendations,
-  correct external-anchor discipline (one PEP 8-anchored rec, all genuine forks `null`), and the
-  cross-derivation guard behaves correctly.
-- **CONDITIONAL on the ranking layer:** the `axis-stakes-prior × raw-blast` **default** does **not** yet
-  deliver bet-3's stakes-over-blast on real code with extreme centrality spread (high-stakes leaf buried
-  beneath cosmetic hub naming). This is the calibration work §11/§15 explicitly defers — do **not** rely on
-  queue *position* for high-stakes-on-leaf findings until the blast is floored/normalized and the priors are
-  calibrated. The ordering mechanism itself is correct (unit-proven); the default weights/aggregation need
-  the first-runs calibration the spec already calls for.
+- **GO — detection + honesty + anchor discipline + ranking dominance** (Tier 1): validated live. 5/5
+  detection, correct neutrality/empty-recommendations/anchor discipline, and — after the functional-form fix
+  — stakes-dominant ranking that is correct by construction and test-pinned.
+- **CONDITIONAL — confident path** (Tier 2): the cross-derivation guard works live; the reproduction gate's
+  *promote* path is **blocked by #498** (phrasing-sensitive equivalence) and must be fixed before the
+  confident path is usable on real output; the genuine-instability downgrade is un-plantable and stays
+  unit-tested. Trusting queue *position* also depends on §15 bucket calibration (now load-bearing).
+- **NOT YET DOGFOODED — codification end-to-end** (Tier 3): unit-tested only.
+
+The core result is real and earned: the tool finds unknown divergences and stays honest about them, and
+ranks them by stakes. The confident-path machinery is sound in unit tests but, run live, surfaced a binding
+defect (#498) that the unit tests could not — which is exactly why it needed dogfooding.
