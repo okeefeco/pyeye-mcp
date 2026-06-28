@@ -285,7 +285,9 @@ def extract_definitions(
 
     Walks the module depth-first and yields one stand-in per **class**,
     **function** (incl. ``async def`` and nested methods/functions), and
-    module-or-class-level **assignment** (``"statement"``). ``full_name`` is
+    module-or-class-level **assignment** — plain (``x = 1``) or annotated
+    (``x: int = 1`` and the annotation-only ``x: int``) — as ``"statement"``.
+    ``full_name`` is
     composed from *module_name* plus lexical nesting (``pkg.mod.C.m``);
     ``line``/``column`` are the Jedi-exact name-token position so results dedup
     and round-trip identically to the ``project.search`` they replace (#457).
@@ -355,6 +357,22 @@ def extract_definitions(
                                 description=f"{target.id} = ...",
                             )
                         )
+            elif isinstance(node, ast.AnnAssign) and not in_function:
+                # Annotated assignment (``x: int = 1``) — and the annotation-only
+                # form (``x: int``), which Jedi still reports as a statement
+                # definition. Only a bare-``Name`` target is a module/class-level
+                # name binding (``self.x: int`` / ``d["k"]: int`` are not).
+                if isinstance(node.target, ast.Name):
+                    results.append(
+                        DefinitionSentinel(
+                            module_path=module_path,
+                            full_name=_full(prefix, node.target.id),
+                            kind="statement",
+                            line=node.target.lineno,
+                            column=node.target.col_offset,
+                            description=f"{node.target.id}: ...",
+                        )
+                    )
 
     _walk(tree.body, root, in_function=False)
     return results

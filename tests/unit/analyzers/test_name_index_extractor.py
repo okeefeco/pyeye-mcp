@@ -80,6 +80,26 @@ def test_module_level_assignment_is_statement_type() -> None:
     assert xs[0].full_name == "pkg.mod.x"
 
 
+def test_module_level_annotated_assignment_is_statement_type() -> None:
+    xs = _by_name(_extract("x: int = 1\n"), "x")
+    assert len(xs) == 1
+    assert xs[0].type == "statement"
+    assert xs[0].full_name == "pkg.mod.x"
+
+
+def test_annotation_only_declaration_is_a_statement() -> None:
+    # `y: int` with no value is still a name definition (Jedi reports it).
+    ys = _by_name(_extract("y: int\n"), "y")
+    assert len(ys) == 1
+    assert ys[0].type == "statement"
+    assert ys[0].full_name == "pkg.mod.y"
+
+
+def test_annotated_assignment_inside_function_is_not_extracted() -> None:
+    # Locals are not project definitions, annotated or not.
+    assert _by_name(_extract("def f():\n    local: int = 1\n    return local\n"), "local") == []
+
+
 def test_docstring_extracted_for_class_and_function() -> None:
     src = 'class C:\n    """Class doc."""\n    def m(self):\n        """Method doc."""\n'
     defs = _extract(src)
@@ -110,6 +130,9 @@ def test_coordinates_match_jedi_name_token_position(tmp_path: Path) -> None:
     source = (
         "import abc\n"
         "\n"
+        "COUNT: int = 5\n"
+        "label: str\n"
+        "\n"
         "class Field:\n"
         "    def to_python(self, value):\n"
         "        return value\n"
@@ -129,16 +152,16 @@ def test_coordinates_match_jedi_name_token_position(tmp_path: Path) -> None:
     jedi_pos = {
         n.name: (n.line, n.column)
         for n in script.get_names(all_scopes=True, definitions=True, references=False)
-        if n.type in ("class", "function")
+        if n.type in ("class", "function", "statement")
     }
 
     checked = 0
     for d in defs:
-        if d.type not in ("class", "function"):
+        if d.type not in ("class", "function", "statement"):
             continue
         assert d.name in jedi_pos, f"{d.name} missing from jedi names"
         assert (d.line, d.column) == jedi_pos[
             d.name
         ], f"{d.name}: extractor {(d.line, d.column)} != jedi {jedi_pos[d.name]}"
         checked += 1
-    assert checked >= 4  # Field, to_python, cached, fetch
+    assert checked >= 6  # Field, to_python, cached, fetch, COUNT, label
