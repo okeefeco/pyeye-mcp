@@ -1362,6 +1362,41 @@ class TestResolveImportsModule:
         assert result is not None
         assert result.unresolved_call_sites is None
 
+    def test_all_resolved_yields_empty_unresolved_imports(self, analyzer: JediAnalyzer) -> None:
+        """A module whose imports all resolve reports ``unresolved_imports == []``.
+
+        Always measured for a module (#494): ``[]`` is the honest "checked every
+        import, none failed", never absence.
+        """
+        result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        assert result.unresolved_imports == []
+
+
+# Fixture: ``mypackage._core.unresolved_imports_fixture`` (#494) — mixes a
+# resolvable project import with two statically-present-but-unresolvable imports.
+_UNRESOLVED_IMPORTS_FIXTURE_HANDLE = "mypackage._core.unresolved_imports_fixture"
+
+
+class TestResolveImportsUnresolved:
+    """#494 — a statically-present ``from X import Y`` that goto cannot resolve is
+    surfaced in ``unresolved_imports``, never silently dropped."""
+
+    def test_resolvable_import_still_in_adjacents(self, analyzer: JediAnalyzer) -> None:
+        result = _imports_for(_UNRESOLVED_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _MAKE_WIDGET_FROM_IMPORTS_HANDLE in handles
+
+    def test_unresolvable_imports_surfaced_not_dropped(self, analyzer: JediAnalyzer) -> None:
+        result = _imports_for(_UNRESOLVED_IMPORTS_FIXTURE_HANDLE, analyzer)
+        assert result is not None
+        # The intended dotted targets, reconstructed statically (sorted, deduped).
+        assert result.unresolved_imports == [
+            "_nonexistent_pkg_494.missing_symbol",
+            "os._made_up_attr_494",
+        ]
+
     def test_deterministic_across_runs(self, analyzer: JediAnalyzer) -> None:
         """Results are deduplicated and sorted by handle string for stability."""
         first = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)

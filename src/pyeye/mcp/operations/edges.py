@@ -100,10 +100,18 @@ class EdgeResult:
             target could not be resolved via forward ``goto`` (a count only —
             never a partial/invented handle).  ``None`` for edges where the
             notion does not apply (e.g. ``members``).
+        unresolved_imports: For ``imports`` (#494), the statically-present import
+            targets a module declares but whose forward ``goto`` could not be
+            resolved — rendered as their intended dotted path (e.g.
+            ``"pkg.mod.name"``, ``".sibling.thing"`` for a relative import).
+            Unlike call sites these ARE nameable from the AST, so they are listed
+            (sorted, deduped), not merely counted.  ``None`` for every non-
+            ``imports`` edge (the notion is imports-only).
     """
 
     adjacents: list[tuple[Handle, Any]]
     unresolved_call_sites: int | None = None
+    unresolved_imports: list[str] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -949,6 +957,20 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 # ---------------------------------------------------------------------------
 
 
+def _import_from_target(node: ast.ImportFrom, name: str) -> str:
+    """Render an ``ast.ImportFrom`` alias's intended dotted target (#494).
+
+    Reconstructs ``from X import Y`` → ``"X.Y"`` purely from the AST, so an
+    import that forward-``goto`` could not resolve is still nameable for
+    ``unresolved_imports``.  Relative imports keep their leading dots:
+    ``from . import x`` → ``".x"``; ``from ..pkg import x`` → ``"..pkg.x"``.
+    """
+    prefix = "." * node.level
+    module = node.module or ""
+    sep = "." if module else ""
+    return f"{prefix}{module}{sep}{name}"
+
+
 def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
     """Return the top-level imports of a module as canonical handles.
 
@@ -988,7 +1010,12 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
       the wildcard; mirrors ``_module_members``'s wildcard gap).
 
     Unresolvable imports (goto yields no def / no ``full_name`` / ``Handle``
-    construction failure) are DROPPED — cannot build a stub without a Name.
+    construction failure) cannot become adjacents — no Name to build a stub — but
+    are NOT silently dropped (#494): their statically-derived intended dotted
+    target (e.g. ``"pkg.mod.name"``) is collected into ``unresolved_imports``, so
+    a missed dependency is surfaced rather than read as absent.  ``from X import
+    *`` remains skipped (wildcard targets cannot be enumerated statically) and is
+    not counted as unresolved.
 
     Dedup by canonical handle string; deterministic order (sorted by handle
     string, mirroring ``resolve_subclasses``/``resolve_superclasses``).
@@ -1006,7 +1033,9 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     Returns:
         An :class:`EdgeResult` whose ``adjacents`` are the imported
         ``(canonical Handle, Jedi Name)`` pairs for a module target, sorted by
-        handle string; or ``None`` for a non-module target.
+        handle string, and whose ``unresolved_imports`` lists the statically-
+        present imports that goto could not resolve (sorted, deduped; ``[]`` when
+        all resolved); or ``None`` for a non-module target.
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
@@ -1025,6 +1054,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
+    # #494: statically-present imports whose forward goto could not be resolved.
+    # Dropping them silently is a false-negative (the dependency reads as absent);
+    # they are surfaced here by their intended dotted path instead.
+    unresolved: set[str] = set()
 
     # ``_resolve_call_target`` (shared with ``resolve_callees``) is a
     # domain-neutral ``goto(follow_imports=True)`` → ``(Handle, Name)`` wrapper;
@@ -1040,6 +1073,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
                 col = alias.col_offset + len(alias.name) - len(last)
                 pair = _resolve_call_target(script, (alias.lineno, col))
                 if pair is None:
+                    unresolved.add(alias.name)
                     continue
                 h, name = pair
                 key = str(h)
@@ -1059,6 +1093,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
                 # (Jedi resolves the symbol/module at that position).
                 pair = _resolve_call_target(script, (alias.lineno, alias.col_offset))
                 if pair is None:
+                    unresolved.add(_import_from_target(node, alias.name))
                     continue
                 h, name = pair
                 key = str(h)
@@ -1071,7 +1106,9 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     # resolve_subclasses / resolve_superclasses).
     adjacents.sort(key=lambda pair: str(pair[0]))
 
-    return EdgeResult(adjacents=adjacents)
+    # #494: always a list for a module (always measured) — ``[]`` when every
+    # import resolved, the unresolvable targets otherwise. Sorted for determinism.
+    return EdgeResult(adjacents=adjacents, unresolved_imports=sorted(unresolved))
 
 
 # ---------------------------------------------------------------------------

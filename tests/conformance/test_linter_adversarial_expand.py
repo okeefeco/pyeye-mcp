@@ -100,6 +100,23 @@ _VALID_EXPAND_CALLEES: dict = {
     "unresolved_call_sites": 2,
 }
 
+# A well-formed supported imports ExpandResult (with unresolved_imports) — #494
+_VALID_EXPAND_IMPORTS: dict = {
+    "source": "mypackage._core.imports_fixture",
+    "edge": "imports",
+    "stubs": [
+        {
+            "handle": "mypackage._core.widgets.make_widget",
+            "kind": "function",
+            "scope": "project",
+            "signature": "make_widget(name: str) -> Widget",
+            "line_start": 5,
+            "line_end": 8,
+        }
+    ],
+    "unresolved_imports": ["_nonexistent_pkg_494.missing_symbol"],
+}
+
 # A well-formed unsupported ExpandResult — deferred_reference_backend reason
 _VALID_EXPAND_UNSUPPORTED_DEFERRED: dict = {
     "source": "mypackage._core.widgets.Widget",
@@ -148,6 +165,10 @@ class TestExpandAcceptsValidResponses:
     def test_supported_callees_with_unresolved_passes(self) -> None:
         """A supported callees ExpandResult with unresolved_call_sites passes."""
         lint_response(_clone(_VALID_EXPAND_CALLEES), "expand")
+
+    def test_supported_imports_with_unresolved_passes(self) -> None:
+        """A supported imports ExpandResult with unresolved_imports passes (#494)."""
+        lint_response(_clone(_VALID_EXPAND_IMPORTS), "expand")
 
     def test_unsupported_deferred_reference_passes(self) -> None:
         """Unsupported branch with reason=deferred_reference_backend passes."""
@@ -653,6 +674,39 @@ class TestStubLayering:
 # ===========================================================================
 # Dogfood: real expand output passes the linter
 # ===========================================================================
+
+
+class TestExpandUnresolvedImportsRule:
+    """E.5 (#494) — ``unresolved_imports`` is imports-only and well-typed."""
+
+    def test_on_non_imports_edge_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["unresolved_imports"] = ["pkg.thing"]
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(bad, "expand")
+
+    def test_on_unsupported_branch_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
+        bad["unresolved_imports"] = ["pkg.thing"]
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(bad, "expand")
+
+    def test_must_be_list(self) -> None:
+        bad = _clone(_VALID_EXPAND_IMPORTS)
+        bad["unresolved_imports"] = "pkg.thing"
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(bad, "expand")
+
+    def test_entry_must_be_non_empty_str(self) -> None:
+        bad = _clone(_VALID_EXPAND_IMPORTS)
+        bad["unresolved_imports"] = ["  "]
+        with pytest.raises(ConformanceViolation, match="unresolved_imports"):
+            lint_response(bad, "expand")
+
+    def test_empty_list_passes(self) -> None:
+        good = _clone(_VALID_EXPAND_IMPORTS)
+        good["unresolved_imports"] = []
+        lint_response(good, "expand")  # [] = measured, none failed
 
 
 class TestRealExpandOutputConforms:
