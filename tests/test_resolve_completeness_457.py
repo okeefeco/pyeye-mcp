@@ -24,12 +24,20 @@ from pyeye.mcp.operations.resolve import resolve
 # Comfortably above Jedi's 30-parsed-file cap so truncation would drop candidates.
 _N = 40
 
+# The ``class Field`` deliberately does NOT sit on line 1 / column 0, so a real
+# def-site location is distinguishable from the degraded line-1/col-0 fallback
+# (#457). The resolved location points at the name token ``Field`` (column
+# ``len("class ")``), Jedi's convention — not at the ``class`` keyword.
+_FIELD_LINE = 5
+_FIELD_COLUMN = len("class ")
+_FIELD_SOURCE = '"""Module docstring."""\n' + "\n" * (_FIELD_LINE - 2) + "class Field:\n    pass\n"
+
 
 @pytest.fixture
 def many_field_modules(tmp_path: Path) -> Path:
-    """A project with the same class ``Field`` defined in N>30 modules."""
+    """A project with the same class ``Field`` (on line ``_FIELD_LINE``) in N>30 modules."""
     for i in range(_N):
-        (tmp_path / f"m{i:02d}.py").write_text("class Field:\n    pass\n")
+        (tmp_path / f"m{i:02d}.py").write_text(_FIELD_SOURCE)
     project_graph.invalidate()
     return tmp_path
 
@@ -59,7 +67,9 @@ async def test_resolve_dotted_high_frequency_name_has_real_line(
 
     assert result.get("found") is True
     assert result.get("handle") == "m39.Field"
-    # A real definition line, not the degraded line-1/col-0 *fallback* — here the
-    # class genuinely sits on line 1, so the location must point there precisely.
+    # The class sits on line _FIELD_LINE (>1), so this asserts the REAL def-site
+    # line: if the degraded line-1/col-0 fallback fired (the #457 symptom), this
+    # would see line 1 and fail. A line-1 fixture could not tell the two apart.
     location = result.get("location") or {}
-    assert location.get("line_start") == 1
+    assert location.get("line_start") == _FIELD_LINE, location
+    assert location.get("column_start") == _FIELD_COLUMN, location
