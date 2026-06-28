@@ -76,6 +76,13 @@ T.4 Each ``unsupported_edges`` entry is ``{edge, reason, detail}`` with ``reason
     ∈ the valid unsupported reasons and a non-empty ``detail`` (mirrors E.2).
 T.5 ``truncation_reasons`` is a list of valid causes (``max_depth`` / ``max_nodes``)
     and is consistent with ``truncated`` (true iff the list is non-empty).
+T.6 ``unresolved_roots`` (#488) is a REQUIRED list of non-empty single-line
+    handle strings — ``[]`` when every root resolved, the failed handles
+    otherwise.  Absence is rejected (a broken trace): root resolution is always
+    measured, so the key is always present, symmetric with ``unsupported_edges``.
+T.7 ``unresolved_call_sites`` (#488), when present (only if ``callees`` was
+    traced), is a dict ``{handle: count}`` of non-empty single-line handle keys
+    and int counts >= 1.  Optional — absence means call sites were not measured.
 
 Check O — outline OutlineTree structural floors (operation == "outline")
 ------------------------------------------------------------------------
@@ -1186,6 +1193,82 @@ def _check_trace_structural_floor(
     else:
         for idx, item in enumerate(unsupported):
             _check_trace_unsupported_edge(item, f"unsupported_edges[{idx}]", violations)
+
+    # T.6 — unresolved_roots (#488): REQUIRED honesty field, symmetric with
+    # ``unsupported_edges``. Root resolution is always measured, so the field is
+    # always present — ``[]`` when every root resolved, the failed handles
+    # otherwise. Absence is a conformance violation (a broken trace), NOT a
+    # meaningful "all resolved" signal: that would overload absence with a value
+    # the absence-vs-zero invariant reserves for "not measured." When present it
+    # must be a list of non-empty single-line handle strings (``[]`` allowed).
+    roots = response.get("unresolved_roots")
+    if "unresolved_roots" not in response:
+        violations.append(
+            "[T.6 trace required key] 'unresolved_roots' is missing. It is [] when every "
+            "root resolved, or lists the handles that failed to resolve (#488). Root "
+            "resolution is always measured, so the key is always present — never absent."
+        )
+    elif not isinstance(roots, list):
+        violations.append(
+            f"[T.6 trace unresolved_roots type] 'unresolved_roots' must be a list; "
+            f"got {type(roots).__name__!r}."
+        )
+    else:
+        for idx, item in enumerate(roots):
+            if not isinstance(item, str):
+                violations.append(
+                    f"[T.6 trace unresolved_roots entry type] unresolved_roots[{idx}]: "
+                    f"expected a str handle; got {type(item).__name__!r}."
+                )
+            elif not item.strip():
+                violations.append(
+                    f"[T.6 trace unresolved_roots entry empty] unresolved_roots[{idx}]: "
+                    "must be a non-empty handle string."
+                )
+            elif "\n" in item:
+                violations.append(
+                    f"[T.6 trace unresolved_roots entry single-line] unresolved_roots[{idx}]: "
+                    f"must be single-line; got {_truncate(item)}."
+                )
+
+    # T.7 — unresolved_call_sites (#488 interior honesty): OPTIONAL map, present
+    # only when ``callees`` was traced (absent ⇒ call sites not measured, the
+    # absence-vs-zero "not measured" case — unlike the always-present
+    # ``unresolved_roots``). When present it is a dict {handle: count} where each
+    # key is a non-empty single-line handle and each count is an int >= 1 (a 0 is
+    # omitted — the absent key already means "complete here"). Mirrors the callees
+    # honesty ``expand`` already carries (E.3), restored across hops.
+    if "unresolved_call_sites" in response:
+        ucs = response["unresolved_call_sites"]
+        if not isinstance(ucs, dict):
+            violations.append(
+                f"[T.7 trace unresolved_call_sites type] 'unresolved_call_sites' must be a "
+                f"dict {{handle: count}}; got {type(ucs).__name__!r}."
+            )
+        else:
+            for key, count in ucs.items():
+                kpath = f"unresolved_call_sites[{key!r}]"
+                if not isinstance(key, str) or not key.strip():
+                    violations.append(
+                        f"[T.7 trace unresolved_call_sites key] {kpath}: key must be a "
+                        "non-empty handle string."
+                    )
+                elif "\n" in key:
+                    violations.append(
+                        f"[T.7 trace unresolved_call_sites key single-line] {kpath}: key "
+                        f"must be single-line; got {_truncate(key)}."
+                    )
+                # bool is an int subclass — exclude it explicitly.
+                if isinstance(count, bool) or not isinstance(count, int):
+                    violations.append(
+                        f"[T.7 trace unresolved_call_sites count type] {kpath}: count must "
+                        f"be an int; got {type(count).__name__!r}."
+                    )
+                elif count < 1:
+                    violations.append(
+                        f"[T.7 trace unresolved_call_sites count positive] {kpath}: count "
+                        f"must be >= 1 (omit zero counts); got {count}."
+                    )
 
 
 # ---------------------------------------------------------------------------

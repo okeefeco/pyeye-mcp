@@ -265,6 +265,105 @@ class TestTraceReportIssuesPointer:
         assert "report_issues" not in result
 
 
+class TestTraceUnresolvedRoots:
+    """#488 — a root that fails to resolve is surfaced in ``unresolved_roots``,
+    never silently dropped (which would render an internal resolution miss as a
+    confident-empty subgraph — the absence-vs-zero trap at the root layer).
+
+    Always present, like ``unsupported_edges`` (its sibling input-honesty list in
+    the same Subgraph): ``[]`` when every root resolved, the failed handles when
+    not.  Root resolution is always measured, so absence is never a meaningful
+    "all resolved" signal — it would be a broken response.
+    """
+
+    #: A handle that cannot resolve (nonexistent member of a real module).
+    _BOGUS_HANDLE = "mypackage._core.widgets.NoSuchSymbol__488"
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_root_listed_not_silently_dropped(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace(self._BOGUS_HANDLE, ["members"], analyzer, max_depth=1)
+        # The miss is reported, not rendered as a clean empty graph.
+        assert result["unresolved_roots"] == [self._BOGUS_HANDLE]
+        # Empty subgraph, but now disambiguated by the unresolved_roots field.
+        assert result["nodes"] == {}
+        assert result["edges"] == []
+        # An unresolved root is NOT a cap cutoff.
+        assert result["truncated"] is False
+        assert result["truncation_reasons"] == []
+
+    @pytest.mark.asyncio
+    async def test_mixed_roots_resolve_partial_and_list_unresolved(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace(
+            [_WIDGET_HANDLE, self._BOGUS_HANDLE], ["members"], analyzer, max_depth=1
+        )
+        # The resolvable root still contributes its full subgraph.
+        assert _WIDGET_HANDLE in result["nodes"]
+        assert len(result["nodes"]) > 1, "expected the resolvable root plus its members"
+        # The unresolvable root is surfaced — only the bogus one.
+        assert result["unresolved_roots"] == [self._BOGUS_HANDLE]
+
+    @pytest.mark.asyncio
+    async def test_all_roots_resolved_yields_empty_unresolved_roots(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        # Always present: [] is the measured "every root resolved" answer, never
+        # absence. An agent reads it the same way it reads unsupported_edges.
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        assert result["unresolved_roots"] == []
+
+    @pytest.mark.asyncio
+    async def test_duplicate_unresolvable_root_listed_once(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(
+            [self._BOGUS_HANDLE, self._BOGUS_HANDLE], ["members"], analyzer, max_depth=1
+        )
+        assert result["unresolved_roots"] == [self._BOGUS_HANDLE]
+
+
+class TestTraceUnresolvedCallSites:
+    """#488 (interior honesty) — a callees walk can leave a node's outbound calls
+    incomplete (dynamic/un-inferable sites, or a flaky goto miss, #419).  ``expand
+    (callees)`` already reports that count; ``trace`` must not silently drop it,
+    or an empty/clean-looking subgraph overstates how complete the walk was.
+
+    Surfaced as a per-source-node map, present ONLY when ``callees`` was actually
+    traced (absent = not measured — distinct from ``unresolved_roots``, which is
+    always measured).  Only nodes with a non-zero count appear.
+    """
+
+    #: orchestrate() has exactly one dynamic call site (``cb()``) that goto cannot
+    #: resolve — a deterministic unresolved_call_sites == 1.
+    _ORCHESTRATE = "mypackage._core.callees_fixture.orchestrate"
+    #: Processor.run()'s single call (make_widget) resolves — zero unresolved.
+    _PROCESSOR_RUN = "mypackage._core.callees_fixture.Processor.run"
+
+    @pytest.mark.asyncio
+    async def test_callees_trace_surfaces_per_node_unresolved_count(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace(self._ORCHESTRATE, ["callees"], analyzer, max_depth=1)
+        # The dynamic call site is surfaced, keyed by the source node — not dropped.
+        assert result["unresolved_call_sites"] == {self._ORCHESTRATE: 1}
+
+    @pytest.mark.asyncio
+    async def test_callees_traced_all_resolved_yields_empty_map(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        # callees WAS measured (so the field is present), but every site resolved.
+        result = await trace(self._PROCESSOR_RUN, ["callees"], analyzer, max_depth=1)
+        assert result["unresolved_call_sites"] == {}
+
+    @pytest.mark.asyncio
+    async def test_non_callees_follow_omits_field(self, analyzer: JediAnalyzer) -> None:
+        # Call sites are not measured when callees is not traced → field absent
+        # (absence-vs-zero: absent means "not measured", not "{}").
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        assert "unresolved_call_sites" not in result
+
+
 class TestStopsAtPredicate:
     """Unit tests for the ``_stops_at`` boundary predicate.
 

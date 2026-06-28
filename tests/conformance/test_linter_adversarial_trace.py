@@ -9,6 +9,11 @@ Rule tags enforced here:
     T.2  Each node value passes the Stub floor (S.*); node key == stub handle
     T.3  Each edge is {from, to, kind} single-line strs
     T.4  Each unsupported_edges entry is {edge, reason ∈ valid, detail non-empty}
+    T.6  unresolved_roots (#488) is a REQUIRED list of non-empty single-line
+         handle strings ([] = all roots resolved; absence rejected)
+    T.7  unresolved_call_sites (#488), when present, is a {handle: count} dict
+         (non-empty single-line keys, int counts >= 1); optional (absent = not
+         measured, i.e. callees not traced)
     A.*  No source content anywhere in the Subgraph (layering)
 """
 
@@ -53,6 +58,7 @@ _VALID_SUBGRAPH: dict = {
     "truncated": False,
     "truncation_reasons": [],
     "unsupported_edges": [],
+    "unresolved_roots": [],
 }
 
 
@@ -173,6 +179,106 @@ class TestTraceStructuralFloor:
             {"edge": "callers", "reason": "deferred_reference_backend", "detail": ""}
         ]
         with pytest.raises(ConformanceViolation, match="detail"):
+            lint_response(sg, "trace")
+
+
+class TestTraceUnresolvedRoots:
+    """T.6 (#488) — ``unresolved_roots`` honesty field.
+
+    Always present (root resolution is always measured): ``[]`` when every root
+    resolved, the failed handles otherwise.  It is a REQUIRED list of non-empty
+    single-line handle strings — absence is a conformance violation (a broken
+    trace), exactly like its sibling ``unsupported_edges``.
+    """
+
+    def test_missing_unresolved_roots_rejected(self) -> None:
+        sg = _clone()
+        del sg["unresolved_roots"]
+        with pytest.raises(ConformanceViolation, match="unresolved_roots"):
+            lint_response(sg, "trace")
+
+    def test_empty_unresolved_roots_passes(self) -> None:
+        # [] is the measured "every root resolved" answer — valid, not absent.
+        sg = _clone()
+        sg["unresolved_roots"] = []
+        lint_response(sg, "trace")  # must not raise
+
+    def test_present_non_empty_unresolved_roots_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_roots"] = ["mypackage._core.widgets.NoSuchSymbol"]
+        lint_response(sg, "trace")  # must not raise
+
+    def test_unresolved_roots_must_be_list(self) -> None:
+        sg = _clone()
+        sg["unresolved_roots"] = "mypackage._core.widgets.NoSuchSymbol"
+        with pytest.raises(ConformanceViolation, match="unresolved_roots"):
+            lint_response(sg, "trace")
+
+    def test_unresolved_roots_entry_must_be_str(self) -> None:
+        sg = _clone()
+        sg["unresolved_roots"] = [123]
+        with pytest.raises(ConformanceViolation, match="unresolved_roots"):
+            lint_response(sg, "trace")
+
+    def test_unresolved_roots_entry_must_be_non_empty(self) -> None:
+        sg = _clone()
+        sg["unresolved_roots"] = ["   "]
+        with pytest.raises(ConformanceViolation, match="unresolved_roots"):
+            lint_response(sg, "trace")
+
+
+class TestTraceUnresolvedCallSites:
+    """T.7 (#488 interior honesty) — ``unresolved_call_sites`` map.
+
+    Optional (present only when ``callees`` was traced — absent = not measured).
+    When present it is a dict of ``{handle: count}`` where each key is a non-empty
+    single-line handle string and each count is an int >= 1 (zero counts are
+    omitted — the absent key already says "complete here").
+    """
+
+    def test_absent_passes(self) -> None:
+        # The members-only valid subgraph omits it — callees were not measured.
+        lint_response(_clone(), "trace")  # must not raise
+
+    def test_empty_map_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = {}
+        lint_response(sg, "trace")  # must not raise
+
+    def test_populated_map_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = {"mypackage._core.callees_fixture.orchestrate": 1}
+        lint_response(sg, "trace")  # must not raise
+
+    def test_must_be_dict(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = ["mypackage._core.callees_fixture.orchestrate"]
+        with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
+            lint_response(sg, "trace")
+
+    def test_count_must_be_int(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = {"mypackage._core.callees_fixture.orchestrate": "1"}
+        with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
+            lint_response(sg, "trace")
+
+    def test_count_must_be_positive(self) -> None:
+        # 0 must be omitted, not recorded.
+        sg = _clone()
+        sg["unresolved_call_sites"] = {"mypackage._core.callees_fixture.orchestrate": 0}
+        with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
+            lint_response(sg, "trace")
+
+    def test_count_must_not_be_bool(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = {"mypackage._core.callees_fixture.orchestrate": True}
+        with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
+            lint_response(sg, "trace")
+
+    def test_key_must_be_non_empty_str(self) -> None:
+        sg = _clone()
+        sg["unresolved_call_sites"] = {"   ": 2}
+        with pytest.raises(ConformanceViolation, match="unresolved_call_sites"):
             lint_response(sg, "trace")
 
 
