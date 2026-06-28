@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=059c35bd"></script>
+      <script src="../../../_static/documentation_options.js?v=74276883"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -905,6 +905,8 @@
 <span class="sd">          &quot;truncated&quot;: bool,                     # a cap cut off reachable nodes</span>
 <span class="sd">          &quot;truncation_reasons&quot;: [&quot;max_depth&quot;?, &quot;max_nodes&quot;?],  # which cap(s) fired</span>
 <span class="sd">          &quot;unsupported_edges&quot;: [ {&quot;edge&quot;, &quot;reason&quot;, &quot;detail&quot;}, ... ],</span>
+<span class="sd">          &quot;unresolved_roots&quot;: [ handle, ... ],  # #488 — always present; [] when every root resolved</span>
+<span class="sd">          &quot;unresolved_call_sites&quot;: { handle: count, ... },  # #488 — present iff callees traced</span>
 <span class="sd">          &quot;report_issues&quot;: str }   # #458 — present ONLY when unsupported_edges non-empty</span>
 
 <span class="sd">    Edges are NOT deduped across kinds; edges to already-visited handles are</span>
@@ -930,7 +932,13 @@
 
 <span class="sd">    Returns:</span>
 <span class="sd">        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an</span>
-<span class="sd">        unresolvable root simply contributes no node.</span>
+<span class="sd">        unresolvable root contributes no node but is listed in the always-present</span>
+<span class="sd">        ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently</span>
+<span class="sd">        ambiguous between &quot;root has no neighbours&quot; (``unresolved_roots: []``) and</span>
+<span class="sd">        &quot;root did not resolve&quot; (handle listed).  When ``callees`` is traced,</span>
+<span class="sd">        ``unresolved_call_sites`` ({handle: count}) reports each node&#39;s</span>
+<span class="sd">        unresolved (dynamic / un-inferable / flaky) call sites, so a populated</span>
+<span class="sd">        subgraph never overstates how complete the call walk was.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
