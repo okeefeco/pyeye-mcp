@@ -115,8 +115,9 @@ is uncontaminated by this conversation.)
 
 Merge the new findings into prior state with
 `state.merge_findings(prior, new)`, which dedups by `state.findings_equivalent`
-(same axis + handles + normalised claim). This accumulates coverage across runs
-rather than starting cold each time.
+(same handle-set (order-independent) + grade + normalised claim; axis is NOT part
+of equivalence). This accumulates coverage across runs rather than starting cold
+each time.
 
 ### 4. Promotion chain — two stages, in order
 

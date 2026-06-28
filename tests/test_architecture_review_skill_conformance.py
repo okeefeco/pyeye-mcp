@@ -13,7 +13,7 @@ Dependency-free by design: stdlib ``re`` + ``pathlib`` only (no yaml).
 import re
 from pathlib import Path
 
-from pyeye.architecture_review.taxonomy import AXIS_STAKES_PRIOR, SEED_AXES
+from pyeye.architecture_review.taxonomy import AXIS_DESCRIPTIONS, AXIS_STAKES_PRIOR, SEED_AXES
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills" / "architecture-review"
 SKILL = _SKILLS_DIR / "SKILL.md"
@@ -115,3 +115,41 @@ def test_skill_declares_a_description() -> None:
     assert re.search(
         r"^description:\s*\S", _skill_text(), re.MULTILINE
     ), "SKILL.md frontmatter must contain a non-empty `description:` field"
+
+
+def test_auditor_descriptions_match_taxonomy() -> None:
+    """Every description in ``AXIS_DESCRIPTIONS`` must appear in auditor.md.
+
+    Drift guard: ``auditor.md`` was authored from ``AXIS_DESCRIPTIONS`` verbatim.
+    This test imports the authoritative dict and asserts each one-line description
+    (after stripping markdown emphasis markers and collapsing whitespace) is present
+    in auditor.md's normalised text.  Drift between the dict and the auditor axis
+    table is a CI failure — the single source of truth is the taxonomy module, not
+    prose copies.
+
+    Normalisation: strip ``*`` and ````` `` ``` `` ` `` characters (markdown emphasis /
+    inline-code markers), then collapse runs of whitespace to a single space.
+    This lets ``*kind*`` in the description match ``*kind*`` in the table (both strip
+    to ``kind``), without introducing false positives from other markdown.
+    """
+
+    def _normalize_md(text: str) -> str:
+        """Strip markdown emphasis (``*``, ``````) and collapse whitespace."""
+        text = re.sub(r"[*`]", "", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    normalized_auditor = _normalize_md(_auditor_text())
+    mismatches: list[tuple[str, str, str]] = []
+    for axis, description in AXIS_DESCRIPTIONS.items():
+        normalized_desc = _normalize_md(description)
+        if normalized_desc not in normalized_auditor:
+            mismatches.append((axis, description, normalized_desc))
+
+    assert not mismatches, (
+        "These AXIS_DESCRIPTIONS do not appear in auditor.md "
+        "(after normalising markdown emphasis):\n"
+        + "\n".join(
+            f"  {axis!r}: {desc!r}\n    (normalised to: {norm!r})"
+            for axis, desc, norm in mismatches
+        )
+    )
