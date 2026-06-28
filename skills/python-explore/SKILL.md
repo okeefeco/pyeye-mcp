@@ -112,11 +112,12 @@ source," **not** "not at runtime" — don't report a static result as
 runtime-exhaustive. (Same boundary `imported_by` already names for dynamic
 imports.)
 
-## ⭐ Honest Limits — Reverse References Are NOT Available
+## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
 This is the most important rule in this skill.
 
-**"Who calls this?" and "what references this?" cannot be answered reliably yet.** The
+**"Who calls this?" and "what references this?" cannot be answered by pyeye** — delegate
+them to your LSP (below). The
 edges `callers`, `references`, `read_by`, `written_by`, `passed_by`, `overrides`,
 `overridden_by`, `decorated_by`, and `decorates` are **deferred** — they need an indexed
 reference backend (Pyright) that isn't wired up yet ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)).
@@ -124,7 +125,8 @@ When you ask for one, pyeye **refuses** (reports it as unsupported) rather than 
 a wrong or empty answer. Likewise, `inspect`'s `edge_counts` simply **omits** `callers`
 and `references` — it does not report them as `0`.
 
-**Do NOT fake reverse-reference data.** Specifically:
+**Do NOT fake reverse-reference data.** Delegating to a real reference backend (your
+editor's LSP — see below) is *not* faking; these two cheats are:
 
 - Do **not** fall back to `grep` to guess who calls or references a symbol.
 - Do **not** use the deprecated legacy tools `find_references` or `get_call_hierarchy`
@@ -133,8 +135,34 @@ and `references` — it does not report them as `0`.
   near-empty set for a heavily-used symbol. A confident wrong answer is worse than an
   honest "not available."
 
-Instead, **say so plainly**: "pyeye can't give reliable caller/reference data yet
-(deferred to #333)." Then offer what you *can* answer:
+### The reliable path: delegate to your LSP
+
+A real reference index is almost certainly already in your toolbox — a language-server
+(LSP) tool backed by Pyright/Pylance (e.g. Claude Code's `LSP` tool). Use it. pyeye and
+the LSP **compose**: pyeye hands you the definition-site `location` (`file:line:column`)
+from `resolve` / `inspect` / `resolve_at` — exactly the position an LSP reference query
+needs.
+
+Pipeline for "who calls / references this?":
+
+1. `resolve(name)` → canonical handle + `location {file, line_start, column_start}`.
+2. Feed that position to the LSP: `findReferences`, `incomingCalls` (callers), or
+   `goToImplementation`.
+3. The LSP answers in positions; `resolve_at(file, line, column)` maps any of them back
+   into pyeye handle space when you want to keep working there.
+
+**Roles, not redundancy.** pyeye *drives* orientation, structure, and forward facts; the
+LSP is the *reference specialist* you delegate the inbound questions to. Do **not** run
+them as two interchangeable navigators, or consult both for the *same* fact — they infer
+independently (Jedi vs Pyright) and can disagree, and two oracles voting erodes the trust
+a single honest answer is for.
+
+### When no LSP is available
+
+If your harness has no language-server tool, **say so plainly**: "pyeye can't give
+reliable caller/reference data (deferred to #333), and there's no LSP here to delegate
+to." Then offer what you *can* answer — and still do **not** substitute grep or the
+legacy tools:
 
 - **Forward** from a function: `callees` (what it calls).
 - **Around a module:** `imported_by` (who imports it) and `imports` (what it imports).
@@ -168,7 +196,7 @@ digraph python_explore {
 
     "Respect request, use Read()" [shape=box];
     "Use what's in context" [shape=box];
-    "State the limit honestly, offer forward edges" [shape=box];
+    "Delegate to LSP; else state limit + forward edges" [shape=box];
     "Orient: resolve then inspect / outline" [shape=box];
     "Drill / trace as needed" [shape=box];
     "Proceed with task" [shape=box];
@@ -179,12 +207,12 @@ digraph python_explore {
     "Explicit read/show request?" -> "Already explored in context?" [label="no"];
     "Already explored in context?" -> "Use what's in context" [label="yes"];
     "Already explored in context?" -> "Reverse-reference question?" [label="no"];
-    "Reverse-reference question?" -> "State the limit honestly, offer forward edges" [label="yes"];
+    "Reverse-reference question?" -> "Delegate to LSP; else state limit + forward edges" [label="yes"];
     "Reverse-reference question?" -> "Orient: resolve then inspect / outline" [label="no"];
     "Orient: resolve then inspect / outline" -> "Drill / trace as needed";
     "Drill / trace as needed" -> "Proceed with task";
     "Use what's in context" -> "Proceed with task";
-    "State the limit honestly, offer forward edges" -> "Proceed with task";
+    "Delegate to LSP; else state limit + forward edges" -> "Proceed with task";
 }
 ```
 
@@ -288,12 +316,24 @@ inspect("pathlib.Path")                      -> scope: "external", members/signa
 expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project that extend Path
 ```
 
-**"Who calls `Cache.evict`?"** — the honest refusal:
+**"Who calls `Cache.evict`?"** — pyeye defers it; delegate to the LSP:
 
-> Reliable caller data isn't available yet — `callers` is deferred to the Pyright
-> backend (#333), and faking it with grep or the legacy reference tools would
-> under-report. What I *can* show: what `Cache.evict` itself calls (`callees`), and which
-> modules import `myapp.cache` (`imported_by`). Want either of those?
+```text
+resolve("myapp.cache.Cache.evict")   -> location: { file: "myapp/cache.py", line_start: 42, column_start: 8 }
+# then hand that position to your LSP tool:
+LSP.incomingCalls("myapp/cache.py", line=42, character=9)  -> real callers, with call sites
+```
+
+> pyeye doesn't index callers (deferred to #333), so I delegated: `resolve` gave the
+> def-site location and the LSP's `incomingCalls` returned the real callers. (I can map
+> any back to a handle with `resolve_at`.)
+
+With **no** LSP tool in reach, the honest refusal instead:
+
+> Reliable caller data isn't available — `callers` is deferred (#333), there's no LSP
+> here to delegate to, and grep or the legacy tools would under-report. What I *can*
+> show: what `Cache.evict` itself calls (`callees`), and which modules import
+> `myapp.cache` (`imported_by`). Want either?
 
 ## Dependency & Coupling Analysis
 
@@ -338,7 +378,7 @@ user can correct you:
 **Mental model: `myapp.cache.Cache`** (`myapp/cache.py:31`)
 - Depends on: `myapp.config.Settings`, `collections.OrderedDict`
 - I can see: 7 members, 1 superclass (measured); subclasses on demand via `expand`
-- I cannot see: callers/references (deferred, #333) — change impact on callers is unverified
+- Callers/references: pyeye defers them (#333) — get them from the LSP; without one, caller impact is unverified
 ```
 
 Scale this to the task. A pure "how does X work?" answer may need no separate summary;
@@ -361,8 +401,8 @@ Don't block — degrade gracefully, but make the limitation visible.
 - Reaching for `grep` to find a definition.
 - Reaching for `grep` to answer a relationship/reference question.
 - Reaching for deprecated `find_*` / `get_*` legacy tools.
-- **Faking "who calls this" with grep or the legacy reference tools** instead of stating
-  the limit honestly.
+- **Faking "who calls this" with grep or the legacy reference tools** instead of
+  delegating to your LSP (or, with no LSP, stating the limit honestly).
 - Re-exploring a symbol pyeye already surfaced in this conversation.
 
 **If you catch yourself doing any of these: STOP. Orient with pyeye, or say honestly
