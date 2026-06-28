@@ -3,9 +3,13 @@
 ## Overview
 
 This document describes the redesigned PyEye API surface introduced across
-Phases 1–4, 6, and 7. The redesign adds three new operations — `resolve`,
-`resolve_at`, and `inspect` — optimised for cheap, pointer-first code
-navigation.
+Phases 1–8. The redesign replaces the legacy LSP-bridge tools with six
+progressive-disclosure operations — `resolve`, `resolve_at`, `inspect`,
+`outline`, `expand`, and `trace` — optimised for cheap, pointer-first code
+navigation. All six are shipped, live MCP tools. The canonical,
+conformance-tested reference for the full set (and the supported edges) lives in
+`skills/python-explore/SKILL.md`; this document covers the design background and
+documents the `resolve` / `resolve_at` / `inspect` intake operations in detail.
 
 ### Why a redesign?
 
@@ -27,17 +31,25 @@ roughly 0.03× the wire cost.
 | 2 | `resolve()` operation | Done |
 | 3 | `resolve_at()` operation | Done |
 | 4 | `inspect()` with edge counts | Done |
-| 5 | `outline()` operation | Deferred |
+| 5 | `outline()` operation | Done |
 | 6 | `re_exports` wired into `inspect` | Done |
 | 7.1 | Conformance linter + pre-commit hook | Done |
 | 7.2–7.5 | Spec acceptance tests (closeout) | Done |
 | 8 | TypeRef recursive trees on type-bearing fields | Done |
 
-`expand()` and `trace()` are future operations, not yet planned.
+`expand()` and `trace()` are also shipped, live MCP tools. The full primitive
+set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) and
+the complete static edge set (`members` / `callees` / `imported_by` /
+`subclasses` / `superclasses` / `imports` / `enclosing_scope`) are implemented;
+see `skills/python-explore/SKILL.md` for the live, conformance-tested reference.
 
 ---
 
-## The three operations
+## The intake operations: `resolve` / `resolve_at` / `inspect`
+
+These three intake operations are documented in full below. The remaining
+primitives — `outline`, `expand`, and `trace` — are shipped and documented in
+`skills/python-explore/SKILL.md` (the single source of truth, per #374).
 
 ### `resolve(identifier, project_path?)`
 
