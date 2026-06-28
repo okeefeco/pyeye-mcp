@@ -144,9 +144,11 @@
 
 - **Goal:** Turn #494's lesson into a mechanism: a reproducibly-wrong Tier-1 fact must not pass as `deterministic_single`. Runs **after** the Task 2.2 reproduction gate (a finding can be reproduction-stable yet stably-wrong — that is exactly #494).
 - **Files:** orchestration step in `skills/architecture-review/SKILL.md`; optional helper in `src/pyeye/architecture_review/` if a structured comparison helps.
-- **Interfaces (produced):** for every **post-gate `deterministic_single`** finding (the survivors of Task 2.2), corroborate its underlying Tier-1 fact against a **second derivation** (the targeted Read the auditor already did, or the LSP); on divergence, **rewrite grade to `ambiguous` and flag `possible_extractor_bug`** (surface, do not confirm).
-- **Tests:** acceptance fixture — a finding whose pyeye-derived fact is known to diverge from source (e.g. the #494 `imports`-edge drop) is flagged + downgraded, not confirmed.
-- **Constraints:** Runs **only on the confident subset** (cheap). This is a **plan acceptance item**, not optional (spec §9).
+- **Interfaces (produced):** for every **post-gate `deterministic_single`** finding (the survivors of Task 2.2), **independently re-derive** its underlying Tier-1 fact (see the independence constraint) and compare; on divergence, **rewrite grade to `ambiguous` and flag `possible_extractor_bug`** (surface, do not confirm).
+- **Tests:** acceptance fixture — a finding whose pyeye-derived fact is known to diverge from source (e.g. the #494 `imports`-edge drop) is flagged + downgraded, not confirmed. The test must confirm the corroboration is computed from an **independent** source (source/AST or LSP), not from the auditor's stored `evidence` or the same pyeye edge.
+- **Constraints:**
+  - **Independence is the whole point** (without it the guard is theater). The corroborating derivation MUST be independent of the pyeye edge that produced the fact: re-derive from **source text / AST** (a fresh read of the relevant span) or the **LSP**, then compare. **Never** corroborate a pyeye fact with another pyeye primitive that could inherit the same defect, and **never** reuse the auditor's own `evidence` field — that is checking a thing against itself. #494 was caught *precisely because* a source-AST read of the import statements disagreed with the suspect `imports` edge; a same-source cross-check would have passed the wrong fact.
+  - Runs **only on the confident subset** (cheap). This is a **plan acceptance item**, not optional (spec §9).
 - **Acceptance:** the #494-style divergence fixture is flagged; a non-divergent confident finding passes untouched.
 - **Risks:** Skipping it as "a footnote" — it is the only guard against the gate's reproducibility-not-truth blind spot.
 
