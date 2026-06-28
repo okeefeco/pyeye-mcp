@@ -132,6 +132,20 @@ ignore = [
     "UP038",  # use of | in isinstance is not always more readable
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# The architecture-review audit fixture is SAMPLE CODE UNDER ANALYSIS with
+# DELIBERATELY-PLANTED architectural divergences (bare excepts, unused vars,
+# etc.). It is intentionally lint-dirty -- the messiness is the point. Scope
+# these ignores ONLY to that fixture path so linting elsewhere is unaffected.
+# See tests/fixtures/architecture_review/GROUND_TRUTH.md for the planted stakes.
+"tests/fixtures/architecture_review/**" = [
+    "E722",  # bare except (planted: error_handling prevalence trap)
+    "F401",  # unused import (planted: hub-import structure for blast radius)
+    "F841",  # unused local (planted: injected-dep contrast case)
+    "ARG",   # unused argument (planted: realistic-but-unused handler args)
+    "SIM",   # simplify (planted: deliberately un-simplified branching)
+]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]
