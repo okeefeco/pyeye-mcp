@@ -129,11 +129,15 @@ stage can only *downgrade* a grade (to `ambiguous`); neither invents or promotes
    (`DEFAULT_GATE_RUNS` = 3, configurable) over its scope; it keeps the grade only
    if an equivalent finding appears in **every** re-run, else → `ambiguous`. This
    checks **reproducibility, not truth.**
-2. **Cross-derivation guard (#494)** — for each *surviving* `deterministic_single`,
-   **independently re-derive its Tier-1 fact** from source / AST (or an LSP) —
-   **NOT** from another pyeye edge and **NOT** from the auditor's own evidence. If
-   the independent derivation diverges from the auditor's fact, rewrite the grade
-   to `ambiguous` and flag `possible_extractor_bug`. This is what catches a
+2. **Cross-derivation guard (#494)** —
+   `guard.apply_cross_derivation_guard(findings, corroborate_fn)`. For each
+   *surviving* `deterministic_single`, the injected `corroborate_fn`
+   **independently re-derives its Tier-1 fact** from source / AST (or an LSP) —
+   **NOT** from another pyeye edge and **NOT** from the auditor's own evidence
+   (for import / layering facts, wire in `guard.imports_via_ast`, a from-scratch
+   stdlib `ast` reader). If the independent derivation diverges from the
+   auditor's fact, the guard rewrites the grade to `ambiguous` and sets
+   `possible_extractor_bug = True` (surface, do not confirm). This is what catches a
    *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge silently dropping
    a real import, #494) — the gate cannot, because a reproducible error reproduces.
 
