@@ -161,6 +161,11 @@ class TestFindSymbolAcrossPackages:
             f"SharedHelper not found in additional package. "
             f"Got results: {[r['name'] for r in results]}"
         )
+        # full_name must match what the old per-path Jedi project produced
+        # (rooted at the additional path): the package dir is the sys.path root,
+        # so utils.py is module ``utils``.
+        full_names = {r["full_name"] for r in results}
+        assert "utils.SharedHelper" in full_names, full_names
 
     @pytest.mark.asyncio
     async def test_finds_function_in_additional_package(self, cross_project_setup):
@@ -174,6 +179,29 @@ class TestFindSymbolAcrossPackages:
             f"shared_func not found in additional package. "
             f"Got results: {[r['name'] for r in results]}"
         )
+
+
+class TestAdditionalPackageModuleNaming:
+    """The additional-package module name belongs in ``_index_module_name`` (the
+    name-index namer), NOT in the shared ``_get_import_path_for_file`` — so the
+    #457 name index gets the right ``full_name`` without silently changing that
+    shared helper's contract for its other callers (``find_importers`` /
+    ``resolve`` / ``lookup``), which kept returning ``None`` for these files.
+    """
+
+    def test_get_import_path_for_file_does_not_map_additional_files(self, cross_project_setup):
+        analyzer = _make_analyzer(cross_project_setup)
+        utils = cross_project_setup["shared"] / "utils.py"
+        # Shared helper's pre-name-index contract: it does not resolve
+        # additional-package files (that is _index_module_name's job).
+        assert analyzer._get_import_path_for_file(utils) is None
+
+    def test_index_module_name_maps_additional_package_file(self, cross_project_setup):
+        analyzer = _make_analyzer(cross_project_setup)
+        utils = cross_project_setup["shared"] / "utils.py"
+        # The name index still gets the importable module name (sys.path root is
+        # the additional path itself), matching old Jedi: utils, not None.
+        assert analyzer._index_module_name(utils) == "utils"
 
 
 class TestFindSymbolAcrossNamespaces:
@@ -191,6 +219,28 @@ class TestFindSymbolAcrossNamespaces:
             f"AuthUser not found in namespace package company-auth. "
             f"Got results: {[r['name'] for r in results]}"
         )
+
+    @pytest.mark.asyncio
+    async def test_namespace_symbol_full_name_equals_importable_name(self, cross_project_setup):
+        """A namespace def's full_name from the AST name-index must equal its
+        importable dotted name — the same name Jedi reported for the old
+        ``project.search`` path (#457, Task 1 risk).
+
+        ``company-auth/company/auth/models.py`` is imported as
+        ``company.auth.models`` (see tests/conftest.py). The name-index composes
+        full_name from the file's module name, so a namespace prefix applied on
+        top of a repo-root-relative path that *already* contains it yields the
+        unimportable ``company.company.auth.models`` — a silent regression the
+        name-only assertions above could not catch.
+        """
+        analyzer = _make_analyzer(cross_project_setup)
+
+        results = await analyzer.find_symbol("AuthUser")
+        full_names = {r["full_name"] for r in results}
+
+        assert "company.auth.models.AuthUser" in full_names, full_names
+        # No double-prefixed, unimportable handle.
+        assert not any(fn.startswith("company.company") for fn in full_names), full_names
 
     @pytest.mark.asyncio
     async def test_finds_class_in_different_namespace_repo(self, cross_project_setup):

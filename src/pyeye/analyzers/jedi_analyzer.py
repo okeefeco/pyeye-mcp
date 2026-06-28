@@ -1,6 +1,7 @@
 """Jedi-based analyzer for PyEye."""
 
 import ast
+import asyncio
 import contextlib
 import logging
 import os
@@ -28,10 +29,12 @@ from ..scope_utils import (
     parallel_search,
 )
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
+from . import project_graph
 from .base_resolution import (
     build_import_table,
     build_module_defines,
     build_star_sources,
+    extract_definitions,
     resolve_base,
 )
 
@@ -232,85 +235,72 @@ class JediAnalyzer:
         return self._additional_projects[resolved]
 
     # DEPRECATED: internal helper for legacy methods; will be removed alongside them.
-    async def _search_all_scopes(self, name: str, scope: Scope | None = None) -> list[Any]:
-        """Search for a symbol name across all configured scopes.
+    async def _search_all_scopes(
+        self, name: str, scope: Scope | None = None, fuzzy: bool = False
+    ) -> list[Any]:
+        """Find every project definition of *name* across the requested scope.
 
-        **Deprecated:** Internal helper for legacy methods that are being
-        superseded by the resolve/resolve_at/inspect API. Will be removed
-        alongside the legacy methods it supports (get_call_hierarchy,
-        find_imports, analyze_dependencies, get_module_info, find_subclasses).
-        See docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
+        **Deprecated:** Internal helper for legacy methods being superseded by
+        the resolve/resolve_at/inspect API; removed alongside them (Phase B of
+        the migration).
 
-        Uses Jedi project.search() on the main project, then searches
-        additional and namespace paths. Deduplicates by (name, file, line).
+        Looks *name* up in the whole-project AST name-index (built once and
+        cached in :mod:`pyeye.analyzers.project_graph`, outside the
+        ``file_artifact_cache`` LRU) and filters results to the scope's resolved
+        paths. Replaces ``jedi.Project.search``, whose 30-parsed-file cap
+        silently dropped definitions of high-frequency names (#457). The index is
+        built whole-project so completeness never depends on scope or cache size;
+        scope narrowing happens here, at lookup time.
 
         Args:
-            name: Symbol name to search for
-            scope: Search scope - "main", "all", "namespace:name", etc.
-                   Defaults to "all" if not specified.
+            name: Symbol name to search for.
+            scope: Search scope — "main", "all", "namespace:name", etc.
+                   Defaults to "all".
+            fuzzy: When True, match any indexed name *containing* ``name``
+                   (substring), mirroring the old search; else exact name.
 
         Returns:
-            List of Jedi Name objects from all matching scopes
+            ``DefinitionSentinel`` objects for every matching definition,
+            deduplicated by ``(name, file, line)``.
         """
         effective_scope = scope if scope is not None else "all"
-        search_paths = await self._resolve_scope_to_paths(effective_scope)
+
+        # Build (or reuse) the whole-project name index off the event loop. The
+        # build is parse-bound and paid once per project; lookups are O(1) dict
+        # access. Scope is NOT baked into the build (that would poison the
+        # project-keyed cache for other scopes) — it is applied below at lookup.
+        all_files = await self.get_project_files(pattern="*.py", scope="all")
+        file_to_module = {f: self._index_module_name(f) for f in all_files}
+        index = await asyncio.to_thread(
+            project_graph.get_name_index,
+            self.project_path.as_posix(),
+            all_files,
+            file_to_module,
+        )
+
+        if fuzzy:
+            candidates = [d for key, defs in index.items() if name in key for d in defs]
+        else:
+            candidates = index.get(name, [])
+        if not candidates:
+            return []
+
+        # Narrow to the requested scope at lookup time, then dedup by
+        # (name, file, line) — preserving the historical key.
+        scope_dirs = [d.resolve() for d in await self._resolve_scope_to_paths(effective_scope)]
 
         results: list[Any] = []
         seen: set[tuple[str, str | None, int]] = set()
-
-        # Map namespace subdirectory paths back to their repo roots.
-        # _resolve_scope_to_paths returns subdirectories (e.g., aac-modules/aac/)
-        # but Jedi projects should be rooted at the repo root (aac-modules/)
-        # so full_name includes the namespace prefix.
-        ns_roots: dict[Path, Path] = {}  # subdirectory → repo root
-        for ns_paths in self.namespace_paths.values():
-            for ns_path in ns_paths:
-                repo_root = ns_path.resolve()
-                for subdir in self._get_namespace_directory_structure(ns_path):
-                    ns_roots[subdir.resolve()] = repo_root
-
-        for path in search_paths:
-            is_main = path == self.project_path
-            resolved_path = path.resolve()
-            try:
-                # Use the main project for the main project path.
-                # For namespace subdirectories, use a project rooted at the
-                # repo root (not the subdirectory) so Jedi reports full_name
-                # with the namespace prefix.
-                # For other paths, use per-path projects.
-                if is_main:
-                    project = self.project
-                elif resolved_path in ns_roots:
-                    project = self._get_project_for_path(ns_roots[resolved_path])
-                else:
-                    project = self._get_project_for_path(path)
-
-                for r in project.search(name, all_scopes=True):
-                    # When the main Jedi root is wider than the project_path
-                    # (e.g., root moved to parent for __init__.py package prefix),
-                    # filter results to files within the actual project path.
-                    if is_main and self._jedi_root_is_parent and r.module_path:
-                        try:
-                            Path(r.module_path).relative_to(resolved_path)
-                        except ValueError:
-                            continue  # Result is outside the main project
-
-                    key = (
-                        r.name,
-                        Path(r.module_path).as_posix() if r.module_path else None,
-                        r.line,
-                    )
-                    if key not in seen:
-                        seen.add(key)
-                        results.append(r)
-            except Exception as e:
-                if is_main:
-                    # Let main project errors propagate for proper error handling
-                    raise
-                logger.debug(f"Could not search {path}: {e}")
-
+        for r in candidates:
+            if r.module_path is None:
+                continue
+            resolved_mp = r.module_path.resolve()
+            if not any(self._is_subpath(resolved_mp, scope_dir) for scope_dir in scope_dirs):
+                continue
+            key = (r.name, resolved_mp.as_posix(), r.line)
+            if key not in seen:
+                seen.add(key)
+                results.append(r)
         return results
 
     def _update_validator(self) -> None:
@@ -564,14 +554,65 @@ class JediAnalyzer:
                         module_parts = list(ns_rel_path.parts[:-1])
                         if py_file.name != "__init__.py":
                             module_parts.append(py_file.stem)
-                        if module_parts:
-                            return f"{ns_name}.{'.'.join(module_parts)}"
-                        else:
+                        if not module_parts:
                             return py_file.stem
+                        # ``ns_path`` is normally the repo root, so the repo-root-
+                        # relative path ALREADY includes the namespace dir (e.g.
+                        # ``company/auth/models`` under ``.../company-auth``) — the
+                        # importable name Jedi reports. Only prepend ``ns_name``
+                        # when it does NOT, i.e. ``ns_path`` points straight at the
+                        # namespace dir. Prepending unconditionally double-counts
+                        # the prefix (``company.company.auth.models``) — unimportable
+                        # and a #457 regression once enumeration runs through here.
+                        ns_segments = ns_name.split(".")
+                        if module_parts[: len(ns_segments)] == ns_segments:
+                            return ".".join(module_parts)
+                        return f"{ns_name}.{'.'.join(module_parts)}"
                 except (ValueError, AttributeError):
                     continue
 
         return None
+
+    def _index_module_name(self, py_file: Path) -> str | None:
+        """Dotted module name for the name index (matches Jedi's full_name).
+
+        Like :meth:`_get_import_path_for_file`, but composes the two module names
+        the old per-scope ``project.search`` produced that the shared helper does
+        not — keeping that helper's contract unchanged for its other callers
+        (``find_importers`` / ``resolve`` / ``lookup``, which rely on it staying
+        prefix-free and not resolving additional-package files):
+
+        - **main-project** file when the root is itself a package
+          (``_jedi_root_is_parent``): include the root package name
+          (``pkg.models.X``, not ``models.X``);
+        - **additional-package** file: each additional path is a sys.path-style
+          root (rooted *at* the package dir), so ``shared_lib/utils.py`` is
+          module ``utils`` — mirroring the per-path Jedi project the old
+          ``_search_all_scopes`` used. The shared helper returns ``None`` here.
+
+        Everything else (namespaces, ``src``-layout roots, plain main files)
+        defers to :meth:`_get_import_path_for_file` unchanged.
+
+        Args:
+            py_file: The file whose module name is needed.
+
+        Returns:
+            The dotted module name, or ``None`` if it cannot be determined.
+        """
+        if self._jedi_root_is_parent and self._is_subpath(py_file, self.project_path):
+            rel = py_file.relative_to(self.project_path.parent)
+            parts = list(rel.parts[:-1])
+            if py_file.name != "__init__.py":
+                parts.append(py_file.stem)
+            return ".".join(parts) if parts else py_file.stem
+        for add_path in self.additional_paths:
+            if self._is_subpath(py_file, add_path):
+                rel = py_file.relative_to(add_path)
+                parts = list(rel.parts[:-1])
+                if py_file.name != "__init__.py":
+                    parts.append(py_file.stem)
+                return ".".join(parts) if parts else py_file.stem
+        return self._get_import_path_for_file(py_file)
 
     def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
         """Get the base path for a namespace within a repository.
@@ -690,7 +731,7 @@ class JediAnalyzer:
         results = []
 
         try:
-            search_results = await self._search_all_scopes(name, scope)
+            search_results = await self._search_all_scopes(name, scope, fuzzy=fuzzy)
 
             for result in search_results:
                 if not fuzzy and result.name != name:
@@ -777,7 +818,7 @@ class JediAnalyzer:
 
                 # Get the parent's defined names (methods, attributes, etc.)
                 try:
-                    parent_names = parent_result.defined_names()
+                    parent_names = self._enclosed_definitions(parent_result)
 
                     # Search for the member within the parent's scope
                     for defined_name in parent_names:
@@ -807,6 +848,36 @@ class JediAnalyzer:
             return []
 
         return results
+
+    def _enclosed_definitions(self, parent: Any) -> list[Any]:
+        """Return the direct child definitions of a class/module result (AST).
+
+        Replaces a Jedi ``Name.defined_names()`` call: re-parses the parent's
+        file via the cached AST and returns its direct members
+        (``DefinitionSentinel``) — deterministic, no Jedi (#449). Lets compound
+        resolution (``Class.method`` / ``module.Class``) reach members without
+        carrying them in the global name index.
+
+        Args:
+            parent: A name-index result (class or module) to enumerate.
+
+        Returns:
+            The parent's direct child definitions, or ``[]`` if unavailable.
+        """
+        if parent.module_path is None or not parent.full_name:
+            return []
+        path = Path(parent.module_path)
+        try:
+            tree = file_artifact_cache.get_ast(path)
+        except (OSError, SyntaxError, ValueError):
+            return []
+        module_name = self._index_module_name(path)
+        parent_full = parent.full_name
+        return [
+            d
+            for d in extract_definitions(tree, module_name, path)
+            if d.full_name == f"{parent_full}.{d.name}"
+        ]
 
     async def goto_definition(self, file: str, line: int, column: int) -> dict[str, Any] | None:
         """Get definition location from a position."""
@@ -2399,10 +2470,12 @@ class JediAnalyzer:
         return info
 
     def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
-        """Build a minimal navigable reference dict from a Jedi Name object.
+        """Build a minimal navigable reference dict from a Name-like object.
 
         Args:
-            name: A Jedi Name object from project.search() or similar.
+            name: A Jedi ``Name`` (from ``goto``) or a ``DefinitionSentinel``
+                from the AST name-index — anything exposing
+                ``name``/``full_name``/``module_path``/``line``.
 
         Returns:
             Dict with keys: name, full_name, file (POSIX or None), line.

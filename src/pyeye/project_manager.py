@@ -206,6 +206,14 @@ class ProjectManager:
         if project_path in self.standalone_dirs:
             del self.standalone_dirs[project_path]
 
+        # Drop the project's non-evicting name index so an evicted project does
+        # not leak its index. The store canonicalises the key (project_graph.
+        # _normalize), so this resolved path matches the analyzer's build key
+        # even for a symlinked/relative root. #457.
+        from pyeye.analyzers import project_graph
+
+        project_graph.invalidate(project_path.as_posix())
+
     def _evict_if_needed(self) -> None:
         """Evict least recently used projects if over limit.
 
