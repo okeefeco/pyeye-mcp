@@ -566,10 +566,20 @@ class JediAnalyzer:
                         module_parts = list(ns_rel_path.parts[:-1])
                         if py_file.name != "__init__.py":
                             module_parts.append(py_file.stem)
-                        if module_parts:
-                            return f"{ns_name}.{'.'.join(module_parts)}"
-                        else:
+                        if not module_parts:
                             return py_file.stem
+                        # ``ns_path`` is normally the repo root, so the repo-root-
+                        # relative path ALREADY includes the namespace dir (e.g.
+                        # ``company/auth/models`` under ``.../company-auth``) — the
+                        # importable name Jedi reports. Only prepend ``ns_name``
+                        # when it does NOT, i.e. ``ns_path`` points straight at the
+                        # namespace dir. Prepending unconditionally double-counts
+                        # the prefix (``company.company.auth.models``) — unimportable
+                        # and a #457 regression once enumeration runs through here.
+                        ns_segments = ns_name.split(".")
+                        if module_parts[: len(ns_segments)] == ns_segments:
+                            return ".".join(module_parts)
+                        return f"{ns_name}.{'.'.join(module_parts)}"
                 except (ValueError, AttributeError):
                     continue
 

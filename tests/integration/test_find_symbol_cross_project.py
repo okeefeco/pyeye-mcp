@@ -193,6 +193,28 @@ class TestFindSymbolAcrossNamespaces:
         )
 
     @pytest.mark.asyncio
+    async def test_namespace_symbol_full_name_equals_importable_name(self, cross_project_setup):
+        """A namespace def's full_name from the AST name-index must equal its
+        importable dotted name — the same name Jedi reported for the old
+        ``project.search`` path (#457, Task 1 risk).
+
+        ``company-auth/company/auth/models.py`` is imported as
+        ``company.auth.models`` (see tests/conftest.py). The name-index composes
+        full_name from the file's module name, so a namespace prefix applied on
+        top of a repo-root-relative path that *already* contains it yields the
+        unimportable ``company.company.auth.models`` — a silent regression the
+        name-only assertions above could not catch.
+        """
+        analyzer = _make_analyzer(cross_project_setup)
+
+        results = await analyzer.find_symbol("AuthUser")
+        full_names = {r["full_name"] for r in results}
+
+        assert "company.auth.models.AuthUser" in full_names, full_names
+        # No double-prefixed, unimportable handle.
+        assert not any(fn.startswith("company.company") for fn in full_names), full_names
+
+    @pytest.mark.asyncio
     async def test_finds_class_in_different_namespace_repo(self, cross_project_setup):
         """find_symbol should find classes across different repos in the same namespace."""
         analyzer = _make_analyzer(cross_project_setup)
