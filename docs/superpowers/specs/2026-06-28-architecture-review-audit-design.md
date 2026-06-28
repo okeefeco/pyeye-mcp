@@ -1,8 +1,8 @@
 # `/architecture-review` (audit scope) — Design Spec
 
-**Status:** Draft (rev 8 — spike decisions folded; duplication carved out to #495) —
-**UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree (rev 6 committed at
-`80fe484`); to be committed on that branch.
+**Status:** Draft (rev 9 — axis-stakes ranking (constrained) + cross-derivation guard) —
+**UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree (rev 8 committed at
+`8b0eb3a`); to be committed on that branch.
 **Date:** 2026-06-28
 **Issue:** #492
 **Scope:** Increment **A** (project/audit scope). Diff-mode (B), the self-learning loop,
@@ -146,8 +146,8 @@ Seed dimensions (each maps to a fact source; A-scope):
 - **Naming & API shape** — naming patterns, return-type conventions, sync/async split.
 - **Cross-cutting access** — logging, config, path handling (e.g. this repo's `path_utils`
   conventions).
-- **Duplication / "is there already a helper"** — surfaced by reading code over facts, not a
-  computed index (§3).
+- *(Duplication / "is there already a helper" is **NOT** a seed axis in A — spike bet-1b showed
+  it is a content-similarity problem the fact path cannot do; carved out to **#495**, see §3.)*
 
 **Why a *seed* — not a free choice, not a closed set:**
 
@@ -163,6 +163,11 @@ Seed dimensions (each maps to a fact source; A-scope):
 **Composition with the gate.** The taxonomy removes *dimension-selection* drift (looking along
 different axes run-to-run); §10's reproduction gate handles the residual *within-axis*
 nomination variance. Fixed axes upstream, stability gate downstream.
+
+**Axis-stakes prior (config, not a claim).** Each seed axis also carries a default *stakes
+weight* used **only** for ranking (§11) — labeled, per-project-overridable config, **not** an
+intrinsic property of the axis nor a claim that it matters more (ranking ≠ correctness, §11).
+The default vector is provisional — calibrate against real review data (§15).
 
 ## 7. Data flow & the human loop
 
@@ -250,6 +255,14 @@ never have been judgment-layer.
   human can catch a wrong fact only if the confirmation surfaces the underlying evidence, not
   just the conclusion. Tier-1 trust is therefore *conditional on extractor correctness*, which
   the architecture assumes and the spike proved must be earned.
+- **Confident-path cross-derivation check (the #494 guard — a mechanism, not a caveat).** For
+  every finding on the **confident path**, corroborate its underlying Tier-1 fact against a
+  **second derivation** — the targeted Read the auditor already does, or the LSP — and **flag
+  any divergence as a possible extractor bug** (downgrade + surface, do not confirm). This is
+  exactly what caught #494; it is cheap because it runs only on the confident subset; and it is
+  the only thing standing between "Tier-1 is trusted bedrock" and a reproducibly-wrong fact
+  passing the §10 gate as `deterministic_single`. **Required in the build** (a plan acceptance
+  item, not optional).
 - **Advisory-only:** inferred conventions are advisory; only human-confirmed (Tier-3) facts
   may later (in B) block.
 - **Human-gated:** Tier-2 → Tier-3 promotion, and any norm contest/retire, are always
@@ -291,31 +304,45 @@ never have been judgment-layer.
   the error favours human review; the gate is a coarse filter, not a crisp classifier, and a
   continuous score (§15) would need a larger N — consistent with deferring it on cost.
 
-## 11. Ranking — escalate the unconfirmed, order by blast radius
+## 11. Ranking — escalate the unconfirmed, order by (axis-stakes prior × blast-radius)
 
 The engine of the scarce-attention thesis. Per §10, instability is a reliability **gate**, not
-a continuous score, so the ranking is **two-level**, not a literal product:
+a continuous score, so the ranking is **two-level**:
 
 1. **Tier flag (binary):** unconfirmed/ambiguous findings sort **above** confident findings
    (cheap one-click confirms) — "escalate the uncertain."
-2. **Within *each* tier, order by blast radius** (descending). Both tiers are ordered: a
-   high-blast-radius *confident* finding ("the session-injection pattern is universal except
-   this one core class") is the best easy win and must be surfaced, not dumped unordered.
+2. **Within *each* tier, order by `axis-stakes prior × blast-radius magnitude`** (descending).
 
-- **Blast radius** (deterministic, from pyeye): `imported_by` + `subclasses` + package
-  centrality. **Aggregation over a finding's handle-set** (a finding spans several handles):
-  default to the **max** over involved handles (the most-depended-on member dominates); sum /
-  hub-centrality are alternatives — the choice changes ordering, flagged open (§15). Used here
-  for **magnitude**, legitimate even though §9 bars import-graph as *correctness* grounds
-  (magnitude ≠ correctness). **Caveat:** caller / call-site counts are the reverse-reference
-  gap (#333) — pyeye defers callers — so caller-count blast radius needs the **LSP handoff
-  (#489)** or is approximated by module-level `imported_by` + `subclasses`.
-- **Blast radius is an unvalidated *proxy* for architectural stakes** — and now the sole
-  orderer of the tier that matters. Structural centrality can diverge from stakes (an
-  important error-handling divergence may sit in low-`imported_by` leaves; a trivial naming
-  inconsistency on a high-centrality hub). The §13 importance-coverage metric **validates the
-  proxy**; if it under-discriminates, that is the trigger to bring the deferred continuous
-  score (or a better stakes signal) forward — sooner than §15 otherwise assumes.
+**Why not blast-radius alone (spike bet-3).** Blast-radius is *magnitude*, not stakes: the
+spike empirically ranked a trivial naming finding (low-stakes, on a hub) **above** a
+validation-security finding (high-stakes, on a leaf). The axis carries the stakes; blast-radius
+only the reach.
+
+- **Axis-stakes prior** — a per-axis weight (e.g. error-handling/validation > … > naming) that
+  re-sorts the queue. It is **NOT** a fact, an external anchor, or a per-finding judgment, so by
+  §9 it could never justify a *recommendation*. It is admissible **only because ranking is not
+  correctness**: attention-order is reversible — no norm is decided by queue position — unlike an
+  asserted answer. To stay honest it is held to three constraints:
+  1. **Shown and overridable, never a silent constant.** The human sees "ranked by axis-stakes
+     prior (validation/error-handling > … > naming) × blast-radius — reorder?" (the §5
+     evidence-transparency standard), and the prior is **per-project overridable**, carried in
+     the same cross-run state (§6) as other config. (A library whose public API *names are* the
+     architecture is then a one-line override, not a fork.)
+  2. **Ordering-only — it never gates, suppresses, or pushes a finding below a fold.** It
+     re-sorts *within* a tier; a low-stakes axis can never remove a finding from view.
+     (Suppression would let a tunable prior silence findings — worse than mis-ordering, and the
+     load-bearing role §6.5 explicitly refused.)
+  3. **The default weight vector is provisional, not validated.** The spike proved the
+     *mechanism* (axis-weight removes the leaf-inversion) on one fixture whose stakes mapping was
+     author-set — partly circular. The defaults are a first guess to **calibrate against real
+     human-judged stakes over the first several runs** (the §17 "rough bands, first run
+     calibrates" discipline; §15).
+- **Blast-radius magnitude** (deterministic, from pyeye): `imported_by` + `subclasses` +
+  package centrality; aggregation over a finding's handle-set defaults to **max** (alternatives
+  open, §15 — the spike showed max can inflate a leaf finding that merely *references* a hub
+  symbol). Used for *magnitude* only — §9 bars import-graph as *correctness* grounds (magnitude
+  ≠ correctness). **Caveat:** caller counts are the reverse-reference gap (#333) → the **LSP
+  handoff (#489)** or approximate by `imported_by` + `subclasses`.
 
 ## 12. Error handling & degradation
 
@@ -418,8 +445,11 @@ a continuous score, so the ranking is **two-level**, not a literal product:
     stored dismissal*; distinct from the equivalence tolerance above.
   - **Blast-radius aggregation** over a finding's handle-set (max / sum / hub-centrality —
     §11 default is max).
-  - Whether blast radius is an adequate **stakes proxy** at all (validated by the §13
-    importance metric; failure forces the continuous score forward).
+  - **Axis-stakes default weight vector** — the spike (bet-3) proved blast-radius alone
+    under-discriminates and the axis-prior mechanism (§11) fixes it, but the default *values*
+    are provisional: calibrate against real human-judged stakes over the first several runs, and
+    **watch for codebases where the prior inverts** (e.g. API-name-driven libraries where naming
+    is high-stakes — handled by the §11 per-project override).
   - Whether to add a continuous within-ambiguous uncertainty score (§11 deferred upgrade).
   - Growth/curation of the §6.5 seed taxonomy (which axes ship in A; how new axes are added).
   - **Axis overlap** — seed axes (layering / boundaries / validation-placement) overlap, so one
