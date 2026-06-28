@@ -13,7 +13,12 @@ Dependency-free by design: stdlib ``re`` + ``pathlib`` only (no yaml).
 import re
 from pathlib import Path
 
-from pyeye.architecture_review.taxonomy import AXIS_DESCRIPTIONS, AXIS_STAKES_PRIOR, SEED_AXES
+from pyeye.architecture_review.taxonomy import (
+    AXIS_DESCRIPTIONS,
+    AXIS_STAKES_BUCKET,
+    AXIS_STAKES_PRIOR,
+    SEED_AXES,
+)
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills" / "architecture-review"
 SKILL = _SKILLS_DIR / "SKILL.md"
@@ -98,6 +103,25 @@ def test_axis_stakes_prior_keys_match_seed_axes() -> None:
     assert set(AXIS_STAKES_PRIOR) == set(SEED_AXES), (
         f"AXIS_STAKES_PRIOR keys {sorted(AXIS_STAKES_PRIOR)} " f"!= SEED_AXES {sorted(SEED_AXES)}"
     )
+
+
+def test_axis_stakes_bucket_keys_match_seed_axes() -> None:
+    """``AXIS_STAKES_BUCKET`` must give an EXPLICIT bucket for every seed axis.
+
+    The bucket map is the source of truth for ranking tier (#492); it is NOT
+    derived from the priors.  A new axis with no explicit bucket must fail
+    loudly here rather than silently default to ``low`` at ranking time.
+    """
+    assert set(AXIS_STAKES_BUCKET) == set(SEED_AXES), (
+        f"AXIS_STAKES_BUCKET keys {sorted(AXIS_STAKES_BUCKET)} " f"!= SEED_AXES {sorted(SEED_AXES)}"
+    )
+
+
+def test_axis_stakes_bucket_values_are_valid_tiers() -> None:
+    """Every ``AXIS_STAKES_BUCKET`` value must be one of ``high|med|low``."""
+    valid = {"high", "med", "low"}
+    bad = {axis: tier for axis, tier in AXIS_STAKES_BUCKET.items() if tier not in valid}
+    assert not bad, f"AXIS_STAKES_BUCKET has invalid tier values: {bad} (allowed: {sorted(valid)})"
 
 
 def test_skill_name_is_stable() -> None:

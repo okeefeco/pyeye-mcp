@@ -1,8 +1,13 @@
 # `/architecture-review` (audit scope) — Design Spec
 
-**Status:** Draft (rev 10 — gate-task gap closed in plan; contest + bounded-scope deferred;
-stale §6 cell fixed). Committed at `501c849` on `feat/492-architecture-review-audit`. The spec
-and the implementation plan (`docs/superpowers/plans/2026-06-28-architecture-review-audit.md`)
+**Status:** Draft (rev 12 — §11 ranking is **bucketed-lexicographic** driven by an **explicit
+`AXIS_STAKES_BUCKET` map** (the source of truth for tier), blast within bucket, the stakes prior
+demoted to a within-bucket tiebreaker only. Rev 11 made it bucketed-lexicographic but derived the
+buckets by *thresholding the provisional priors*; rev 12 replaces that with the explicit map
+because thresholding a §15-uncalibrated float lets a routine prior nudge silently re-tier an axis
+and break dominance. §11/§15 amended in lockstep with `ranking.py`/`taxonomy.py` per the #492
+review.) Lands with the `ranking.py`/`taxonomy.py` rewrite on `feat/492-architecture-review-audit`.
+The spec and the implementation plan (`docs/superpowers/plans/2026-06-28-architecture-review-audit.md`)
 are a **synchronized pair** — any scope-changing edit lands in both in the same pass.
 **Date:** 2026-06-28
 **Issue:** #492
@@ -79,7 +84,8 @@ auditor would surface duplication by reading code over pyeye facts.)
      every run and defeats the scarce-attention thesis.
 - **Data-engine / active-learning flywheel** (Karpathy's Autopilot data engine): automate the
   confident cases, **escalate only the uncertain ones**, accumulate labels (positive *and*
-  negative), improve each run. Human attention is prioritised by tier then blast radius (§11).
+  negative), improve each run. Human attention is prioritised by grade-tier, then stakes bucket,
+  then blast radius (§11).
 - **Symbolic, not weights — and it's a feature.** The loop accumulates explicit, versioned,
   inspectable facts, not model weights. Ground truth stays auditable (the honesty thesis).
 - **prevalence ≠ correctness.** In an AI-written brownfield the majority pattern may *be* the
@@ -165,10 +171,14 @@ Seed dimensions (each maps to a fact source; A-scope):
 different axes run-to-run); §10's reproduction gate handles the residual *within-axis*
 nomination variance. Fixed axes upstream, stability gate downstream.
 
-**Axis-stakes prior (config, not a claim).** Each seed axis also carries a default *stakes
-weight* used **only** for ranking (§11) — labeled, per-project-overridable config, **not** an
-intrinsic property of the axis nor a claim that it matters more (ranking ≠ correctness, §11).
-The default vector is provisional — calibrate against real review data (§15).
+**Axis-stakes bucket + prior (config, not a claim).** Each seed axis carries an explicit
+*stakes bucket* (`AXIS_STAKES_BUCKET`, `high`/`med`/`low`) — the source of truth for ranking
+tier (§11) — and a *stakes prior* (`AXIS_STAKES_PRIOR`) demoted to a within-bucket tiebreaker
+only (#492). Both are used **only** for ranking (§11) — labeled, per-project-overridable config,
+**not** an intrinsic property of the axis nor a claim that it matters more (ranking ≠
+correctness, §11). The bucket map is **not** thresholded from the prior (that would let an
+uncalibrated float re-tier an axis — §11). Both defaults are provisional — calibrate against
+real review data (§15).
 
 ## 7. Data flow & the human loop
 
@@ -185,7 +195,8 @@ The default vector is provisional — calibrate against real review data (§15).
    ambiguous cases.
 4. Auditor returns structured graded findings; orchestrator merges into cross-run state and
    regenerates the md report.
-5. **Human-in-the-loop**, queue ranked per §11 (unconfirmed first, then blast radius):
+5. **Human-in-the-loop**, queue ranked per §11 (unconfirmed first, then stakes bucket, then
+   blast radius within bucket):
    - *Mechanical fact* → context, no action.
    - *Deterministic-single* → "X is universal (N/N), evidence shown — recommend codifying.
      Confirm?" → on confirm, codify.
@@ -303,45 +314,88 @@ never have been judgment-layer.
   the error favours human review; the gate is a coarse filter, not a crisp classifier, and a
   continuous score (§15) would need a larger N — consistent with deferring it on cost.
 
-## 11. Ranking — escalate the unconfirmed, order by (axis-stakes prior × blast-radius)
+## 11. Ranking — escalate the unconfirmed, then bucketed-lexicographic (stakes bucket, then blast)
 
 The engine of the scarce-attention thesis. Per §10, instability is a reliability **gate**, not
 a continuous score, so the ranking is **two-level**:
 
-1. **Tier flag (binary):** unconfirmed/ambiguous findings sort **above** confident findings
-   (cheap one-click confirms) — "escalate the uncertain."
-2. **Within *each* tier, order by `axis-stakes prior × blast-radius magnitude`** (descending).
+1. **Grade-tier (top-level split):** unconfirmed/ambiguous findings sort **above** confident
+   findings (cheap one-click confirms) — "escalate the uncertain." `no_signal` sorts last. This
+   grade-tier split is the TOP-LEVEL ordering and is unchanged.
+2. **Within *each* tier, order bucketed-lexicographically:** first by **stakes bucket**
+   (`high → med → low`, read from the explicit `AXIS_STAKES_BUCKET` map), then by **blast-radius
+   magnitude (descending) *within* the bucket**, then by the **stakes prior (descending) as a
+   within-bucket tiebreaker only**. The stakes bucket is the primary key, blast the secondary
+   key, the prior the tertiary key.
 
-**Why not blast-radius alone (spike bet-3).** Blast-radius is *magnitude*, not stakes: the
-spike empirically ranked a trivial naming finding (low-stakes, on a hub) **above** a
-validation-security finding (high-stakes, on a leaf). The axis carries the stakes; blast-radius
-only the reach.
+**Why bucketed-lexicographic and not a product (spike bet-3).** Bet-3 is a **dominance**
+requirement, not a weighting preference: *the axis carries the stakes; blast only the reach* —
+so a high-stakes finding must outrank a low-stakes finding **regardless of blast**. A
+**product** (`axis-stakes prior × blast-radius`) makes stakes and blast co-equal multiplicative
+factors and **cannot guarantee dominance**: a large enough blast on a low-stakes item always
+overtakes a high-stakes low-blast item. The degenerate case is decisive — when **blast = 0 the
+product is 0 for ANY prior**, so a high-stakes finding on a leaf (the exact bet-3 scenario)
+collapses to the bottom and **prior recalibration is structurally inert** (multiplying a
+calibrated prior by 0 still yields 0). A discrete **stakes bucket as the primary sort key,
+blast only ordering *within* the bucket**, delivers dominance by construction: every
+high-bucket finding precedes every med- then low-bucket finding irrespective of blast.
 
-- **Axis-stakes prior** — a per-axis weight (e.g. error-handling/validation > … > naming) that
-  re-sorts the queue. It is **NOT** a fact, an external anchor, or a per-finding judgment, so by
-  §9 it could never justify a *recommendation*. It is admissible **only because ranking is not
+**"By construction" means the buckets are an EXPLICIT construct — not thresholded priors
+(#492).** Dominance is only guaranteed if the bucket assignment cannot itself be perturbed by a
+provisional knob. Deriving the buckets by **thresholding `AXIS_STAKES_PRIOR`** (e.g. `prior ≥
+0.8 → high`) was therefore **rejected**: it makes the dominance guarantee depend on the third
+decimal of a value §15 explicitly labels uncalibrated, so a routine prior nudge (`0.9 → 0.79`)
+would silently re-tier a high-stakes axis to `med` and break dominance **with nothing failing
+loudly**. The source of truth for tier is instead an **explicit `AXIS_STAKES_BUCKET` map**
+(`taxonomy.py`), one entry per seed axis. Re-tiering an axis is a **deliberate, reviewable edit
+to that map** — never a side effect of calibration. There are **no threshold constants**.
+
+**The tradeoff (this inverts the earlier product framing).** Lexicographic ordering **fully
+trusts the bucket assignment** — blast can no longer rescue a mis-bucketed finding, the way a
+big blast could lift a finding under the product. So the **explicit per-axis bucket map becomes
+load-bearing**: a wrongly-bucketed axis is wrongly ordered with no in-band corrective.
+Consequently the §15 calibration of the **bucket map** is a **hard dependency of trusting queue
+position** — NOT optional polish — whereas calibrating the **prior** now only affects
+within-bucket tiebreaking and can **never** re-tier an axis. The bet-3 spike proved the
+*mechanism* (bucketing removes the leaf-inversion) on one fixture whose stakes mapping was
+author-set — partly circular — so the default bucket map is a first guess to **calibrate against
+real human-judged stakes over the first several runs** (§15; the §17 "rough bands, first run
+calibrates" discipline).
+
+- **Stakes bucket** — a discrete tier (`high`/`med`/`low`) read from the **explicit
+  `AXIS_STAKES_BUCKET` map** (the source of truth for tier), **not** derived by thresholding the
+  prior. The default map is `high = {error_handling, validation_placement}`, `med = {layering,
+  dependency_acquisition, module_boundaries, cross_cutting}`, `low = {naming_api_shape}`. The
+  bucket is **NOT** a fact, an external anchor, or a per-finding judgment, so by §9 it could
+  never justify a *recommendation*. It is admissible **only because ranking is not
   correctness**: attention-order is reversible — no norm is decided by queue position — unlike an
   asserted answer. To stay honest it is held to three constraints:
-  1. **Shown and overridable, never a silent constant.** The human sees "ranked by axis-stakes
-     prior (validation/error-handling > … > naming) × blast-radius — reorder?" (the §5
-     evidence-transparency standard), and the prior is **per-project overridable**, carried in
-     the same cross-run state (§6) as other config. (A library whose public API *names are* the
-     architecture is then a one-line override, not a fork.)
+  1. **Shown and overridable, never a silent constant.** The human sees "ranked by stakes bucket
+     (validation/error-handling > … > naming), then blast-radius within bucket — reorder?" (the
+     §5 evidence-transparency standard), and the **bucket map** is **per-project overridable**,
+     carried in the same cross-run state (§6) as other config. (A library whose public API
+     *names are* the architecture lifts `naming_api_shape` into a higher bucket — a one-line
+     edit to the map, not a fork.)
   2. **Ordering-only — it never gates, suppresses, or pushes a finding below a fold.** It
      re-sorts *within* a tier; a low-stakes axis can never remove a finding from view.
      (Suppression would let a tunable prior silence findings — worse than mis-ordering, and the
      load-bearing role §6.5 explicitly refused.)
-  3. **The default weight vector is provisional, not validated.** The spike proved the
-     *mechanism* (axis-weight removes the leaf-inversion) on one fixture whose stakes mapping was
-     author-set — partly circular. The defaults are a first guess to **calibrate against real
-     human-judged stakes over the first several runs** (the §17 "rough bands, first run
-     calibrates" discipline; §15).
+  3. **The default bucket map is provisional, not validated** — and now load-bearing (see the
+     tradeoff above). It is a first guess to **calibrate against real human-judged stakes over
+     the first several runs** (§15). Calibrating it = editing the map; a §15 *prior* nudge can
+     never re-tier.
 - **Blast-radius magnitude** (deterministic, from pyeye): `imported_by` + `subclasses` +
   package centrality; aggregation over a finding's handle-set defaults to **max** (alternatives
   open, §15 — the spike showed max can inflate a leaf finding that merely *references* a hub
-  symbol). Used for *magnitude* only — §9 bars import-graph as *correctness* grounds (magnitude
-  ≠ correctness). **Caveat:** caller counts are the reverse-reference gap (#333) → the **LSP
-  handoff (#489)** or approximate by `imported_by` + `subclasses`.
+  symbol). It is the **secondary** key — it orders only *within* a stakes bucket and can no
+  longer cross bucket boundaries. Used for *magnitude* only — §9 bars import-graph as
+  *correctness* grounds (**blast magnitude ≠ correctness**). **Caveat:** caller counts are the
+  reverse-reference gap (#333) → the **LSP handoff (#489)** or approximate by `imported_by` +
+  `subclasses`.
+- **Stakes prior** (`AXIS_STAKES_PRIOR`) — demoted (#492) to the **within-bucket tiebreaker
+  only**: the tertiary key, breaking blast ties among findings that already share a stakes
+  bucket. It **never** determines tier and **cannot** cross a bucket boundary, so a §15 prior
+  recalibration is structurally incapable of violating dominance. Still provisional (§15).
 
 ## 12. Error handling & degradation
 
@@ -452,11 +506,17 @@ only the reach.
     stored dismissal*; distinct from the equivalence tolerance above.
   - **Blast-radius aggregation** over a finding's handle-set (max / sum / hub-centrality —
     §11 default is max).
-  - **Axis-stakes default weight vector** — the spike (bet-3) proved blast-radius alone
-    under-discriminates and the axis-prior mechanism (§11) fixes it, but the default *values*
-    are provisional: calibrate against real human-judged stakes over the first several runs, and
-    **watch for codebases where the prior inverts** (e.g. API-name-driven libraries where naming
-    is high-stakes — handled by the §11 per-project override).
+  - **Axis-stakes bucket map + default prior vector** — the spike (bet-3) proved blast-radius
+    alone under-discriminates and the §11 bucketed-lexicographic mechanism fixes it, but the
+    explicit `AXIS_STAKES_BUCKET` assignment and the default prior *values* (now a within-bucket
+    tiebreaker only) are provisional. Under bucketed-lexicographic the **bucket map** is
+    **load-bearing, not optional polish** (§11 tradeoff: blast can no longer rescue a
+    mis-bucketed axis): calibrate the map against real human-judged stakes over the first several
+    runs, and **watch for codebases where the stakes invert** (e.g. API-name-driven libraries
+    where naming is high-stakes — a one-line §11 per-project edit lifting `naming_api_shape` into
+    a higher bucket). Note (#492): the buckets are an **explicit map, NOT thresholded priors** —
+    so a prior recalibration can never silently re-tier an axis; re-tiering is always an explicit
+    edit to the map.
   - Whether to add a continuous within-ambiguous uncertainty score (§11 deferred upgrade).
   - Growth/curation of the §6.5 seed taxonomy (which axes ship in A; how new axes are added).
   - **Axis overlap** — seed axes (layering / boundaries / validation-placement) overlap, so one

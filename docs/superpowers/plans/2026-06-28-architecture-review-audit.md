@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the convention-divergence auditor (increment A) as a pyeye-plugin skill backed by a deterministic Python substrate, validated by spec `docs/superpowers/specs/2026-06-28-architecture-review-audit-design.md` (rev 10). The spec and this plan are a **synchronized pair** — any scope-changing edit lands in both in the same pass.
+**Goal:** Ship the convention-divergence auditor (increment A) as a pyeye-plugin skill backed by a deterministic Python substrate, validated by spec `docs/superpowers/specs/2026-06-28-architecture-review-audit-design.md` (rev 12). The spec and this plan are a **synchronized pair** — any scope-changing edit lands in both in the same pass.
 
 **Architecture:** A pyeye-plugin **skill** (`skills/architecture-review/`) does orchestration + judgment via a dispatched **fresh auditor subagent**; the parts that must NOT be LLM-eyeballed — the seed taxonomy + axis-stakes priors, the ranking, and the cross-run state — live in a deterministic Python package (`src/pyeye/architecture_review/`) and are unit-tested. The skill is conformance-bound to the taxonomy the way `python-explore` is bound to the edge registry.
 
@@ -13,8 +13,8 @@
 ## File structure
 
 - `src/pyeye/architecture_review/__init__.py` — package marker.
-- `src/pyeye/architecture_review/taxonomy.py` — the 7 seed axes + provisional axis-stakes prior vector (the single source the conformance test binds to).
-- `src/pyeye/architecture_review/ranking.py` — deterministic `rank(findings, blast_fn, priors)` → ordered findings; ordering-only.
+- `src/pyeye/architecture_review/taxonomy.py` — the 7 seed axes + the EXPLICIT `AXIS_STAKES_BUCKET` tier map (source of truth for ranking tier) + the provisional axis-stakes prior vector (now a within-bucket tiebreaker only) (the single source the conformance test binds to).
+- `src/pyeye/architecture_review/ranking.py` — deterministic `rank(findings, blast_fn, buckets, priors)` → ordered findings; ordering-only; bucketed-lexicographic (explicit stakes bucket, then blast, then prior tiebreak).
 - `src/pyeye/architecture_review/state.py` — cross-run cache schema + load/merge/save; coverage-freshness; confirmed-non-issue structural keys.
 - `skills/architecture-review/SKILL.md` — methodology, output contract, honesty invariants, orchestration (dispatch → merge → rank → human loop → codify), conformance anchor.
 - `skills/architecture-review/auditor.md` — the auditor subagent prompt (taxonomy sweep, grading, honesty rules, finding schema).
@@ -35,48 +35,56 @@
 
 ## Phase 0 — Taxonomy + priors (the conformance anchor)
 
-### Task 0.1 — Seed taxonomy + axis-stakes prior as data
+### Task 0.1 — Seed taxonomy + stakes bucket + axis-stakes prior as data
 
-- **Goal:** One authoritative, importable definition of the 7 axes and their *provisional* stakes priors, so the skill, ranking, and conformance test all bind to the same source (prevents the #374 drift).
+- **Goal:** One authoritative, importable definition of the 7 axes, their EXPLICIT stakes-bucket tier, and their *provisional* stakes priors, so the skill, ranking, and conformance test all bind to the same source (prevents the #374 drift).
 - **Files:** `src/pyeye/architecture_review/__init__.py`, `src/pyeye/architecture_review/taxonomy.py`.
 - **Interfaces (produced):**
   - `SEED_AXES: tuple[str, ...]` — exactly the 7 axis keys above, in display order.
-  - `AXIS_STAKES_PRIOR: dict[str, float]` — one entry per axis; **provisional** values (calibrate, §15). Constraint: every key in `SEED_AXES` is present; values in `(0, 1]`.
+  - `AXIS_STAKES_BUCKET: dict[str, str]` — EXPLICIT tier map, one entry per `SEED_AXES` key, value in `{"high","med","low"}`; the SOURCE OF TRUTH for ranking tier (#492). NOT derived by thresholding the prior. Default: high = `{error_handling, validation_placement}`, med = `{layering, dependency_acquisition, module_boundaries, cross_cutting}`, low = `{naming_api_shape}`.
+  - `AXIS_STAKES_PRIOR: dict[str, float]` — one entry per axis; **provisional** values (calibrate, §15), demoted to a **within-bucket tiebreaker only** (#492). Constraint: every key in `SEED_AXES` is present; values in `(0, 1]`.
   - `AXIS_DESCRIPTIONS: dict[str, str]` — one-line human description per axis (for the skill + human loop).
-- **Tests:** covered by Task 4.1 conformance (keys match `SEED_AXES`, priors complete).
-- **Constraints:** Mark `AXIS_STAKES_PRIOR` in a module docstring as a **provisional default to be calibrated against real review data** (§11/§15). Do NOT include `duplication`.
-- **Acceptance:** module imports; `set(AXIS_STAKES_PRIOR) == set(SEED_AXES)`; no `duplication` key anywhere.
-- **Risks:** Over-tuning the priors now — they are explicitly first-guess; resist precision.
+- **Tests:** covered by Task 4.1 conformance (keys match `SEED_AXES` for both `AXIS_STAKES_BUCKET` and `AXIS_STAKES_PRIOR`; bucket values valid).
+- **Constraints:** Mark `AXIS_STAKES_BUCKET` in a docstring as the EXPLICIT, reviewable source of truth for tier (editing it is a deliberate tier change, NOT calibration; provisional but a design decision). Mark `AXIS_STAKES_PRIOR` as a **provisional within-bucket tiebreaker** (§11/§15). There are NO threshold constants. Do NOT include `duplication`.
+- **Acceptance:** module imports; `set(AXIS_STAKES_BUCKET) == set(AXIS_STAKES_PRIOR) == set(SEED_AXES)`; every bucket value in `{high,med,low}`; no `duplication` key anywhere.
+- **Risks:** Over-tuning the priors now — they are explicitly first-guess; resist precision. Mis-bucketing an axis in `AXIS_STAKES_BUCKET` is the load-bearing error (§11 tradeoff).
 
 ---
 
 ## Phase 1 — Deterministic substrate (ranking + state)
 
-### Task 1.1 — Ranking: `axis-stakes prior × blast-radius`, ordering-only
+### Task 1.1 — Ranking: bucketed-lexicographic (stakes bucket, then blast), ordering-only
 
-- **Goal:** Make ranking a deterministic, testable function (bet-3 proved agent-eyeballed/blast-alone ranking inverts stakes), enforcing the §11 constraints in code.
+- **Goal:** Make ranking a deterministic, testable function (bet-3 proved agent-eyeballed/blast-alone ranking inverts stakes; the #492 dogfood proved a `prior × blast` **product** cannot satisfy bet-3's *dominance* criterion — blast=0 ⇒ product=0 makes the prior inert), enforcing the §11 constraints in code.
 - **Files:** `src/pyeye/architecture_review/ranking.py`; test in Task 1.2.
-- **Interfaces (consumed):** `AXIS_STAKES_PRIOR` (Task 0.1); a caller-supplied `blast_fn: Callable[[str], float]` mapping a handle → magnitude (so ranking does not itself call pyeye — keeps it pure/testable).
+- **Interfaces (consumed):** `AXIS_STAKES_BUCKET` (the EXPLICIT tier map — source of truth for tier) and `AXIS_STAKES_PRIOR` (now a within-bucket tiebreaker only), both from Task 0.1; a caller-supplied `blast_fn: Callable[[str], float]` mapping a handle → magnitude (so ranking does not itself call pyeye — keeps it pure/testable).
 - **Interfaces (produced):**
-  - `finding_blast(finding: dict, blast_fn) -> float` — **max** over `finding["handles"]` of `blast_fn(handle)` (the §11 default aggregation; document max can over-rank a finding that merely references a hub).
-  - `rank(findings: list[dict], blast_fn, priors: dict[str, float] = AXIS_STAKES_PRIOR) -> list[dict]` — returns a **permutation** of the input. Tier on **post-gate grade**: the *unconfirmed* tier (`grade == "ambiguous"`) sorts **above** the *confident* tier (`grade in {"deterministic_single", "mechanical_fact"}`); `no_signal` sorts last. Within each tier, order by `priors[axis] * finding_blast` descending.
+  - `finding_blast(finding: dict, blast_fn) -> float` — **max** over `finding["handles"]` of `blast_fn(handle)`, empty handles → `0.0` (the §11 default aggregation; document max can over-rank a finding that merely references a hub). UNCHANGED.
+  - `stakes_bucket(axis: str, buckets: dict[str, str] = AXIS_STAKES_BUCKET) -> int` — read the ordinal (`high=2`, `med=1`, `low=0`) from the EXPLICIT `AXIS_STAKES_BUCKET` map. NO thresholding of the prior — there are NO threshold constants (#492). Unknown axis (absent from the map) → `low` (0), never raises (honest degradation).
+  - `rank(findings: list[dict], blast_fn, buckets: dict[str, str] = AXIS_STAKES_BUCKET, priors: dict[str, float] = AXIS_STAKES_PRIOR) -> list[dict]` — returns a **permutation** of the input. Top-level tier on **post-gate grade**: the *unconfirmed* tier (`grade == "ambiguous"`) sorts **above** the *confident* tier (`grade in {"deterministic_single", "mechanical_fact"}`); `no_signal` sorts last. Within each tier, order **bucketed-lexicographically**: by `(stakes_bucket(axis, buckets), finding_blast, prior_tiebreak)` DESCENDING — stakes bucket is the PRIMARY key (dominance by construction), blast the SECONDARY key (orders only WITHIN a bucket), the prior the TERTIARY tiebreaker (breaks blast ties INSIDE a bucket; `prior_tiebreak = priors.get(axis, min-prior-floor)`; can never cross a bucket boundary). Stable sort (ties preserve input order). NO `prior * blast` product and NO threshold constant anywhere. The per-project override for tier is the `buckets` map; `priors` overrides only affect within-bucket tiebreaking.
 - **Tests (Task 1.2 pins these):** see below.
 - **Constraints (CRITICAL):**
   - **Ordering-only:** `rank` MUST return every input finding exactly once (a permutation) — it never drops, filters, or truncates. (A low-stakes axis can never remove a finding from view; §11 constraint 2.)
-  - **Tier split is by post-gate grade, not a boolean.** The §10 gate (Task 2.2) has already downgraded unstable `deterministic_single` → `ambiguous`, so grade alone encodes confidence. No separate `confident` flag exists (Shared Decisions).
-  - Unknown axis → treat prior as a documented floor (e.g. min prior), never raise (honest degradation).
+  - **Dominance by construction:** every high-bucket finding precedes every med- then low-bucket finding in the same tier REGARDLESS of blast (§11 bet-3 dominance; the product form failed this).
+  - **Tier split is by post-gate grade, not a boolean.** The §10 gate (Task 2.2) has already downgraded unstable `deterministic_single` → `ambiguous`, so grade alone encodes confidence. No separate `confident` flag exists (Shared Decisions). Grade-tier remains the TOP-LEVEL split; bucketed-lexicographic is the WITHIN-tier ordering.
+  - Unknown axis → absent from the bucket map → `low` bucket, never raise (honest degradation).
+  - **Dominance is independent of prior VALUES (#492):** because tier comes from the EXPLICIT `AXIS_STAKES_BUCKET` map (not thresholded priors), mutating a prior value can NEVER re-tier an axis — it can only reorder findings inside a bucket. Re-tiering requires an explicit edit to the bucket map.
 - **Acceptance:** `sorted(rank(xs)) == sorted(xs)` by identity for any input; documented behavior on ties is stable.
-- **Risks:** Tiering on the auditor's *pre-gate* grade — `rank` runs on post-gate grades (after Task 2.2), or unstable findings rank as confident.
+- **Risks:** Tiering on the auditor's *pre-gate* grade — `rank` runs on post-gate grades (after Task 2.2), or unstable findings rank as confident. Lexicographic fully trusts the bucket — a mis-bucketed axis is mis-ordered with no in-band corrective, so §15 **bucket-map** calibration is load-bearing (§11 tradeoff); the prior is now only a within-bucket tiebreaker and cannot re-tier.
 
-### Task 1.2 — Ranking tests (incl. the proxy-inversion fix)
+### Task 1.2 — Ranking tests (incl. the proxy-inversion fix, now by construction)
 
-- **Goal:** Lock the behavior bet-3 exposed: axis-prior must rank a high-stakes-leaf finding above a low-stakes-hub finding, and ranking must never suppress.
+- **Goal:** Lock the behavior bet-3 exposed: a high-stakes-leaf finding must rank above a low-stakes-hub finding REGARDLESS of blast (dominance), and ranking must never suppress.
 - **Files:** `tests/test_architecture_review_ranking.py`.
 - **Tests (pinned assertions):**
-  - *Proxy-inversion fixed:* given a low-stakes finding (`axis="naming_api_shape"`) with high blast and a high-stakes finding (`axis="validation_placement"`) with low blast, `rank` orders the validation finding **before** the naming one. (This is the bet-3 scenario; blast-alone would invert it.)
+  - *Dominance by construction (blast=0 leaf case):* a high-stakes `validation_placement` finding with **blast 0** (leaf) vs a low-stakes `naming_api_shape` finding with **blast 9** (hub), same grade-tier — `rank` orders the validation finding **first** — the exact case the `prior × blast` product failed (product=0 buried it). PASSES by construction.
+  - *Dominance independent of prior VALUES (#492, the key new guarantee):* pass `priors` where `validation_placement` is set BELOW `naming_api_shape`; because the EXPLICIT bucket map still has validation=high, naming=low, validation STILL outranks naming. Proves the float can't break dominance (the brittleness the threshold approach had).
+  - *Bucket dominance regardless of blast:* a `med`-bucket finding (e.g. `dependency_acquisition`) with very high blast ranks BELOW a `high`-bucket finding (e.g. `error_handling`) with low/zero blast, same tier.
+  - *Within-bucket blast ordering:* two same-bucket findings order by blast descending (and prior breaks blast ties).
   - *Ordering-only:* for any findings list, `rank(xs)` is a permutation (same multiset, no drops) — assert length and membership preserved.
-  - *Tier precedence:* an `ambiguous` finding sorts before a `deterministic_single` finding even when the latter has higher `prior × blast`.
-  - *Override:* passing a custom `priors` that raises `naming_api_shape` flips the first assertion (proves per-project overridability is real).
+  - *Tier precedence:* an `ambiguous` finding sorts before a `deterministic_single` finding even when the latter has a higher stakes bucket / blast (grade-tier is the top-level split).
+  - *Override via the bucket map:* passing a custom `buckets` that puts `naming_api_shape`→`high` re-tiers it (now ranks among high-bucket findings) — proves bucket overridability.
+  - *Unknown-axis floor:* an axis not in the bucket map → `low` bucket, no raise.
 - **Acceptance:** all pass; `uv run pytest tests/test_architecture_review_ranking.py`.
 
 ### Task 1.3 — Cross-run state (cache schema, freshness, non-issue keys)
@@ -197,6 +205,6 @@
 
 ## Notes for the implementer
 
-- **Provisional values stay provisional:** `AXIS_STAKES_PRIOR` defaults and any thresholds are first guesses to calibrate against real runs (§11/§15) — do not present them as validated.
+- **Provisional values stay provisional:** the `AXIS_STAKES_BUCKET` tier assignment and the `AXIS_STAKES_PRIOR` defaults are first guesses to calibrate against real runs (§11/§15) — do not present them as validated. There are no ranking threshold constants (buckets are an explicit map, #492).
 - **pyeye build-notes (spike):** read `async`-ness via `inspect` (not `outline`); pass dotted handles (file-path handles to `outline` return junk); the `imports` edge can silently drop a real import (#494) — the Task 3.1 guard exists because of this; do not treat the edge as exhaustive for layering blast.
 - **Tests required** per project rules (≥85% coverage; run the full suite before pushing).

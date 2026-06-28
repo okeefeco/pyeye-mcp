@@ -148,14 +148,20 @@ cross-derivation-corroborated.**
 ### 5. Rank (ordering only)
 
 Rank the **post-gate** findings with
-`ranking.rank(findings, blast_fn, priors=AXIS_STAKES_PRIOR)`: tiered by post-gate
-grade, and within a tier by `axis-stakes prior × blast-radius`. The prior is
-carried in cross-run state and is **per-project overridable**.
+`ranking.rank(findings, blast_fn, buckets=AXIS_STAKES_BUCKET, priors=AXIS_STAKES_PRIOR)`:
+tiered by post-gate grade, and **within a tier bucketed-lexicographically** — by
+explicit **stakes bucket** (`high → med → low`, from `AXIS_STAKES_BUCKET`) first,
+then **blast-radius** descending within the bucket, then the **stakes prior** as a
+within-bucket tiebreaker only. The bucket map is the source of truth for tier (a
+high-stakes finding outranks a low-stakes one regardless of blast — dominance by
+construction); the prior can no longer re-tier an axis (#492). Both are carried in
+cross-run state and are **per-project overridable** (re-tier by editing the bucket
+map).
 
 **Show the human the ranking basis verbatim, and offer to reorder:**
 
-> Ranked by axis-stakes prior (validation/error-handling > … > naming) ×
-> blast-radius — reorder?
+> Ranked by stakes bucket (validation/error-handling > … > naming), then
+> blast-radius within the bucket — reorder?
 
 Ranking is **ordering only**: it never drops, suppresses, or recommends. It is a
 queue order, not a verdict.
@@ -233,9 +239,9 @@ These bind the whole flow (spec §9). They are why most forks correctly produce
   grounds** (deciding on them just re-entrenches the mess). For genuine
   architecture forks the ladder usually yields no anchor → **an absent
   recommendation is the correct output, not a defect.**
-- **ranking ≠ correctness.** The axis prior orders the queue; it is never a
-  recommendation, is always shown and overridable (never a silent constant), and
-  never suppresses a finding.
+- **ranking ≠ correctness.** The stakes bucket (then blast, then the prior
+  tiebreaker) orders the queue; it is never a recommendation, is always shown and
+  overridable (never a silent constant), and never suppresses a finding.
 - **the gate checks reproducibility, not truth.** A reproducibly-wrong Tier-1 fact
   passes the reproduction gate — which is exactly why the cross-derivation guard
   (#494) re-derives the fact independently.

@@ -1,18 +1,30 @@
 """Tests for pyeye.architecture_review.ranking — deterministic ranking substrate.
 
-Covers:
-- Proxy-inversion fix (prior × blast beats blast-alone)
-- Ordering-only invariant (rank is a permutation, never drops findings)
-- Tier precedence (ambiguous before deterministic_single/mechanical_fact before no_signal)
-- Per-project override (custom priors flip ordering)
-- Unknown-axis floor behavior (unlisted axes use min-prior floor, never raise)
-- Stable tie-breaking (equal scores preserve input order)
+Covers (bucketed-lexicographic, explicit-bucket-map form — #492):
+- Dominance by construction: a high-stakes leaf (blast 0) outranks a low-stakes
+  hub (high blast), same grade-tier (the dogfood scenario the product failed).
+- Dominance is independent of the prior VALUES: mutating priors within a bucket
+  cannot re-tier — the explicit AXIS_STAKES_BUCKET map owns tier (the key new
+  guarantee the threshold approach could not give).
+- Bucket dominance regardless of blast (med-bucket high-blast below high-bucket
+  low-blast).
+- Within-bucket blast ordering (blast descending inside a bucket).
+- Override via the bucket map (custom buckets re-tier an axis).
+- Ordering-only invariant (rank is a permutation, never drops findings).
+- Tier precedence (ambiguous before deterministic_single/mechanical_fact before
+  no_signal).
+- Unknown-axis floor behavior (unlisted axes → low bucket, never raise).
+- Stable tie-breaking (equal keys preserve input order).
 """
 
 from collections.abc import Callable
 
-from pyeye.architecture_review.ranking import finding_blast, rank
-from pyeye.architecture_review.taxonomy import AXIS_STAKES_PRIOR
+from pyeye.architecture_review.ranking import finding_blast, rank, stakes_bucket
+from pyeye.architecture_review.taxonomy import (
+    AXIS_STAKES_BUCKET,
+    AXIS_STAKES_PRIOR,
+    SEED_AXES,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,6 +86,33 @@ class TestFindingBlast:
 
 
 # ---------------------------------------------------------------------------
+# stakes_bucket — reads the explicit map, never thresholds a prior
+# ---------------------------------------------------------------------------
+
+
+class TestStakesBucket:
+    def test_high_axis_is_ordinal_2(self) -> None:
+        assert stakes_bucket("validation_placement") == 2
+        assert stakes_bucket("error_handling") == 2
+
+    def test_med_axis_is_ordinal_1(self) -> None:
+        assert stakes_bucket("layering") == 1
+        assert stakes_bucket("dependency_acquisition") == 1
+
+    def test_low_axis_is_ordinal_0(self) -> None:
+        assert stakes_bucket("naming_api_shape") == 0
+
+    def test_unknown_axis_floors_to_low(self) -> None:
+        """An axis absent from the bucket map degrades to low (0), never raises."""
+        assert stakes_bucket("totally_unknown_axis") == 0
+
+    def test_custom_buckets_retier(self) -> None:
+        """A custom bucket map re-tiers — the source of truth for tier is the map."""
+        custom = {**AXIS_STAKES_BUCKET, "naming_api_shape": "high"}
+        assert stakes_bucket("naming_api_shape", custom) == 2
+
+
+# ---------------------------------------------------------------------------
 # Ordering-only invariant (permutation property)
 # ---------------------------------------------------------------------------
 
@@ -122,75 +161,136 @@ class TestOrderingOnly:
 
 
 # ---------------------------------------------------------------------------
-# Proxy-inversion fix: prior × blast beats blast-alone
+# Dominance by construction (the dogfood scenario the product failed)
 # ---------------------------------------------------------------------------
 
 
-class TestProxyInversion:
-    """Blast-alone ranking inverts stakes.  prior × blast ranking fixes it."""
+class TestDominanceByConstruction:
+    """A high-stakes finding must outrank a low-stakes one REGARDLESS of blast."""
 
-    def test_high_stakes_beats_high_blast(self) -> None:
-        """validation_placement (prior=0.9, blast=2.0) must rank above
-        naming_api_shape (prior=0.3, blast=4.0).
+    def test_high_stakes_leaf_beats_low_stakes_hub_blast_zero(self) -> None:
+        """validation_placement (high bucket) with blast 0 outranks
+        naming_api_shape (low bucket) with blast 9, same grade-tier.
 
-        Score math:
-          prior × blast for validation_placement = 0.9 * 2.0 = 1.8
-          prior × blast for naming_api_shape     = 0.3 * 4.0 = 1.2
-          → validation_placement wins.
-
-        Blast-alone would invert: 4.0 > 2.0 → naming_api_shape first (the bug).
-        Both findings are in the same tier (deterministic_single) so the test
-        isolates the prior × blast effect, not the tier split.
+        This is the exact case the ``prior × blast`` PRODUCT failed: with
+        blast 0 the product was 0 for ANY prior, burying the high-stakes leaf.
+        Under bucketed-lexicographic the high bucket dominates by construction.
         """
-        low_stakes = _finding(
-            "naming_api_shape",  # prior = 0.3
+        high_stakes_leaf = _finding(
+            "validation_placement",  # high bucket
             "deterministic_single",
-            handles=["big_hub"],  # blast = 4.0
+            handles=["leaf"],  # blast 0
         )
-        high_stakes = _finding(
-            "validation_placement",  # prior = 0.9
+        low_stakes_hub = _finding(
+            "naming_api_shape",  # low bucket
             "deterministic_single",
-            handles=["small_node"],  # blast = 2.0
+            handles=["hub"],  # blast 9
         )
-        blast_fn = _blast_map({"big_hub": 4.0, "small_node": 2.0})
+        blast_fn = _blast_map({"leaf": 0.0, "hub": 9.0})
 
-        # Confirm blast-alone would invert
-        assert blast_fn("big_hub") > blast_fn("small_node")
+        # Confirm blast-alone (and the old product) would invert.
+        assert finding_blast(high_stakes_leaf, blast_fn) == 0.0
+        assert finding_blast(low_stakes_hub, blast_fn) == 9.0
 
-        result = rank([low_stakes, high_stakes], blast_fn)
-        # prior × blast: 0.9*2.0=1.8 > 0.3*4.0=1.2 → validation_placement first
+        result = rank([low_stakes_hub, high_stakes_leaf], blast_fn)
         assert result[0]["axis"] == "validation_placement"
         assert result[1]["axis"] == "naming_api_shape"
 
-    def test_blast_alone_inversion_documented(self) -> None:
-        """Documents the bug that prior × blast fixes.
+    def test_dominance_independent_of_prior_values(self) -> None:
+        """The KEY new guarantee: mutating prior VALUES cannot re-tier.
 
-        Without the prior, naming_api_shape (blast=4.0) would beat
-        validation_placement (blast=2.0) — blast-alone inverts stakes.
+        Pass priors where validation_placement is set BELOW naming_api_shape.
+        Under the rejected ``prior × blast`` product (or a thresholded-prior
+        bucket) that float swing would flip the order.  Here the EXPLICIT
+        AXIS_STAKES_BUCKET map still tiers validation=high, naming=low, so
+        validation STILL outranks naming — the float is structurally incapable
+        of crossing a bucket boundary.
         """
-        blast_fn = _blast_map({"big_hub": 4.0, "small_node": 2.0})
-        assert blast_fn("big_hub") > blast_fn(
-            "small_node"
-        ), "blast-alone puts naming_api_shape first (the bug prior × blast fixes)"
+        high_stakes = _finding(
+            "validation_placement",  # high bucket
+            "deterministic_single",
+            handles=["leaf"],
+        )
+        low_stakes = _finding(
+            "naming_api_shape",  # low bucket
+            "deterministic_single",
+            handles=["hub"],
+        )
+        blast_fn = _blast_map({"leaf": 0.0, "hub": 9.0})
+
+        # Priors INVERTED relative to stakes: validation LOWER than naming.
+        inverted_priors = {
+            **AXIS_STAKES_PRIOR,
+            "validation_placement": 0.01,
+            "naming_api_shape": 0.99,
+        }
+        result = rank([low_stakes, high_stakes], blast_fn, priors=inverted_priors)
+        # Bucket map (not the prior) owns tier → validation still first.
+        assert result[0]["axis"] == "validation_placement"
+        assert result[1]["axis"] == "naming_api_shape"
+
+    def test_med_bucket_high_blast_below_high_bucket_low_blast(self) -> None:
+        """A med-bucket finding with very high blast ranks BELOW a high-bucket
+        finding with low/zero blast, same grade-tier."""
+        med_high_blast = _finding(
+            "dependency_acquisition",  # med bucket
+            "deterministic_single",
+            handles=["hub"],  # blast 1000
+        )
+        high_low_blast = _finding(
+            "error_handling",  # high bucket
+            "deterministic_single",
+            handles=["leaf"],  # blast 0
+        )
+        blast_fn = _blast_map({"hub": 1000.0, "leaf": 0.0})
+        result = rank([med_high_blast, high_low_blast], blast_fn)
+        assert result[0]["axis"] == "error_handling"
+        assert result[1]["axis"] == "dependency_acquisition"
 
 
 # ---------------------------------------------------------------------------
-# Tier precedence
+# Within-bucket ordering: blast descending, then prior tiebreak
+# ---------------------------------------------------------------------------
+
+
+class TestWithinBucketOrdering:
+    def test_within_bucket_blast_descending(self) -> None:
+        """Two same-bucket findings order by blast descending."""
+        high_blast = _finding("error_handling", "deterministic_single", handles=["a"])
+        low_blast = _finding("validation_placement", "deterministic_single", handles=["b"])
+        # both high bucket; blast a=10 > b=2
+        blast_fn = _blast_map({"a": 10.0, "b": 2.0})
+        result = rank([low_blast, high_blast], blast_fn)
+        assert result[0]["axis"] == "error_handling"
+        assert result[1]["axis"] == "validation_placement"
+
+    def test_prior_breaks_blast_ties_within_bucket(self) -> None:
+        """When same bucket AND same blast, the prior is the final tiebreaker.
+
+        error_handling (prior 0.9) and validation_placement (prior 0.9) are both
+        high; give validation a higher prior so it wins the tie.
+        """
+        eh = _finding("error_handling", "deterministic_single", handles=["h"], claim="eh")
+        vp = _finding("validation_placement", "deterministic_single", handles=["h"], claim="vp")
+        blast_fn = _blast_map({"h": 5.0})  # identical blast
+        priors = {**AXIS_STAKES_PRIOR, "validation_placement": 0.95, "error_handling": 0.90}
+        result = rank([eh, vp], blast_fn, priors=priors)
+        assert result[0]["claim"] == "vp"
+        assert result[1]["claim"] == "eh"
+
+
+# ---------------------------------------------------------------------------
+# Tier precedence (grade-tier is the TOP-LEVEL split)
 # ---------------------------------------------------------------------------
 
 
 class TestTierPrecedence:
-    def test_ambiguous_before_deterministic_single_regardless_of_score(self) -> None:
+    def test_ambiguous_before_deterministic_single_regardless_of_bucket_blast(self) -> None:
         """ambiguous tier always sorts above deterministic_single/mechanical_fact,
-        even when the confident finding has much higher prior × blast."""
-        # Give the confident finding a huge score advantage
+        even when the confident finding has a higher bucket AND blast."""
         confident = _finding("error_handling", "deterministic_single", handles=["hub"])
         uncertain = _finding("naming_api_shape", "ambiguous", handles=["leaf"])
-
-        # error_handling prior=0.9; hub blast=100.0 → score=90.0
-        # naming_api_shape prior=0.3; leaf blast=1.0 → score=0.3
         blast_fn = _blast_map({"hub": 100.0, "leaf": 1.0})
-
         result = rank([confident, uncertain], blast_fn)
         assert result[0]["grade"] == "ambiguous"
         assert result[1]["grade"] == "deterministic_single"
@@ -208,7 +308,6 @@ class TestTierPrecedence:
         ns = _finding("validation_placement", "no_signal", handles=["hub"])
         conf = _finding("naming_api_shape", "deterministic_single", handles=["leaf"])
         unc = _finding("layering", "ambiguous", handles=["node"])
-
         blast_fn = _blast_map({"hub": 1000.0, "leaf": 1.0, "node": 1.0})
         result = rank([ns, conf, unc], blast_fn)
         assert result[-1]["grade"] == "no_signal"
@@ -221,62 +320,42 @@ class TestTierPrecedence:
         assert len(result) == 1
         assert result[0]["grade"] == "no_signal"
 
-    def test_within_tier_score_order(self) -> None:
-        """Within the confident tier, higher prior × blast ranks first."""
-        high_score = _finding("error_handling", "deterministic_single", handles=["a"])
-        low_score = _finding("naming_api_shape", "deterministic_single", handles=["b"])
-        # error_handling prior=0.9, blast=10 → score=9.0
-        # naming_api_shape prior=0.3, blast=10 → score=3.0
-        blast_fn = _blast_map({"a": 10.0, "b": 10.0})
-        result = rank([low_score, high_score], blast_fn)
-        assert result[0]["axis"] == "error_handling"
-        assert result[1]["axis"] == "naming_api_shape"
-
 
 # ---------------------------------------------------------------------------
-# Per-project override (custom priors)
+# Per-project override via the bucket map (the new tier source of truth)
 # ---------------------------------------------------------------------------
 
 
-class TestCustomPriorsOverride:
-    def test_raising_naming_api_shape_flips_ordering(self) -> None:
-        """Custom priors that raise naming_api_shape above validation_placement
-        must flip the default ordering — proves per-project overridability."""
-        low_stakes = _finding(
-            "naming_api_shape",
-            "deterministic_single",
-            handles=["big_hub"],
-        )
-        high_stakes = _finding(
-            "validation_placement",
-            "deterministic_single",
-            handles=["small_node"],
-        )
-        blast_fn = _blast_map({"big_hub": 4.0, "small_node": 2.0})
+class TestCustomBucketsOverride:
+    def test_raising_naming_api_shape_retiers_it(self) -> None:
+        """A custom bucket map that lifts naming_api_shape → high re-tiers it,
+        so it now ranks among high-bucket findings — proves bucket overridability."""
+        naming = _finding("naming_api_shape", "deterministic_single", handles=["leaf"])
+        validation = _finding("validation_placement", "deterministic_single", handles=["hub"])
+        blast_fn = _blast_map({"leaf": 1.0, "hub": 1.0})
 
-        # Default: validation_placement wins (prior × blast: 1.8 > 1.2)
-        default_result = rank([low_stakes, high_stakes], blast_fn)
+        # Default: both differ by bucket — validation (high) above naming (low).
+        default_result = rank([naming, validation], blast_fn)
         assert default_result[0]["axis"] == "validation_placement"
+        assert default_result[1]["axis"] == "naming_api_shape"
 
-        # Custom priors: raise naming_api_shape so its score dominates
-        # naming_api_shape: 1.0 * 4.0 = 4.0 vs validation_placement: 0.1 * 2.0 = 0.2
-        custom_priors = {
-            **AXIS_STAKES_PRIOR,
-            "naming_api_shape": 1.0,
-            "validation_placement": 0.1,
-        }
-        custom_result = rank([low_stakes, high_stakes], blast_fn, priors=custom_priors)
+        # Custom buckets: naming → high (now same bucket as validation), and a
+        # higher blast on naming's leaf so it leads within the shared bucket.
+        custom_buckets = {**AXIS_STAKES_BUCKET, "naming_api_shape": "high"}
+        blast_fn2 = _blast_map({"leaf": 5.0, "hub": 1.0})
+        custom_result = rank([validation, naming], blast_fn2, buckets=custom_buckets)
         assert custom_result[0]["axis"] == "naming_api_shape"
+        assert custom_result[1]["axis"] == "validation_placement"
 
-    def test_custom_priors_still_permutation(self) -> None:
-        """Custom priors must not cause drops."""
+    def test_custom_buckets_still_permutation(self) -> None:
+        """Custom buckets must not cause drops."""
         findings = [
             _finding("layering", "ambiguous"),
             _finding("naming_api_shape", "deterministic_single"),
         ]
         blast_fn = _blast_map({})
-        custom: dict[str, float] = {"layering": 0.1, "naming_api_shape": 0.9}
-        result = rank(findings, blast_fn, priors=custom)
+        custom = {**AXIS_STAKES_BUCKET, "naming_api_shape": "high"}
+        result = rank(findings, blast_fn, buckets=custom)
         assert len(result) == 2
         assert {id(r) for r in result} == {id(f) for f in findings}
 
@@ -288,12 +367,28 @@ class TestCustomPriorsOverride:
 
 class TestUnknownAxisFloor:
     def test_unknown_axis_does_not_raise(self) -> None:
-        """An axis not in priors must not raise KeyError."""
+        """An axis not in the bucket map must not raise."""
         finding = _finding("totally_unknown_axis", "deterministic_single", handles=["h"])
         blast_fn = _blast_map({"h": 5.0})
         result = rank([finding], blast_fn)
         assert len(result) == 1
         assert result[0] is finding
+
+    def test_every_seed_axis_is_explicitly_bucketed(self) -> None:
+        """Every audited seed axis must be DELIBERATELY mapped in AXIS_STAKES_BUCKET.
+
+        Placed right next to the unknown-axis floor test on purpose: that test
+        proves graceful degradation (an unlisted axis sinks to ``low`` rather than
+        raising) — which is exactly what would let a REAL seed axis that is missing
+        from the bucket map silently drop to the bottom of its grade-tier with no
+        error.  This coverage assertion converts that silent sink into a LOUD
+        failure: an omitted seed axis fails here instead of being quietly buried.
+        (Belt-and-suspenders with the conformance suite's equivalent guard.)
+        """
+        assert set(SEED_AXES) == set(AXIS_STAKES_BUCKET), (
+            f"every seed axis must be explicitly bucketed: "
+            f"SEED_AXES {sorted(SEED_AXES)} != AXIS_STAKES_BUCKET {sorted(AXIS_STAKES_BUCKET)}"
+        )
 
     def test_unknown_axis_is_permutation(self) -> None:
         """rank with an unknown axis still returns every input finding."""
@@ -306,23 +401,16 @@ class TestUnknownAxisFloor:
         assert len(result) == 2
         assert {id(r) for r in result} == {id(f) for f in findings}
 
-    def test_unknown_axis_floor_equals_min_prior(self) -> None:
-        """Unknown axis floor = min(priors.values()), NOT raised.
-
-        Stable sort: unknown_axis and naming_api_shape both get the same score
-        (floor = min(AXIS_STAKES_PRIOR) = 0.3 = naming_api_shape prior).
-        Input order is preserved on ties.
-        """
+    def test_unknown_axis_lands_in_low_bucket(self) -> None:
+        """Unknown axis → low bucket, so it ranks below a med-bucket finding,
+        same grade-tier, regardless of blast."""
         unknown = _finding("mystery_axis", "deterministic_single", handles=["h"], claim="unknown")
-        known_low = _finding(
-            "naming_api_shape", "deterministic_single", handles=["h"], claim="known"
-        )
-        blast_fn = _blast_map({"h": 5.0})
-        # Both findings get score = 0.3 * 5.0 = 1.5 (tied)
-        # Stable sort → input order preserved
-        result = rank([unknown, known_low], blast_fn)
-        assert result[0]["claim"] == "unknown"
-        assert result[1]["claim"] == "known"
+        med = _finding("layering", "deterministic_single", handles=["leaf"], claim="med")
+        blast_fn = _blast_map({"h": 100.0, "leaf": 0.0})
+        result = rank([unknown, med], blast_fn)
+        # layering is med (1) > mystery_axis low (0) → med first despite lower blast
+        assert result[0]["claim"] == "med"
+        assert result[1]["claim"] == "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -331,8 +419,9 @@ class TestUnknownAxisFloor:
 
 
 class TestStableSort:
-    def test_equal_score_preserves_input_order(self) -> None:
-        """When two findings have identical tier and score, input order is preserved (stable)."""
+    def test_equal_key_preserves_input_order(self) -> None:
+        """When two findings have identical tier/bucket/blast/prior, input order
+        is preserved (stable)."""
         f1 = _finding("layering", "deterministic_single", handles=["h"], claim="first")
         f2 = _finding("layering", "deterministic_single", handles=["h"], claim="second")
         blast_fn = _blast_map({"h": 3.0})
