@@ -178,17 +178,45 @@ There is **no fifth branch.** Contest signals are deferred — do not add one.
 
 ### 7. Codify (human-gated) and save state
 
-On the human's decision (Task 3.2 provides the helpers):
+Both paths below are **human-gated** — nothing is codified without explicit
+confirmation. Then call `state.save_state(path, state)` so the next run starts
+from this point.
 
-- **Confirmed positive norm** → write a `decision-log` entry to
-  `docs/decisions/DECISIONS.md` (and, optionally, a fitness-function /
-  conformance-test stub so the norm is mechanically enforced next time).
-- **Dismissal** → record a structurally-keyed non-issue via
-  `state.non_issue_key(handles, structural_fact)` in cross-run state so future
-  runs suppress it.
+#### Dismissal path
 
-Both are **human-gated** — nothing is codified without confirmation. Then
-`state.save_state(path, state)` so the next run starts from this point.
+Call `state.build_non_issue(finding)` → append the returned `NonIssue` dict to
+`state["confirmed_non_issues"]`. Key design: `build_non_issue` sets
+`structural_fact = finding["claim"]` and `key = non_issue_key(handles,
+structural_fact)`, so:
+
+- Cosmetic source edits that leave the finding's `handles` + `claim` intact keep
+  the **same key** — the finding stays suppressed on the next run.
+- A genuine structural re-divergence changes the claim/handles the auditor reports →
+  **new key** → the finding re-surfaces for human review.
+
+The auditor is seeded with `state["confirmed_non_issues"]` at step 2 so it skips
+findings whose `non_issue_key` matches an entry in this list.
+
+#### Positive-norm path (confirmed `deterministic_single`)
+
+Invoke the [`decision-log`](../decision-log/SKILL.md) skill's
+**human-gated propose → draft → confirm → append** flow. That skill's rigid gate
+applies in full — propose in ONE line; never draft before the user confirms; never
+fabricate the date. The entry's `Anchor` must use stable refs (canonical symbol
+handles / #issue) — never bare `file:line`; `Verify` must be honestly tiered
+(gold / partial / unverifiable).
+
+When drafting the entry, pull evidence and handles from the finding verbatim.
+The entry appends to `docs/decisions/DECISIONS.md` (newest on top; create with
+the standard header if absent).
+
+**Prefer an executable fitness-function or conformance-test stub** so the norm
+becomes a running check (anti-drift, spec §14): the stub lives in `tests/` and
+the decision-log entry's `Verify` cites it as a gold assertion. Only if the norm
+is non-executable (e.g. a naming convention that resists automated checking) fall
+back to an **explicitly-flagged checklist note** in the entry, with `Verify:
+unverifiable — <reason>` or `Verify: partial — <checkable part>; <residue> needs
+human review`.
 
 ## Honesty Invariants — Non-Negotiable
 

@@ -8,6 +8,7 @@ Covers:
 - is_stale: false right after audit, true after content-hash change
 - merge_findings: dedupes equivalent findings, unions non-equivalent ones
 - findings_equivalent is importable and correct as a standalone predicate
+- build_non_issue: produces a well-formed NonIssue entry, reusing non_issue_key
 """
 
 import json
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from pyeye.architecture_review.state import (
     STATE_VERSION,
+    build_non_issue,
     findings_equivalent,
     is_stale,
     load_state,
@@ -503,3 +505,114 @@ class TestNonIssueSuppression:
             self._is_suppressed(["pyeye.server:validate"], "swallows ValueError silently", state)
             is False
         )
+
+
+# ---------------------------------------------------------------------------
+# build_non_issue
+# ---------------------------------------------------------------------------
+
+
+class TestBuildNonIssue:
+    """build_non_issue constructs a well-formed NonIssue entry from a finding.
+
+    The function must:
+    - Return the correct shape: {"handles": list, "structural_fact": str, "key": str}.
+    - Use finding["handles"] as handles and finding["claim"] as structural_fact.
+    - Compute "key" via non_issue_key(handles, structural_fact) — NOT a new keying.
+    - Be pure (no I/O, no mutation of the input finding).
+    - Produce the same key as two findings with identical handles+claim (stable).
+    - Produce a different key for a finding with a different claim (re-surfaces).
+    """
+
+    def _make_full_finding(
+        self,
+        handles: list[str],
+        claim: str = "uses constructor injection",
+        grade: str = "deterministic_single",
+        axis: str = "dependency_acquisition",
+        evidence: str = "N/N modules use DI",
+        recommendation: str = "codify as the project norm",
+    ) -> dict:
+        """Return a finding dict with all six standard fields."""
+        return {
+            "axis": axis,
+            "claim": claim,
+            "grade": grade,
+            "handles": handles,
+            "evidence": evidence,
+            "recommendation": recommendation,
+        }
+
+    def test_returns_correct_shape(self) -> None:
+        finding = self._make_full_finding(["pyeye.server:run"])
+        result = build_non_issue(finding)
+        assert set(result.keys()) == {"handles", "structural_fact", "key"}
+
+    def test_handles_field_equals_finding_handles(self) -> None:
+        handles = ["pyeye.server:run", "pyeye.cache:Cache"]
+        finding = self._make_full_finding(handles)
+        result = build_non_issue(finding)
+        assert result["handles"] == handles
+
+    def test_structural_fact_equals_finding_claim(self) -> None:
+        claim = "raises ValueError on bad input"
+        finding = self._make_full_finding(["pyeye.server:validate"], claim=claim)
+        result = build_non_issue(finding)
+        assert result["structural_fact"] == claim
+
+    def test_key_equals_non_issue_key_of_handles_and_claim(self) -> None:
+        """Key must equal non_issue_key(finding["handles"], finding["claim"]) — reuses the function."""
+        handles = ["pyeye.server:run"]
+        claim = "uses constructor injection"
+        finding = self._make_full_finding(handles, claim=claim)
+        result = build_non_issue(finding)
+        expected_key = non_issue_key(handles, claim)
+        assert result["key"] == expected_key
+
+    def test_two_findings_same_handles_and_claim_yield_same_key(self) -> None:
+        """Findings with the same handles + claim must produce the same NonIssue key."""
+        handles = ["pyeye.server:run"]
+        claim = "all modules use a factory for DI"
+        f1 = self._make_full_finding(handles, claim=claim, evidence="3/3 modules")
+        f2 = self._make_full_finding(handles, claim=claim, evidence="different evidence")
+        ni1 = build_non_issue(f1)
+        ni2 = build_non_issue(f2)
+        assert ni1["key"] == ni2["key"]
+
+    def test_finding_with_different_claim_yields_different_key(self) -> None:
+        """A genuine structural re-divergence (different claim) yields a new key."""
+        handles = ["pyeye.server:validate"]
+        f_old = self._make_full_finding(handles, claim="raises ValueError on bad input")
+        f_new = self._make_full_finding(handles, claim="swallows ValueError silently")
+        ni_old = build_non_issue(f_old)
+        ni_new = build_non_issue(f_new)
+        assert ni_old["key"] != ni_new["key"]
+
+    def test_finding_with_different_handles_yields_different_key(self) -> None:
+        """Different handles → different key."""
+        claim = "uses DI"
+        f1 = self._make_full_finding(["pyeye.server:run"], claim=claim)
+        f2 = self._make_full_finding(["pyeye.server:stop"], claim=claim)
+        assert build_non_issue(f1)["key"] != build_non_issue(f2)["key"]
+
+    def test_key_is_handle_order_independent(self) -> None:
+        """Key must be order-independent on the handles list (sorted before hashing)."""
+        claim = "all validators are at the boundary"
+        f1 = self._make_full_finding(["b", "a"], claim=claim)
+        f2 = self._make_full_finding(["a", "b"], claim=claim)
+        assert build_non_issue(f1)["key"] == build_non_issue(f2)["key"]
+
+    def test_is_pure_does_not_mutate_input(self) -> None:
+        """build_non_issue must not mutate the input finding."""
+        finding = self._make_full_finding(["pyeye.server:run"])
+        original = dict(finding)
+        build_non_issue(finding)
+        assert finding == original
+
+    def test_result_is_json_serialisable(self) -> None:
+        """The returned NonIssue dict must round-trip through JSON (needed for save_state)."""
+        finding = self._make_full_finding(["pyeye.server:run", "pyeye.cache:Cache"])
+        result = build_non_issue(finding)
+        serialised = json.dumps(result)
+        restored = json.loads(serialised)
+        assert restored == result

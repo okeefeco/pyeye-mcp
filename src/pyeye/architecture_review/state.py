@@ -169,6 +169,46 @@ def non_issue_key(handles: list[str], structural_fact: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Codification helpers
+# ---------------------------------------------------------------------------
+
+
+def build_non_issue(finding: dict[str, Any]) -> NonIssue:
+    """Build a confirmed-non-issue cache entry from a dismissed finding.
+
+    Returns a NonIssue dict ``{"handles": [...], "structural_fact": str, "key": str}``
+    where ``structural_fact`` is the finding's neutral divergence statement (its ``claim``)
+    — the Tier-1 relationship the human adjudicated — and ``key`` is
+    ``non_issue_key(handles, structural_fact)``. Structural, not content: cosmetic
+    source edits that leave the finding's handles + claim intact keep the same key
+    (still suppressed); a genuine structural re-divergence changes the claim/handles
+    → new key (re-surfaces). See spec §14.
+
+    This function is **pure** — it reads no files and calls no external APIs.
+    The input finding is not mutated.
+
+    Args:
+        finding: A finding dict with at least ``"handles"`` (list of canonical
+            handle strings) and ``"claim"`` (the neutral divergence statement)
+            fields.  Other fields (``axis``, ``grade``, ``evidence``,
+            ``recommendation``) are ignored.
+
+    Returns:
+        A ``NonIssue`` dict ready to append to
+        ``state["confirmed_non_issues"]`` and persist with
+        :func:`save_state`.
+    """
+    handles: list[str] = finding["handles"]
+    structural_fact: str = finding["claim"]
+    key: str = non_issue_key(handles, structural_fact)
+    return {
+        "handles": handles,
+        "structural_fact": structural_fact,
+        "key": key,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Freshness check
 # ---------------------------------------------------------------------------
 
