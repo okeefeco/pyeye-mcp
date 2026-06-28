@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=8525050f"></script>
+      <script src="../../../_static/documentation_options.js?v=fdecba42"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -1279,25 +1279,7 @@
     <span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()(</span><span class="n">get_connection_diagnostics</span><span class="p">)</span>
 
 
-<span class="c1"># Workflow Resources</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">load_workflow</span><span class="p">(</span><span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load workflow content from workflows directory.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        workflow_name: Name of the workflow file (without .md extension)</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Workflow content as markdown string</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        FileNotFoundError: If workflow file doesn&#39;t exist</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">workflow_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;workflows&quot;</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">workflow_name</span><span class="si">}</span><span class="s2">.md&quot;</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Workflow not found: </span><span class="si">{</span><span class="n">workflow_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">workflow_file</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+<span class="c1"># MCP Resources</span>
 
 
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;pyeye://about&quot;</span><span class="p">)</span>
@@ -1312,100 +1294,6 @@
 <span class="sd">        A JSON object with ``name``, ``version``, ``repository`` and ``issues``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">meta</span><span class="o">.</span><span class="n">about</span><span class="p">())</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://find-references&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_find_references_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Find All References workflow.</span>
-
-<span class="sd">    This workflow shows how to find ALL usages of a class/function,</span>
-<span class="sd">    including both package code and standalone scripts/notebooks.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://refactoring&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_refactoring_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Safe Refactoring workflow.</span>
-
-<span class="sd">    This workflow guides through safe refactoring by analyzing</span>
-<span class="sd">    subclasses, references, and dependencies before making changes.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;refactoring&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://code-understanding&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_code_understanding_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Code Understanding workflow.</span>
-
-<span class="sd">    This workflow helps understand unfamiliar code by systematically</span>
-<span class="sd">    exploring structure, relationships, and usage patterns.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;code_understanding&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://dependency-analysis&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_dependency_analysis_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Dependency Analysis workflow.</span>
-
-<span class="sd">    This workflow helps analyze module dependencies, import relationships,</span>
-<span class="sd">    and architectural patterns in Python projects.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;dependency_analysis&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://code-review-standards&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_code_review_standards_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Python Code Review Standards workflow.</span>
-
-<span class="sd">    This workflow provides industry best practices for Python code review</span>
-<span class="sd">    including PEP standards, modern Python features, type safety, testing,</span>
-<span class="sd">    and anti-pattern detection with MCP-enhanced semantic analysis.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;code_review_standards&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://code-review-security&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_code_review_security_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Python Security Code Review workflow.</span>
-
-<span class="sd">    This workflow provides OWASP security guidelines for Python code review</span>
-<span class="sd">    including input validation, injection prevention, authentication patterns,</span>
-<span class="sd">    and data flow analysis using MCP tools.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;code_review_security&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;workflows://code-review-pr&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_code_review_pr_workflow</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the Complete Pull Request Review workflow.</span>
-
-<span class="sd">    This workflow provides a comprehensive PR review process combining</span>
-<span class="sd">    automated checks, semantic analysis, code standards, security review,</span>
-<span class="sd">    and manual review best practices.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        Markdown workflow documentation</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">load_workflow</span><span class="p">(</span><span class="s2">&quot;code_review_pr&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># Export for __main__.py</span>
