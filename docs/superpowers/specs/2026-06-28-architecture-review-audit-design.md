@@ -1,8 +1,8 @@
 # `/architecture-review` (audit scope) — Design Spec
 
-**Status:** Draft (rev 9 — axis-stakes ranking (constrained) + cross-derivation guard) —
-**UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree (rev 8 committed at
-`8b0eb3a`); to be committed on that branch.
+**Status:** Draft (rev 10 — gate-task gap closed in plan; contest + bounded-scope deferred;
+stale §6 cell fixed) — **UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree
+(rev 9 committed at `6471f22`); to be committed on that branch.
 **Date:** 2026-06-28
 **Issue:** #492
 **Scope:** Increment **A** (project/audit scope). Diff-mode (B), the self-learning loop,
@@ -115,7 +115,7 @@ genuine judgment.** The auditor reasons *over* facts; it does not free-associate
 | # | Component | Role |
 |---|---|---|
 | 1 | `architecture-review` **skill** (plugin) | Orchestrator + methodology + output contract + honesty rules. Owns cross-run state. Conformance-guarded (like `python-explore`). |
-| 2 | **Fact sources** | pyeye **stable-AST** primitives (`resolve`/`outline`/`expand` `members`/`imports`/`imported_by`/`subclasses`) = deterministic Tier-1. Conventions/duplication surfaced by the auditor reasoning over these + reading code; no dedicated computed index in A (§13). |
+| 2 | **Fact sources** | pyeye **stable-AST** primitives (`resolve`/`outline`/`expand` `members`/`imports`/`imported_by`/`subclasses`) = deterministic Tier-1. Convention *divergences* are surfaced by the auditor reasoning over these + targeted reads; A has **no content-similarity capability** — duplication is **#495** (§3). |
 | 3 | **Auditor subagent** | Fresh context. Consumes facts + prior cross-run state (seeded by orchestrator) + Tier-3 baseline; emits **graded findings** per the contract. Adversarial framing; cites evidence; never invents. |
 | 4 | **Cross-run state (json cache)** | **Durable**, orchestrator-owned: coverage map, prior observed findings, confirmed non-issues, reproduction history. The basis for "accumulates across runs." |
 | 5 | **Observed-conventions report (md)** | **Regenerated** human-readable view of current Tier-2 (git supplies its diff). Not the source of cross-run state — the cache is. |
@@ -178,8 +178,8 @@ The default vector is provisional — calibrate against real review data (§15).
    pyeye/LSP/Read access.
 3. Auditor: extract Tier-1 facts → **sweep the §6.5 seed dimensions** and cluster into
    observed conventions with prevalence → detect
-   deviations (outliers + internal contradictions) and **contest signals** (divergences from
-   an existing Tier-3 norm) → **grade** each finding (§8) with attached evidence, suppressing
+   deviations (outliers + internal contradictions) → **grade** each finding (§8) with attached
+   evidence, suppressing
    anything matching an unexpired confirmed non-issue. Never pronounces correctness on
    ambiguous cases.
 4. Auditor returns structured graded findings; orchestrator merges into cross-run state and
@@ -190,8 +190,6 @@ The default vector is provisional — calibrate against real review data (§15).
      Confirm?" → on confirm, codify.
    - *Ambiguous* → clusters with neutral evidence + a recommendation **only if** §9 yields one
      (often none) → human picks/writes the norm, **or** marks it a confirmed non-issue.
-   - *Contest signal* → "Tier-3 norm Z may be stale — N new cases contradict it" → human
-     decides (A: record the contest; full revise/retire deferred, §15).
    - *No signal* → noted.
 6. **Codify**: positive norms (entry + optional check); non-issues (structurally-keyed cache
    entry). Cross-run state retained for next run.
@@ -208,8 +206,8 @@ Mirrors pyeye's own epistemics applied to conventions:
   **not** the case, so the correct output is *clusters + evidence + no recommendation — you
   decide*. **An absent recommendation is correct behaviour, not a defect** (never backfill it
   by loosening §9). A finding whose answer a Tier-3 norm actually settles is **not
-  ambiguous** — it is a known-norm violation or a contest signal (Tier-3 may only *partially*
-  anchor, leaving a residual ambiguity on the unsettled clusters).
+  ambiguous** — it is a known-norm violation (Tier-3 may only *partially* anchor, leaving a
+  residual ambiguity on the unsettled clusters).
 - **No signal** → said honestly.
 
 **Grade by extraction where the convention is mechanical.** A universal convention ("N/N do
@@ -220,7 +218,7 @@ layering, all-async — drift across runs; this is §5's "LLM only for judgment"
 deeper.) The §10 gate then guards only *genuinely* judgment-layer grades, not ones that should
 never have been judgment-layer.
 
-(Confirmed non-issue and contest are *human actions/labels* on findings, not finding states.)
+(A confirmed non-issue is a *human action/label* on a finding, not a finding state.)
 
 ## 9. Honesty & determinism invariants
 
@@ -265,8 +263,8 @@ never have been judgment-layer.
   item, not optional).
 - **Advisory-only:** inferred conventions are advisory; only human-confirmed (Tier-3) facts
   may later (in B) block.
-- **Human-gated:** Tier-2 → Tier-3 promotion, and any norm contest/retire, are always
-  human-gated.
+- **Human-gated:** Tier-2 → Tier-3 promotion is always human-gated. (Contesting or retiring an
+  existing Tier-3 norm is deferred — §15.)
 
 ## 10. Reproduction protocol (defines "deterministic" and the confident-path gate)
 
@@ -349,8 +347,10 @@ only the reach.
 - pyeye unavailable → degrade to AST/LSP/Read, note it (the `python-explore` failure mode).
 - Non-deterministic (goto-dependent) fact → excluded from the confident path or marked
   low-confidence; non-reproducible "single answer" → ambiguous (§10).
-- Large codebase → bounded by package/scope, accumulates across runs (orchestrator coverage
-  map); **surface what was and wasn't covered** — no silent truncation. **Coverage freshness:**
+- Large codebase → A runs on a **caller-supplied scope**; automatic package-at-a-time iteration
+  over a whole large repo is deferred (§15). Across runs it accumulates (orchestrator coverage
+  map) and must **surface what was and wasn't covered** — no silent truncation. **Coverage
+  freshness:**
   each coverage unit carries a *last-audited-at* stamp and is marked **stale and re-surfaced
   when its code has changed since** (same structural-change signal as the §14 non-issue key) —
   so "accumulates across runs" never means "shows run-1 facts about since-rewritten code."
@@ -418,17 +418,23 @@ only the reach.
 
 - **B (diff-mode):** same engine scoped to changed-files-vs-siblings; thin layer once A
   exists; gains teeth from A's Tier-3 base.
-- **Norm revision/retirement:** A only emits *contest signals*; the human-gated revise/retire
-  workflow (to stop the read-and-write-`DECISIONS.md` loop entrenching stale norms) is
-  deferred but named here.
+- **Contest signals + norm revision/retirement (both deferred).** A neither contests existing
+  Tier-3 norms nor revises/retires them. The spike never exercised contest (no Tier-3 baseline
+  existed) and it matters only once the Tier-3 base is *mature*; the human-gated
+  contest/revise/retire workflow (to stop the read-and-write-`DECISIONS.md` loop entrenching
+  stale norms) is a fast-follow.
+- **Bounded-scope auto-iteration (deferred).** A runs on a caller-supplied scope; automatically
+  picking and iterating the bounded unit (package-at-a-time) over a whole large repo is a later
+  orchestration enhancement (§12). The state coverage map already supports accumulation across
+  manually-supplied scopes.
 - **Negative-tier class-promotion (symmetric to norm-revision).** Confirmed non-issues are
   monotonic-with-no-aggregation: a new instance of an already-accepted divergence has new
   handles, correctly re-surfaces, and the human re-adjudicates it instance by instance with
   nothing noticing the same non-issue has been confirmed N times. Repeated identical
   confirmations are a promotable signal → a **class-level exception** ("this divergence is
   acceptable as a category"), exactly symmetric to Tier-2 → Tier-3 norm promotion. Deferred,
-  but named so the negative-tier lifecycle isn't silently asymmetric with the positive tier's
-  contest path.
+  but named so the negative-tier lifecycle isn't silently asymmetric with the (also-deferred)
+  positive-tier contest/revision path above.
 - **Self-learning loop / shadow-mode accumulation;** **queryable fact store;** **blocking/CI;**
   **different-model auditor** (the model-isolation knob from §5); **multi-language.**
 - **Semantic-duplication detection — #495** (carved out per spike bet-1b; the #1 stated pain; a
