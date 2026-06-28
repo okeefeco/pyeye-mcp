@@ -1,8 +1,9 @@
 # `/architecture-review` (audit scope) — Design Spec
 
 **Status:** Draft (rev 10 — gate-task gap closed in plan; contest + bounded-scope deferred;
-stale §6 cell fixed) — **UNCOMMITTED** in the `feat/492-architecture-review-audit` worktree
-(rev 9 committed at `6471f22`); to be committed on that branch.
+stale §6 cell fixed). Committed at `501c849` on `feat/492-architecture-review-audit`. The spec
+and the implementation plan (`docs/superpowers/plans/2026-06-28-architecture-review-audit.md`)
+are a **synchronized pair** — any scope-changing edit lands in both in the same pass.
 **Date:** 2026-06-28
 **Issue:** #492
 **Scope:** Increment **A** (project/audit scope). Diff-mode (B), the self-learning loop,

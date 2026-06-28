@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the convention-divergence auditor (increment A) as a pyeye-plugin skill backed by a deterministic Python substrate, validated by spec `docs/superpowers/specs/2026-06-28-architecture-review-audit-design.md` (rev 9).
+**Goal:** Ship the convention-divergence auditor (increment A) as a pyeye-plugin skill backed by a deterministic Python substrate, validated by spec `docs/superpowers/specs/2026-06-28-architecture-review-audit-design.md` (rev 10). The spec and this plan are a **synchronized pair** — any scope-changing edit lands in both in the same pass.
 
 **Architecture:** A pyeye-plugin **skill** (`skills/architecture-review/`) does orchestration + judgment via a dispatched **fresh auditor subagent**; the parts that must NOT be LLM-eyeballed — the seed taxonomy + axis-stakes priors, the ranking, and the cross-run state — live in a deterministic Python package (`src/pyeye/architecture_review/`) and are unit-tested. The skill is conformance-bound to the taxonomy the way `python-explore` is bound to the edge registry.
 
