@@ -295,6 +295,37 @@ expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project tha
 > under-report. What I *can* show: what `Cache.evict` itself calls (`callees`), and which
 > modules import `myapp.cache` (`imported_by`). Want either of those?
 
+## Dependency & Coupling Analysis
+
+Module relationships are answerable from two static edges — `imports` (what a
+module depends on) and `imported_by` (which project modules depend on it) — plus
+`trace(follow=["imports"])` for the multi-hop closure. From those you can compute
+the standard coupling metrics by hand:
+
+- **Fan-out (efferent):** size of `expand(mod, "imports")` — how many things this
+  module depends on. High fan-out = many reasons to change = fragile.
+- **Fan-in (afferent):** size of `expand(mod, "imported_by")` — how many project
+  modules depend on this one. High fan-in = changes here are risky.
+- **Instability:** `fan_out / (fan_in + fan_out)`. `0` = stable (depended on,
+  depends on nothing); `1` = unstable (depends on others, nothing depends on it).
+  Entry points sit near 1; core/shared modules near 0.
+
+**Detecting cycles:** `trace(start=mod, follow=["imports"])`, then look for the
+start module reappearing in the returned subgraph — an `A → … → A` path is a
+circular dependency. Standard ways out: extract a shared base module both can
+import, inject the dependency instead of importing it, or move the import inside
+the function (lazy import).
+
+**Reading the architecture:** a clean layered design shows imports flowing one
+direction (API → services → models → external) with no back-edges; a "utility
+hub" shows one low-instability module with high fan-in; a cycle is the
+anti-pattern. Map a few key modules with `expand(…, "imports")` to see which
+shape you have before refactoring.
+
+> Same static-surface ceiling as everywhere else: dynamic imports
+> (`importlib.import_module()`, plugin loaders, conditional imports) are invisible
+> here — an absent edge means "not imported in source," not "never loaded."
+
 ## Stating Your Mental Model
 
 When it helps the user — a non-trivial change, an ambiguous request, a risky edit —

@@ -33,7 +33,6 @@ Fixes #
 
 ## Code Quality Metrics
 <!-- Check quality metrics on changed files only -->
-<!-- See src/pyeye/workflows/code_review_standards.md for details -->
 
 ### Complexity & Maintainability
 
