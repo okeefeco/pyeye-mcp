@@ -555,6 +555,8 @@ async def trace(
           "truncated": bool,                     # a cap cut off reachable nodes
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
+          "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
+          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
@@ -580,7 +582,13 @@ async def trace(
 
     Returns:
         A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
-        unresolvable root simply contributes no node.
+        unresolvable root contributes no node but is listed in the always-present
+        ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
+        ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
+        "root did not resolve" (handle listed).  When ``callees`` is traced,
+        ``unresolved_call_sites`` ({handle: count}) reports each node's
+        unresolved (dynamic / un-inferable / flaky) call sites, so a populated
+        subgraph never overstates how complete the call walk was.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.

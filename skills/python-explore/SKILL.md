@@ -183,6 +183,25 @@ When you read `edge_counts`, a **missing key means "not measured," not "zero."**
 present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
 `callers` key means pyeye didn't measure it — don't read that as "no callers."
 
+### `trace` honesty fields — an empty subgraph is not always "nothing there"
+
+A `trace` Subgraph carries two honesty fields. **Read them before treating the graph as
+complete** — an empty or clean-looking subgraph can mean a resolution miss, not a real zero:
+
+- **`unresolved_roots`** (always present): `[]` means every root resolved. A **non-empty**
+  list means those start handles did *not* resolve — so `nodes: {}` with a non-empty
+  `unresolved_roots` is "I couldn't resolve the root" (a cold-start miss is possible, #419),
+  **not** "this root has no neighbours." Retry, `resolve`/`inspect` the handle, or fall back
+  to `Read`/your LSP — do not conclude the symbol calls/contains nothing.
+- **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
+  map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
+  or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of
+  the call graph as exhaustive. An absent field means call sites weren't measured (you
+  didn't trace `callees`); `{}` means traced and all resolved.
+
+So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
+(for call graphs) the relevant node absent from `unresolved_call_sites`.
+
 ## Workflow
 
 ```dot
