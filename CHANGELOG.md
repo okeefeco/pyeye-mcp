@@ -86,6 +86,10 @@ are orthogonal to the navigation redesign and are unchanged.
 
 - Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
 
+### Fixed
+
+- CI no longer posts a false "Documentation-only change detected" comment on PRs that also change code (#500). The feedback now lives in `ci.yml` and reuses the same `changes` (docs-vs-code) classifier as the test gate, so the comment can never contradict what CI actually ran; the divergent `docs.yml` workflow was removed. Also stripped fabricated time/percentage "CI savings" figures from the workflow comments, keeping the accurate platform-multiplier table.
+
 ## [1.0.0] - 2025-10-04
 
 ### BREAKING CHANGES

@@ -1,17 +1,14 @@
-# CI Workflow - Optimized for GitHub Actions minute consumption
+# CI Workflow
 #
-# Cost optimization strategy (Issue #65):
-# - PRs: Skip middle Python version on Linux/Windows, macOS runs middle version only
-#   - Linux: 3.10, 3.12 (saves 1 job)
-#   - Windows: 3.10, 3.12 (saves 1 job)
-#   - macOS: 3.11 only (saves 2 jobs = 20x minutes!)
-# - Main: Run full matrix (9 jobs across 3 OS × 3 Python versions)
-# - Estimated savings: 40-50% reduction in monthly minute usage
+# PR matrix strategy (Issue #65): on PRs, test only the Python endpoints
+# (3.10 and 3.12) on Linux and Windows, and only 3.11 on macOS. Pushes to
+# main run the full 3-OS x 3-version matrix. macOS combinations are dropped
+# on PRs first because macOS bills at 10x (see the multiplier table below).
 #
-# Platform minute multipliers:
-# - Linux: 1x (1 minute = 1 minute billed)
+# Platform minute multipliers (GitHub-hosted runners):
+# - Linux:   1x (1 minute = 1 minute billed)
 # - Windows: 2x (1 minute = 2 minutes billed)
-# - macOS: 10x (1 minute = 10 minutes billed)
+# - macOS:  10x (1 minute = 10 minutes billed)
 
 name: CI
 
@@ -81,7 +78,7 @@ jobs:
           echo "docs=false" >> $GITHUB_OUTPUT
 
   test-pr:
-    # Runs on PRs - optimized matrix to save minutes
+    # Runs on PRs - reduced endpoint matrix (see header)
     # Skip if only documentation files changed
     needs: [changes]
     if: |
@@ -319,6 +316,50 @@ jobs:
 
       # Safety check removed - deprecated command with compatibility issues
       # Consider using pip-audit or other alternatives in future
+
+  docs-feedback:
+    # Comment on genuinely documentation-only PRs. Reuses the SAME `changes`
+    # classifier as the test gate (needs.changes.outputs.code), so the comment
+    # can never contradict what CI actually did — this is the single source of
+    # truth for "docs vs code" (see #500). Idempotent: posts at most once.
+    needs: [changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.code != 'true' &&
+      needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post documentation-only PR comment
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const already = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Documentation-only change detected')
+            );
+            if (already) return;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '📚 **Documentation-only change detected**',
+                '',
+                'No source, test, or workflow files changed in this PR, so the',
+                'test matrix, type-checking, and coverage jobs were skipped.',
+                '',
+                'Pre-commit hooks, security scanning, and file validation still ran.',
+              ].join('\n'),
+            });
 
   # Dummy success jobs for docs-only PRs to satisfy branch protection
   # These jobs report success when tests are skipped for documentation changes
