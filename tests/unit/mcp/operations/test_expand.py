@@ -520,6 +520,42 @@ class TestExpandImportsNonModuleUnsupported:
         assert "imports" in detail, f"detail should name the edge: {detail!r}"
 
 
+_IMPORTS_FIXTURE_HANDLE = "mypackage._core.imports_fixture"
+_UNRESOLVED_IMPORTS_FIXTURE_HANDLE = "mypackage._core.unresolved_imports_fixture"
+
+
+class TestExpandImportsUnresolved:
+    """#494 — ``expand(imports)`` surfaces statically-present imports that goto
+    could not resolve in ``unresolved_imports`` instead of silently dropping them.
+
+    Always present on the (module) supported branch: ``[]`` when every import
+    resolved, the intended dotted targets otherwise."""
+
+    @pytest.mark.asyncio
+    async def test_surfaces_unresolved_imports(self, analyzer: JediAnalyzer) -> None:
+        result = await expand(_UNRESOLVED_IMPORTS_FIXTURE_HANDLE, "imports", analyzer)
+        # The resolvable import is still listed as a stub.
+        handles = {s["handle"] for s in result["stubs"]}
+        assert "mypackage._core.widgets.make_widget" in handles
+        # The unresolvable ones are surfaced, not dropped.
+        assert result["unresolved_imports"] == [
+            "_nonexistent_pkg_494.missing_symbol",
+            "os._made_up_attr_494",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_all_resolved_yields_empty_list(self, analyzer: JediAnalyzer) -> None:
+        # Always present on the module imports branch — [] is measured "none failed".
+        result = await expand(_IMPORTS_FIXTURE_HANDLE, "imports", analyzer)
+        assert result["unresolved_imports"] == []
+
+    @pytest.mark.asyncio
+    async def test_absent_for_non_imports_edge(self, analyzer: JediAnalyzer) -> None:
+        # imports-only field — must not leak onto other edges.
+        result = await expand(_WIDGET_HANDLE, "members", analyzer)
+        assert "unresolved_imports" not in result
+
+
 # ---------------------------------------------------------------------------
 # Task 2.1 — subclasses wiring (#348): wrong-kind → measured-empty, never None
 # ---------------------------------------------------------------------------

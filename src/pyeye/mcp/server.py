@@ -484,7 +484,8 @@ async def expand(
         { "source": str,                 # canonical source handle
           "edge":   str,
           "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
-          "unresolved_call_sites": int   # callees ONLY; absent for members }
+          "unresolved_call_sites": int,  # callees ONLY; absent otherwise
+          "unresolved_imports": [target, ...] }  # imports ONLY (#494); [] when all resolved
 
     *Unsupported branch* (``"stubs"`` key absent):
     ::
@@ -557,6 +558,7 @@ async def trace(
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
           "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
+          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are

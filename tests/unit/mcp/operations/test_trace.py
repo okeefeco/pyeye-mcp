@@ -364,6 +364,41 @@ class TestTraceUnresolvedCallSites:
         assert "unresolved_call_sites" not in result
 
 
+class TestTraceUnresolvedImports:
+    """#494 (interior honesty) — an ``imports`` walk that can't resolve a
+    statically-present import surfaces it in ``unresolved_imports`` rather than
+    silently dropping it, mirroring ``unresolved_call_sites`` for callees.
+
+    Per-source-node map, present ONLY when ``imports`` was traced (absent = not
+    measured); only nodes with unresolvable imports appear.
+    """
+
+    _UNRESOLVED_FIXTURE = "mypackage._core.unresolved_imports_fixture"
+    _IMPORTS_FIXTURE = "mypackage._core.imports_fixture"
+
+    @pytest.mark.asyncio
+    async def test_imports_trace_surfaces_per_node_map(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(self._UNRESOLVED_FIXTURE, ["imports"], analyzer, max_depth=1)
+        assert result["unresolved_imports"] == {
+            self._UNRESOLVED_FIXTURE: [
+                "_nonexistent_pkg_494.missing_symbol",
+                "os._made_up_attr_494",
+            ]
+        }
+
+    @pytest.mark.asyncio
+    async def test_imports_traced_all_resolved_yields_empty_map(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace(self._IMPORTS_FIXTURE, ["imports"], analyzer, max_depth=1)
+        assert result["unresolved_imports"] == {}
+
+    @pytest.mark.asyncio
+    async def test_non_imports_follow_omits_field(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        assert "unresolved_imports" not in result
+
+
 class TestStopsAtPredicate:
     """Unit tests for the ``_stops_at`` boundary predicate.
 

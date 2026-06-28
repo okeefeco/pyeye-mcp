@@ -16,7 +16,8 @@ presence of ``unsupported``:
     { "source": str,                # canonical source handle
       "edge": str,
       "stubs": [Stub, ...],         # [] means MEASURED, none found
-      "unresolved_call_sites": int  # callees ONLY — ABSENT for members }
+      "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
+      "unresolved_imports": [target, ...] }  # imports ONLY (#494) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, or an unknown name)::
@@ -39,6 +40,9 @@ Design invariants
 - ``unresolved_call_sites`` is present ONLY for ``callees`` (the resolver returns
   an ``int``); for ``members`` the resolver returns ``None`` and the key is
   omitted.
+- ``unresolved_imports`` is present ONLY for ``imports`` (#494): the resolver
+  returns a list (``[]`` when every import resolved, the unresolvable targets
+  otherwise); for every other edge it returns ``None`` and the key is omitted.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields a graceful
   supported empty result (consistent with how ``inspect`` returns a minimal node
@@ -231,6 +235,12 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # key absent.  This automatically yields the callees-only field.
     if edge_result.unresolved_call_sites is not None:
         result["unresolved_call_sites"] = edge_result.unresolved_call_sites
+    # unresolved_imports (#494): list for imports → key present ([] when every
+    # import resolved); None for every other edge → key absent. Same imports-only
+    # mechanic as unresolved_call_sites is for callees — a statically-present
+    # import that goto missed is surfaced, never silently dropped.
+    if edge_result.unresolved_imports is not None:
+        result["unresolved_imports"] = edge_result.unresolved_imports
     # subclasses is direct-only (#422); a CLASS result carries a static pointer to
     # the trace route for the full closure.  Class-gated: a non-class subclasses
     # result is a measured-empty [], where the "use trace" hint would be noise.

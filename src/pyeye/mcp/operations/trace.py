@@ -16,6 +16,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
       "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
       "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
+      "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -43,6 +44,13 @@ signal — it would be a broken response (the absence-vs-zero invariant reserves
 absence for "not measured").  So ``nodes: {}`` with ``unresolved_roots: []`` is
 a genuine zero, and with a non-empty list it tells the agent to retry or fall
 back to Read/LSP.
+
+``unresolved_imports`` (#494) is the exact same guard for the ``imports`` edge:
+a statically-present ``from X import Y`` that ``goto`` could not resolve is
+recorded (by its intended dotted target) per source node instead of vanishing —
+present only when ``imports`` was traced, ``{}`` when every traced import
+resolved.  Without it a dependency closure built with ``trace(follow=["imports"])``
+would silently omit edges it could not resolve.
 
 ``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
 ``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or
@@ -80,7 +88,7 @@ if TYPE_CHECKING:
 
 async def _single_hop(
     jedi_name: Any, edge: str, analyzer: JediAnalyzer
-) -> tuple[list[tuple[str, Any]], int | None]:
+) -> tuple[list[tuple[str, Any]], int | None, list[str] | None]:
     """Resolve ONE edge from *jedi_name*.
 
     Pure registry consumption: consults :func:`edge_status` and runs the
@@ -94,7 +102,7 @@ async def _single_hop(
         analyzer: Active analyzer.
 
     Returns:
-        A 2-tuple ``(adjacents, unresolved_call_sites)``:
+        A 3-tuple ``(adjacents, unresolved_call_sites, unresolved_imports)``:
 
         - ``adjacents``: ``(canonical_handle_string, adjacent_jedi_name)`` pairs —
           the adjacent name is carried so the caller can build a stub without a
@@ -104,15 +112,18 @@ async def _single_hop(
           ``None`` for every non-``callees`` edge (the notion is callees-only).
           Carried forward so ``trace`` can surface interior call-resolution loss
           instead of silently dropping it (#488).
+        - ``unresolved_imports``: the ``imports`` list of statically-present
+          import targets ``goto`` could not resolve (#494), or ``None`` for every
+          non-``imports`` edge.  Carried forward for the same reason.
     """
     if edge_status(edge) != STATUS_IMPLEMENTED:
-        return [], None
+        return [], None, None
     raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
     edge_result = await raw if isawaitable(raw) else raw
     if edge_result is None:
-        return [], None
+        return [], None, None
     adjacents = [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
-    return adjacents, edge_result.unresolved_call_sites
+    return adjacents, edge_result.unresolved_call_sites, edge_result.unresolved_imports
 
 
 def _stops_at(handle: str, scope: str, stop_when: dict[str, Any] | None) -> bool:
@@ -224,6 +235,14 @@ async def trace(
     callees_traced = "callees" in supported_follow
     unresolved_call_sites: dict[str, int] = {}
 
+    # #494 (interior honesty): per-source-node list of statically-present imports
+    # an ``imports`` hop could not resolve. Same rationale as
+    # ``unresolved_call_sites`` for callees — surfaced ONLY when ``imports`` was
+    # traced (absent ⇒ not measured), and only nodes with unresolvable imports
+    # are recorded.
+    imports_traced = "imports" in supported_follow
+    unresolved_imports: dict[str, list[str]] = {}
+
     # #488: a root that fails to resolve is recorded here, not silently dropped.
     # Without it an internal resolution miss (cold-start non-determinism, #419)
     # renders as a confident-empty subgraph — the agent reads ``nodes: {}`` as
@@ -249,12 +268,17 @@ async def trace(
         # neighbour) and how cycle edges back into the closure stay visible.
         can_expand = depth < max_depth
         for edge in supported_follow:
-            adjacents, hop_unresolved = await _single_hop(jedi_name, edge, analyzer)
+            adjacents, hop_unresolved, hop_unresolved_imports = await _single_hop(
+                jedi_name, edge, analyzer
+            )
             if edge == "callees" and hop_unresolved:
                 # A node is popped (and its callees hop runs) exactly once, so this
                 # records each source node's count a single time. Only > 0 is kept:
                 # 0 means "callees complete here", which the absent key already says.
                 unresolved_call_sites[handle] = hop_unresolved
+            if edge == "imports" and hop_unresolved_imports:
+                # Same once-per-node guarantee; only non-empty lists are recorded.
+                unresolved_imports[handle] = hop_unresolved_imports
             for adj_handle, adj_name in adjacents:
                 if adj_handle in nodes:
                     # Already in the closure: record the (possibly cyclic) edge so
@@ -301,6 +325,11 @@ async def trace(
     # ``unresolved_roots``. ``{}`` means callees were traced and all resolved.
     if callees_traced:
         result["unresolved_call_sites"] = unresolved_call_sites
+    # #494 (interior honesty): present ONLY when ``imports`` was traced — same
+    # absence-vs-zero discipline. ``{}`` means imports were traced and every
+    # import resolved; entries are the per-node lists of unresolvable targets.
+    if imports_traced:
+        result["unresolved_imports"] = unresolved_imports
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,
     # and absent entirely when nothing was unsupported (no noise on clean traces).

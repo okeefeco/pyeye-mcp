@@ -54,6 +54,8 @@ E.3 ``unresolved_call_sites`` placement — only allowed on the supported branch
     when ``edge == "callees"``; must be a plain ``int`` (not bool).
 E.4 Each Stub in ``stubs`` passes the Stub structural floor (S.*) and the
     layering check (A.*).
+E.5 ``unresolved_imports`` (#494) placement — only allowed on the supported
+    branch when ``edge == "imports"``; a list of non-empty single-line strs.
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -83,6 +85,9 @@ T.6 ``unresolved_roots`` (#488) is a REQUIRED list of non-empty single-line
 T.7 ``unresolved_call_sites`` (#488), when present (only if ``callees`` was
     traced), is a dict ``{handle: count}`` of non-empty single-line handle keys
     and int counts >= 1.  Optional — absence means call sites were not measured.
+T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced),
+    is a dict ``{handle: [target, ...]}`` of non-empty single-line handle keys
+    and non-empty lists of non-empty single-line target strs.  Optional.
 
 Check O — outline OutlineTree structural floors (operation == "outline")
 ------------------------------------------------------------------------
@@ -969,6 +974,14 @@ def _check_expand_structural_floor(
                 "when edge == 'callees'."
             )
 
+        # E.5 — unresolved_imports must NOT be present on the unsupported branch
+        if "unresolved_imports" in response:
+            violations.append(
+                "[E.5 unresolved_imports placement] 'unresolved_imports' is present on the "
+                "unsupported branch. It must only appear on the supported branch when "
+                "edge == 'imports'."
+            )
+
     else:
         # --- Supported branch (has_stubs_key) ---
         if not isinstance(stubs_val, list):
@@ -1004,6 +1017,35 @@ def _check_expand_structural_floor(
                     f"[E.3 unresolved_call_sites type] 'unresolved_call_sites' must be "
                     f"an int; got {type(ucs).__name__!r} ({_truncate(ucs)})."
                 )
+
+        # E.5 — unresolved_imports (#494): if present, must be on the imports
+        # supported branch and be a list of non-empty single-line handle strings.
+        if "unresolved_imports" in response:
+            ui = response["unresolved_imports"]
+            edge_is_imports = isinstance(edge_val, str) and edge_val == "imports"
+            if not edge_is_imports:
+                violations.append(
+                    f"[E.5 unresolved_imports placement] 'unresolved_imports' is present "
+                    f"but edge={edge_val!r} (not 'imports'). It is only valid on the "
+                    f"supported branch when edge == 'imports'."
+                )
+            elif not isinstance(ui, list):
+                violations.append(
+                    f"[E.5 unresolved_imports type] 'unresolved_imports' must be a list; "
+                    f"got {type(ui).__name__!r}."
+                )
+            else:
+                for idx, item in enumerate(ui):
+                    if not isinstance(item, str) or not item.strip():
+                        violations.append(
+                            f"[E.5 unresolved_imports entry] unresolved_imports[{idx}]: "
+                            f"must be a non-empty str; got {_truncate(item)}."
+                        )
+                    elif "\n" in item:
+                        violations.append(
+                            f"[E.5 unresolved_imports entry single-line] "
+                            f"unresolved_imports[{idx}]: must be single-line."
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -1269,6 +1311,39 @@ def _check_trace_structural_floor(
                         f"[T.7 trace unresolved_call_sites count positive] {kpath}: count "
                         f"must be >= 1 (omit zero counts); got {count}."
                     )
+
+    # T.8 — unresolved_imports (#494 interior honesty): OPTIONAL map, present only
+    # when ``imports`` was traced (absent ⇒ not measured). When present it is a
+    # dict {handle: [target, ...]} where each key is a non-empty single-line
+    # handle and each value is a NON-EMPTY list of non-empty single-line import
+    # target strings (a node with no unresolvable imports is omitted, like T.7).
+    if "unresolved_imports" in response:
+        ui = response["unresolved_imports"]
+        if not isinstance(ui, dict):
+            violations.append(
+                f"[T.8 trace unresolved_imports type] 'unresolved_imports' must be a "
+                f"dict {{handle: [target, ...]}}; got {type(ui).__name__!r}."
+            )
+        else:
+            for key, targets in ui.items():
+                kpath = f"unresolved_imports[{key!r}]"
+                if not isinstance(key, str) or not key.strip() or "\n" in key:
+                    violations.append(
+                        f"[T.8 trace unresolved_imports key] {kpath}: key must be a "
+                        "non-empty single-line handle string."
+                    )
+                if not isinstance(targets, list) or not targets:
+                    violations.append(
+                        f"[T.8 trace unresolved_imports value] {kpath}: must be a "
+                        f"non-empty list of import targets; got {_truncate(targets)}."
+                    )
+                else:
+                    for idx, t in enumerate(targets):
+                        if not isinstance(t, str) or not t.strip() or "\n" in t:
+                            violations.append(
+                                f"[T.8 trace unresolved_imports target] {kpath}[{idx}]: "
+                                "must be a non-empty single-line str."
+                            )
 
 
 # ---------------------------------------------------------------------------
