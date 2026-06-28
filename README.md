@@ -197,7 +197,7 @@ Add the MCP server configuration to your VS Code settings:
 2. Open the GitHub Copilot Chat panel
 3. Type: `@mcp list` to see available MCP servers
 4. You should see `pyeye` in the list
-5. Test with: `@mcp pyeye find_symbol MyClass`
+5. Test with: `@mcp pyeye resolve MyClass`
 
 #### Troubleshooting
 
@@ -362,166 +362,39 @@ If no configuration is found in `pyproject.toml`, PyEye will also check for the 
 
 **Note:** Explicit `[tool.pyeye]` configuration always takes precedence over auto-detected layouts.
 
-## Workflow Resources
-
-pyeye provides workflow guidance as MCP Resources to help AI agents and users discover how to use tools effectively for common multi-step tasks.
-
-### Discovering Workflows
-
-List available workflows:
-
-```text
-"List pyeye workflow resources"
-```
-
-Or with Claude Code's MCP tools:
-
-```python
-ListMcpResourcesTool(server="pyeye")
-```
-
-### Using Workflows
-
-**On-demand (trial):**
-
-```text
-"Use pyeye find-references workflow"
-"Use pyeye refactoring workflow"
-"Use pyeye code-understanding workflow"
-"Use pyeye dependency-analysis workflow"
-"Use pyeye code-review-standards workflow"
-"Use pyeye code-review-security workflow"
-"Use pyeye code-review-pr workflow"
-```
-
-**Permanent (adoption):**
-
-```text
-"Add pyeye find-references workflow to my CLAUDE.md"
-```
-
-The AI will fetch the workflow, add it to your context file, and automatically follow it in future sessions.
-
-### Available Workflows
-
-1. **find-references** - Find ALL class/function references including packages AND notebooks/scripts
-   - Addresses limitation that `find_references` only works with packages (issue #236)
-   - Combines `get_type_info`, `find_references`, and `Grep` for complete coverage
-
-2. **refactoring** - Safe refactoring with impact analysis
-   - Analyze subclasses, references, and dependencies before changing code
-   - Includes change planning and validation steps
-   - Prevents breaking changes through comprehensive analysis
-
-3. **code-understanding** - Understand unfamiliar code structure
-   - Systematic exploration from "What is this?" to "How does it work?"
-   - Covers symbol location, inspection, hierarchy, execution flow, and usage patterns
-   - Progressive understanding from basic to deep integration knowledge
-
-4. **dependency-analysis** - Analyze module dependencies and architecture
-   - Map import relationships and identify circular dependencies
-   - Calculate coupling metrics and assess change impact
-   - Understand architectural patterns and module relationships
-
-5. **code-review-standards** - Python code review best practices (2025)
-   - Industry standards: PEP 8, PEP 257, PEP 484, modern Python features
-   - MCP-enhanced analysis: Type safety, anti-patterns, architecture review
-   - Automated checks combined with semantic understanding
-
-6. **code-review-security** - OWASP security code review
-   - Security checklist: Input validation, injection prevention, auth patterns
-   - Data flow analysis using MCP tools (trace user input through code)
-   - Framework-specific security (Flask/Django plugin integration)
-
-7. **code-review-pr** - Complete pull request review workflow
-   - Combines automated checks, semantic analysis, and manual review
-   - Step-by-step process: CI validation → impact analysis → standards → security
-   - Constructive feedback guidelines and time budgets
-
-### Example Usage Flow
-
-**Discovery (README):** User learns workflows exist
-
-```text
-User: "How do I find all references to a class?"
-AI: "There's a find-references workflow for that. Let me show you..."
-```
-
-**Trial (On-Demand):** User tries workflow
-
-```text
-User: "Use pyeye find-references workflow for this class"
-AI: [fetches workflow from MCP Resources]
-AI: [executes: get_type_info → find_references → Grep]
-AI: "Found 15 references: 12 in packages, 3 in notebooks"
-```
-
-**Adoption (Self-Service):** User adds to context
-
-```text
-User: "That's useful - add it to my CLAUDE.md"
-AI: [reads workflow resource, appends to CLAUDE.md]
-AI: "✅ Workflow added to your context"
-```
-
-**Automatic Usage:** Future sessions use workflow automatically
-
-```text
-User: "Find all uses of this class"
-AI: [sees workflow in context, follows steps automatically]
-AI: [returns complete results without prompting]
-```
-
-### Benefits
-
-- **Discover best practices** - Learn optimal tool combinations
-- **Avoid trial and error** - Workflows encode discovered patterns
-- **Handle tool limitations** - Includes workarounds (e.g., issue #236)
-- **Self-service adoption** - Add workflows to your context as needed
-- **Always up-to-date** - Workflows maintained with MCP server
-
-### Technical Details
-
-Workflows are exposed via MCP Resources protocol:
-
-- **URI scheme**: `workflows://[workflow-name]`
-- **Format**: Markdown (human and AI readable)
-- **Access**: Via `ListMcpResourcesTool` and `ReadMcpResourceTool`
-- **Integration**: Can be programmatically added to user context files
-
 ## Core Tools
 
-### Basic Navigation
+PyEye exposes a small set of **progressive-disclosure primitives** that work on
+canonical handles (a re-exported path collapses to its definition site). They are
+cheap by default — they return structural facts and pointers, never source
+content. For the full mechanics, the authoritative list of supported edges, and
+worked examples, see the `python-explore` skill (`skills/python-explore/SKILL.md`).
 
-- **`find_symbol`** - Find class, function, or variable definitions with re-export tracking
-  - Now includes `import_paths` field showing all available import paths for a symbol
-  - Automatically detects re-exports through `__init__.py` files
-  - Lists shorter/preferred import paths first (e.g., `from models import User` before `from models.user import User`)
-- **`goto_definition`** - Jump to where a symbol is defined
-- **`find_references`** - Find all places where a symbol is used
-- **`get_type_info`** - Get type hints and docstrings
-- **`find_imports`** - Track module imports across the project
-- **`get_call_hierarchy`** - Analyze function call relationships
-- **`find_subclasses`** - Find all classes inheriting from a given base class
-  - Supports direct and indirect inheritance
-  - Works with built-in classes (Exception, str, etc.)
-  - Can show full inheritance hierarchy chains
-  - Handles multiple inheritance correctly
+### Navigation & Inspection
 
-### Multi-Project Tools
+- **`resolve`** - Resolve a name or dotted path to canonical handle(s); the usual entry point
+- **`resolve_at`** - Resolve the symbol at a `file:line:column` location
+- **`inspect`** - Structured facts for a handle: signature, type, docstring, edge counts
+- **`outline`** - Structural outline of a module, package, or class and its members
+- **`expand`** - Follow one relationship edge from a handle (e.g. `members`, `imports`, `imported_by`, `subclasses`); the skill lists the full supported-edge set
+- **`trace`** - Multi-hop traversal across edges (e.g. `follow=["imports"]` for the dependency closure, `follow=["subclasses"]` for the full hierarchy)
 
-- **`configure_packages`** - Set up additional package locations
-- **`find_symbol_multi`** - Search across multiple projects
-- **`configure_namespace_package`** - Set up distributed namespace packages
-- **`find_in_namespace`** - Search within namespace packages
+### Multi-Project
 
-### Project Structure & Analysis
+- **`configure_packages`** - Register additional package locations to analyze alongside the project
 
-- **`list_project_structure`** - View Python project file organization
-- **`list_packages`** - List all Python packages with structure
-- **`list_modules`** - List modules with exports, classes, functions, and metrics
-- **`analyze_dependencies`** - Analyze module imports and detect circular dependencies
-- **`get_module_info`** - Get detailed module information including metrics and dependencies
+### Deprecated (still available)
+
+These predate the primitive interface and are kept only for backwards
+compatibility — prefer the primitives above. The new interface does not answer
+"who calls / references this": reverse-reference support is deferred to a planned
+Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)), so
+until then these legacy tools under-report and should not be relied on for
+completeness.
+
+- **`find_references`** - Find usages of a symbol (under-reports)
+- **`get_call_hierarchy`** - Caller/callee relationships (under-reports)
+- **`analyze_dependencies`** - Module imports and circular-dependency detection (proposed for removal in [#404](https://github.com/okeefeco/pyeye-mcp/issues/404); `trace(follow=["imports"])` covers cycle detection)
 
 ### Framework-Specific Tools (Auto-Activated)
 
@@ -574,9 +447,8 @@ Handle packages distributed across multiple repositories:
 
 ```python
 # company.auth in repo A, company.api in repo B
-configure_namespace_package(
-    namespace="company",
-    repo_paths=["~/repos/company-auth", "~/repos/company-api"]
+configure_packages(
+    namespaces={"company": ["~/repos/company-auth", "~/repos/company-api"]}
 )
 ```
 
@@ -593,7 +465,7 @@ The server uses file watching to automatically update when code changes:
 ```text
 PyEye
 ├── Core Server (FastMCP)
-│   └── 17 MCP tools registered
+│   └── MCP tools (primitives + auto-activated framework plugins)
 ├── Project Manager
 │   ├── Multi-project support (LRU cache, max 10)
 │   ├── Connection pooling (optional optimization)
