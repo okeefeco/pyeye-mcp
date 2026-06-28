@@ -197,7 +197,7 @@ Add the MCP server configuration to your VS Code settings:
 2. Open the GitHub Copilot Chat panel
 3. Type: `@mcp list` to see available MCP servers
 4. You should see `pyeye` in the list
-5. Test with: `@mcp pyeye find_symbol MyClass`
+5. Test with: `@mcp pyeye resolve MyClass`
 
 #### Troubleshooting
 
@@ -364,37 +364,37 @@ If no configuration is found in `pyproject.toml`, PyEye will also check for the 
 
 ## Core Tools
 
-### Basic Navigation
+PyEye exposes a small set of **progressive-disclosure primitives** that work on
+canonical handles (a re-exported path collapses to its definition site). They are
+cheap by default — they return structural facts and pointers, never source
+content. For the full mechanics, the authoritative list of supported edges, and
+worked examples, see the `python-explore` skill (`skills/python-explore/SKILL.md`).
 
-- **`find_symbol`** - Find class, function, or variable definitions with re-export tracking
-  - Now includes `import_paths` field showing all available import paths for a symbol
-  - Automatically detects re-exports through `__init__.py` files
-  - Lists shorter/preferred import paths first (e.g., `from models import User` before `from models.user import User`)
-- **`goto_definition`** - Jump to where a symbol is defined
-- **`find_references`** - Find all places where a symbol is used
-- **`get_type_info`** - Get type hints and docstrings
-- **`find_imports`** - Track module imports across the project
-- **`get_call_hierarchy`** - Analyze function call relationships
-- **`find_subclasses`** - Find all classes inheriting from a given base class
-  - Supports direct and indirect inheritance
-  - Works with built-in classes (Exception, str, etc.)
-  - Can show full inheritance hierarchy chains
-  - Handles multiple inheritance correctly
+### Navigation & Inspection
 
-### Multi-Project Tools
+- **`resolve`** - Resolve a name or dotted path to canonical handle(s); the usual entry point
+- **`resolve_at`** - Resolve the symbol at a `file:line:column` location
+- **`inspect`** - Structured facts for a handle: signature, type, docstring, edge counts
+- **`outline`** - Structural outline of a module, package, or class and its members
+- **`expand`** - Follow one relationship edge from a handle (e.g. `members`, `imports`, `imported_by`, `subclasses`); the skill lists the full supported-edge set
+- **`trace`** - Multi-hop traversal across edges (e.g. `follow=["imports"]` for the dependency closure, `follow=["subclasses"]` for the full hierarchy)
 
-- **`configure_packages`** - Set up additional package locations
-- **`find_symbol_multi`** - Search across multiple projects
-- **`configure_namespace_package`** - Set up distributed namespace packages
-- **`find_in_namespace`** - Search within namespace packages
+### Multi-Project
 
-### Project Structure & Analysis
+- **`configure_packages`** - Register additional package locations to analyze alongside the project
 
-- **`list_project_structure`** - View Python project file organization
-- **`list_packages`** - List all Python packages with structure
-- **`list_modules`** - List modules with exports, classes, functions, and metrics
-- **`analyze_dependencies`** - Analyze module imports and detect circular dependencies
-- **`get_module_info`** - Get detailed module information including metrics and dependencies
+### Deprecated (still available)
+
+These predate the primitive interface and are kept only for backwards
+compatibility — prefer the primitives above. The new interface does not answer
+"who calls / references this": reverse-reference support is deferred to a planned
+Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)), so
+until then these legacy tools under-report and should not be relied on for
+completeness.
+
+- **`find_references`** - Find usages of a symbol (under-reports)
+- **`get_call_hierarchy`** - Caller/callee relationships (under-reports)
+- **`analyze_dependencies`** - Module imports and circular-dependency detection (proposed for removal in [#404](https://github.com/okeefeco/pyeye-mcp/issues/404); `trace(follow=["imports"])` covers cycle detection)
 
 ### Framework-Specific Tools (Auto-Activated)
 
@@ -447,9 +447,8 @@ Handle packages distributed across multiple repositories:
 
 ```python
 # company.auth in repo A, company.api in repo B
-configure_namespace_package(
-    namespace="company",
-    repo_paths=["~/repos/company-auth", "~/repos/company-api"]
+configure_packages(
+    namespaces={"company": ["~/repos/company-auth", "~/repos/company-api"]}
 )
 ```
 
@@ -466,7 +465,7 @@ The server uses file watching to automatically update when code changes:
 ```text
 PyEye
 ├── Core Server (FastMCP)
-│   └── 17 MCP tools registered
+│   └── MCP tools (primitives + auto-activated framework plugins)
 ├── Project Manager
 │   ├── Multi-project support (LRU cache, max 10)
 │   ├── Connection pooling (optional optimization)

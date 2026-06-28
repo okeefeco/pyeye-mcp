@@ -310,11 +310,13 @@ the standard coupling metrics by hand:
   depends on nothing); `1` = unstable (depends on others, nothing depends on it).
   Entry points sit near 1; core/shared modules near 0.
 
-**Detecting cycles:** `trace(start=mod, follow=["imports"])`, then look for the
-start module reappearing in the returned subgraph — an `A → … → A` path is a
-circular dependency. Standard ways out: extract a shared base module both can
-import, inject the dependency instead of importing it, or move the import inside
-the function (lazy import).
+**Detecting cycles:** `trace(start=mod, follow=["imports"])`, then scan the
+returned `edges` for one whose `to` is the start module. `trace` visits each node
+once but still records edges back into already-visited nodes, so that back-edge is
+exactly an `A → … → A` circular dependency. (Look in `edges`, not `nodes` — nodes
+are deduped, so the start won't literally reappear.) Standard ways out: extract a
+shared base module both can import, inject the dependency instead of importing it,
+or move the import inside the function (lazy import).
 
 **Reading the architecture:** a clean layered design shows imports flowing one
 direction (API → services → models → external) with no back-edges; a "utility
