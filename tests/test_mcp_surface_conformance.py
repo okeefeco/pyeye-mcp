@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+import pyeye
 from pyeye.mcp.server import mcp
 
 # The complete primitive interface plus configuration.
@@ -128,20 +129,48 @@ class TestNoPackagedCodeInvokesRemovedTools:
     Deliberately matches the fully-qualified `mcp__pyeye__` form only, so prose
     that *names* a removed tool to explain that it is gone (the honest-limits
     notes in this repo) does not trip it. Only an invocable reference does.
+
+    Anchored on the imported package (`pyeye.__file__`) rather than a path
+    relative to this test file: `Path.rglob` on a missing directory returns an
+    empty iterator, so a layout-relative root would let this test pass having
+    scanned nothing at all. `test_scan_actually_covered_the_package` makes that
+    failure mode impossible to reach silently.
     """
 
-    SRC_ROOT = Path(__file__).parent.parent / "src" / "pyeye"
+    @staticmethod
+    def _package_root() -> Path:
+        return Path(pyeye.__file__).parent
+
+    @staticmethod
+    def _packaged_modules() -> list[Path]:
+        return sorted(TestNoPackagedCodeInvokesRemovedTools._package_root().rglob("*.py"))
+
+    def test_scan_actually_covered_the_package(self) -> None:
+        """Fail loudly if the scan below would have inspected nothing."""
+        modules = self._packaged_modules()
+
+        assert len(modules) > 20, (
+            f"Expected to scan the whole pyeye package, found {len(modules)} modules "
+            f"under {self._package_root()}. The guard below would pass vacuously."
+        )
+        names = {p.name for p in modules}
+        assert {
+            "server.py",
+            "jedi_analyzer.py",
+        } <= names, f"Package scan is missing known modules; got {sorted(names)[:10]}..."
 
     def test_no_module_references_a_removed_tool_by_mcp_name(self) -> None:
         pattern = re.compile(r"mcp__pyeye__(" + "|".join(sorted(REMOVED_TOOLS)) + r")\b")
+        root = self._package_root()
 
         offenders: list[str] = []
-        for path in sorted(self.SRC_ROOT.rglob("*.py")):
+        for path in self._packaged_modules():
             for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 match = pattern.search(line)
                 if match:
-                    rel = path.relative_to(self.SRC_ROOT.parent.parent).as_posix()
-                    offenders.append(f"{rel}:{lineno} -> {match.group(0)}")
+                    offenders.append(
+                        f"pyeye/{path.relative_to(root).as_posix()}:{lineno} -> {match.group(0)}"
+                    )
 
         assert not offenders, (
             "Packaged code names removed MCP tools; a consumer following these would "

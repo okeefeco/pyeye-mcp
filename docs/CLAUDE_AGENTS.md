@@ -20,7 +20,7 @@ Catch-all for complex, multi-step research and search tasks that span many files
 
 ### Retired agents
 
-- **cross-platform-validator** (retired #483) — it was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus deprecated `find_references` / `get_call_hierarchy`, and its core job (finding code matching a *pattern* like `str(path)`) is a textual search that pyeye is explicitly not for. Use `scripts/check_cross_platform_paths.py` and the rules in `.claude/instructions/10-cross-platform.md` instead.
+- **cross-platform-validator** (retired #483) — it was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus `find_references` / `get_call_hierarchy` (themselves removed in #505), and its core job (finding code matching a *pattern* like `str(path)`) is a textual search that pyeye is explicitly not for. Use `scripts/check_cross_platform_paths.py` and the rules in `.claude/instructions/10-cross-platform.md` instead.
 - **worktree-manager** (retired #362) — superseded by native worktree tooling (`EnterWorktree` / the `using-git-worktrees` skill).
 
 ## How agents work

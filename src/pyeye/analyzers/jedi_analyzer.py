@@ -224,6 +224,12 @@ class JediAnalyzer:
     # and the "skip files that live inside a package" rule. ``get_project_files``
     # scope resolution only unions ``self.standalone_paths`` wholesale and honours
     # none of that. Removing this would silently drop those config keys.
+    #
+    # NOTE (#513): that contract is currently unreachable — ``configure_packages``
+    # persists those keys but nothing calls this method, and ``exclude_patterns``
+    # is read only from the parameter below, never from ``standalone_config``.
+    # #513 decides whether to wire this up or drop the surface; if the latter,
+    # this method goes with it.
     async def _discover_standalone_files(
         self,
         file_pattern: str = "*.py",
@@ -307,9 +313,10 @@ class JediAnalyzer:
     ) -> list[Any]:
         """Find every project definition of *name* across the requested scope.
 
-        **Deprecated:** Internal helper for legacy methods being superseded by
-        the resolve/resolve_at/inspect API; removed alongside them (Phase B of
-        the migration).
+        **Live, not deprecated.** An earlier docstring marked this for removal
+        alongside the legacy methods; that is wrong. It is the search behind
+        ``find_symbol`` and ``_resolve_simple_type`` — i.e. behind ``resolve`` —
+        and the legacy methods that once used it are gone (#505).
 
         Looks *name* up in the whole-project AST name-index (built once and
         cached in :mod:`pyeye.analyzers.project_graph`, outside the
@@ -1015,11 +1022,11 @@ class JediAnalyzer:
     async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
 
-        **Deprecated:** Replaced by future ``expand(handle, edge="imported_by")``
-        in the redesigned API. See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
+        **Deprecated and orphaned.** Superseded by the shipped
+        ``expand(handle, edge="imported_by")``, which is backed by
+        ``find_importers`` rather than this method. Its last caller went with
+        ``lookup_builders`` in #505, so it has no production caller; retained
+        only because removing it was not required by that change.
 
         Args:
             module_name: Name of the module to find imports for
@@ -2082,11 +2089,10 @@ class JediAnalyzer:
     ) -> list[str]:
         """Find re-export paths for a symbol.
 
-        **Deprecated:** Replaced by ``inspect(handle).re_exports`` (Phase 6 of
-        the resolve+inspect plan) in the redesigned API. See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
+        **Live, not deprecated.** This is the implementation *behind*
+        ``inspect(handle).re_exports``: ``_serialize_name`` calls it to populate
+        ``import_paths``. An earlier docstring described that surfacing as a
+        replacement that would remove this method; it is the same code path.
 
         Args:
             symbol_name: Name of the symbol to find re-exports for
@@ -2209,18 +2215,18 @@ class JediAnalyzer:
     ) -> dict[str, Any]:
         """Find all classes that inherit from a given base class.
 
-        **Deprecated:** Replaced by ``expand(handle, edge="subclasses")`` for the
-        list (use ``len(...)`` for the count) in the redesigned API.  ``subclasses``
-        is an expand-only edge — ``inspect`` does not measure it (#392). See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
+        **Live, not deprecated.** This is the AST class-graph walk *behind*
+        ``expand(handle, edge="subclasses")``; the MCP tool wrapper of the same
+        name was removed in v2.0, but this method backs the edge that replaced
+        it. ``subclasses`` is expand-only — ``inspect`` does not measure it
+        (#392). An earlier docstring marked this for removal in the legacy-tool
+        cleanup phase, which would have deleted a live code path.
 
-        Note: The ambiguity-aware discriminated-union return shape
+        Note: the return shape is an ambiguity-aware discriminated union
         (``{"ambiguous": False, "subclasses": [...]}`` vs
-        ``{"ambiguous": True, "candidates": [...]}``) was introduced just before
-        this deprecation to fix a name-conflation bug; the method is still being
-        deprecated as a whole in favour of the inspect/expand API.
+        ``{"ambiguous": True, "candidates": [...]}``), introduced to fix a
+        name-conflation bug. ``resolve_subclasses`` in ``operations/edges.py``
+        depends on that shape.
 
         Uses a hybrid Jedi + AST approach for performance:
         1. Single-pass AST parsing of scoped files (no double-read)
