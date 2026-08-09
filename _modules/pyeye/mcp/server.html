@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=091a23e8"></script>
+      <script src="../../../_static/documentation_options.js?v=6a148332"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -195,19 +195,12 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../../api/index.html#core-mcp-tools">Core MCP Tools</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#navigation-tools">Navigation Tools</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.find_references.html">pyeye.mcp.server.find_references</a></li>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.get_call_hierarchy.html">pyeye.mcp.server.get_call_hierarchy</a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#navigation-tools">Navigation Tools</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#project-management-tools">Project Management Tools</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.configure_packages.html">pyeye.mcp.server.configure_packages</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#analysis-tools">Analysis Tools</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html">pyeye.mcp.server.analyze_dependencies</a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#analysis-tools">Analysis Tools</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../../api/index.html#framework-specific-tools">Framework-Specific Tools</a></li>
 </ul>
 </li>
@@ -347,10 +340,8 @@
   <h1>Source code for pyeye.mcp.server</h1><div class="highlight"><pre>
 <span></span><span class="sd">&quot;&quot;&quot;Main MCP server implementation for PyEye.&quot;&quot;&quot;</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">builtins</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.fastmcp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastMCP</span>
@@ -358,11 +349,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">..analyzers.jedi_analyzer</span><span class="w"> </span><span class="kn">import</span> <span class="n">JediAnalyzer</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..config</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProjectConfig</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..constants</span><span class="w"> </span><span class="kn">import</span> <span class="n">PROJECT_NAME</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">..exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">AnalysisError</span><span class="p">,</span>
-    <span class="n">FileAccessError</span><span class="p">,</span>
-    <span class="n">ProjectNotFoundError</span><span class="p">,</span>
-<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">metrics</span>
 
 <span class="c1"># Import metrics_hook only if available (for optional unified metrics support)</span>
@@ -852,10 +838,9 @@
 <span class="sd">    ``line_end``, and ``signature`` when Jedi yields one (always for</span>
 <span class="sd">    class/function/method; also any name whose inferred type is callable).</span>
 
-<span class="sd">    Relationship to deprecated tools: ``members`` supersedes the deprecated</span>
-<span class="sd">    ``find_subclasses``/``find_symbol`` pattern for enumerating class members.</span>
-<span class="sd">    ``callees`` supersedes manual ``get_call_hierarchy`` usage for forward edges.</span>
-<span class="sd">    Both deprecated tools remain registered until Phase B migration.</span>
+<span class="sd">    ``callees`` is the only supported way to ask what a function calls; the</span>
+<span class="sd">    reverse question (what calls it) is not answerable here — see the</span>
+<span class="sd">    ``deferred_reference_backend`` reason above.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        handle: Canonical Python dotted-name string (from resolve/inspect).</span>
@@ -1039,194 +1024,6 @@
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
     <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="k">await</span> <span class="n">_outline_impl</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">analyzer</span><span class="p">,</span> <span class="n">max_depth</span><span class="o">=</span><span class="n">max_depth</span><span class="p">,</span> <span class="n">max_nodes</span><span class="o">=</span><span class="n">max_nodes</span><span class="p">))</span>
-
-
-<span class="c1"># NOTE: superseded by future expand(handle, edge=&quot;references&quot;); kept until Phase B migration.</span>
-<div class="viewcode-block" id="find_references">
-<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.find_references.html#pyeye.mcp.server.find_references">[docs]</a>
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
-<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;find_references&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">find_references</span><span class="p">(</span>
-    <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">line</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">column</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
-    <span class="n">include_definitions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">include_subclasses</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">symbol_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.</span>
-
-<span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
-<span class="sd">    This tool provides fields filtering, include_subclasses, and symbol_name for full reference lists.</span>
-
-<span class="sd">    Two calling conventions (coordinates take precedence if both provided):</span>
-<span class="sd">    1. Coordinates: file + line + column (precise, unambiguous)</span>
-<span class="sd">    2. Symbol name: symbol_name only (convenient; fails if name is ambiguous)</span>
-
-<span class="sd">    If symbol_name matches multiple symbols, returns error with a &quot;matches&quot; list</span>
-<span class="sd">    so you can pick the right one and retry with coordinates.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        file: Path to the file (required with line and column)</span>
-<span class="sd">        line: Line number (1-indexed, required with file and column)</span>
-<span class="sd">        column: Column number (0-indexed, required with file and line)</span>
-<span class="sd">        symbol_name: Symbol name (alternative to file+line+column)</span>
-<span class="sd">        project_path: Root path of the project</span>
-<span class="sd">        include_definitions: Include definitions in results</span>
-<span class="sd">        include_subclasses: Also find references to all subclasses (polymorphic search)</span>
-<span class="sd">        fields: Fields to include per reference. Valid: name, type, line, column,</span>
-<span class="sd">               description, full_name, file, is_definition. Default: all fields.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Validate input: determine which branch to use</span>
-    <span class="n">all_coords</span> <span class="o">=</span> <span class="n">file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="n">any_coord</span> <span class="o">=</span> <span class="n">file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-
-    <span class="k">if</span> <span class="n">all_coords</span><span class="p">:</span>
-        <span class="c1"># Branch 1: All coordinates present — use them directly (ignore symbol_name)</span>
-        <span class="k">pass</span>
-    <span class="k">elif</span> <span class="n">any_coord</span><span class="p">:</span>
-        <span class="c1"># Branch 3: Some but not all coordinates provided (checked before symbol_name)</span>
-        <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead&quot;</span>
-        <span class="p">}</span>
-    <span class="k">elif</span> <span class="n">symbol_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># Branch 2: Symbol name provided (no coordinates) — resolve to coordinates</span>
-        <span class="n">_sym_analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-        <span class="n">symbol_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_sym_analyzer</span><span class="o">.</span><span class="n">find_symbol</span><span class="p">(</span>
-            <span class="n">symbol_name</span><span class="p">,</span> <span class="n">fuzzy</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">include_import_paths</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;all&quot;</span>
-        <span class="p">)</span>
-        <span class="c1"># If symbol_name is a full dotted path (contains dots) and multiple results came</span>
-        <span class="c1"># back, narrow to exact full_name match before disambiguation.</span>
-        <span class="k">if</span> <span class="s2">&quot;.&quot;</span> <span class="ow">in</span> <span class="n">symbol_name</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">symbol_results</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="n">fqn_matches</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">symbol_results</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;full_name&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">symbol_name</span><span class="p">]</span>
-            <span class="k">if</span> <span class="n">fqn_matches</span><span class="p">:</span>
-                <span class="n">symbol_results</span> <span class="o">=</span> <span class="n">fqn_matches</span>
-
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">symbol_results</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">builtins</span><span class="p">,</span> <span class="n">symbol_name</span><span class="p">):</span>
-                <span class="k">return</span> <span class="p">{</span>
-                    <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Symbol &#39;</span><span class="si">{</span><span class="n">symbol_name</span><span class="si">}</span><span class="s2">&#39; is a built-in with no source file; cannot find references by name&quot;</span>
-                <span class="p">}</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;No symbol found matching &#39;</span><span class="si">{</span><span class="n">symbol_name</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">}</span>
-        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">symbol_results</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="n">match</span> <span class="o">=</span> <span class="n">symbol_results</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-            <span class="k">if</span> <span class="s2">&quot;file&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">match</span><span class="p">:</span>
-                <span class="k">return</span> <span class="p">{</span>
-                    <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Symbol &#39;</span><span class="si">{</span><span class="n">symbol_name</span><span class="si">}</span><span class="s2">&#39; is a built-in with no source file; cannot find references by name&quot;</span>
-                <span class="p">}</span>
-            <span class="c1"># Set coordinates and fall through to the existing resolution code</span>
-            <span class="n">file</span> <span class="o">=</span> <span class="n">match</span><span class="p">[</span><span class="s2">&quot;file&quot;</span><span class="p">]</span>
-            <span class="n">line</span> <span class="o">=</span> <span class="n">match</span><span class="p">[</span><span class="s2">&quot;line&quot;</span><span class="p">]</span>
-            <span class="n">column</span> <span class="o">=</span> <span class="n">match</span><span class="p">[</span><span class="s2">&quot;column&quot;</span><span class="p">]</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c1"># Multiple matches — return disambiguation response</span>
-            <span class="k">return</span> <span class="p">{</span>
-                <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Multiple symbols found matching &#39;</span><span class="si">{</span><span class="n">symbol_name</span><span class="si">}</span><span class="s2">&#39;. Specify file, line, and column to disambiguate.&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;matches&quot;</span><span class="p">:</span> <span class="n">symbol_results</span><span class="p">,</span>
-            <span class="p">}</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="c1"># Branch 4: Neither coordinates nor symbol_name provided</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Either symbol_name or file+line+column required&quot;</span><span class="p">}</span>
-
-    <span class="c1"># At this point, all three coordinates are guaranteed non-None</span>
-    <span class="c1"># (either provided directly or resolved from symbol_name).</span>
-    <span class="k">assert</span> <span class="n">file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="k">assert</span> <span class="n">line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="k">assert</span> <span class="n">column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-
-    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">find_references</span><span class="p">(</span>
-        <span class="n">file</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">column</span><span class="p">,</span> <span class="n">include_definitions</span><span class="p">,</span> <span class="n">include_subclasses</span>
-    <span class="p">)</span>
-
-    <span class="c1"># Apply field filtering if requested</span>
-    <span class="k">if</span> <span class="n">fields</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="n">filter_fields</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">fields</span><span class="p">)</span>  <span class="c1"># type: ignore</span>
-
-    <span class="k">return</span> <span class="n">result</span></div>
-
-
-
-<span class="c1"># DEPRECATED: replaced by inspect(handle).edge_counts.callers for the count; future expand(handle, edge=&quot;callers&quot;) for the list. Will be removed in the legacy-tool cleanup phase.</span>
-<div class="viewcode-block" id="get_call_hierarchy">
-<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.get_call_hierarchy.html#pyeye.mcp.server.get_call_hierarchy">[docs]</a>
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;get_call_hierarchy&quot;</span><span class="p">)</span>
-<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;get_call_hierarchy&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_call_hierarchy</span><span class="p">(</span>
-    <span class="n">function_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Trace function callers and callees through the codebase.</span>
-
-<span class="sd">    **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` for the</span>
-<span class="sd">    count and future ``expand(handle, edge=&quot;callers&quot;)`` for the list in the</span>
-<span class="sd">    redesigned API. See</span>
-<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
-<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
-<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
-
-<span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
-<span class="sd">    This tool provides full call graph traversal beyond the default limit.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        function_name: Name of the function</span>
-<span class="sd">        file: Optional file to search in (searches whole project if not specified)</span>
-<span class="sd">        project_path: Root path of the project</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-    <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">get_call_hierarchy</span><span class="p">(</span><span class="n">function_name</span><span class="p">,</span> <span class="n">file</span><span class="p">)</span></div>
-
-
-
-<span class="c1"># DEPRECATED: replaced by future trace(handle, follow=[&quot;imports&quot;]). Will be removed in the legacy-tool cleanup phase.</span>
-<div class="viewcode-block" id="analyze_dependencies">
-<a class="viewcode-back" href="../../../api/generated/pyeye.mcp.server.analyze_dependencies.html#pyeye.mcp.server.analyze_dependencies">[docs]</a>
-<span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-<span class="nd">@validate_mcp_inputs</span>
-<span class="nd">@metrics</span><span class="o">.</span><span class="n">measure</span><span class="p">(</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">)</span>
-<span class="nd">@track_mcp_operation</span><span class="p">(</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">analyze_dependencies</span><span class="p">(</span>
-    <span class="n">module_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;all&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Map module dependencies and detect circular imports. Semantic analysis grep can&#39;t do.</span>
-
-<span class="sd">    **Deprecated:** Replaced by future ``trace(handle, follow=[&quot;imports&quot;])`` in</span>
-<span class="sd">    the redesigned API. See</span>
-<span class="sd">    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md</span>
-<span class="sd">    for the migration plan. This method will be removed once the legacy</span>
-<span class="sd">    MCP tools are deprecated (Phase B of the migration).</span>
-
-<span class="sd">    For general use, prefer lookup() which accepts any identifier form.</span>
-<span class="sd">    This tool provides circular dependency detection and scope filtering for targeted queries.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        module_path: Import path of the module (e.g., &quot;pyeye.mcp&quot;)</span>
-<span class="sd">        project_path: Root path of the project</span>
-<span class="sd">        scope: Search scope - &quot;main&quot;, &quot;all&quot;, &quot;namespace:name&quot;, or list</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">analyze_dependencies</span><span class="p">(</span><span class="n">module_path</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">)</span>
-    <span class="k">except</span> <span class="n">ProjectNotFoundError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="n">FileAccessError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Project path not found: </span><span class="si">{</span><span class="n">Path</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">as_posix</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">project_path</span>
-        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
-    <span class="k">except</span> <span class="n">FileAccessError</span><span class="p">:</span>
-        <span class="k">raise</span>  <span class="c1"># Re-raise module not found errors</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error analyzing dependencies: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">raise</span> <span class="n">AnalysisError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Failed to analyze dependencies for </span><span class="si">{</span><span class="n">module_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-            <span class="n">file_path</span><span class="o">=</span><span class="n">project_path</span><span class="p">,</span>
-            <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;analyze_dependencies&quot;</span><span class="p">,</span>
-            <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span>
-        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span></div>
-
 
 
 <span class="c1"># Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)</span>
