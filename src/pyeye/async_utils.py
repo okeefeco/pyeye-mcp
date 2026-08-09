@@ -86,23 +86,58 @@ async def glob_async(pattern: str, path: Path) -> list[Path]:
 
 
 async def rglob_async(pattern: str, path: Path) -> list[Path]:
-    """Recursively glob files asynchronously, excluding common non-project directories.
+    """Recursively glob files asynchronously, excluding non-project directories.
+
+    Two exclusion rules apply:
+
+    1. **Name-based** — any path component in ``EXCLUDED_DIRS`` (virtual envs,
+       caches, build artifacts).
+    2. **Nested checkouts** (#507) — any directory *strictly below* ``path``
+       that is a linked git worktree root. A linked worktree is a duplicate of
+       the tree it was created from, so scanning one gives every project symbol
+       a second definition site, possibly on another branch or mid-edit.
+
+    The nested-checkout rule tests for a ``.git`` **file** (a linked worktree's
+    gitdir pointer), not a ``.git`` directory. Submodules and vendored clones
+    keep a ``.git`` directory and are deliberately still scanned — their source
+    is frequently imported by the parent project. ``path`` itself is never
+    tested, so scanning from *inside* a worktree works normally.
 
     Args:
         pattern: Glob pattern
         path: Base path to search in
 
     Returns:
-        List of matching paths (excludes .venv, __pycache__, .git, etc.)
+        List of matching paths (excludes .venv, __pycache__, .git, nested
+        worktrees, etc.)
     """
     from .constants import EXCLUDED_DIRS
 
     def _filtered_rglob() -> list[Path]:
+        # A single scan revisits the same ancestor directories thousands of
+        # times; probe each one once.
+        is_worktree_root: dict[Path, bool] = {}
+
+        def _under_nested_worktree(candidate: Path) -> bool:
+            for parent in candidate.parents:
+                if parent == path:
+                    return False
+                cached = is_worktree_root.get(parent)
+                if cached is None:
+                    cached = (parent / ".git").is_file()
+                    is_worktree_root[parent] = cached
+                if cached:
+                    return True
+            return False
+
         results = []
         for p in path.rglob(pattern):
             # Check if any parent directory is in the exclusion set
-            if not any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in p.parts):
-                results.append(p)
+            if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in p.parts):
+                continue
+            if _under_nested_worktree(p):
+                continue
+            results.append(p)
         return results
 
     return await asyncio.to_thread(_filtered_rglob)
