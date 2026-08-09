@@ -127,11 +127,8 @@ The server uses intelligent defaults based on the method being called:
 
 These methods need to find references across all code:
 
-- `find_subclasses` - Find all implementations
-- `find_references` - Find all usages
-- `analyze_dependencies` - Understand full dependency graph
-- `find_imports` - Track module usage
-- `get_call_hierarchy` - Trace execution paths
+- `find_subclasses` - Find all implementations (backs the `subclasses` edge)
+- `find_symbol` - Resolve a name anywhere (backs `resolve`)
 
 ### Methods that search main project by default
 
@@ -139,7 +136,6 @@ These methods typically focus on the current project:
 
 - `list_modules` - Project structure
 - `list_packages` - Package organization
-- `get_module_info` - Module details
 - Framework-specific methods (`find_routes`, `find_models`, etc.)
 
 ### Overriding Defaults
@@ -167,7 +163,7 @@ You can override defaults globally or per-method:
 symbols = await analyzer.find_symbol("MyClass", scope="main")
 
 # Search everything
-refs = await analyzer.find_references(file, line, col, scope="all")
+subclasses = await analyzer.find_subclasses("MyClass", scope="all")
 
 # Search specific namespace
 models = await analyzer.find_models(scope="namespace:company")
@@ -328,8 +324,8 @@ results = await analyzer.find_symbol("User", scope="all")
   "scope_defaults": {
     "global": "first-party",
     "methods": {
-      "find_references": "all",
-      "analyze_dependencies": "production"
+      "find_subclasses": "all",
+      "list_modules": "main"
     }
   }
 }
@@ -421,12 +417,37 @@ Ensure paths exist and contain Python files.
 
 **Problem**: Circular import detected
 
-**Solution**: Use `analyze_dependencies` to identify cycles:
+**Solution**: Trace the import closure and look for a back-edge into the module
+you started from:
 
 ```python
-deps = await analyzer.analyze_dependencies("mymodule", scope="all")
-print(deps["circular_dependencies"])
+# via the MCP surface. Resolve first so the comparison below is against a
+# canonical handle, not whatever string you happened to type.
+start = (await resolve("mymodule"))["handle"]
+
+# max_depth defaults to 3 — raise it or you will only see short cycles.
+sub = await trace(start=start, follow=["imports"], max_depth=6)
+cycles = [e for e in sub["edges"] if e["to"] == start]
 ```
+
+`trace` visits each node once but still records edges back into already-visited
+nodes, so an edge whose `to` is the start handle is exactly an `A -> ... -> A`
+circular dependency. (Look in `edges`, not `nodes` — nodes are deduped, so the
+start never literally reappears there.)
+
+**Two limits, stated because the tool this replaced was removed for claiming
+complete cycle detection it did not have:**
+
+- **Bounded by two caps**: `max_depth` (default `3`) and `max_nodes` (default
+  `50`). A cycle longer than the depth you pass, or one reached only after the
+  node budget runs out, is simply not traversed — an empty `cycles` list means
+  "no cycle within the caps", never "no cycles". Check `sub["truncated"]` and
+  `sub["truncation_reasons"]` (`["max_depth"?, "max_nodes"?]`); if either fired,
+  the result is a floor, not an answer.
+- **Static imports only.** `importlib.import_module()`, plugin loaders and
+  conditional imports are invisible, so a runtime cycle can exist with no static
+  edge. Also check `sub["unresolved_imports"]` — a node listed there has an
+  incomplete import set, so any cycle claim about it is unverified.
 
 ## Best Practices
 

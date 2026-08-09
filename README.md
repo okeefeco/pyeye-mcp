@@ -13,8 +13,9 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Features
 
-- 🔍 **Semantic Code Navigation**: Find symbols, go to definitions, find references using Jedi
-- 📊 **Module & Package Analysis**: List packages/modules, analyze dependencies, detect circular imports
+- 🔍 **Semantic Code Navigation**: Resolve any identifier to a stable canonical handle, then inspect or outline it
+- 📊 **Structural Traversal**: Walk `members`, `callees`, `imports`, `imported_by`, `subclasses`, `superclasses`, and `submodules` — one hop with `expand`, many with `trace`
+- 🤝 **Honest by Construction**: Unsupported questions (notably "who calls this") are *refused*, not guessed; absent counts mean "not measured", never "zero"
 - 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
 - 📝 **Standalone Scripts**: Analyze notebooks, scripts, and examples alongside formal packages
@@ -383,18 +384,24 @@ worked examples, see the `python-explore` skill (`skills/python-explore/SKILL.md
 
 - **`configure_packages`** - Register additional package locations to analyze alongside the project
 
-### Deprecated (still available)
+### Known limitation: no reverse references
 
-These predate the primitive interface and are kept only for backwards
-compatibility — prefer the primitives above. The new interface does not answer
-"who calls / references this": reverse-reference support is deferred to a planned
-Pyright backend ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)), so
-until then these legacy tools under-report and should not be relied on for
-completeness.
+The interface does not answer **"who calls / references this"**. Reverse-reference
+support is deferred to a planned Pyright backend
+([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)). When you ask for a
+`callers` or `references` edge, pyeye reports it as unsupported rather than
+guessing, and `inspect`'s `edge_counts` omits those keys entirely instead of
+reporting `0`. Delegate caller questions to a language server; pyeye's `resolve`
+gives you the definition-site position an LSP reference query needs.
 
-- **`find_references`** - Find usages of a symbol (under-reports)
-- **`get_call_hierarchy`** - Caller/callee relationships (under-reports)
-- **`analyze_dependencies`** - Module imports and circular-dependency detection (proposed for removal in [#404](https://github.com/okeefeco/pyeye-mcp/issues/404); `trace(follow=["imports"])` covers cycle detection)
+Forward and structural questions *are* answered: `callees` (what a function calls),
+`imported_by` / `imports`, `subclasses` / `superclasses`, `members`, `submodules`.
+
+> **Removed in v2.0.** `find_references`, `get_call_hierarchy`, and
+> `analyze_dependencies` were removed in
+> [#505](https://github.com/okeefeco/pyeye-mcp/issues/505) — not deprecated —
+> because they returned confidently wrong answers rather than merely incomplete
+> ones. See the CHANGELOG's migration map for replacements.
 
 ### Framework-Specific Tools (Auto-Activated)
 
@@ -563,7 +570,6 @@ The following performance baselines are enforced in CI:
 |-----------|----------|----------|----------|
 | symbol_search | 50 | 100 | 200 |
 | goto_definition | 30 | 75 | 150 |
-| find_references | 100 | 250 | 500 |
 | cache_lookup | 0.1 | 0.5 | 1.0 |
 
 ## Development

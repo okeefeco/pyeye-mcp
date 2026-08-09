@@ -155,36 +155,6 @@ target_function()
                 json.dumps(result)
 
     @pytest.mark.asyncio
-    async def test_find_references_json_serializable(self):
-        """Test find_references returns JSON-serializable results."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_file = Path(temp_dir) / "test.py"
-            test_file.write_text("""
-class MyClass:
-    pass
-
-obj1 = MyClass()
-obj2 = MyClass()
-""")
-
-            analyzer = JediAnalyzer(temp_dir)
-
-            # Find references to MyClass
-            results = await analyzer.find_references(
-                file=str(test_file),
-                line=1,  # Line with class definition
-                column=6,  # Position of "MyClass"
-            )
-
-            # Verify all results have string file paths
-            for result in results:
-                if "file" in result:
-                    assert isinstance(result["file"], str)
-
-            # Verify JSON serialization
-            json.dumps(results)
-
-    @pytest.mark.asyncio
     async def test_mcp_server_response_serialization(self):
         """Test that MCP server responses are always JSON-serializable."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -274,38 +244,6 @@ obj = MyClass()
         assert "/some/problematic/file.py" in json_str
 
     @pytest.mark.asyncio
-    async def test_get_call_hierarchy_json_serializable(self):
-        """Test that get_call_hierarchy handles Path serialization properly."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create test files
-            test_file = Path(temp_dir) / "test.py"
-            test_file.write_text("""
-def caller_function():
-    target_function()
-
-def target_function():
-    print("Hello")
-    helper_function()
-
-def helper_function():
-    pass
-""")
-
-            analyzer = JediAnalyzer(temp_dir)
-
-            # Test successful case
-            result = await analyzer.get_call_hierarchy("target_function")
-
-            # Should be JSON serializable
-            json.dumps(result)
-
-            # Test error case - function not found
-            result = await analyzer.get_call_hierarchy("NonExistentFunction")
-
-            # Even error results should be JSON serializable
-            json.dumps(result)
-
-    @pytest.mark.asyncio
     async def test_all_mcp_tools_json_serializable(self):
         """Test that all analyzer responses are JSON-serializable."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -322,7 +260,6 @@ def test_function():
             tools_to_test = [
                 (analyzer.list_modules, {}),
                 (analyzer.list_packages, {}),
-                (analyzer.get_module_info, {"module_path": "test_module"}),
             ]
 
             for tool_func, kwargs in tools_to_test:

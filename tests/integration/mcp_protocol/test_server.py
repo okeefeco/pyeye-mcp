@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -11,9 +11,8 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import ValidationError
 from pyeye.mcp.server import (
     configure_packages,
-    find_references,
-    get_call_hierarchy,
     mcp,
+    resolve_at,
 )
 
 
@@ -256,127 +255,6 @@ class TestFindSymbol:
         assert auth_found, "Authenticator class not found in results"
 
 
-class TestFindReferences:
-    """Test the find_references tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_references(self, mock_get_analyzer):
-        """Test finding symbol references."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = [
-            {
-                "file": "/project/test.py",
-                "line": 10,
-                "column": 0,
-                "type": "reference",
-                "description": "test_var",
-            },
-            {
-                "file": "/project/test.py",
-                "line": 20,
-                "column": 5,
-                "type": "reference",
-                "description": "test_var",
-            },
-        ]
-        mock_analyzer.find_references.return_value = expected_result
-
-        result = await find_references("test.py", 5, 0)
-
-        assert len(result) == 2
-        assert result[0]["line"] == 10
-        assert result[1]["line"] == 20
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, True, False)
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_find_references_exclude_definitions(self, mock_get_analyzer):
-        """Test finding references excluding definitions."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result - only non-definition references
-        expected_result = [
-            {
-                "file": "/project/test.py",
-                "line": 20,
-                "column": 5,
-                "type": "reference",
-                "description": "test_var",
-            }
-        ]
-        mock_analyzer.find_references.return_value = expected_result
-
-        result = await find_references("test.py", 5, 0, include_definitions=False)
-
-        # Should only include non-definition references
-        assert len(result) == 1
-        assert result[0]["line"] == 20
-        mock_analyzer.find_references.assert_called_with("test.py", 5, 0, False, False)
-
-
-class TestGetCallHierarchy:
-    """Test the get_call_hierarchy tool."""
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy(self, mock_get_analyzer):
-        """Test getting call hierarchy."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = {
-            "function": "test_func",
-            "file": "/project/module.py",
-            "line": 5,
-            "callers": [
-                {"file": "/project/main.py", "line": 10, "column": 4, "context": "test_func()"}
-            ],
-            "callees": [],
-        }
-        mock_analyzer.get_call_hierarchy.return_value = expected_result
-
-        result = await get_call_hierarchy("test_func")
-
-        assert result["function"] == "test_func"
-        assert "callers" in result
-        assert "callees" in result
-        mock_analyzer.get_call_hierarchy.assert_called_with("test_func", None)
-
-    @patch("pyeye.mcp.server.get_analyzer")
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy_with_file(self, mock_get_analyzer):
-        """Test call hierarchy with specific file."""
-        # Mock analyzer
-        mock_analyzer = AsyncMock()
-        mock_get_analyzer.return_value = mock_analyzer
-
-        # Mock the result
-        expected_result = {
-            "function": "func",
-            "file": "test.py",
-            "line": 5,
-            "callers": [],
-            "callees": [],
-        }
-        mock_analyzer.get_call_hierarchy.return_value = expected_result
-
-        result = await get_call_hierarchy("func", file="test.py")
-
-        # Should search for function in specific file
-        assert result is not None
-        assert result["function"] == "func"
-        mock_analyzer.get_call_hierarchy.assert_called_with("func", "test.py")
-
-
 class TestFindSubclasses:
     """Test the kept ``JediAnalyzer.find_subclasses`` method (flat-list contract)."""
 
@@ -502,38 +380,29 @@ class TestErrorHandling:
 class TestInputValidation:
     """Test the @validate_mcp_inputs decorator via a kept position-based tool.
 
-    The decorator is shared infrastructure; we exercise it through the kept
-    ``find_references`` tool (same ``file``/``line``/``column`` signature and the
-    same ``@validate_mcp_inputs`` decorator the deleted ``goto_definition`` used).
+    The decorator is shared infrastructure; we exercise it through ``resolve_at``,
+    which carries the same ``file``/``line``/``column`` signature and the same
+    ``@validate_mcp_inputs`` decorator that the removed position-based tools
+    (``goto_definition``, then ``find_references`` in #505) used.
     """
 
-    @patch("pyeye.mcp.server.Path")
-    @pytest.mark.asyncio
-    async def test_validate_negative_line_number(self, mock_path_class):
-        """Test that negative line numbers are rejected."""
-        # Mock file path exists
-        mock_path = Mock()
-        mock_path.exists.return_value = True
-        mock_path_class.return_value = mock_path
+    # No filesystem mocking: the decorator rejects out-of-range coordinates
+    # before it ever touches the file, so these assertions hold for a path that
+    # does not exist.
 
-        # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
+    @pytest.mark.asyncio
+    async def test_validate_negative_line_number(self):
+        """Test that negative line numbers are rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            await find_references("test.py", -1, 0)
+            await resolve_at("test.py", -1, 0)
 
         assert "line number" in str(exc_info.value).lower()
 
-    @patch("pyeye.mcp.server.Path")
     @pytest.mark.asyncio
-    async def test_validate_negative_column_number(self, mock_path_class):
+    async def test_validate_negative_column_number(self):
         """Test that negative column numbers are rejected."""
-        # Mock file path exists
-        mock_path = Mock()
-        mock_path.exists.return_value = True
-        mock_path_class.return_value = mock_path
-
-        # The @validate_mcp_inputs decorator should raise ValidationError for invalid inputs
         with pytest.raises(ValidationError) as exc_info:
-            await find_references("test.py", 10, -5)
+            await resolve_at("test.py", 10, -5)
 
         assert "column" in str(exc_info.value).lower()
 

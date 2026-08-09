@@ -84,13 +84,9 @@
   "scope_defaults": {
     "global": "namespace:company",
     "methods": {
-      "analyze_dependencies": "production",
-      "find_imports": "all",
       "find_models": "namespace:company.libs",
-      "find_references": "all",
       "find_routes": "namespace:company.services",
       "find_subclasses": "first-party",
-      "get_call_hierarchy": "production",
       "list_modules": "main"
     }
   }

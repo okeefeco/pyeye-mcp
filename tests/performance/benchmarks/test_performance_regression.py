@@ -352,7 +352,6 @@ class TestPerformanceUnderLoad:
 PERFORMANCE_BASELINES = {
     "symbol_search": {"p50_ms": 50, "p95_ms": 100, "p99_ms": 200},
     "goto_definition": {"p50_ms": 30, "p95_ms": 75, "p99_ms": 150},
-    "find_references": {"p50_ms": 100, "p95_ms": 250, "p99_ms": 500},
     "cache_lookup": {"p50_ms": 0.1, "p95_ms": 0.5, "p99_ms": 1.0},
     "cache_invalidation": {"p50_ms": 2, "p95_ms": 5, "p99_ms": 10},
 }

@@ -50,7 +50,7 @@ create a circular import.  ``resolve_members`` and ``resolve_superclasses``
 are therefore the **sole** enumeration sources for their respective edges.
 
 The ``members`` resolver is pure structural enumeration — it never calls
-``get_references`` / ``find_references``.  The module path uses Jedi
+``Script.get_references``.  The module path uses Jedi
 ``get_names(all_scopes=False)`` to enumerate top-level definitions, then
 subtracts import-bound names from the AST — guaranteeing the only divergence
 from the legacy count is import exclusion (spec §3.3).
@@ -480,7 +480,7 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the outbound callees of a function/method as canonical handles.
 
     Forward resolution only: ONE ``goto`` per call site.  This NEVER touches
-    ``get_references`` / ``find_references`` (the non-deterministic reverse-search
+    ``Script.get_references`` (the non-deterministic reverse-search
     path) — that is the load-bearing trust constraint for this edge.
 
     Mechanics (spec §5.2):
@@ -616,7 +616,7 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 
     The inbound ``imported_by`` edge for a **module** handle.  Reuses
     :meth:`JediAnalyzer.find_importers` — a pure-AST reverse import scan (no
-    ``get_references`` / ``find_references``, the same load-bearing trust
+    ``Script.get_references``, the same load-bearing trust
     constraint as ``callees``).  ``find_importers`` already dedups by importer
     module and returns a deterministic sorted order, so the adjacents are unique
     and stable across runs and platforms without further processing here.
@@ -687,9 +687,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
 
     The outbound-but-reliably-static ``subclasses`` edge for a **class** handle.
     Reuses :meth:`JediAnalyzer.find_subclasses` — an AST class-graph walk +
-    forward ``goto``/``resolve_canonical`` (NO ``get_references`` /
-    ``find_references``, the same load-bearing trust constraint as ``callees`` /
-    ``imported_by``).  ``subclasses`` is an **expand-only** edge: ``inspect``
+    forward ``goto``/``resolve_canonical`` (NO ``Script.get_references``, the
+    same load-bearing trust constraint as ``callees`` / ``imported_by``).
+    ``subclasses`` is an **expand-only** edge: ``inspect``
     does NOT measure it (dropped in #392; a cheap direct count is gated on the
     Pyright reference backend / class-graph cache — #333/#397 — because even the
     DIRECT count needs the same project-wide scan, exactly like ``callers`` /
@@ -865,7 +865,7 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     Synchronous: AST walk + per-base Jedi ``goto`` + ``Handle`` construction
     are all sync, like ``resolve_members``/``resolve_callees``.  No
-    ``get_references`` / ``find_references`` is ever called.
+    ``Script.get_references`` is ever called.
 
     Args:
         jedi_name: Resolved Jedi ``Name`` for the target.  Class-ness is
@@ -979,8 +979,8 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     ``ast.ImportFrom`` statements and, for each imported name, forward-resolves
     via ``script.goto(line, col, follow_imports=True)`` to obtain the canonical
     handle and Jedi ``Name``.  This is the same forward-goto mechanic as
-    ``resolve_superclasses``/``resolve_callees`` — NO ``get_references``/
-    ``find_references`` anywhere on this path.
+    ``resolve_superclasses``/``resolve_callees`` — NO ``Script.get_references``
+    anywhere on this path.
 
     Kind gate (mirrors ``resolve_imported_by``):
 
@@ -1021,7 +1021,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     string, mirroring ``resolve_subclasses``/``resolve_superclasses``).
 
     Synchronous: cached AST walk + per-import Jedi ``goto`` + ``Handle``
-    construction are all sync.  No ``get_references``/``find_references`` is
+    construction are all sync.  No ``Script.get_references`` is
     ever called.
 
     Args:
@@ -1140,7 +1140,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     API for method-vs-function classification (method detection, #337).
 
     Synchronous: ``parent()`` is a pure Jedi API call (no file I/O); ``Handle``
-    construction is synchronous.  No ``get_references`` / ``find_references`` is
+    construction is synchronous.  No ``Script.get_references`` is
     ever called.
 
     Args:

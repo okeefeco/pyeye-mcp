@@ -132,7 +132,7 @@ class TestFilterFieldsSingleDict:
 
 
 class TestFilterFieldsArrayOfDicts:
-    """Test field filtering on list of dicts (e.g., list_modules, find_references)."""
+    """Test field filtering on list of dicts (e.g., list_modules)."""
 
     def test_filter_fields_array_with_none_returns_all_fields(self):
         """Test that fields=None returns entire array unchanged."""

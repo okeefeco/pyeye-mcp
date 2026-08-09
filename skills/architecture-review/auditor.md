@@ -38,8 +38,7 @@ any source:
 - Tool mechanics live in the **`python-explore` skill** — follow it; do not
   reinvent the primitives here. In particular honour its **honest-limits rule**:
   pyeye has **no reverse-reference / caller data** (deferred to #333). Do **not**
-  fake "who calls this" with `grep` or the legacy `find_references` /
-  `get_call_hierarchy` tools — delegate caller questions to an LSP if one is
+  fake "who calls this" with `grep` — delegate caller questions to an LSP if one is
   available, otherwise state the limit. `imported_by` (static importers) is fine.
 
 Then **targeted `Read` ONLY** of the specific spans pyeye points you at — e.g. a

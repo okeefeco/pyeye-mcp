@@ -135,6 +135,6 @@ Use raw `git` and `gh` commands. They're transparent, debuggable, and don't accu
 
 The `cross-platform-validator` agent was retired (#483):
 
-- It was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus deprecated `find_references` / `get_call_hierarchy`, so it could not run as written.
+- It was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus `find_references` / `get_call_hierarchy` (themselves removed in #505), so it could not run as written.
 - A 1:1 rename to the new primitives doesn't restore it: its discovery relied on fuzzy symbol search, find-references, and find-imports of arbitrary modules — capabilities the redesign intentionally dropped.
 - Its core job (finding code matching a *pattern* like `str(path)`) is a textual search, which pyeye is explicitly not for. `scripts/check_cross_platform_paths.py` already does that statically; the rules live in `10-cross-platform.md`.

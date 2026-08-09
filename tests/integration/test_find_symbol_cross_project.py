@@ -9,7 +9,7 @@ Test categories:
 2. find_symbol across namespace packages
 3. find_symbol with scope parameter
 4. find_symbol with dotted import paths (replaces find_in_namespace)
-5. get_call_hierarchy across packages
+5. Compound (dotted) symbols across packages
 6. Compound symbol across packages
 """
 
@@ -362,34 +362,6 @@ class TestFindSymbolDottedImportPath:
             len(results) > 0
         ), "Should find SharedHelper via dotted import path in additional package"
         assert results[0]["name"] == "SharedHelper"
-
-
-class TestGetCallHierarchyAcrossPackages:
-    """Test get_call_hierarchy finding functions in additional/namespace packages."""
-
-    @pytest.mark.asyncio
-    async def test_finds_function_in_additional_package(self, cross_project_setup):
-        """get_call_hierarchy should find functions defined in additional packages."""
-        analyzer = _make_analyzer(cross_project_setup)
-
-        result = await analyzer.get_call_hierarchy("shared_func")
-
-        assert (
-            "error" not in result
-        ), f"get_call_hierarchy failed to find shared_func: {result.get('error')}"
-        assert result["function"] == "shared_func"
-
-    @pytest.mark.asyncio
-    async def test_finds_function_in_namespace_package(self, cross_project_setup):
-        """get_call_hierarchy should find functions defined in namespace packages."""
-        analyzer = _make_analyzer(cross_project_setup)
-
-        result = await analyzer.get_call_hierarchy("handle_request")
-
-        assert (
-            "error" not in result
-        ), f"get_call_hierarchy failed to find handle_request: {result.get('error')}"
-        assert result["function"] == "handle_request"
 
 
 class TestCompoundSymbolAcrossPackages:
