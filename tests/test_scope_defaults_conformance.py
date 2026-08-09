@@ -7,20 +7,23 @@ maintainer as a live capability, which is exactly the drift that let entries for
 ``get_module_info`` / ``list_project_structure`` outlive the methods themselves
 (#505).
 
-This guards the analyzer half of the table.  Plugin-provided keys (``find_routes``,
-``find_models``, …) are resolved dynamically from whichever plugins activate for a
-project, so they are excluded rather than asserted against a static list.
+**What this does NOT guarantee.** It checks *existence*, not *liveness*: a key
+naming a real-but-uncalled method (e.g. ``find_imports``, orphaned when
+``lookup_builders`` was removed) still passes.  Liveness is deliberately not
+asserted because it is not statically decidable here — the plugin-provided keys
+below are dispatched through ``plugin.register_tools()`` at activation time, so a
+zero-call-site count does not imply dead.  Existence is the strongest check that
+is reliable for every key; the honest residue is stated rather than papered over.
 """
 
-import ast
-from pathlib import Path
+import pytest
 
+from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.scope_utils import SmartScopeResolver
 
-_ANALYZER_SOURCE = Path(__file__).parent.parent / "src" / "pyeye" / "analyzers" / "jedi_analyzer.py"
-
 # Keys supplied by framework plugins rather than JediAnalyzer.  These are
-# registered at plugin-activation time, so they cannot be checked statically.
+# registered at plugin-activation time, so they cannot be checked against the
+# analyzer's attributes.
 _PLUGIN_PROVIDED = {
     "find_routes",
     "find_models",
@@ -37,30 +40,16 @@ _PLUGIN_PROVIDED = {
     "find_cli_commands",
 }
 
-
-def _analyzer_method_names() -> set[str]:
-    """Every method defined on any class in jedi_analyzer.py."""
-    tree = ast.parse(_ANALYZER_SOURCE.read_text(encoding="utf-8"))
-    return {
-        member.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef)
-        for member in node.body
-        if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+_ANALYZER_KEYS = sorted(set(SmartScopeResolver.SMART_DEFAULTS) - _PLUGIN_PROVIDED)
 
 
 class TestSmartDefaultsConformance:
-    def test_every_key_names_a_real_analyzer_method(self) -> None:
+    @pytest.mark.parametrize("method_name", _ANALYZER_KEYS)
+    def test_key_names_a_real_analyzer_method(self, method_name: str) -> None:
         """No SMART_DEFAULTS key may reference a method that has been removed."""
-        analyzer_methods = _analyzer_method_names()
-        checked = set(SmartScopeResolver.SMART_DEFAULTS) - _PLUGIN_PROVIDED
-
-        stale = sorted(name for name in checked if name not in analyzer_methods)
-
-        assert not stale, (
-            "SMART_DEFAULTS names methods that do not exist on JediAnalyzer: "
-            f"{stale}. Remove the dead keys, or fix the method name."
+        assert hasattr(JediAnalyzer, method_name), (
+            f"SMART_DEFAULTS names '{method_name}', which is not a JediAnalyzer "
+            "method. Remove the dead key, or fix the method name."
         )
 
     def test_removed_legacy_tools_are_absent(self) -> None:

@@ -100,8 +100,12 @@ class TestStandaloneFileDiscovery:
         assert "models.py" not in file_names
 
 
-class TestStandaloneReferences:
-    """Test finding references in standalone files."""
+class TestStandaloneSymbolLookup:
+    """Symbol resolution reaches into configured standalone directories.
+
+    Reference-based coverage was removed with ``find_references`` (#505); the
+    remaining guarantee is that ``find_symbol`` sees standalone files at all.
+    """
 
     @pytest.mark.asyncio
     async def test_find_symbol_in_package(self, standalone_analyzer):

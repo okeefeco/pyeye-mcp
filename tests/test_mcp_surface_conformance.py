@@ -16,9 +16,7 @@ import pytest
 
 from pyeye.mcp.server import mcp
 
-# The complete primitive interface plus configuration.  Admin tools
-# (get_performance_metrics / get_connection_diagnostics) register only when
-# PYEYE_ENABLE_PERFORMANCE_METRICS is set, so they are not asserted here.
+# The complete primitive interface plus configuration.
 EXPECTED_TOOLS = {
     "configure_packages",
     "resolve",
@@ -28,6 +26,12 @@ EXPECTED_TOOLS = {
     "expand",
     "trace",
 }
+
+# Opt-in admin tools, registered only when PYEYE_ENABLE_PERFORMANCE_METRICS is set.
+# They are excluded from the equality assertion rather than assumed absent — an
+# earlier version of this test asserted bare equality and failed whenever the env
+# var was set, contradicting its own comment.
+ADMIN_TOOLS = {"get_performance_metrics", "get_connection_diagnostics"}
 
 # Removed in v2.0.  Reverse-reference questions are deferred to the Pyright
 # backend (#333); these must never come back as tools.
@@ -58,7 +62,8 @@ async def _registered_tool_names() -> set[str]:
 class TestMcpSurface:
     @pytest.mark.asyncio
     async def test_registered_tools_are_exactly_the_primitive_interface(self) -> None:
-        assert await _registered_tool_names() == EXPECTED_TOOLS
+        """Holds whether or not the opt-in admin tools are enabled."""
+        assert await _registered_tool_names() - ADMIN_TOOLS == EXPECTED_TOOLS
 
     @pytest.mark.asyncio
     async def test_no_removed_tool_is_registered(self) -> None:

@@ -38,9 +38,7 @@
   "scope_defaults": {
     "global": "namespace:services",
     "methods": {
-      "analyze_dependencies": "all",
       "find_models": "namespace:shared",
-      "find_references": "all",
       "find_routes": "namespace:services"
     }
   }

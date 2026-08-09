@@ -36,10 +36,14 @@ surface (#376). Migrate existing agent/integration code as follows:
 | `list_packages` / `list_modules` | `outline` | One structural lister |
 | `list_project_structure` | `outline` | One structural lister |
 
-Note: most same-named `JediAnalyzer` methods (e.g. `analyzer.find_symbol`,
-`analyzer.list_modules`, `analyzer.find_subclasses`, `analyzer.find_importers`)
-are internal implementation and remain — they back the new operations. For the
-tools in this table only the MCP **tool wrappers** were removed. The three tools
+Note: several same-named `JediAnalyzer` methods are internal implementation and
+remain because they back the new operations — `analyzer.find_symbol` (behind
+`resolve`), `analyzer.find_subclasses` (behind the `subclasses` edge),
+`analyzer.find_importers` (behind `imported_by`), and `analyzer.find_reexports`
+(behind `inspect(...).re_exports`). For the tools in this table only the MCP
+**tool wrappers** were removed. Others (`analyzer.list_modules`,
+`analyzer.list_packages`, `analyzer.find_imports`) survive without a production
+caller and are not load-bearing for anything. The three tools
 removed under #505 below are the exception: their backing methods
 (`find_references`, `get_call_hierarchy`, `analyze_dependencies`, and the
 transitively-orphaned `get_module_info`) were deleted outright, so they cannot be

@@ -688,7 +688,8 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     The outbound-but-reliably-static ``subclasses`` edge for a **class** handle.
     Reuses :meth:`JediAnalyzer.find_subclasses` — an AST class-graph walk +
     forward ``goto``/``resolve_canonical`` (NO ``Script.get_references``, the
-    same load-bearing trust constraint as ``callees`` / ``imported_by``).  ``subclasses`` is an **expand-only** edge: ``inspect``
+    same load-bearing trust constraint as ``callees`` / ``imported_by``).
+    ``subclasses`` is an **expand-only** edge: ``inspect``
     does NOT measure it (dropped in #392; a cheap direct count is gated on the
     Pyright reference backend / class-graph cache — #333/#397 — because even the
     DIRECT count needs the same project-wide scan, exactly like ``callers`` /

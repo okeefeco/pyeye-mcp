@@ -38,7 +38,6 @@
     "global": "namespace:core",
     "methods": {
       "find_models": "namespace:core",
-      "find_references": "all",
       "find_subclasses": "all",
       "list_modules": "main"
     }

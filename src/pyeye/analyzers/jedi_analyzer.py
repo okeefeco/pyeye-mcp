@@ -218,9 +218,12 @@ class JediAnalyzer:
         self.scoped_cache.invalidate_all()
 
     # Retained deliberately: the only in-tree caller was the removed
-    # ``find_references`` (#505), but this carries the exclude-pattern and
-    # POSIX-normalisation behaviour of the configurable ``standalone_paths``
-    # feature, which ``get_project_files`` scope resolution does not implement.
+    # ``find_references`` (#505). It is kept because it is the only implementation
+    # of the ``standalone`` config contract — the ``recursive`` and ``file_pattern``
+    # keys from ``ProjectConfig.get_standalone_config()``, the default-exclude set,
+    # and the "skip files that live inside a package" rule. ``get_project_files``
+    # scope resolution only unions ``self.standalone_paths`` wholesale and honours
+    # none of that. Removing this would silently drop those config keys.
     async def _discover_standalone_files(
         self,
         file_pattern: str = "*.py",
@@ -246,17 +249,15 @@ class JediAnalyzer:
 
         discovered_files = []
 
+        # Read the standalone config once — it does not vary per directory.
+        standalone_config = self.config.get_standalone_config() if self.config else {}
+        recursive = standalone_config.get("recursive", True)
+        pattern_to_use = standalone_config.get("file_pattern", file_pattern)
+
         for standalone_dir in self.standalone_paths:
             if not standalone_dir.exists():
                 logger.warning(f"Standalone directory does not exist: {standalone_dir.as_posix()}")
                 continue
-
-            # Get standalone config from project config
-            standalone_config = self.config.get_standalone_config() if self.config else {}
-            recursive = standalone_config.get("recursive", True)
-
-            # Discover files
-            pattern_to_use = standalone_config.get("file_pattern", file_pattern)
 
             if recursive:
                 files = standalone_dir.rglob(pattern_to_use)
@@ -299,7 +300,8 @@ class JediAnalyzer:
             self._additional_projects[resolved] = jedi.Project(path=resolved.as_posix())
         return self._additional_projects[resolved]
 
-    # DEPRECATED: internal helper for legacy methods; will be removed alongside them.
+    # LIVE (not deprecated): the AST name-index search (#457) behind ``find_symbol``
+    # and ``_resolve_simple_type`` — i.e. behind ``resolve``. Do not remove.
     async def _search_all_scopes(
         self, name: str, scope: Scope | None = None, fuzzy: bool = False
     ) -> list[Any]:
@@ -1007,7 +1009,9 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
-    # DEPRECATED: replaced by future expand(handle, edge="imported_by"). Will be removed in the legacy-tool cleanup phase.
+    # ORPHANED: superseded by ``expand(handle, edge="imported_by")``, which is backed by
+    # ``find_importers``, not this. Its last caller went with ``lookup_builders`` (#505);
+    # retained only because removing it is not required by #505. Tracked for removal.
     async def find_imports(self, module_name: str, scope: Scope = "all") -> list[dict[str, Any]]:
         """Find all imports of a specific module in the project.
 
@@ -1608,7 +1612,8 @@ class JediAnalyzer:
 
         return modules
 
-    # DEPRECATED: replaced by future expand(handle, edge="imports") and trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
+    # LIVE (not deprecated): used by ``find_importers``, which backs the
+    # ``imported_by`` edge. ``ImportAnalyzer`` delegates to the same shared helper.
     @staticmethod
     def _resolve_relative_import(
         level: int, module: str | None, importer_module: str, importer_is_package: bool
@@ -2029,50 +2034,6 @@ class JediAnalyzer:
             parts.append(remainder)
         return parts
 
-    @staticmethod
-    def _extract_param_default(description: str) -> str | None:
-        """Extract the default value string from a Jedi param description.
-
-        Jedi param descriptions have the format:
-        - ``param self``                      → no default
-        - ``param port: int=8080``            → default is ``"8080"``
-        - ``param name: str="default"``       → default is ``'"default"'``
-        - ``param y=10``                      → default is ``"10"``
-
-        Args:
-            description: The raw ``param.description`` string from Jedi.
-
-        Returns:
-            The default value as a source-text string, or None if no default.
-        """
-        # Strip leading "param " prefix
-        body = description[len("param ") :].strip()
-        if ":" in body:
-            # Type-annotated: "name: type=default" or "name: type"
-            colon_idx = body.index(":")
-            after_type = body[colon_idx + 1 :].strip()
-            if "=" in after_type:
-                eq_idx = after_type.index("=")
-                return after_type[eq_idx + 1 :].strip()
-        elif "=" in body:
-            # No type annotation: "name=default"
-            eq_idx = body.index("=")
-            return body[eq_idx + 1 :].strip()
-        return None
-
-    @staticmethod
-    def _has_type_annotation(description: str) -> bool:
-        """Return True if the Jedi param description contains a type annotation.
-
-        Args:
-            description: The raw ``param.description`` string from Jedi.
-
-        Returns:
-            True if the description includes a ``:`` annotation marker.
-        """
-        body = description[len("param ") :].strip()
-        return ":" in body
-
     async def _serialize_name(
         self,
         name: jedi.api.classes.Name,
@@ -2114,7 +2075,8 @@ class JediAnalyzer:
 
         return result
 
-    # DEPRECATED: replaced by inspect(handle).re_exports (Phase 6 of resolve+inspect plan). Will be removed in the legacy-tool cleanup phase.
+    # LIVE (not deprecated): called by ``_serialize_name`` to populate ``import_paths``,
+    # and surfaced as ``inspect(handle).re_exports``. Do not remove.
     async def find_reexports(
         self, symbol_name: str, original_module: str, file_path: str | None = None
     ) -> list[str]:
@@ -2235,7 +2197,9 @@ class JediAnalyzer:
 
         return False
 
-    # DEPRECATED: replaced by expand(handle, edge="subclasses") for the list (and len() for the count); subclasses is expand-only, not in inspect's edge_counts (#392). Will be removed in the legacy-tool cleanup phase.
+    # LIVE (not deprecated): the AST class-graph walk backing ``expand(handle,
+    # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts`` (#392,
+    # direct count gated on #333/#397). Do not remove.
     async def find_subclasses(
         self,
         base_class: str,

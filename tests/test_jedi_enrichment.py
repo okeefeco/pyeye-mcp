@@ -1,8 +1,7 @@
-"""Tests for JediAnalyzer._build_navigable_ref, _build_type_ref, and _enrich_method helpers."""
+"""Tests for the JediAnalyzer._build_navigable_ref and _build_type_ref helpers."""
 
 from pathlib import Path
 
-import jedi
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -230,50 +229,6 @@ async def test_build_type_ref_union_with_resolvable(analyzer: JediAnalyzer) -> N
 # ---------------------------------------------------------------------------
 
 
-async def _get_method_name(
-    analyzer: JediAnalyzer, method: str, full_name_fragment: str | None = None
-) -> jedi.api.classes.Name:
-    """Return a method's Jedi ``Name`` via a Script, filtered by full_name.
-
-    Methods are deliberately NOT in the AST name-index (#457) — they are reached
-    via their parent. Enrichment is Jedi-tier and production sources method
-    ``Name``s from Jedi (via ``defined_names()``), so this
-    helper does the same: locate the file via the parent class (which IS indexed)
-    and pull the method's ``Name`` from a Jedi ``Script``.
-    """
-    parent = full_name_fragment.rsplit(".", 1)[0] if full_name_fragment else method
-    parents = await analyzer._search_all_scopes(parent)
-    assert parents, f"parent {parent!r} not found for method {method!r}"
-    file_path = Path(parents[0].module_path)
-    script = jedi.Script(file_path.read_text(), path=str(file_path), project=analyzer.project)
-    results = [
-        n
-        for n in script.get_names(all_scopes=True)
-        if n.name == method
-        and (full_name_fragment is None or full_name_fragment in (n.full_name or ""))
-    ]
-    assert results, f"No results for method {method!r} (fragment={full_name_fragment!r})"
-    return results[0]
-
-
-def _get_init_from_script(
-    analyzer: JediAnalyzer, file_path: Path, full_name_fragment: str
-) -> jedi.api.classes.Name:
-    """Return a __init__ Name object from a Jedi Script, filtered by full_name."""
-    source = file_path.read_text()
-    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
-    names = script.get_names(all_scopes=True)
-    matching = [
-        n
-        for n in names
-        if n.name == "__init__"
-        and n.type == "function"
-        and full_name_fragment in (n.full_name or "")
-    ]
-    assert matching, f"No __init__ found with fragment {full_name_fragment!r}"
-    return matching[0]
-
-
 # ---------------------------------------------------------------------------
 # _enrich_method
 # ---------------------------------------------------------------------------
@@ -284,27 +239,6 @@ def _get_init_from_script(
 # ---------------------------------------------------------------------------
 
 
-def _get_attribute_name(
-    analyzer: JediAnalyzer, file_path: Path, attr_name: str, full_name_fragment: str | None = None
-) -> jedi.api.classes.Name:
-    """Return a statement/instance Name object from a Jedi Script for an attribute."""
-    source = file_path.read_text()
-    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
-    names = script.get_names(all_scopes=True)
-    matching = [
-        n
-        for n in names
-        if n.name == attr_name
-        and n.type in ("statement", "instance")
-        and (full_name_fragment is None or full_name_fragment in (n.full_name or ""))
-    ]
-    assert matching, (
-        f"No statement/instance Name found for {attr_name!r} "
-        f"(fragment={full_name_fragment!r}) in {file_path}"
-    )
-    return matching[0]
-
-
 # ---------------------------------------------------------------------------
 # _enrich_attribute
 # ---------------------------------------------------------------------------
@@ -313,12 +247,3 @@ def _get_attribute_name(
 # ---------------------------------------------------------------------------
 # _get_module_variables
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def utils_script_and_source(analyzer: JediAnalyzer):
-    """Return (script, source) for the utils.py fixture."""
-    file_path = FIXTURE_PATH / "utils.py"
-    source = file_path.read_text()
-    script = jedi.Script(source, path=str(file_path), project=analyzer.project)
-    return script, source, analyzer
