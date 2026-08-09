@@ -5,8 +5,6 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.exceptions import FileAccessError
-from pyeye.mcp.server import analyze_dependencies
 
 
 class TestListPackages:
@@ -190,255 +188,6 @@ def process_file(path: Path) -> List[str]:
         assert result[0]["name"] == "module"
 
 
-class TestAnalyzeDependencies:
-    """Test the analyze_dependencies functionality."""
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_simple(self, tmp_path):
-        """Test analyzing dependencies of a simple module."""
-        # Create module with imports
-        module_file = tmp_path / "module.py"
-        module_file.write_text("""
-import os
-import json
-from pathlib import Path
-""")
-
-        result = await analyze_dependencies("module", str(tmp_path))
-        assert result["module"] == "module"
-        assert "os" in result["imports"]["stdlib"]
-        assert "json" in result["imports"]["stdlib"]
-        assert "pathlib" in result["imports"]["stdlib"]
-        assert result["imports"]["internal"] == []
-        assert result["imports"]["external"] == []
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_internal(self, tmp_path):
-        """Test analyzing internal dependencies."""
-        # Create two modules where one imports the other
-        (tmp_path / "module_a.py").write_text("def func_a(): pass")
-        (tmp_path / "module_b.py").write_text("""
-import module_a
-
-def func_b():
-    module_a.func_a()
-""")
-
-        result = await analyze_dependencies("module_b", str(tmp_path))
-        assert "module_a" in result["imports"]["internal"]
-        assert result["imported_by"] == []  # module_b is not imported by anything
-
-        # Check reverse dependency
-        result_a = await analyze_dependencies("module_a", str(tmp_path))
-        assert "module_b" in result_a["imported_by"]
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_circular(self, tmp_path):
-        """Test detecting circular dependencies."""
-        # Create circular dependency
-        (tmp_path / "module_a.py").write_text("import module_b")
-        (tmp_path / "module_b.py").write_text("import module_a")
-
-        result = await analyze_dependencies("module_a", str(tmp_path))
-        assert "module_b" in result["imports"]["internal"]
-        assert "module_b" in result["circular_dependencies"]
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_module_not_found(self, tmp_path):
-        """Test error when module doesn't exist."""
-        with pytest.raises(FileAccessError) as exc_info:
-            await analyze_dependencies("nonexistent", str(tmp_path))
-        assert "Module not found" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_package(self, tmp_path):
-        """Test analyzing dependencies of a package module."""
-        # Create package structure
-        pkg_dir = tmp_path / "mypackage"
-        pkg_dir.mkdir()
-        (pkg_dir / "__init__.py").write_text("")
-        (pkg_dir / "module.py").write_text("""
-import os
-from . import __init__
-""")
-
-        result = await analyze_dependencies("mypackage.module", str(tmp_path))
-        assert result["module"] == "mypackage.module"
-        assert "os" in result["imports"]["stdlib"]
-
-    @pytest.mark.asyncio
-    async def test_relative_import_records_reverse_dependency(self, tmp_path):
-        """A sibling importing via `from .a import f` appears in imported_by (#343)."""
-        pkg = tmp_path / "pkg"
-        pkg.mkdir()
-        (pkg / "__init__.py").write_text("")
-        (pkg / "a.py").write_text("def f(): pass")
-        (pkg / "b.py").write_text("from .a import f\n\n\ndef g():\n    f()\n")
-
-        result = await analyze_dependencies("pkg.a", str(tmp_path))
-        assert "pkg.b" in result["imported_by"]
-
-    @pytest.mark.asyncio
-    async def test_relative_import_classified_internal_not_bare_external(self, tmp_path):
-        """`from .a import f` resolves to pkg.a in internal, never bare 'a' in external (#343)."""
-        pkg = tmp_path / "pkg"
-        pkg.mkdir()
-        (pkg / "__init__.py").write_text("")
-        (pkg / "a.py").write_text("def f(): pass")
-        (pkg / "b.py").write_text("from .a import f\n")
-
-        result = await analyze_dependencies("pkg.b", str(tmp_path))
-        assert "pkg.a" in result["imports"]["internal"]
-        assert "a" not in result["imports"]["external"]
-
-    @pytest.mark.asyncio
-    async def test_multi_level_relative_import_reverse_dependency(self, tmp_path):
-        """A `from ..a import f` two levels up is attributed to the importer (#343)."""
-        pkg = tmp_path / "pkg"
-        sub = pkg / "sub"
-        sub.mkdir(parents=True)
-        (pkg / "__init__.py").write_text("")
-        (pkg / "a.py").write_text("def f(): pass")
-        (sub / "__init__.py").write_text("")
-        (sub / "c.py").write_text("from ..a import f\n")
-
-        result = await analyze_dependencies("pkg.a", str(tmp_path))
-        assert "pkg.sub.c" in result["imported_by"]
-
-
-class TestGetModuleInfo:
-    """Test the get_module_info functionality."""
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_simple(self, tmp_path):
-        """Test getting info for a simple module."""
-        module_file = tmp_path / "module.py"
-        module_file.write_text('''
-"""Module documentation."""
-
-MODULE_CONSTANT = 42
-
-def public_function(arg1, arg2):
-    """Function documentation."""
-    return arg1 + arg2
-
-def _private_function():
-    pass
-
-class MyClass:
-    """Class documentation."""
-
-    def method(self):
-        """Method documentation."""
-        pass
-
-    def _private_method(self):
-        pass
-''')
-
-        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
-        assert result["module"] == "module"
-        assert result["file"] == module_file.as_posix()
-        assert result["docstring"] == "Module documentation."
-
-        # Check exports
-        assert "public_function" in result["exports"]
-        assert "MyClass" in result["exports"]
-        assert "MODULE_CONSTANT" in result["exports"]
-        assert "_private_function" not in result["exports"]
-
-        # Check classes
-        assert len(result["classes"]) == 1
-        class_info = result["classes"][0]
-        assert class_info["name"] == "MyClass"
-        assert class_info["docstring"] == "Class documentation."
-        assert len(class_info["methods"]) == 2
-
-        # Check functions
-        public_funcs = [f for f in result["functions"] if not f["is_private"]]
-        assert len(public_funcs) == 1
-        assert public_funcs[0]["name"] == "public_function"
-        assert public_funcs[0]["args"] == ["arg1", "arg2"]
-
-        # Check variables
-        assert len(result["variables"]) == 1
-        assert result["variables"][0]["name"] == "MODULE_CONSTANT"
-
-        # Check metrics
-        assert result["metrics"]["classes"] == 1
-        assert result["metrics"]["functions"] == 2  # Including private
-        assert result["metrics"]["lines"] > 0
-        assert result["metrics"]["complexity"] >= 1
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_with_imports(self, tmp_path):
-        """Test module info with imports."""
-        module_file = tmp_path / "module.py"
-        module_file.write_text("""
-import os
-from pathlib import Path
-import json as j
-from typing import List, Dict
-""")
-
-        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
-
-        # Check imports
-        imports = result["imports"]
-        assert len(imports) > 0
-
-        # Find specific imports
-        os_import = next((i for i in imports if i["module"] == "os"), None)
-        assert os_import is not None
-        assert os_import["alias"] is None
-
-        json_import = next((i for i in imports if i["module"] == "json"), None)
-        assert json_import is not None
-        assert json_import["alias"] == "j"
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_complexity(self, tmp_path):
-        """Test cyclomatic complexity calculation."""
-        module_file = tmp_path / "module.py"
-        module_file.write_text("""
-def complex_function(x):
-    if x > 0:
-        if x > 10:
-            return "big"
-        else:
-            return "small"
-    elif x < 0:
-        return "negative"
-    else:
-        return "zero"
-
-    for i in range(10):
-        if i % 2 == 0:
-            print(i)
-""")
-
-        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
-        # Base complexity + if/elif/else + for + nested ifs
-        assert result["metrics"]["complexity"] > 1
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_module_not_found(self, tmp_path):
-        """Test error when module doesn't exist."""
-        with pytest.raises(FileAccessError) as exc_info:
-            await JediAnalyzer(str(tmp_path)).get_module_info("nonexistent")
-        assert "Module not found" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_includes_dependencies(self, tmp_path):
-        """Test that module info includes dependency analysis."""
-        (tmp_path / "module.py").write_text("import os")
-
-        result = await JediAnalyzer(str(tmp_path)).get_module_info("module")
-        assert result["dependencies"] is not None
-        assert result["dependencies"]["module"] == "module"
-        assert "os" in result["dependencies"]["imports"]["stdlib"]
-
-
 class TestJediAnalyzerMethods:
     """Test the JediAnalyzer methods directly."""
 
@@ -477,25 +226,6 @@ class TestJediAnalyzerMethods:
         assert len(result) == 1
         assert result[0]["name"] == "module"
 
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_method(self, tmp_path):
-        """Test analyze_dependencies method directly."""
-        (tmp_path / "module.py").write_text("import os")
-
-        analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.analyze_dependencies("module")
-        assert "os" in result["imports"]["stdlib"]
-
-    @pytest.mark.asyncio
-    async def test_get_module_info_method(self, tmp_path):
-        """Test get_module_info method directly."""
-        (tmp_path / "module.py").write_text('"""Doc."""\ndef func(): pass')
-
-        analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.get_module_info("module")
-        assert result["docstring"] == "Doc."
-        assert len(result["functions"]) == 1
-
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"
 _TARGET = "mypackage._core.widgets"
@@ -506,8 +236,9 @@ class TestFindImporters:
     """Tests for the extracted ``find_importers`` reverse-scan method.
 
     Uses the committed ``resolve_project`` fixture (a real directory, not a
-    tmp dir) so the file-based reverse scan exercises the same code paths the
-    legacy ``analyze_dependencies`` does.
+    tmp dir) so the file-based reverse scan runs against real files rather than
+    a synthesised tree.  ``find_importers`` backs the live
+    ``expand(handle, edge="imported_by")`` edge.
     """
 
     @pytest.mark.asyncio
@@ -560,21 +291,6 @@ class TestFindImporters:
 
         modules = {m for m, _ in pairs}
         assert "script_importer" in modules
-
-    @pytest.mark.asyncio
-    async def test_analyze_dependencies_imported_by_parity(self):
-        """``analyze_dependencies['imported_by']`` matches ``find_importers``.
-
-        Extraction parity: the legacy method's ``imported_by`` field must equal
-        the sorted, deduped module projection of ``find_importers`` output for
-        the same target. Exact equality (both sides compute the same set).
-        """
-        analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
-        expected = sorted({m for m, _ in pairs})
-
-        result = await analyzer.analyze_dependencies(_TARGET, scope="all")
-        assert result["imported_by"] == expected
 
     @pytest.mark.asyncio
     async def test_find_importers_reports_from_package_import_submodule(self):

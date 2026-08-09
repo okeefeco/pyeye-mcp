@@ -36,20 +36,55 @@ surface (#376). Migrate existing agent/integration code as follows:
 | `list_packages` / `list_modules` | `outline` | One structural lister |
 | `list_project_structure` | `outline` | One structural lister |
 
-Note: the same-named `JediAnalyzer` methods (e.g. `analyzer.find_symbol`,
-`analyzer.list_modules`) are internal implementation and remain — they back the
-new operations. Only the MCP **tool wrappers** were removed.
+Note: most same-named `JediAnalyzer` methods (e.g. `analyzer.find_symbol`,
+`analyzer.list_modules`, `analyzer.find_subclasses`, `analyzer.find_importers`)
+are internal implementation and remain — they back the new operations. For the
+tools in this table only the MCP **tool wrappers** were removed. The three tools
+removed under #505 below are the exception: their backing methods
+(`find_references`, `get_call_hierarchy`, `analyze_dependencies`, and the
+transitively-orphaned `get_module_info`) were deleted outright, so they cannot be
+re-exposed by a future wrapper.
 
-##### Deprecated tools (still registered, no live replacement yet)
+##### Also removed: the last three legacy tools (#505)
 
-These remain available but are deprecated and will be removed in a later
-legacy-tool cleanup phase:
+`find_references`, `get_call_hierarchy`, and `analyze_dependencies` were
+previously slated to survive this release as deprecated. They are **removed**
+instead. An audit for the 2.0 tag found they do not merely under-report — they
+answer *confidently and wrongly*, which is the failure mode this release exists
+to eliminate:
 
-| Deprecated tool | Eventual replacement | Why still present |
-|-----------------|----------------------|-------------------|
-| `find_references` | `expand(handle, edge="references")` | Inbound/caller edges depend on the deferred Pyright reference backend (#333) |
-| `get_call_hierarchy` | `expand(handle, edge="callees")` (forward); callers via #333 | Forward edges covered by `expand`; inbound edges await #333 |
-| `analyze_dependencies` | `trace(follow=["imports"])` | Retained until `trace` emits a derived `circular_dependencies` summary (#404) |
+- **`get_call_hierarchy`** — `callees` could never be populated at all. It read
+  module-level names with Jedi's defaults (`definitions=True, references=False`)
+  and then skipped every result via `if name.is_definition(): continue`, so the
+  list was structurally always empty. Its callers half resolved bare names by
+  taking the *first* `_search_all_scopes` match with no ambiguity signal, so it
+  could report a different symbol's callers as your symbol's.
+- **`analyze_dependencies`** — derived `project_modules` from `rel_path.parts[0]`,
+  which on a `src/` layout is `"src"`, so every first-party module was classified
+  as third-party. That emptied the input to the cycle scan, making
+  `circular_dependencies: []` wrong by construction on exactly the layout it was
+  most often pointed at. Its stdlib set was also a hardcoded ~40-name literal
+  rather than `sys.stdlib_module_names`.
+- **`find_references`** — advertised "Find ALL usages" while returning a flat list
+  with no absence-vs-zero signal, so an empty result was indistinguishable from a
+  search that never reached. Its standalone-file branch matched candidates by
+  string comparison where its own comment claimed a `goto` check.
+
+| Removed tool | Replacement | Notes |
+|--------------|-------------|-------|
+| `find_references` | **None** — deferred to #333 | Reverse references are not answerable today. Delegate to a language server: `resolve` gives the definition-site position an LSP `findReferences` needs. `expand` reports the edge as unsupported rather than guessing. |
+| `get_call_hierarchy` | `expand(handle, edge="callees")` (forward only) | Forward calls are covered, with `unresolved_call_sites` marking un-inferable sites. Callers remain deferred to #333. |
+| `analyze_dependencies` | `expand(handle, "imports")`, `expand(handle, "imported_by")`, `trace(follow=["imports"])` | Fan-in/fan-out and the import closure are covered. For cycles, scan the `trace` result's `edges` for one whose `to` is the start module — documented in the `python-explore` skill. |
+
+The superseded `lookup` entry point (`pyeye.mcp.lookup` /
+`pyeye.mcp.lookup_builders`) was removed in the same change. It had not been
+registered as an MCP tool since the primitives landed, and was the only remaining
+non-MCP consumer of the removed analyzer methods.
+
+**Required action:** if you call any of these three tools, migrate per the table
+above. If you were using `find_references` or `get_call_hierarchy` for caller
+data, route that question to a language server instead — pyeye will not answer it
+until #333 lands, and will say so rather than guess.
 
 `configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
 are orthogonal to the navigation redesign and are unchanged.

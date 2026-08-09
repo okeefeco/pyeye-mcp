@@ -6,7 +6,7 @@ Two resolvers historically derived "resolve a relative import to absolute":
    used by the import dependency graph and the #405 ``find_subclasses`` AST
    resolution tables.
 2. ``JediAnalyzer._resolve_relative_import`` — a separate (deprecated) static
-   method feeding ``imported_by`` (#343) and ``analyze_dependencies``.
+   method feeding ``imported_by`` (#343).
 
 They had **different signatures and different package-detection strategies**
 (an explicit ``is_package`` flag vs the seam's ``level == len(parts)``

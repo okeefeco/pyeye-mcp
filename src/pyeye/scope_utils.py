@@ -19,19 +19,19 @@ Scope = str | list[str]
 class SmartScopeResolver:
     """Intelligent scope resolution with method-specific defaults."""
 
-    # Method-specific smart defaults
+    # Method-specific smart defaults.
+    #
+    # Every key MUST name a real ``JediAnalyzer`` (or plugin) method — a key for
+    # a method that no longer exists is dead config that reads as a live
+    # capability.  ``tests/test_scope_defaults_conformance.py`` enforces this
+    # for the analyzer half.
     SMART_DEFAULTS: dict[str, str] = {
         # Methods that should see everything by default
         "find_subclasses": "all",
-        "find_references": "all",
-        "analyze_dependencies": "all",
         "find_imports": "main",  # Changed to "main" for better performance
-        "get_call_hierarchy": "all",
         # Methods that typically want main project only
         "list_modules": "main",
         "list_packages": "main",
-        "list_project_structure": "main",
-        "get_module_info": "main",
         # Plugin methods default to main (faster, more focused)
         "find_routes": "main",
         "find_models": "main",

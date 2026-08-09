@@ -122,51 +122,6 @@ test_function()
     @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     @pytest.mark.asyncio
-    async def test_find_references(self, mock_project_class, mock_script_class, temp_project_dir):
-        """Test finding symbol references."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("""
-def func():
-    pass
-
-func()
-func()
-""")
-
-        # Mock references
-        references = []
-        for line in [2, 5, 6]:  # Definition and two calls
-            mock_ref = Mock()
-            mock_ref.line = line
-            mock_ref.column = 0
-            mock_ref.module_path = test_file
-            mock_ref.module_name = "test"
-            mock_ref.is_definition = Mock(return_value=(line == 2))
-            mock_ref.name = "func"
-            mock_ref.type = "function"
-            mock_ref.description = "def func"
-            mock_ref.full_name = "test.func"
-            mock_ref.docstring = Mock(return_value="")
-            references.append(mock_ref)
-
-        mock_script = Mock()
-        mock_script.get_references.return_value = references
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        results = await analyzer.find_references(str(test_file), 2, 0)
-
-        assert len(results) == 3
-        assert results[0]["is_definition"]
-        assert not results[1]["is_definition"]
-        assert not results[2]["is_definition"]
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
     async def test_get_type_info(self, mock_project_class, mock_script_class, temp_project_dir):
         """Test getting type information."""
         mock_project = Mock()
@@ -398,57 +353,6 @@ import json
         assert len(results) == 2
         assert all(r["import_statement"] == "import os" for r in results)
 
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy(
-        self, mock_project_class, mock_script_class, temp_project_dir
-    ):
-        """Test getting call hierarchy for functions."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("""
-def caller():
-    callee()
-
-def callee():
-    pass
-
-def main():
-    caller()
-""")
-
-        # Mock function definition search
-        mock_func_def = Mock()
-        mock_func_def.name = "callee"
-        mock_func_def.type = "function"
-        mock_func_def.module_path = test_file
-        mock_func_def.line = 5
-        mock_func_def.column = 4
-
-        mock_project.search.return_value = [mock_func_def]
-
-        # Mock references (callers)
-        mock_ref = Mock()
-        mock_ref.is_definition = Mock(return_value=False)
-        mock_ref.module_path = test_file
-        mock_ref.line = 3
-        mock_ref.column = 4
-
-        mock_script = Mock()
-        mock_script.get_references.return_value = [mock_func_def, mock_ref]
-        mock_script.get_names.return_value = []
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.get_call_hierarchy("callee", str(test_file))
-
-        assert result["function"] == "callee"
-        assert len(result["callers"]) == 1
-        assert result["callers"][0]["line"] == 3
-
     @pytest.mark.asyncio
     async def test_error_handling(self, temp_project_dir, caplog):
         """find_symbol wraps an internal search failure in AnalysisError."""
@@ -504,10 +408,6 @@ def main():
                 await analyzer.goto_definition("/nonexistent/file.py", 1, 0)
             assert "File not found" in str(exc_info.value)
 
-            # find_references should also raise FileAccessError for non-existent files
-            with pytest.raises(FileAccessError):
-                await analyzer.find_references("/nonexistent/file.py", 1, 0)
-
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     def test_multiple_projects(self, mock_project_class, tmp_path):
         """Test that analyzer can work with different projects."""
@@ -558,36 +458,6 @@ def main():
             await analyzer.get_type_info(str(test_file), 1, 0)
         assert "Failed to get type info" in str(exc_info.value)
 
-    @pytest.mark.asyncio
-    async def test_find_references_error_handling(self, temp_project_dir):
-        """Test error handling in find_references."""
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Test with non-existent file
-        with pytest.raises(FileAccessError) as exc_info:
-            await analyzer.find_references("nonexistent.py", 1, 0)
-        assert "nonexistent.py" in str(exc_info.value)
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @pytest.mark.asyncio
-    async def test_find_references_jedi_error(self, mock_script_class, temp_project_dir, caplog):
-        """Test find_references when Jedi raises an error."""
-        # Create a test file
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("x = 1")
-
-        # Make Script.get_references raise an exception
-        mock_script = Mock()
-        mock_script.get_references.side_effect = Exception("Jedi references error")
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Should return empty results and log error
-        results = await analyzer.find_references(str(test_file), 1, 0)
-        assert results == []
-        assert "Error in find_references" in caplog.text
-
     @patch("pyeye.analyzers.jedi_analyzer.rglob_async")
     @pytest.mark.asyncio
     async def test_find_imports_file_read_error(self, mock_rglob, temp_project_dir):
@@ -600,108 +470,6 @@ def main():
 
         # Should return empty results when files can't be read
         assert results == []
-
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy_search_error(self, temp_project_dir):
-        """get_call_hierarchy wraps an internal search failure in AnalysisError."""
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        with (
-            patch(
-                "pyeye.analyzers.project_graph.get_name_index",
-                side_effect=Exception("Search failed"),
-            ),
-            pytest.raises(AnalysisError) as exc_info,
-        ):
-            await analyzer.get_call_hierarchy("test_func")
-        assert "Failed to get call hierarchy" in str(exc_info.value)
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy_with_file_path(
-        self, mock_project_class, mock_script_class, temp_project_dir
-    ):
-        """Test get_call_hierarchy with specific file path."""
-        # Create a test file
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("def test_func():\n    pass")
-
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Mock search result
-        mock_def = Mock()
-        mock_def.name = "test_func"
-        mock_def.type = "function"
-        mock_def.module_path = test_file
-        mock_def.line = 1
-        mock_def.column = 4
-        mock_def.get_line_code.return_value = "def test_func():"
-        mock_project.search.return_value = [mock_def]
-
-        # Mock script for references
-        mock_script = Mock()
-        mock_script.get_references.return_value = []
-        mock_script.get_names.return_value = []
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.get_call_hierarchy("test_func", str(test_file))
-
-        assert result["function"] == "test_func"
-        assert "callers" in result
-        assert "callees" in result
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_get_call_hierarchy_with_class(
-        self, mock_project_class, mock_script_class, temp_project_dir
-    ):
-        """Test get_call_hierarchy supports class names."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("""
-class MyClass:
-    def __init__(self):
-        self.value = 0
-
-def create():
-    obj = MyClass()
-    return obj
-""")
-
-        # Mock class definition search
-        mock_class_def = Mock()
-        mock_class_def.name = "MyClass"
-        mock_class_def.type = "class"
-        mock_class_def.module_path = test_file
-        mock_class_def.line = 2
-        mock_class_def.column = 6
-
-        mock_project.search.return_value = [mock_class_def]
-
-        # Mock references (instantiation sites)
-        mock_ref = Mock()
-        mock_ref.is_definition = Mock(return_value=False)
-        mock_ref.module_path = test_file
-        mock_ref.line = 7
-        mock_ref.column = 10
-
-        mock_script = Mock()
-        mock_script.get_references.return_value = [mock_class_def, mock_ref]
-        mock_script.get_names.return_value = []
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.get_call_hierarchy("MyClass", str(test_file))
-
-        assert result["function"] == "MyClass"
-        assert len(result["callers"]) == 1
-        assert result["callers"][0]["line"] == 7
 
     @pytest.mark.asyncio
     async def test_find_subclasses_direct(self, temp_project_dir):

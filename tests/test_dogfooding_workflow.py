@@ -23,7 +23,8 @@ class TestDogfoodingWorkflow:
         # Check for key MCP tool functions (progressive-disclosure surface)
         assert "def resolve" in content
         assert "def inspect" in content
-        assert "def analyze_dependencies" in content
+        assert "def expand" in content
+        assert "def trace" in content
 
     def test_plugin_architecture_exists(self):
         """Verify the plugin architecture exists."""

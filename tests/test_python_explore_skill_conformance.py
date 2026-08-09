@@ -59,17 +59,18 @@ def test_skill_declares_a_description() -> None:
     assert re.search(r"^description:\s*\S", _skill_text(), re.MULTILINE)
 
 
-# Pure-legacy tools with NO legitimate reason to appear anywhere in the rewritten
-# skill. NOTE: find_references / get_call_hierarchy are deliberately NOT in this set —
-# they legitimately appear inside the honest-limits "do NOT use these to fake callers"
-# warning, so they cannot be blanket-banned. These four have no such excuse.
+# Pure-legacy tools with NO legitimate reason to appear anywhere in the skill.
+# NOTE: find_references / get_call_hierarchy / analyze_dependencies are deliberately
+# NOT in this set — after #505 removed them, the honest-limits section names them
+# once, on purpose, to tell an agent that remembers them that they are gone. A
+# blanket ban would delete that warning. These four have no such excuse.
 _PURE_LEGACY_TOOLS = ("lookup", "find_symbol", "goto_definition", "get_type_info")
 
 
 def test_pure_legacy_tools_absent() -> None:
     # Mechanical backstop for prose drift: catches a future "use find_symbol" sentence
     # that the edge anchor alone would miss. Manual review remains the backstop for the
-    # contextual cases (find_references in the honest-limits warning).
+    # contextual cases (the removed-tools note in the honest-limits section).
     text = _skill_text()
     present = [t for t in _PURE_LEGACY_TOOLS if t in text]
     assert not present, f"pure-legacy tools must not appear in the skill: {present}"

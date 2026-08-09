@@ -230,8 +230,6 @@ class TestSmartScopeResolver:
 
         # Methods that should search everywhere
         assert resolver.get_smart_default("find_subclasses") == "all"
-        assert resolver.get_smart_default("find_references") == "all"
-        assert resolver.get_smart_default("analyze_dependencies") == "all"
         assert resolver.get_smart_default("find_symbol") == "all"
 
         # Methods that should search main only
@@ -266,7 +264,7 @@ class TestSmartScopeResolver:
         assert resolver.get_smart_default("unknown_method") == "namespace:custom"
 
         # Unmodified defaults (still uses built-in)
-        assert resolver.get_smart_default("find_references") == "all"
+        assert resolver.get_smart_default("find_subclasses") == "all"
 
     def test_scope_alias_resolution(self, tmp_path):
         """Test scope alias resolution."""

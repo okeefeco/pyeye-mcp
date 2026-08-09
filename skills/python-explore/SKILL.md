@@ -126,14 +126,19 @@ a wrong or empty answer. Likewise, `inspect`'s `edge_counts` simply **omits** `c
 and `references` — it does not report them as `0`.
 
 **Do NOT fake reverse-reference data.** Delegating to a real reference backend (your
-editor's LSP — see below) is *not* faking; these two cheats are:
+editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 
 - Do **not** fall back to `grep` to guess who calls or references a symbol.
-- Do **not** use the deprecated legacy tools `find_references` or `get_call_hierarchy`
-  to fill the gap. They are backed by exactly the reverse search the redesign rejected:
-  it under-reports non-deterministically — anchored at a definition it can return a
-  near-empty set for a heavily-used symbol. A confident wrong answer is worse than an
-  honest "not available."
+
+> **There is no legacy escape hatch.** Earlier versions shipped `find_references`,
+> `get_call_hierarchy`, and `analyze_dependencies`. They were **removed in v2.0**, not
+> deprecated, because they answered confidently and wrongly — `get_call_hierarchy`
+> returned a structurally always-empty `callees` list and anchored bare names on the
+> first match with no ambiguity signal; `analyze_dependencies` classified every
+> first-party module as third-party on a `src/` layout, which silently disabled its own
+> cycle detection; `find_references` claimed "ALL usages" with no way to tell an empty
+> result from a failed search. If you remember them, they are gone — a confident wrong
+> answer is worse than an honest "not available."
 
 ### The reliable path: delegate to your LSP
 
@@ -161,8 +166,7 @@ a single honest answer is for.
 
 If your harness has no language-server tool, **say so plainly**: "pyeye can't give
 reliable caller/reference data (deferred to #333), and there's no LSP here to delegate
-to." Then offer what you *can* answer — and still do **not** substitute grep or the
-legacy tools:
+to." Then offer what you *can* answer — and still do **not** substitute grep:
 
 - **Forward** from a function: `callees` (what it calls).
 - **Around a module:** `imported_by` (who imports it) and `imports` (what it imports).
@@ -356,9 +360,9 @@ LSP.incomingCalls("myapp/cache.py", line=42, character=9)  -> real callers, with
 With **no** LSP tool in reach, the honest refusal instead:
 
 > Reliable caller data isn't available — `callers` is deferred (#333), there's no LSP
-> here to delegate to, and grep or the legacy tools would under-report. What I *can*
-> show: what `Cache.evict` itself calls (`callees`), and which modules import
-> `myapp.cache` (`imported_by`). Want either?
+> here to delegate to, and grep would under-report. What I *can* show: what
+> `Cache.evict` itself calls (`callees`), and which modules import `myapp.cache`
+> (`imported_by`). Want either?
 
 ## Dependency & Coupling Analysis
 
@@ -425,9 +429,10 @@ Don't block — degrade gracefully, but make the limitation visible.
 - Your first tool call is `Read()` on a Python file you haven't oriented in pyeye.
 - Reaching for `grep` to find a definition.
 - Reaching for `grep` to answer a relationship/reference question.
-- Reaching for deprecated `find_*` / `get_*` legacy tools.
-- **Faking "who calls this" with grep or the legacy reference tools** instead of
-  delegating to your LSP (or, with no LSP, stating the limit honestly).
+- Reaching for a pre-v2.0 tool name you remember — the primitives in the table above
+  are the whole surface, and nothing else is registered.
+- **Faking "who calls this" with grep** instead of delegating to your LSP (or, with
+  no LSP, stating the limit honestly).
 - Re-exploring a symbol pyeye already surfaced in this conversation.
 
 **If you catch yourself doing any of these: STOP. Orient with pyeye, or say honestly

@@ -12,6 +12,8 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.config import ProjectConfig
+from pyeye.mcp.operations.outline import outline as outline_impl
+from pyeye.mcp.operations.resolve import resolve as resolve_impl
 
 
 class TestSrcLayoutSupport:
@@ -397,21 +399,27 @@ where = ["src"]
         )
 
     @pytest.mark.asyncio
-    async def test_get_module_info_uses_package_path(self, real_src_project: Path):
-        """Test that modules can be accessed via 'mypackage.core' not 'src.mypackage.core'."""
+    async def test_module_is_addressable_by_package_path(self, real_src_project: Path):
+        """Modules resolve via 'mypackage.core', never 'src.mypackage.core'.
+
+        Ported off the removed ``get_module_info`` (#505) onto the primitives:
+        ``resolve`` proves the handle is addressable without the ``src.`` prefix,
+        and ``outline`` proves the module actually yields structure.
+        """
         config = ProjectConfig(str(real_src_project))
         analyzer = JediAnalyzer(str(real_src_project), config=config)
 
-        # Try to get info using 'mypackage.core' - this should work
-        # without needing 'src.mypackage.core'
-        module_info = await analyzer.get_module_info("mypackage.core")
+        result = await resolve_impl("mypackage.core", analyzer)
 
-        assert module_info is not None, (
-            "Should be able to get module info using 'mypackage.core' " "(not 'src.mypackage.core')"
+        assert result.get("found") is True, (
+            "Should be able to resolve 'mypackage.core' "
+            f"(not 'src.mypackage.core'); got: {result}"
         )
-        assert (
-            "classes" in module_info or "functions" in module_info
-        ), "Module info should have content"
+        handle = result["handle"]
+        assert handle == "mypackage.core", f"Handle must not carry a 'src.' prefix; got: {handle}"
+
+        tree = await outline_impl(handle, analyzer)
+        assert tree.get("children"), f"Module outline should have members; got: {tree}"
 
     @pytest.mark.asyncio
     async def test_list_packages_uses_package_path_not_src(self, real_src_project: Path):

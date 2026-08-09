@@ -2,9 +2,7 @@
 
 import ast
 import asyncio
-import contextlib
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -19,7 +17,6 @@ from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer, resolve_relative_import
-from ..path_utils import paths_equal
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -219,6 +216,74 @@ class JediAnalyzer:
         logger.info(f"Set {len(paths)} standalone script directories for {self.project_path}")
         # Invalidate cache when standalone paths change
         self.scoped_cache.invalidate_all()
+
+    # Retained deliberately: the only in-tree caller was the removed
+    # ``find_references`` (#505), but this carries the exclude-pattern and
+    # POSIX-normalisation behaviour of the configurable ``standalone_paths``
+    # feature, which ``get_project_files`` scope resolution does not implement.
+    async def _discover_standalone_files(
+        self,
+        file_pattern: str = "*.py",
+        exclude_patterns: list[str] | None = None,
+    ) -> list[Path]:
+        """Discover standalone Python files in configured directories.
+
+        Args:
+            file_pattern: Glob pattern for files to include (default "*.py")
+            exclude_patterns: List of patterns to exclude
+
+        Returns:
+            List of discovered standalone Python file paths
+        """
+        if not self.standalone_paths:
+            return []
+
+        if exclude_patterns is None:
+            exclude_patterns = []
+
+        # Default excludes for common non-code directories
+        default_excludes = {"__pycache__", ".git", ".venv", "venv", "env", ".tox", "dist", "build"}
+
+        discovered_files = []
+
+        for standalone_dir in self.standalone_paths:
+            if not standalone_dir.exists():
+                logger.warning(f"Standalone directory does not exist: {standalone_dir.as_posix()}")
+                continue
+
+            # Get standalone config from project config
+            standalone_config = self.config.get_standalone_config() if self.config else {}
+            recursive = standalone_config.get("recursive", True)
+
+            # Discover files
+            pattern_to_use = standalone_config.get("file_pattern", file_pattern)
+
+            if recursive:
+                files = standalone_dir.rglob(pattern_to_use)
+            else:
+                files = standalone_dir.glob(pattern_to_use)
+
+            for file_path in files:
+                # Skip if it's in a package (has __init__.py in same directory)
+                if (file_path.parent / "__init__.py").exists():
+                    continue
+
+                # Skip default excludes
+                if any(exclude_dir in file_path.parts for exclude_dir in default_excludes):
+                    continue
+
+                # Skip user-defined excludes
+                should_exclude = False
+                for exclude_pattern in exclude_patterns:
+                    if file_path.match(exclude_pattern):
+                        should_exclude = True
+                        break
+
+                if not should_exclude:
+                    discovered_files.append(file_path)
+
+        logger.info(f"Discovered {len(discovered_files)} standalone files")
+        return discovered_files
 
     def _get_project_for_path(self, path: Path) -> jedi.Project:
         """Get or create a cached Jedi project for an additional path.
@@ -638,70 +703,6 @@ class JediAnalyzer:
         # Otherwise, assume the repository root is the namespace
         return ns_path
 
-    async def _discover_standalone_files(
-        self,
-        file_pattern: str = "*.py",
-        exclude_patterns: list[str] | None = None,
-    ) -> list[Path]:
-        """Discover standalone Python files in configured directories.
-
-        Args:
-            file_pattern: Glob pattern for files to include (default "*.py")
-            exclude_patterns: List of patterns to exclude
-
-        Returns:
-            List of discovered standalone Python file paths
-        """
-        if not self.standalone_paths:
-            return []
-
-        if exclude_patterns is None:
-            exclude_patterns = []
-
-        # Default excludes for common non-code directories
-        default_excludes = {"__pycache__", ".git", ".venv", "venv", "env", ".tox", "dist", "build"}
-
-        discovered_files = []
-
-        for standalone_dir in self.standalone_paths:
-            if not standalone_dir.exists():
-                logger.warning(f"Standalone directory does not exist: {standalone_dir.as_posix()}")
-                continue
-
-            # Get standalone config from project config
-            standalone_config = self.config.get_standalone_config() if self.config else {}
-            recursive = standalone_config.get("recursive", True)
-
-            # Discover files
-            pattern_to_use = standalone_config.get("file_pattern", file_pattern)
-
-            if recursive:
-                files = standalone_dir.rglob(pattern_to_use)
-            else:
-                files = standalone_dir.glob(pattern_to_use)
-
-            for file_path in files:
-                # Skip if it's in a package (has __init__.py in same directory)
-                if (file_path.parent / "__init__.py").exists():
-                    continue
-
-                # Skip default excludes
-                if any(exclude_dir in file_path.parts for exclude_dir in default_excludes):
-                    continue
-
-                # Skip user-defined excludes
-                should_exclude = False
-                for exclude_pattern in exclude_patterns:
-                    if file_path.match(exclude_pattern):
-                        should_exclude = True
-                        break
-
-                if not should_exclude:
-                    discovered_files.append(file_path)
-
-        logger.info(f"Discovered {len(discovered_files)} standalone files")
-        return discovered_files
-
     async def find_symbol(
         self,
         name: str,
@@ -900,222 +901,6 @@ class JediAnalyzer:
             # Return None for non-critical errors (e.g., no definition found)
 
         return None
-
-    async def find_references(
-        self,
-        file: str,
-        line: int,
-        column: int,
-        include_definitions: bool = True,
-        include_subclasses: bool = False,
-    ) -> list[dict[str, Any]]:
-        """Find all references to a symbol.
-
-        This searches both the main project (via Jedi) and standalone files
-        (via manual search) to find all references to the symbol at the given position.
-
-        When the symbol is a class and include_subclasses=True, this performs a
-        polymorphic search - finding references to the base class AND all its subclasses.
-
-        Args:
-            file: Path to the file containing the symbol
-            line: Line number (1-indexed)
-            column: Column number (0-indexed)
-            include_definitions: Whether to include definitions in results
-            include_subclasses: If symbol is a class, also find references to all subclasses
-                (polymorphic search). Default False for backward compatibility.
-
-        Returns:
-            List of reference locations with file, line, column, and is_definition info.
-            When include_subclasses=True, each result includes "referenced_class" field
-            showing which class in the hierarchy the reference is for.
-
-        Example:
-            # Find references to BaseService and all its subclasses
-            refs = await analyzer.find_references(
-                "components.py", 40, 6, include_subclasses=True
-            )
-            # Returns references to BaseService, ProdService, TestService, etc.
-        """
-        results: list[dict[str, Any]] = []
-
-        try:
-            file_path = Path(file)
-            if not file_path.exists():
-                raise FileAccessError(f"File not found: {file}", file, "read")
-
-            # Bucket 1: analysis input — Script comes from cache.
-            script = file_artifact_cache.get_script(file_path, self.project)
-
-            # Get references from Jedi (searches main project paths)
-            references = script.get_references(line, column, include_builtins=False)
-
-            for ref in references:
-                if not include_definitions and ref.is_definition():
-                    continue
-
-                serialized = await self._serialize_name(ref)
-                serialized["is_definition"] = ref.is_definition()
-                results.append(serialized)
-
-            # Also search standalone files if configured
-            # Jedi's get_references() won't find these because standalone directories
-            # aren't in the Jedi project's sys_path
-            if self.standalone_paths and references:
-                # Get the symbol name from the first reference
-                # All references should be to the same symbol
-                symbol_name = references[0].name
-
-                # Search each standalone file for the symbol
-                standalone_files = await self._discover_standalone_files()
-
-                # Track files we've already searched via Jedi to avoid duplicates
-                searched_files = {ref.module_path for ref in references if ref.module_path}
-
-                for standalone_file in standalone_files:
-                    # Skip if already searched by Jedi
-                    if standalone_file in searched_files:
-                        continue
-
-                    try:
-                        # Bucket 1: analysis input — Script comes from cache.
-                        standalone_script = file_artifact_cache.get_script(
-                            standalone_file, self.project
-                        )
-
-                        # Get all names in the standalone file
-                        # IMPORTANT: Include both definitions AND references (call sites)
-                        names = standalone_script.get_names(
-                            all_scopes=True, definitions=True, references=True
-                        )
-
-                        # Filter to only names matching our symbol
-                        for name in names:
-                            if name.name == symbol_name:
-                                # Check if this is the same symbol by trying goto_definitions
-                                # If it resolves to our original symbol, it's a reference
-                                try:
-                                    serialized = await self._serialize_name(name)
-                                    serialized["is_definition"] = name.is_definition()
-
-                                    # Avoid duplicates
-                                    if serialized not in results:
-                                        results.append(serialized)
-                                except Exception as e:
-                                    logger.debug(
-                                        f"Error serializing name in standalone file {standalone_file}: {e}"
-                                    )
-
-                    except Exception as e:
-                        logger.debug(f"Error searching standalone file {standalone_file}: {e}")
-
-            # Polymorphic search: if symbol is a class and include_subclasses=True,
-            # also find references to all subclasses
-            if include_subclasses and references:
-                # Check if the symbol at this position is a class
-                inferred = script.infer(line, column)
-                is_class = any(inf.type == "class" for inf in inferred)
-
-                if is_class and inferred:
-                    # Get the class name
-                    class_name = inferred[0].name
-                    logger.info(
-                        f"Polymorphic search: finding references to {class_name} and all subclasses"
-                    )
-
-                    try:
-                        # Find all subclasses (including indirect).
-                        # Prefer the inferred FQN when available so we get FQN-strict
-                        # resolution and avoid the ambiguous-name variant.
-                        # Use Jedi's full_name directly — it's already FQN-qualified.
-                        inferred_fqn: str | None = None
-                        if inferred:
-                            first = inferred[0]
-                            if first.full_name:
-                                inferred_fqn = first.full_name
-                        lookup_name = inferred_fqn if inferred_fqn else class_name
-                        raw_subclasses = await self.find_subclasses(
-                            lookup_name, include_indirect=True, show_hierarchy=False
-                        )
-
-                        # Handle discriminated-union result
-                        if raw_subclasses.get("ambiguous", False):
-                            logger.warning(
-                                f"Polymorphic search: ambiguous class name {class_name!r}; "
-                                "skipping subclass expansion"
-                            )
-                            subclasses: list[dict[str, Any]] = []
-                        else:
-                            subclasses = raw_subclasses.get("subclasses", [])
-
-                        if subclasses:
-                            logger.info(f"Found {len(subclasses)} subclasses of {class_name}")
-
-                            # Track locations we've already found to avoid duplicates
-                            seen_locations = {(r["file"], r["line"], r["column"]) for r in results}
-
-                            # Find references to each subclass
-                            for subclass in subclasses:
-                                subclass_name = subclass["name"]
-                                subclass_file = subclass["file"]
-                                subclass_line = subclass["line"]
-                                subclass_column = subclass["column"]
-
-                                try:
-                                    # Recursively find references to this subclass
-                                    # IMPORTANT: Set include_subclasses=False to avoid infinite recursion
-                                    subclass_refs = await self.find_references(
-                                        subclass_file,
-                                        subclass_line,
-                                        subclass_column,
-                                        include_definitions=include_definitions,
-                                        include_subclasses=False,  # Prevent recursion
-                                    )
-
-                                    # Add subclass references to results, avoiding duplicates
-                                    for ref in subclass_refs:
-                                        location = (ref["file"], ref["line"], ref["column"])
-                                        if location not in seen_locations:
-                                            # Add metadata showing which class this reference is for
-                                            ref["referenced_class"] = subclass_name
-                                            results.append(ref)
-                                            seen_locations.add(location)
-                                        else:
-                                            # Location already found - keep the most specific class
-                                            # (prefer subclass over base class for same location)
-                                            logger.debug(
-                                                f"Duplicate reference at {location}, keeping existing"
-                                            )
-
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Error finding references to subclass {subclass_name}: {e}"
-                                    )
-                                    # Continue with other subclasses
-                        else:
-                            logger.info(f"No subclasses found for {class_name}")
-
-                        # Add "referenced_class" metadata to base class references
-                        # (do this even if no subclasses were found)
-                        for ref in results:
-                            if "referenced_class" not in ref:
-                                ref["referenced_class"] = class_name
-
-                    except Exception as e:
-                        logger.warning(f"Error during polymorphic search: {e}")
-                        # Continue with base class references only
-                        # Still add metadata
-                        for ref in results:
-                            if "referenced_class" not in ref:
-                                ref["referenced_class"] = class_name
-
-        except FileAccessError:
-            raise  # Re-raise file access errors
-        except Exception as e:
-            logger.error(f"Error in find_references: {e}")
-            # Return partial results if any
-
-        return results
 
     async def get_type_info(
         self,
@@ -1456,136 +1241,6 @@ class JediAnalyzer:
             ) from e
 
         return results
-
-    # DEPRECATED: replaced by inspect(handle).edge_counts.callers (count) and future expand(handle, edge="callers") + expand(handle, edge="callees") (lists). Will be removed in the legacy-tool cleanup phase.
-    async def get_call_hierarchy(
-        self, function_name: str, file: str | None = None
-    ) -> dict[str, Any]:
-        """Get the call hierarchy for a function or class.
-
-        **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` (count)
-        and future ``expand(handle, edge="callers")`` + ``expand(handle, edge="callees")``
-        (lists) in the redesigned API. See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
-
-        For functions, finds callers (who calls it) and callees (what it calls).
-        For classes, finds instantiation sites (callers) and what __init__ calls (callees).
-
-        Args:
-            function_name: Name of the function or class
-            file: Optional file to search in (searches whole project if not specified)
-
-        Returns:
-            Call hierarchy with callers and callees
-        """
-        result = {
-            "function": function_name,
-            "callers": [],
-            "callees": [],
-        }
-
-        try:
-            # First find the function or class definition across all scopes
-            search_results = await self._search_all_scopes(function_name)
-
-            function_def = None
-            for res in search_results:
-                if res.type in ("function", "class") and (
-                    file is None
-                    or (res.module_path is not None and paths_equal(res.module_path, file))
-                ):
-                    function_def = res
-                    break
-
-            if not function_def or not function_def.module_path:
-                return {"error": f"Symbol {function_name} not found"}
-
-            # Bucket 1: analysis input — Script comes from cache.
-            script = file_artifact_cache.get_script(function_def.module_path, self.project)
-
-            # Find references (callers)
-            refs = script.get_references(function_def.line, function_def.column)
-            for ref in refs:
-                if not ref.is_definition():
-                    callers_list = result["callers"]
-                    if isinstance(callers_list, list):
-                        callers_list.append(
-                            {
-                                "name": ref.name,
-                                "full_name": ref.full_name,
-                                "file": (
-                                    Path(ref.module_path).as_posix() if ref.module_path else None
-                                ),
-                                "line": ref.line,
-                                "column": ref.column,
-                                # TODO(api-redesign): content-shipping path — flagged 2026-05-02 per layering principle
-                                # ``ref.get_line_code()`` returns raw source text for the
-                                # caller's line.  Pyeye is the semantic layer; line
-                                # content belongs to the agent's Read tool given
-                                # (file, line).  Drop in the upcoming API redesign.
-                                "context": (
-                                    ref.get_line_code().strip()
-                                    if hasattr(ref, "get_line_code")
-                                    else None
-                                ),
-                            }
-                        )
-
-            # Find callees (functions called by this function)
-            # This requires more sophisticated AST analysis
-            # For now, we'll use a simplified approach
-            names = script.get_names(all_scopes=False)
-            for name in names:
-                if (
-                    name.type == "function"
-                    and name.line >= function_def.line
-                    and name.line <= function_def.line + 50
-                ):  # Rough heuristic
-                    # Check if this is a function call within our function
-                    if name.is_definition():
-                        continue
-                    callees_list = result["callees"]
-                    if isinstance(callees_list, list):
-                        callees_list.append(
-                            {
-                                "name": name.name,
-                                "full_name": name.full_name,
-                                "file": (
-                                    Path(name.module_path).as_posix() if name.module_path else None
-                                ),
-                                "line": name.line,
-                                "column": name.column,
-                                "type": name.type,
-                            }
-                        )
-
-        except FileNotFoundError as e:
-            raise ProjectNotFoundError(self.project_path.as_posix()) from e
-        except Exception as e:
-            logger.error(f"Error getting call hierarchy: {e}")
-            # Convert Path objects in exception to strings for serialization
-            error_str = str(e)
-            # Special handling for exceptions that contain Path objects (like Jedi's KeyError)
-            if hasattr(e, "args") and e.args and any(isinstance(arg, Path) for arg in e.args):
-                # If the exception has Path objects in args, convert them
-                converted_args = []
-                for arg in e.args:
-                    if isinstance(arg, Path):
-                        converted_args.append(arg.as_posix())
-                    else:
-                        converted_args.append(str(arg))
-                error_str = " ".join(converted_args) if converted_args else str(e)
-
-            raise AnalysisError(
-                f"Failed to get call hierarchy for function '{function_name}'",
-                function=function_name,
-                file=file,
-                error=error_str,
-            ) from e
-
-        return result
 
     async def get_completions(self, file: str, line: int, column: int) -> list[dict[str, Any]]:
         """Get code completions at a position."""
@@ -1999,9 +1654,7 @@ class JediAnalyzer:
 
         Scans every project file in *scope* for an import of the target module,
         using a textual pre-filter followed by an authoritative AST check. This
-        is the reusable extraction of the reverse-scan formerly inlined in
-        :meth:`analyze_dependencies`; a later ``expand(handle, edge="imported_by")``
-        edge can build on it without depending on the deprecated method.
+        backs the ``expand(handle, edge="imported_by")`` edge.
 
         The scan is purely AST-based (no Jedi reference resolution), which is
         what gives it breadth: standalone scripts and test files that import the
@@ -2012,7 +1665,7 @@ class JediAnalyzer:
             module_path: Absolute dotted path of the target module.
             target_file: The target module's own file, skipped during the scan
                 so a module never reports itself.
-            scope: Search scope (see :meth:`analyze_dependencies`).
+            scope: Search scope — "main", "all", or a namespace selector.
 
         Returns:
             ``(importer_dotted_module, importer_file)`` pairs, deduped by
@@ -2104,370 +1757,6 @@ class JediAnalyzer:
                 continue
 
         return [(module, importers[module]) for module in sorted(importers)]
-
-    async def analyze_dependencies(
-        self, module_path: str, scope: Scope = "all", _visited: set[str] | None = None
-    ) -> dict[str, Any]:
-        """Analyze import dependencies for a module.
-
-        **Deprecated:** Replaced by future ``expand(handle, edge="imports")`` and
-        ``trace(handle, follow=["imports"])`` in the redesigned API. See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
-
-        Args:
-            module_path: The module to analyze dependencies for
-            scope: Search scope (default "all"):
-                - "main": Only the main project
-                - "all": Main project + configured namespaces
-                - "namespace:name": Specific namespace
-                - ["main", "namespace:x"]: Multiple scopes
-            _visited: Internal parameter for recursion tracking
-        """
-        result: dict[str, Any] = {
-            "module": module_path,
-            "imports": {"internal": [], "external": [], "stdlib": []},
-            "imported_by": [],
-            "circular_dependencies": [],
-        }
-
-        try:
-            # Find the module file
-            module_file = None
-            module_parts = module_path.split(".")
-
-            # Try different possible paths
-            # First check source roots (e.g., src/ layout), then project root
-            search_roots = list(self.source_roots) + [self.project_path]
-
-            for root in search_roots:
-                possible_paths = [
-                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                    root / Path(*module_parts) / "__init__.py",
-                    root / f"{module_path.replace('.', os.sep)}.py",
-                ]
-
-                for path in possible_paths:
-                    if path.exists():
-                        module_file = path
-                        break
-                if module_file:
-                    break
-
-            if not module_file:
-                raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
-
-            # Analyze imports in this module
-            # Bucket 1: AST comes from cache.
-            tree = file_artifact_cache.get_ast(module_file)
-
-            # Standard library modules (common ones, not exhaustive)
-            stdlib_modules = {
-                "os",
-                "sys",
-                "re",
-                "json",
-                "math",
-                "random",
-                "datetime",
-                "collections",
-                "itertools",
-                "functools",
-                "pathlib",
-                "typing",
-                "enum",
-                "dataclasses",
-                "logging",
-                "argparse",
-                "subprocess",
-                "threading",
-                "multiprocessing",
-                "urllib",
-                "http",
-                "socket",
-                "ssl",
-                "hashlib",
-                "hmac",
-                "base64",
-                "pickle",
-                "csv",
-                "xml",
-                "html",
-                "email",
-                "sqlite3",
-                "asyncio",
-                "contextlib",
-                "tempfile",
-                "shutil",
-                "glob",
-                "fnmatch",
-                "platform",
-            }
-
-            # Get project modules for internal/external classification
-            project_modules = set()
-            py_files = await self.get_project_files("*.py", scope)
-            for py_file in py_files:
-                # Determine the module root based on which search path this file belongs to
-                module_root = None
-                rel_path = None
-
-                try:
-                    rel_path = py_file.relative_to(self.project_path)
-                    module_parts = list(rel_path.parts[:-1])
-                    if py_file.name != "__init__.py":
-                        module_parts.append(py_file.stem)
-                    if module_parts:
-                        module_root = module_parts[0]
-                except ValueError:
-                    # Not under main project, check namespaces
-                    for ns_name, ns_paths in self.namespace_paths.items():
-                        for ns_path in ns_paths:
-                            try:
-                                if py_file.is_relative_to(ns_path):
-                                    rel_path = py_file.relative_to(ns_path)
-                                    module_root = ns_name
-                                    break
-                            except (ValueError, AttributeError):
-                                continue
-                        if module_root:
-                            break
-
-                if module_root and rel_path:
-                    if not any(
-                        p.startswith(".") or p in ["__pycache__", "build", "dist"]
-                        for p in rel_path.parts
-                    ):
-                        project_modules.add(module_root)
-
-            # Analyze imports
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        module_name = alias.name.split(".")[0]
-                        if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(alias.name)
-                        elif module_name in project_modules:
-                            result["imports"]["internal"].append(alias.name)
-                        else:
-                            result["imports"]["external"].append(alias.name)
-                elif isinstance(node, ast.ImportFrom):
-                    # Resolve relative imports (`from .x import y`) to their
-                    # absolute path before classifying; otherwise the bare tail
-                    # is mis-bucketed as external and the edge is lost (#343).
-                    resolved = self._resolve_relative_import(
-                        node.level,
-                        node.module,
-                        module_path,
-                        module_file.name == "__init__.py",
-                    )
-                    if resolved:
-                        module_name = resolved.split(".")[0]
-                        if module_name in stdlib_modules:
-                            result["imports"]["stdlib"].append(resolved)
-                        elif module_name in project_modules:
-                            result["imports"]["internal"].append(resolved)
-                        else:
-                            result["imports"]["external"].append(resolved)
-
-            # Remove duplicates and sort
-            stdlib_imports = result["imports"]["stdlib"]
-            internal_imports = result["imports"]["internal"]
-            external_imports = result["imports"]["external"]
-            result["imports"]["stdlib"] = sorted(set(stdlib_imports))
-            result["imports"]["internal"] = sorted(set(internal_imports))
-            result["imports"]["external"] = sorted(set(external_imports))
-
-            # Find what imports this module (reverse scan extracted to
-            # find_importers so a future imported_by edge can reuse it).
-            importer_pairs = await self.find_importers(module_path, module_file, scope)
-            result["imported_by"] = sorted({module for module, _ in importer_pairs})
-
-            # Check for circular dependencies
-            # Use visited set to prevent infinite recursion
-            if _visited is None:
-                _visited = set()
-
-            if module_path not in _visited:
-                _visited.add(module_path)
-                for imported_module in result["imports"]["internal"]:
-                    # Skip if we've already visited this module to avoid infinite recursion
-                    if imported_module not in _visited:
-                        # Check if the imported module also imports this module
-                        try:
-                            deps = await self.analyze_dependencies(
-                                imported_module, scope=scope, _visited=_visited
-                            )
-                            if module_path in deps["imports"]["internal"]:
-                                result["circular_dependencies"].append(imported_module)
-                        except Exception:
-                            # Ignore errors in recursive analysis
-                            pass
-
-        except FileAccessError:
-            raise
-        except Exception as e:
-            logger.error(f"Error in analyze_dependencies: {e}")
-            raise AnalysisError(
-                f"Failed to analyze dependencies for {module_path}",
-                operation="analyze_dependencies",
-                error=str(e),
-            ) from e
-
-        return result
-
-    # DEPRECATED: replaced by inspect(handle) for module-kind handles. Will be removed in the legacy-tool cleanup phase.
-    async def get_module_info(self, module_path: str) -> dict[str, Any]:
-        """Get detailed information about a specific module.
-
-        **Deprecated:** Replaced by ``inspect(handle)`` for module-kind handles
-        in the redesigned API. See
-        docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        for the migration plan. This method will be removed once the legacy
-        MCP tools are deprecated (Phase B of the migration).
-        """
-        info: dict[str, Any] = {
-            "module": module_path,
-            "file": None,
-            "docstring": None,
-            "exports": [],
-            "classes": [],
-            "functions": [],
-            "variables": [],
-            "imports": [],
-            "metrics": {"lines": 0, "classes": 0, "functions": 0, "complexity": 0},
-            "dependencies": None,
-        }
-
-        try:
-            # Find the module file
-            module_file = None
-            module_parts = module_path.split(".")
-
-            # Try different possible paths
-            # First check source roots (e.g., src/ layout), then project root
-            search_roots = list(self.source_roots) + [self.project_path]
-
-            for root in search_roots:
-                possible_paths = [
-                    root / Path(*module_parts[:-1]) / f"{module_parts[-1]}.py",
-                    root / Path(*module_parts) / "__init__.py",
-                    root / f"{module_path.replace('.', os.sep)}.py",
-                ]
-
-                for path in possible_paths:
-                    if path.exists():
-                        module_file = path
-                        break
-                if module_file:
-                    break
-
-            if not module_file:
-                raise FileAccessError(f"Module not found: {module_path}", module_path, "read")
-
-            info["file"] = module_file.as_posix()
-
-            # Bucket 1: AST comes from cache.
-            tree = file_artifact_cache.get_ast(module_file)
-            # Bucket 5: line count as a semantic metric — see list_modules
-            # for rationale.  Tiny secondary read; primary parse is cached.
-            source = await read_file_async(module_file)
-            info["metrics"]["lines"] = source.count("\n") + 1
-
-            # Get module docstring
-            if (
-                tree.body
-                and isinstance(tree.body[0], ast.Expr)
-                and isinstance(tree.body[0].value, ast.Constant)
-            ):
-                info["docstring"] = tree.body[0].value.value
-
-            # Analyze module contents
-            for node in tree.body:
-                if isinstance(node, ast.ClassDef):
-                    class_info: dict[str, Any] = {
-                        "name": node.name,
-                        "line": node.lineno,
-                        "methods": [],
-                        "docstring": ast.get_docstring(node),
-                    }
-
-                    for item in node.body:
-                        if isinstance(item, ast.FunctionDef):
-                            class_info["methods"].append(
-                                {
-                                    "name": item.name,
-                                    "line": item.lineno,
-                                    "is_private": item.name.startswith("_"),
-                                }
-                            )
-
-                    info["classes"].append(class_info)
-                    info["exports"].append(node.name)
-                    info["metrics"]["classes"] += 1
-
-                elif isinstance(node, ast.FunctionDef):
-                    func_info = {
-                        "name": node.name,
-                        "line": node.lineno,
-                        "args": [arg.arg for arg in node.args.args],
-                        "docstring": ast.get_docstring(node),
-                        "is_private": node.name.startswith("_"),
-                    }
-                    info["functions"].append(func_info)
-                    if not node.name.startswith("_"):
-                        info["exports"].append(node.name)
-                    info["metrics"]["functions"] += 1
-
-                elif isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            if not target.id.startswith("_"):
-                                info["variables"].append({"name": target.id, "line": node.lineno})
-                                info["exports"].append(target.id)
-
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        info["imports"].append(
-                            {"module": alias.name, "alias": alias.asname, "line": node.lineno}
-                        )
-
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        for alias in node.names:
-                            info["imports"].append(
-                                {
-                                    "module": node.module,
-                                    "name": alias.name,
-                                    "alias": alias.asname,
-                                    "line": node.lineno,
-                                }
-                            )
-
-            # Calculate cyclomatic complexity (simplified)
-            complexity = 1  # Base complexity
-            for ast_node in ast.walk(tree):
-                if isinstance(ast_node, (ast.If, ast.While, ast.For, ast.ExceptHandler)):
-                    complexity += 1
-                elif isinstance(ast_node, ast.BoolOp):
-                    complexity += len(ast_node.values) - 1
-            info["metrics"]["complexity"] = complexity
-
-            # Get dependency information
-            info["dependencies"] = await self.analyze_dependencies(module_path)
-
-        except FileAccessError:
-            raise
-        except Exception as e:
-            logger.error(f"Error in get_module_info: {e}")
-            raise AnalysisError(
-                f"Failed to get module info for {module_path}",
-                operation="get_module_info",
-                error=str(e),
-            ) from e
-
-        return info
 
     def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
         """Build a minimal navigable reference dict from a Name-like object.
@@ -2783,233 +2072,6 @@ class JediAnalyzer:
         """
         body = description[len("param ") :].strip()
         return ":" in body
-
-    async def _enrich_method(self, name: jedi.api.classes.Name) -> dict[str, Any]:
-        """Extract full method details including signature, parameters, and return type.
-
-        Takes a Jedi Name object whose ``type`` is ``"function"`` and returns a
-        rich dict with navigable references for the return type and each
-        parameter's type hint.
-
-        Args:
-            name: A Jedi Name object representing a function/method.
-
-        Returns:
-            A dict with keys:
-
-            - ``name``: the method's simple name
-            - ``full_name``: full dotted path or None
-            - ``file``: POSIX file path or None
-            - ``line``: 1-based line number or None
-            - ``signature``: the full signature string (e.g. ``"start(self, port: int = 8080) -> bool"``)
-              or None if no signatures are available
-            - ``return_type``: navigable ref dict for the return type, or None
-            - ``parameters``: list of parameter dicts, each with:
-
-              - ``name``: parameter name
-              - ``type_hint``: navigable ref dict or None
-              - ``default``: default value as source-text string, or None
-        """
-        result = self._build_navigable_ref(name)
-
-        sigs = name.get_signatures()
-        if not sigs:
-            result["signature"] = None
-            result["return_type"] = None
-            result["parameters"] = []
-            return result
-
-        sig = sigs[0]
-        # FOLLOW-UP (#437): dual-source smell — this deprecated path still leaks a
-        # decorator wrapper's signature/params (e.g. functools.cache → _lru_cache_wrapper),
-        # whereas inspect._build_signature now detects and reconstructs from the AST.
-        # The two signature sources should converge on the AST-first builder.
-        result["signature"] = sig.to_string()
-
-        # Create script for contextual type resolution
-        # Bucket 1: analysis input — Script and AST come from cache.
-        script: jedi.Script | None = None
-        func_ast_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
-        if name.module_path:
-            try:
-                script = file_artifact_cache.get_script(name.module_path, self.project)
-                # Find the function's AST node for annotation positions
-                tree = file_artifact_cache.get_ast(name.module_path)
-                for node in ast.walk(tree):
-                    if (
-                        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                        and node.name == name.name
-                        and node.lineno == name.line
-                    ):
-                        func_ast_node = node
-                        break
-            except Exception:
-                pass
-
-        # Parse return type — use AST position for contextual resolution
-        sig_str = sig.to_string()
-        return_type_str: str | None = None
-        return_line: int | None = None
-        return_col: int | None = None
-        match = re.search(r"->\s*(.+)$", sig_str)
-        if match:
-            return_type_str = match.group(1).strip()
-        if func_ast_node and func_ast_node.returns:
-            return_line = func_ast_node.returns.lineno
-            return_col = func_ast_node.returns.col_offset
-        result["return_type"] = await self._build_type_ref(
-            return_type_str,
-            script=script,
-            annotation_line=return_line,
-            annotation_col=return_col,
-        )
-
-        # Build parameter list
-        parameters: list[dict[str, Any]] = []
-        _IMPLICIT_PARAMS = {"self", "cls"}
-        # Build a map of param name → AST annotation position
-        param_positions: dict[str, tuple[int, int]] = {}
-        if func_ast_node:
-            for arg in func_ast_node.args.args + func_ast_node.args.kwonlyargs:
-                if arg.annotation:
-                    param_positions[arg.arg] = (arg.annotation.lineno, arg.annotation.col_offset)
-            vararg = func_ast_node.args.vararg
-            if vararg and vararg.annotation:
-                param_positions[vararg.arg] = (
-                    vararg.annotation.lineno,
-                    vararg.annotation.col_offset,
-                )
-            kwarg = func_ast_node.args.kwarg
-            if kwarg and kwarg.annotation:
-                param_positions[kwarg.arg] = (kwarg.annotation.lineno, kwarg.annotation.col_offset)
-
-        for param in sig.params:
-            pname = param.name
-            desc = param.description
-
-            if pname in _IMPLICIT_PARAMS or not self._has_type_annotation(desc):
-                type_hint_ref = None
-            else:
-                hint_str = param.get_type_hint()
-                p_line, p_col = param_positions.get(pname, (None, None))
-                type_hint_ref = await self._build_type_ref(
-                    hint_str,
-                    script=script,
-                    annotation_line=p_line,
-                    annotation_col=p_col,
-                )
-
-            default = self._extract_param_default(desc)
-            parameters.append(
-                {
-                    "name": pname,
-                    "type_hint": type_hint_ref,
-                    "default": default,
-                }
-            )
-
-        result["parameters"] = parameters
-        return result
-
-    async def _enrich_attribute(self, name: jedi.api.classes.Name, source: str) -> dict[str, Any]:
-        """Extract attribute details including type hint and default value.
-
-        Takes a Jedi Name object whose ``type`` is ``"statement"`` or
-        ``"instance"`` (a module-level or class-level attribute) and returns a
-        rich dict by parsing the enclosing source text to extract the annotation
-        and default value.
-
-        .. note::
-            The ``source`` parameter is a bridge contract pending reshape to accept
-            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
-            (``lookup_builders.py``).
-
-        Args:
-            name: A Jedi Name object representing an attribute.
-            source: The full source text of the module containing the attribute.
-
-        Returns:
-            A dict with keys:
-
-            - ``name``: the attribute's simple name
-            - ``full_name``: full dotted path or None
-            - ``file``: POSIX file path or None
-            - ``line``: 1-based line number or None
-            - ``type_hint``: navigable ref dict or None
-            - ``default``: default value as source-text string, or None
-        """
-        result = self._build_navigable_ref(name)
-
-        type_hint_str: str | None = None
-        default_str: str | None = None
-        annotation_line: int | None = None
-        annotation_col: int | None = None
-
-        try:
-            tree = ast.parse(source)
-            target_line = name.line  # 1-based
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.AnnAssign) and node.col_offset >= 0:
-                    if node.lineno == target_line:
-                        type_hint_str = ast.unparse(node.annotation)
-                        default_str = ast.unparse(node.value) if node.value is not None else None
-                        # Capture annotation position for contextual goto resolution
-                        annotation_line = node.annotation.lineno
-                        annotation_col = node.annotation.col_offset
-                        break
-                elif isinstance(node, ast.Assign):
-                    if node.lineno == target_line:
-                        default_str = ast.unparse(node.value)
-                        break
-        except Exception:
-            logger.debug(f"Failed to parse source for attribute {name.name!r} at line {name.line}")
-
-        # Create a script for contextual type resolution if we have a file.
-        # Bucket 1: analysis input — Script comes from cache (source param is
-        # ignored here because the cache reads from the path itself).
-        script: jedi.Script | None = None
-        if name.module_path and annotation_line is not None:
-            with contextlib.suppress(Exception):
-                script = file_artifact_cache.get_script(name.module_path, self.project)
-
-        result["type_hint"] = await self._build_type_ref(
-            type_hint_str,
-            script=script,
-            annotation_line=annotation_line,
-            annotation_col=annotation_col,
-        )
-        result["default"] = default_str
-        return result
-
-    async def _get_module_variables(self, script: jedi.Script, source: str) -> list[dict[str, Any]]:
-        """Extract module-level variable assignments with type hints and defaults.
-
-        Returns enriched dicts for all top-level variable statements in the
-        module, excluding class/function definitions and import statements.
-
-        .. note::
-            The ``source`` parameter is a bridge contract pending reshape to accept
-            ``ast.Module`` directly — see ``TODO(api-redesign)`` in callers
-            (``lookup_builders.py``).
-
-        Args:
-            script: A Jedi Script object for the module to inspect.
-            source: The full source text of the module.
-
-        Returns:
-            A list of dicts, each with keys:
-
-            - ``name``: the variable's simple name
-            - ``full_name``: full dotted path or None
-            - ``file``: POSIX file path or None
-            - ``line``: 1-based line number or None
-            - ``type_hint``: navigable ref dict or None
-            - ``default``: default value as source-text string, or None
-        """
-        names = script.get_names(all_scopes=False)
-        variables = [n for n in names if n.type == "statement" and n.is_definition()]
-        return [await self._enrich_attribute(name, source) for name in variables]
 
     async def _serialize_name(
         self,

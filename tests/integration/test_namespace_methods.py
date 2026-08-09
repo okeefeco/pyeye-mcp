@@ -369,76 +369,6 @@ class TestListModulesNamespaceSupport:
             ]
 
 
-class TestAnalyzeDependenciesNamespaceSupport:
-    """Test analyze_dependencies with namespace scope support."""
-
-    async def test_analyze_dependencies_main_scope(self, temp_namespace_project):
-        """Test analyze_dependencies with main scope only."""
-        analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
-        analyzer.set_namespace_paths(
-            {
-                "company": [
-                    str(temp_namespace_project["auth_repo"]),
-                    str(temp_namespace_project["api_repo"]),
-                ]
-            }
-        )
-
-        # Analyze dependencies of main project module with main scope
-        result = await analyzer.analyze_dependencies("models", scope="main")
-
-        # Should analyze dependencies considering only main project
-        assert result["module"] == "models"
-        assert "imports" in result
-        assert "imported_by" in result
-
-    async def test_analyze_dependencies_all_scope(self, temp_namespace_project):
-        """Test analyze_dependencies with all scope (default)."""
-        analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
-        analyzer.set_namespace_paths(
-            {
-                "company": [
-                    str(temp_namespace_project["auth_repo"]),
-                    str(temp_namespace_project["api_repo"]),
-                ]
-            }
-        )
-
-        # Should default to all scope for complete dependency graph
-        result = await analyzer.analyze_dependencies("models")
-
-        # Should analyze dependencies across all configured scopes
-        assert result["module"] == "models"
-        assert "imports" in result
-        # Should potentially find more dependencies when looking across namespaces
-        all_imports = (
-            result["imports"]["internal"]
-            + result["imports"]["external"]
-            + result["imports"]["stdlib"]
-        )
-        assert len(all_imports) >= 0  # At least should not error
-
-    async def test_analyze_dependencies_namespace_scope(self, temp_namespace_project):
-        """Test analyze_dependencies with specific namespace scope."""
-        analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
-        analyzer.set_namespace_paths(
-            {
-                "company": [
-                    str(temp_namespace_project["auth_repo"]),
-                    str(temp_namespace_project["api_repo"]),
-                ]
-            }
-        )
-
-        # Analyze dependencies of main project module with namespace scope
-        # The scope parameter affects the search space, not the module being analyzed
-        result = await analyzer.analyze_dependencies("models", scope="namespace:company")
-
-        # Should analyze dependencies within the namespace scope
-        assert result["module"] == "models"
-        assert "imports" in result
-
-
 class TestScopeParameterDefaults:
     """Test that the default scope parameters work as specified in the issue."""
 
@@ -520,25 +450,6 @@ class TestScopeParameterDefaults:
         company_modules = [path for path in import_paths if path.startswith("company")]
         assert len(company_modules) == 0  # No company modules in main scope
 
-    async def test_analyze_dependencies_default_all(self, temp_namespace_project):
-        """Test that analyze_dependencies defaults to 'all' scope."""
-        analyzer = JediAnalyzer(str(temp_namespace_project["main_project"]))
-        analyzer.set_namespace_paths(
-            {
-                "company": [
-                    str(temp_namespace_project["auth_repo"]),
-                    str(temp_namespace_project["api_repo"]),
-                ]
-            }
-        )
-
-        # Call without scope parameter - should default to "all"
-        result = await analyzer.analyze_dependencies("models")
-
-        # Should analyze across all scopes by default
-        assert result["module"] == "models"
-        assert "imports" in result
-
 
 class TestMultipleScopeSupport:
     """Test that multiple scope specifications work correctly."""
@@ -601,10 +512,6 @@ class TestErrorHandling:
 
         results = await analyzer.list_modules(scope="invalid:scope")
         assert isinstance(results, list)
-
-        # For analyze_dependencies, use an existing module since it needs to find the file
-        result = await analyzer.analyze_dependencies("models", scope="invalid:scope")
-        assert isinstance(result, dict)
 
     async def test_nonexistent_namespace_scope(self, temp_namespace_project):
         """Test handling of nonexistent namespace scopes."""

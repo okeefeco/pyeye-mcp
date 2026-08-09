@@ -1,9 +1,7 @@
 """Main MCP server implementation for PyEye."""
 
-import builtins
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -11,11 +9,6 @@ from mcp.server.fastmcp import FastMCP
 from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
-from ..exceptions import (
-    AnalysisError,
-    FileAccessError,
-    ProjectNotFoundError,
-)
 from ..metrics import metrics
 
 # Import metrics_hook only if available (for optional unified metrics support)
@@ -502,10 +495,9 @@ async def expand(
     ``line_end``, and ``signature`` when Jedi yields one (always for
     class/function/method; also any name whose inferred type is callable).
 
-    Relationship to deprecated tools: ``members`` supersedes the deprecated
-    ``find_subclasses``/``find_symbol`` pattern for enumerating class members.
-    ``callees`` supersedes manual ``get_call_hierarchy`` usage for forward edges.
-    Both deprecated tools remain registered until Phase B migration.
+    ``callees`` is the only supported way to ask what a function calls; the
+    reverse question (what calls it) is not answerable here — see the
+    ``deferred_reference_backend`` reason above.
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/inspect).
@@ -689,185 +681,6 @@ async def outline(
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
     return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
-
-
-# NOTE: superseded by future expand(handle, edge="references"); kept until Phase B migration.
-@mcp.tool()
-@validate_mcp_inputs
-@metrics.measure("find_references")
-@track_mcp_operation("find_references")
-async def find_references(
-    file: str | None = None,
-    line: int | None = None,
-    column: int | None = None,
-    project_path: str = ".",
-    include_definitions: bool = True,
-    include_subclasses: bool = False,
-    fields: list[str] | None = None,
-    symbol_name: str | None = None,
-) -> list[dict[str, Any]] | dict[str, Any]:
-    """Python: Find ALL usages of a symbol. Understands inheritance - grep misses subclass refs.
-
-    For general use, prefer lookup() which accepts any identifier form.
-    This tool provides fields filtering, include_subclasses, and symbol_name for full reference lists.
-
-    Two calling conventions (coordinates take precedence if both provided):
-    1. Coordinates: file + line + column (precise, unambiguous)
-    2. Symbol name: symbol_name only (convenient; fails if name is ambiguous)
-
-    If symbol_name matches multiple symbols, returns error with a "matches" list
-    so you can pick the right one and retry with coordinates.
-
-    Args:
-        file: Path to the file (required with line and column)
-        line: Line number (1-indexed, required with file and column)
-        column: Column number (0-indexed, required with file and line)
-        symbol_name: Symbol name (alternative to file+line+column)
-        project_path: Root path of the project
-        include_definitions: Include definitions in results
-        include_subclasses: Also find references to all subclasses (polymorphic search)
-        fields: Fields to include per reference. Valid: name, type, line, column,
-               description, full_name, file, is_definition. Default: all fields.
-    """
-    # Validate input: determine which branch to use
-    all_coords = file is not None and line is not None and column is not None
-    any_coord = file is not None or line is not None or column is not None
-
-    if all_coords:
-        # Branch 1: All coordinates present — use them directly (ignore symbol_name)
-        pass
-    elif any_coord:
-        # Branch 3: Some but not all coordinates provided (checked before symbol_name)
-        return {
-            "error": "Coordinates incomplete: provide all three (file, line, column) or use symbol_name instead"
-        }
-    elif symbol_name is not None:
-        # Branch 2: Symbol name provided (no coordinates) — resolve to coordinates
-        _sym_analyzer = get_analyzer(project_path)
-        symbol_results = await _sym_analyzer.find_symbol(
-            symbol_name, fuzzy=False, include_import_paths=True, scope="all"
-        )
-        # If symbol_name is a full dotted path (contains dots) and multiple results came
-        # back, narrow to exact full_name match before disambiguation.
-        if "." in symbol_name and len(symbol_results) > 1:
-            fqn_matches = [r for r in symbol_results if r.get("full_name") == symbol_name]
-            if fqn_matches:
-                symbol_results = fqn_matches
-
-        if len(symbol_results) == 0:
-            if hasattr(builtins, symbol_name):
-                return {
-                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
-                }
-            return {"error": f"No symbol found matching '{symbol_name}'"}
-        elif len(symbol_results) == 1:
-            match = symbol_results[0]
-            if "file" not in match:
-                return {
-                    "error": f"Symbol '{symbol_name}' is a built-in with no source file; cannot find references by name"
-                }
-            # Set coordinates and fall through to the existing resolution code
-            file = match["file"]
-            line = match["line"]
-            column = match["column"]
-        else:
-            # Multiple matches — return disambiguation response
-            return {
-                "error": f"Multiple symbols found matching '{symbol_name}'. Specify file, line, and column to disambiguate.",
-                "matches": symbol_results,
-            }
-    else:
-        # Branch 4: Neither coordinates nor symbol_name provided
-        return {"error": "Either symbol_name or file+line+column required"}
-
-    # At this point, all three coordinates are guaranteed non-None
-    # (either provided directly or resolved from symbol_name).
-    assert file is not None
-    assert line is not None
-    assert column is not None
-
-    analyzer = get_analyzer(project_path)
-    result = await analyzer.find_references(
-        file, line, column, include_definitions, include_subclasses
-    )
-
-    # Apply field filtering if requested
-    if fields is not None:
-        result = filter_fields(result, fields)  # type: ignore
-
-    return result
-
-
-# DEPRECATED: replaced by inspect(handle).edge_counts.callers for the count; future expand(handle, edge="callers") for the list. Will be removed in the legacy-tool cleanup phase.
-@mcp.tool()
-@validate_mcp_inputs
-@metrics.measure("get_call_hierarchy")
-@track_mcp_operation("get_call_hierarchy")
-async def get_call_hierarchy(
-    function_name: str, file: str | None = None, project_path: str = "."
-) -> dict[str, Any]:
-    """Python: Trace function callers and callees through the codebase.
-
-    **Deprecated:** Replaced by ``inspect(handle).edge_counts.callers`` for the
-    count and future ``expand(handle, edge="callers")`` for the list in the
-    redesigned API. See
-    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-    for the migration plan. This method will be removed once the legacy
-    MCP tools are deprecated (Phase B of the migration).
-
-    For general use, prefer lookup() which accepts any identifier form.
-    This tool provides full call graph traversal beyond the default limit.
-
-    Args:
-        function_name: Name of the function
-        file: Optional file to search in (searches whole project if not specified)
-        project_path: Root path of the project
-    """
-    analyzer = get_analyzer(project_path)
-    return await analyzer.get_call_hierarchy(function_name, file)
-
-
-# DEPRECATED: replaced by future trace(handle, follow=["imports"]). Will be removed in the legacy-tool cleanup phase.
-@mcp.tool()
-@validate_mcp_inputs
-@metrics.measure("analyze_dependencies")
-@track_mcp_operation("analyze_dependencies")
-async def analyze_dependencies(
-    module_path: str, project_path: str = ".", scope: str = "all"
-) -> dict[str, Any]:
-    """Python: Map module dependencies and detect circular imports. Semantic analysis grep can't do.
-
-    **Deprecated:** Replaced by future ``trace(handle, follow=["imports"])`` in
-    the redesigned API. See
-    docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-    for the migration plan. This method will be removed once the legacy
-    MCP tools are deprecated (Phase B of the migration).
-
-    For general use, prefer lookup() which accepts any identifier form.
-    This tool provides circular dependency detection and scope filtering for targeted queries.
-
-    Args:
-        module_path: Import path of the module (e.g., "pyeye.mcp")
-        project_path: Root path of the project
-        scope: Search scope - "main", "all", "namespace:name", or list
-    """
-    try:
-        analyzer = get_analyzer(project_path)
-        return await analyzer.analyze_dependencies(module_path, scope=scope)
-    except ProjectNotFoundError as e:
-        raise FileAccessError(
-            f"Project path not found: {Path(project_path).as_posix()}", project_path
-        ) from e
-    except FileAccessError:
-        raise  # Re-raise module not found errors
-    except Exception as e:
-        logger.error(f"Error analyzing dependencies: {e}")
-        raise AnalysisError(
-            f"Failed to analyze dependencies for {module_path}",
-            file_path=project_path,
-            operation="analyze_dependencies",
-            error=str(e),
-        ) from e
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)

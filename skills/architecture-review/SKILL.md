@@ -79,9 +79,8 @@ primitives (`resolve` / `inspect` / `outline` / `expand` / `trace` over canonica
 handles). **Do not restate the primitives here** — follow the
 [`python-explore`](../python-explore/SKILL.md) skill for all tool mechanics,
 including its **honest-limits rule**: pyeye has no reverse-reference / caller data
-(deferred to #333), so never fake "who calls this" with `grep` or the legacy
-`find_references` / `get_call_hierarchy` tools — delegate caller questions to an
-LSP, or state the limit. `imported_by` (static importers) is fine and is a primary
+(deferred to #333), so never fake "who calls this" with `grep` — delegate caller
+questions to an LSP, or state the limit. `imported_by` (static importers) is fine and is a primary
 signal for the `layering` axis.
 
 ## Orchestration — The Seven Steps
