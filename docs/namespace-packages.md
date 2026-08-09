@@ -421,14 +421,33 @@ Ensure paths exist and contain Python files.
 you started from:
 
 ```python
-# via the MCP surface
-sub = await trace(start="mymodule", follow=["imports"])
-cycles = [e for e in sub["edges"] if e["to"] == "mymodule"]
+# via the MCP surface. Resolve first so the comparison below is against a
+# canonical handle, not whatever string you happened to type.
+start = (await resolve("mymodule"))["handle"]
+
+# max_depth defaults to 3 — raise it or you will only see short cycles.
+sub = await trace(start=start, follow=["imports"], max_depth=6)
+cycles = [e for e in sub["edges"] if e["to"] == start]
 ```
 
 `trace` visits each node once but still records edges back into already-visited
-nodes, so an edge whose `to` is the start module is exactly an `A -> ... -> A`
-circular dependency. (Look in `edges`, not `nodes` — nodes are deduped.)
+nodes, so an edge whose `to` is the start handle is exactly an `A -> ... -> A`
+circular dependency. (Look in `edges`, not `nodes` — nodes are deduped, so the
+start never literally reappears there.)
+
+**Two limits, stated because the tool this replaced was removed for claiming
+complete cycle detection it did not have:**
+
+- **Bounded by two caps**: `max_depth` (default `3`) and `max_nodes` (default
+  `50`). A cycle longer than the depth you pass, or one reached only after the
+  node budget runs out, is simply not traversed — an empty `cycles` list means
+  "no cycle within the caps", never "no cycles". Check `sub["truncated"]` and
+  `sub["truncation_reasons"]` (`["max_depth"?, "max_nodes"?]`); if either fired,
+  the result is a floor, not an answer.
+- **Static imports only.** `importlib.import_module()`, plugin loaders and
+  conditional imports are invisible, so a runtime cycle can exist with no static
+  edge. Also check `sub["unresolved_imports"]` — a node listed there has an
+  incomplete import set, so any cycle claim about it is unverified.
 
 ## Best Practices
 
