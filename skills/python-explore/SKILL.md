@@ -86,13 +86,13 @@ reliably today:
 
 | Edge | Direction | Meaning |
 |------|-----------|---------|
-| `members` | container → children | a class's methods/attributes, or a module's top-level defs |
+| `members` | container → children | a class's methods/attributes, or a module's top-level defs (imported names belong to `imports`, not here) |
 | `submodules` | package → child modules/subpackages | a package's direct child modules and subpackages (one hop; full tree via `trace`) |
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
 | `superclasses` | class → its bases | the class's direct base classes |
-| `imports` | module → what it imports | the module's top-level imports |
+| `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
 | `imported_by` | module → its importers | project modules that import this module |
 
 **Pointer-only stubs.** `subclasses` and `imported_by` stubs are *pointers*
