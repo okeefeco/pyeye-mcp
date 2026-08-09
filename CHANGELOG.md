@@ -85,6 +85,17 @@ The superseded `lookup` entry point (`pyeye.mcp.lookup` /
 registered as an MCP tool since the primitives landed, and was the only remaining
 non-MCP consumer of the removed analyzer methods.
 
+`pyeye.agents` (the test-coverage agent) was removed too. It shipped in the wheel
+while planning its work entirely in terms of tools deleted across both v2.0
+phases — emitting instructions naming `mcp__pyeye__find_references`,
+`mcp__pyeye__get_call_hierarchy`, `mcp__pyeye__analyze_dependencies`,
+`mcp__pyeye__find_symbol`, `mcp__pyeye__get_module_info` and more — so any
+consumer following one of its plans would hit tool-not-found. It was orphaned
+(no importer outside its own test) and, like the retired
+`cross-platform-validator` agent (#483), could not be restored by renaming onto
+the primitives: its planning relied on fuzzy symbol search, reverse references,
+and call hierarchy, which the redesign dropped or deferred to #333.
+
 **Required action:** if you call any of these three tools, migrate per the table
 above. If you were using `find_references` or `get_call_hierarchy` for caller
 data, route that question to a language server instead — pyeye will not answer it

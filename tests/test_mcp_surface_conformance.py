@@ -12,6 +12,9 @@ The registered set is read from the FastMCP server itself, not from a hand-kept
 list, so it cannot drift from what actually ships.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 
 from pyeye.mcp.server import mcp
@@ -102,8 +105,45 @@ class TestRemovedAnalyzerMethods:
 class TestLookupSubsystemRemoved:
     """The orphaned lookup entry point was removed alongside the legacy tools."""
 
-    @pytest.mark.parametrize("module", ["pyeye.mcp.lookup", "pyeye.mcp.lookup_builders"])
+    @pytest.mark.parametrize(
+        "module",
+        ["pyeye.mcp.lookup", "pyeye.mcp.lookup_builders", "pyeye.agents"],
+    )
     def test_module_is_gone(self, module: str) -> None:
         import importlib.util
 
         assert importlib.util.find_spec(module) is None, f"{module} should have been removed"
+
+
+class TestNoPackagedCodeInvokesRemovedTools:
+    """No shipped module may name a removed tool as an MCP tool to call.
+
+    The surface tests above pin what the *server registers*. They said nothing
+    about packaged code that hands an agent a plan naming `mcp__pyeye__<tool>`
+    — which is how `src/pyeye/agents/` survived two removal passes still
+    instructing consumers to call `mcp__pyeye__find_references` and four other
+    tools that no longer exist. A consumer following such a plan gets
+    tool-not-found at runtime.
+
+    Deliberately matches the fully-qualified `mcp__pyeye__` form only, so prose
+    that *names* a removed tool to explain that it is gone (the honest-limits
+    notes in this repo) does not trip it. Only an invocable reference does.
+    """
+
+    SRC_ROOT = Path(__file__).parent.parent / "src" / "pyeye"
+
+    def test_no_module_references_a_removed_tool_by_mcp_name(self) -> None:
+        pattern = re.compile(r"mcp__pyeye__(" + "|".join(sorted(REMOVED_TOOLS)) + r")\b")
+
+        offenders: list[str] = []
+        for path in sorted(self.SRC_ROOT.rglob("*.py")):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                match = pattern.search(line)
+                if match:
+                    rel = path.relative_to(self.SRC_ROOT.parent.parent).as_posix()
+                    offenders.append(f"{rel}:{lineno} -> {match.group(0)}")
+
+        assert not offenders, (
+            "Packaged code names removed MCP tools; a consumer following these would "
+            "get tool-not-found:\n  " + "\n  ".join(offenders)
+        )
