@@ -486,7 +486,7 @@ The server automatically detects and activates framework-specific tools when it 
 │                 Caching Layer                        │
 │  ┌──────────────┐        ┌──────────────┐          │
 │  │ File Watcher │        │ Result Cache │          │
-│  │  (Watchdog)  │        │  (DiskCache) │          │
+│  │  (Watchdog)  │        │  (In-Memory) │          │
 │  └──────────────┘        └──────────────┘          │
 ├──────────────────────────────────────────────────────┤
 │                 Plugin System                        │
