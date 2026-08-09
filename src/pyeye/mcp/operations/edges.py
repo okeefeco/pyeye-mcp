@@ -54,12 +54,21 @@ The ``members`` resolver is pure structural enumeration — it never calls
 ``get_names(all_scopes=False)`` to enumerate top-level definitions, then
 subtracts import-bound names from the AST — guaranteeing the only divergence
 from the legacy count is import exclusion (spec §3.3).
+
+Import-bound names come from :func:`_iter_module_scope_imports`, the single
+walk shared by ``members`` (which SUBTRACTS them) and ``imports`` (which EMITS
+them).  It follows BINDING scope, not nesting: an import guarded by
+``if TYPE_CHECKING:``, ``try``/``except ImportError`` or a version check still
+binds a module name, so it belongs to ``imports`` and never to ``members``
+(#360).  Sharing one walk is what keeps the two edges disjoint yet jointly
+complete — before #360 they used separate top-level-only scans, and guarded
+imports fell into ``members`` while being missing from ``imports``.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -225,6 +234,54 @@ def edge_status(edge: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# module-scope import walk (#360) — shared by members (subtract) and imports (emit)
+# ---------------------------------------------------------------------------
+
+#: AST nodes that open a NEW binding scope.  An ``import`` inside one of these
+#: binds a local variable or a class attribute — NOT a module-scope name — so the
+#: walk below must never descend into them.
+_SCOPE_BOUNDARY_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def _iter_module_scope_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Yield every import statement that binds a MODULE-scope name, in source order.
+
+    "Module scope" is a BINDING question, not a nesting question: an import
+    nested in top-level control flow still binds its name in the module
+    namespace.  So this walk descends through every statement-bearing construct
+    (``if``/``elif``/``else``, ``try``/``except``/``else``/``finally``, ``with``,
+    ``for``, ``while``, ``match``) and stops only at :data:`_SCOPE_BOUNDARY_NODES`
+    — the constructs that open a new namespace.
+
+    Guard forms are therefore handled UNIFORMLY rather than case by case; the
+    common ones this reaches are ``if TYPE_CHECKING:`` type-only imports, the
+    ``try``/``except ImportError`` optional-dependency shim, and
+    ``sys.version_info`` branches.  Both branches of a shim are yielded: each is
+    a statically-present dependency, and which one runs is a runtime fact.
+
+    Two callers share this walk so they cannot drift apart (#360): ``members``
+    SUBTRACTS these names, ``imports`` EMITS them, which is what keeps the two
+    edges disjoint yet jointly complete over a module's bound names.
+
+    Args:
+        tree: Parsed module AST.
+
+    Yields:
+        Each :class:`ast.Import` / :class:`ast.ImportFrom` node at module scope,
+        in source order.
+    """
+
+    def _walk(nodes: Iterable[ast.AST]) -> Iterator[ast.Import | ast.ImportFrom]:
+        for node in nodes:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                yield node
+            elif not isinstance(node, _SCOPE_BOUNDARY_NODES):
+                yield from _walk(ast.iter_child_nodes(node))
+
+    yield from _walk(tree.body)
+
+
+# ---------------------------------------------------------------------------
 # members resolver (spec §5.1)
 # ---------------------------------------------------------------------------
 
@@ -239,10 +296,12 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
       filtered by ``full_name`` prefix + exact depth.
     - **module** → top-level definitions enumerated via Jedi
       ``get_names(all_scopes=False)`` (same source as the legacy
-      ``inspect._count_module_members``), **minus** names bound by top-level
-      ``import`` / ``from-import`` statements.  The ONLY divergence from the
-      legacy count is import exclusion (spec §3.3) — all other definition forms
-      (tuple-unpacking, annotated vars, guarded ``def``/``class``) are included.
+      ``inspect._count_module_members``), **minus** names bound by any
+      module-scope ``import`` / ``from-import`` statement — including ones
+      guarded by ``if TYPE_CHECKING:``, ``try``/``except ImportError`` or a
+      version check (#360).  The ONLY divergence from the legacy count is import
+      exclusion (spec §3.3) — all other definition forms (tuple-unpacking,
+      annotated vars, guarded ``def``/``class``) are included.
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
@@ -352,13 +411,21 @@ def _module_members(
 
     Uses the same Jedi enumeration as the legacy ``inspect._count_module_members``
     (``get_names(all_scopes=False, definitions=True, references=False)``), then
-    subtracts names bound by top-level ``import`` / ``from-import`` statements
-    from the module's AST.  This guarantees the ONLY divergence from the legacy
-    module-member count is **import exclusion** (spec §3.3): every definition form
-    that Jedi counts (plain ``def``/``class``, tuple-unpacking assignments,
-    annotated variables, defs/assignments guarded under ``if``/``try``/``with``/
-    ``for``) is included, while imported names are excluded so ``members`` stays
-    disjoint from the ``imports`` edge.
+    subtracts the names bound by the module's own imports — every import
+    :func:`_iter_module_scope_imports` reaches, guarded ones included.  This
+    guarantees the ONLY divergence from the legacy module-member count is
+    **import exclusion** (spec §3.3): every definition form that Jedi counts
+    (plain ``def``/``class``, tuple-unpacking assignments, annotated variables,
+    defs/assignments guarded under ``if``/``try``/``with``/``for``) is included,
+    while imported names are excluded so ``members`` stays disjoint from the
+    ``imports`` edge.
+
+    Guarded DEFINITIONS stay members; guarded IMPORTS do not (#360).  A ``def``
+    under ``if TYPE_CHECKING:`` is defined here; ``from x import Y`` under the
+    same guard is not — it is a dependency, and belongs to ``imports``.  Imports
+    inside a ``def`` or ``class`` body are NOT subtracted: they bind a local or
+    class-attribute name, so a module-level definition sharing that name is a
+    genuine member.
 
     Known gap: ``from x import *`` wildcards are ignored — their bound names are
     neither included nor excluded (rare in well-typed codebases).
@@ -387,13 +454,14 @@ def _module_members(
         script = file_artifact_cache.get_script(file_path, analyzer.project)
         names = script.get_names(all_scopes=False, definitions=True, references=False)
 
-        # Step 2: build the set of names bound by top-level import statements.
+        # Step 2: build the set of names bound by module-scope import statements
+        # (guarded ones included — see _iter_module_scope_imports, #360).
         tree = file_artifact_cache.get_ast(file_path)
     except Exception:
         return []
 
     import_bound_names: set[str] = set()
-    for node in tree.body:
+    for node in _iter_module_scope_imports(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 # `import foo.bar` binds "foo"; `import foo as f` binds "f".
@@ -972,21 +1040,32 @@ def _import_from_target(node: ast.ImportFrom, name: str) -> str:
 
 
 def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
-    """Return the top-level imports of a module as canonical handles.
+    """Return the module-scope imports of a module as canonical handles.
 
     The outbound ``imports`` edge — the FORWARD complement of ``imported_by``
-    (#345).  Walks the module's TOP-LEVEL ``ast.Import`` and
-    ``ast.ImportFrom`` statements and, for each imported name, forward-resolves
+    (#345).  Walks the module's module-scope ``ast.Import`` and
+    ``ast.ImportFrom`` statements (:func:`_iter_module_scope_imports`, shared
+    with ``members``) and, for each imported name, forward-resolves
     via ``script.goto(line, col, follow_imports=True)`` to obtain the canonical
     handle and Jedi ``Name``.  This is the same forward-goto mechanic as
     ``resolve_superclasses``/``resolve_callees`` — NO ``Script.get_references``
     anywhere on this path.
 
+    Scope — BINDING, not nesting (#360).  An import guarded by
+    ``if TYPE_CHECKING:``, ``try``/``except ImportError`` or a version check
+    still binds a module name, so it IS an import of this module and is emitted;
+    both branches of an either/or shim appear, because which one runs is a
+    runtime fact and both are statically present.  Imports inside a ``def`` or
+    ``class`` body are NOT emitted — they bind a local or class-attribute name.
+    A consequence worth expecting: guarded imports of C-extension symbols (e.g.
+    stdlib ``os``'s ``from posix import _exit``) are unresolvable by Jedi and so
+    land in ``unresolved_imports`` below.
+
     Kind gate (mirrors ``resolve_imported_by``):
 
     - **module** → measured: ``EdgeResult`` with the imported handles (possibly
-      empty if the module has no top-level imports — a genuine measured "none",
-      NOT an error).
+      empty if the module has no module-scope imports — a genuine measured
+      "none", NOT an error).
     - **non-module** (class / function / variable / …) → ``None``.  A non-module
       CAN contain local imports, so returning ``EdgeResult([])`` would be the
       "measured zero" lie; ``None`` signals "this edge does not apply to this
@@ -1063,7 +1142,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     # domain-neutral ``goto(follow_imports=True)`` → ``(Handle, Name)`` wrapper;
     # the goto mechanic for an import target is identical to that for a call
     # target, so it is reused here despite the callee-flavoured name.
-    for node in tree.body:
+    for node in _iter_module_scope_imports(tree):
         if isinstance(node, ast.Import):
             # ``import foo`` / ``import foo.bar`` / ``import foo as f``
             # → goto the RIGHTMOST identifier of the dotted module name so
