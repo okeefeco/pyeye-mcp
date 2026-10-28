@@ -118,10 +118,11 @@ from target_module import something
         # Threshold increased to account for regex escaping overhead and filesystem I/O variability
         # Issue #283: Additional relative import patterns slightly increase search time
         # CI environments have high variability - thresholds set with ~25% headroom
+        # #528: macOS CI on Python 3.12 measured 1009ms and 1241ms (900ms passed on 3.11)
         no_match_threshold = PerformanceThresholds(
             base=400.0,  # 400ms for local development
             linux_ci=800.0,  # 800ms for Linux CI (high variability)
-            macos_ci=900.0,  # 900ms for macOS CI
+            macos_ci=1500.0,  # 1500ms for macOS CI (matches Windows)
             windows_ci=1500.0,  # 1500ms for Windows CI (highest variability)
         )
 

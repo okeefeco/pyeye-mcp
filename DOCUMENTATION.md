@@ -28,7 +28,7 @@ The PyEye Server provides semantic code analysis for Python projects through the
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - Git
 - uv (recommended) or pip
 
@@ -768,7 +768,7 @@ def load_plugins(project_path: str):
 
 ### Server Not Starting
 
-1. Check Python version: `python --version` (needs 3.10+)
+1. Check Python version: `python --version` (needs 3.11+)
 2. Verify installation: `uv sync` or `pip install -e .`
 3. Check logs: Run with `--debug` flag
 

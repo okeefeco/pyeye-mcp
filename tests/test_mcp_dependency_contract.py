@@ -17,14 +17,10 @@ expected major together.
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 from packaging.requirements import Requirement
-
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SERVER = _ROOT / "src" / "pyeye" / "mcp" / "server.py"
