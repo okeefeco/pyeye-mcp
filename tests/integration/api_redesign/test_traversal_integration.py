@@ -363,9 +363,7 @@ class TestExpandPlainDictContract:
         )
 
         # Top-level must be plain dict
-        assert (
-            type(result) is dict
-        ), (  # noqa: E721 — exact type check, not isinstance
+        assert type(result) is dict, (  # noqa: E721 — exact type check, not isinstance
             f"result must be exact dict (not subclass); got {type(result)!r}"
         )
         # Each stub must also be a plain dict
