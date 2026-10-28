@@ -136,11 +136,11 @@ python scripts/unified_metrics.py dashboard --format json
   MCP Adoption Rate: 91.5%
 
 🔧 Most Used MCP Tools:
-  1. find_symbol: 89 uses
-  2. find_references: 45 uses
-  3. get_module_info: 34 uses
-  4. analyze_dependencies: 28 uses
-  5. find_subclasses: 21 uses
+  1. resolve: 89 uses
+  2. inspect: 45 uses
+  3. expand: 34 uses
+  4. outline: 28 uses
+  5. trace: 21 uses
 
 🎭 Session Types:
   main: 8 sessions

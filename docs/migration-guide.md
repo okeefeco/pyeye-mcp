@@ -112,7 +112,7 @@ Methods now have intelligent defaults based on their purpose:
 
 ```python
 # These search everywhere by default
-await analyzer.find_references(...)  # scope="all"
+await analyzer.find_symbol(...)      # scope="all"
 await analyzer.find_subclasses(...)  # scope="all"
 
 # These search main project by default
@@ -274,8 +274,8 @@ Typical improvements in 0.2.0:
 ```python
 # Always use same scope for related operations
 scope = "namespace:company"
-symbols = await find_symbol("User", scope=scope)
-refs = await find_references(..., scope=scope)
+symbols = await analyzer.find_symbol("User", scope=scope)
+subclasses = await analyzer.find_subclasses("User", scope=scope)
 ```
 
 ### Issue: Performance regression

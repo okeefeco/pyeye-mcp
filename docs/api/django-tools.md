@@ -1033,8 +1033,7 @@ def check_admin_coverage():
 
 ## Related Tools
 
-- **Navigation**: Use [Core Navigation Tools](./core-navigation.md) to navigate to Django code
-- **Module Analysis**: Use [Module Analysis Tools](./module-analysis.md) to analyze Django app modules
+- **Navigation**: Use the core primitives (`resolve`, `inspect`, `outline`, `expand`, `trace`) to navigate Django code and its app modules; see the [API index](./README.md)
 - **Python Models**: Django models are often enhanced with [Pydantic Tools](./pydantic-tools.md) for validation
 
 ## Best Practices

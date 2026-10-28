@@ -2,6 +2,11 @@
 
 ## Date: 2025-08-22
 
+> **Historical record.** This baseline was taken against the v1 tool surface, and
+> the tool names below are the ones in use at the time. Most of them were removed
+> in 2.0; the CHANGELOG's migration map lists their replacements. The document is
+> kept unedited as a record of where adoption started.
+
 ### Current State (Before Dogfooding Initiative)
 
 Based on analysis of recent development patterns:

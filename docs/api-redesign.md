@@ -516,12 +516,15 @@ replacements. Use this table to migrate existing agent code:
 | `list_project_structure` | `outline` | ″ |
 | `lookup(identifier)` | `resolve` → `inspect` | Progressive disclosure |
 
-**Still present** (no live replacement yet): `find_references` and
-`get_call_hierarchy` depend on the deferred Pyright reference backend (#333)
-for inbound/caller edges; `analyze_dependencies` is retained because `trace`
-does not yet emit a derived `circular_dependencies` summary. `configure_packages`
-and the framework plugin tools are orthogonal to the navigation redesign and
-are kept.
+**Also removed in 2.0** (#505): `find_references`, `get_call_hierarchy` and
+`analyze_dependencies` were removed rather than deprecated, because they
+returned confidently wrong answers. `get_call_hierarchy`'s forward half is
+`expand(handle, edge="callees")`; `analyze_dependencies` maps onto
+`expand(imports)` / `expand(imported_by)` / `trace(follow=["imports"])`.
+Callers and references have no replacement until the Pyright reference backend
+(#333) lands. The CHANGELOG's migration map has the full table.
+`configure_packages` and the framework plugin tools are orthogonal to the
+navigation redesign and are kept.
 
 The underlying `JediAnalyzer` methods of the same name (e.g.
 `analyzer.find_symbol`, `analyzer.list_modules`) are internal implementation
