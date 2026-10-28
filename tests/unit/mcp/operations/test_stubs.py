@@ -65,7 +65,8 @@ _MODULE_HANDLE = "mypackage._core.widgets"
 _DISPLAY_NAME_HANDLE = "mypackage._core.widgets.Widget.display_name"
 _COLOR_HANDLE = "mypackage._core.widgets.Widget.color"
 _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
-_PATH_CLASS_HANDLE = "pathlib.Path"
+# Definition site: pathlib.Path (<=3.12) or pathlib._local.Path (3.13+, #529).
+_PATH_CLASS_HANDLE = f"{Path.__module__}.Path"
 
 # ---------------------------------------------------------------------------
 # Fixture

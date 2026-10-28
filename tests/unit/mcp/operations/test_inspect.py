@@ -128,7 +128,8 @@ _DEFAULT_NAME_HANDLE = "mypackage._core.widgets.DEFAULT_NAME"
 _PREMIUM_HANDLE = "mypackage._core.widgets.Premium"
 
 # External symbol — pathlib.Path is stdlib, always available
-_PATH_CLASS_HANDLE = "pathlib.Path"
+# Definition site: pathlib.Path (<=3.12) or pathlib._local.Path (3.13+, #529).
+_PATH_CLASS_HANDLE = f"{Path.__module__}.Path"
 
 # Edge types inspect measures in edge_counts (must be present for relevant kinds).
 # Only edges derivable from the symbol's own definition are measured.
@@ -717,6 +718,50 @@ class TestInspectVariable:
 # ---------------------------------------------------------------------------
 # TestInspectExternalScope — external symbol: pathlib.Path (stdlib)
 # ---------------------------------------------------------------------------
+
+
+class TestInspectExternalReExportAlias:
+    """inspect on an external *re-export* path describes the real definition (#529).
+
+    Before #529 ``resolve_canonical`` could not follow external re-exports, so
+    the #431 alias retry got nothing and inspect returned its not-found
+    placeholder (``kind: "variable"``, empty file) for e.g. ``asyncio.Queue`` on
+    every Python, and for ``pathlib.Path`` on 3.13+.
+
+    Same contract as the project-side alias tests (#431,
+    ``test_reexport_resolution.py``): the alias node agrees with the canonical
+    node on kind and location. The returned ``handle`` echoes the input and is
+    deliberately not asserted.
+    """
+
+    @staticmethod
+    async def _assert_alias_matches_canonical(
+        alias: str, canonical: str, analyzer: JediAnalyzer
+    ) -> None:
+        from pyeye.mcp.operations.inspect import inspect
+
+        alias_node = await inspect(alias, analyzer)
+        canon_node = await inspect(canonical, analyzer)
+
+        assert canon_node["kind"] == "class", canon_node
+        assert alias_node["kind"] == canon_node["kind"], alias_node
+        assert alias_node["location"]["file"], alias_node["location"]
+        assert alias_node["location"]["file"] == canon_node["location"]["file"]
+        assert alias_node["location"]["line_start"] == canon_node["location"]["line_start"]
+
+    @pytest.mark.asyncio
+    async def test_star_import_reexport_matches_definition(self, analyzer: JediAnalyzer) -> None:
+        """``asyncio.Queue`` is a star-import re-export on every supported Python."""
+        import asyncio
+
+        await self._assert_alias_matches_canonical(
+            "asyncio.Queue", f"{asyncio.Queue.__module__}.Queue", analyzer
+        )
+
+    @pytest.mark.asyncio
+    async def test_public_pathlib_path_matches_definition(self, analyzer: JediAnalyzer) -> None:
+        """The public ``pathlib.Path`` works whichever module defines it."""
+        await self._assert_alias_matches_canonical("pathlib.Path", _PATH_CLASS_HANDLE, analyzer)
 
 
 class TestInspectExternalScope:
@@ -1458,7 +1503,8 @@ class TestFindJediNameForHandleFallbacks:
 
         from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 
-        handle = "pathlib.Path"
+        # Canonical (definition-site) handle; varies by Python version (#529).
+        handle = _PATH_CLASS_HANDLE
 
         # Force Cases 1 & 2 (find_module_file) to return None
         # Force Case 3 (project.search) to return an empty iterator
