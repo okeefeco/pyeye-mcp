@@ -1,8 +1,9 @@
 # CI Workflow
 #
-# PR matrix strategy (Issue #65): on PRs, test only the Python endpoints
-# (3.10 and 3.12) on Linux and Windows, and only 3.11 on macOS. Pushes to
-# main run the full 3-OS x 3-version matrix. macOS combinations are dropped
+# PR matrix strategy (Issue #65): on PRs, test every supported Python (3.11,
+# 3.12, 3.13) on Linux, the oldest and newest (3.11, 3.13) on Windows, and
+# only the newest (3.13) on macOS. Pushes to main run the full 3-OS x
+# 3-version matrix. macOS combinations are dropped
 # on PRs first because macOS bills at 10x (see the multiplier table below).
 #
 # Platform minute multipliers (GitHub-hosted runners):
@@ -30,7 +31,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          # pip-audit audits this interpreter's env, so use the newest supported
+          # Python (#522). Lint/type targets come from pyproject (ruff/black/mypy).
+          python-version: '3.13'
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Install dependencies
@@ -90,19 +93,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux - endpoints only
+          # Linux - every supported version (cheapest runner)
           - os: ubuntu-latest
-            python-version: '3.10'
-          - os: ubuntu-latest
-            python-version: '3.12'
-          # Windows - endpoints only
-          - os: windows-latest
-            python-version: '3.10'
-          - os: windows-latest
-            python-version: '3.12'
-          # macOS - middle only (biggest savings)
-          - os: macos-latest
             python-version: '3.11'
+          - os: ubuntu-latest
+            python-version: '3.12'
+          - os: ubuntu-latest
+            python-version: '3.13'
+          # Windows - oldest and newest
+          - os: windows-latest
+            python-version: '3.11'
+          - os: windows-latest
+            python-version: '3.13'
+          # macOS - newest only (biggest savings)
+          - os: macos-latest
+            python-version: '3.13'
 
     steps:
       - uses: actions/checkout@v7
@@ -126,7 +131,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
@@ -142,7 +147,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
 
     steps:
       - uses: actions/checkout@v7
@@ -166,7 +171,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10' && github.actor != 'dependabot[bot]'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
@@ -221,7 +226,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -285,7 +290,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Validate changelog
         run: |
@@ -300,7 +305,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -313,9 +318,6 @@ jobs:
 
       - name: Run bandit
         run: uv run bandit -r src/ -ll
-
-      # Safety check removed - deprecated command with compatibility issues
-      # Consider using pip-audit or other alternatives in future
 
   docs-feedback:
     # Comment on genuinely documentation-only PRs. Reuses the SAME `changes`
@@ -374,15 +376,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python-version: '3.10'
+            python-version: '3.11'
           - os: ubuntu-latest
             python-version: '3.12'
+          - os: ubuntu-latest
+            python-version: '3.13'
           - os: windows-latest
-            python-version: '3.10'
-          - os: windows-latest
-            python-version: '3.12'
-          - os: macos-latest
             python-version: '3.11'
+          - os: windows-latest
+            python-version: '3.13'
+          - os: macos-latest
+            python-version: '3.13'
     steps:
       - name: Skip tests for docs-only changes
         run: echo "Skipping tests - documentation only changes detected"

@@ -104,8 +104,25 @@ until #333 lands, and will say so rather than guess.
 `configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
 are orthogonal to the navigation redesign and are unchanged.
 
+#### Python 3.11 or newer required (#528)
+
+Python 3.10 support is dropped: `requires-python` is now `>=3.11`. Python 3.10
+reached end of life on 2026-10-01 (PEP 619), and some security fixes in pyeye's
+dependencies (filelock ≥4.2.1) only ship for 3.11+.
+
+**Who needs to act:**
+
+- **Claude Code plugin users:** nothing to do. The plugin builds its own
+  environment with `uv`, which picks or downloads a suitable interpreter.
+- **`pip` / `pipx` installs:** install into a Python 3.11+ interpreter, for
+  example `pipx install --python python3.12 pyeye-mcp`.
+
+This only affects the interpreter pyeye *runs on*. pyeye still analyzes code
+written for older Python versions.
+
 ### Added
 
+- Python 3.13 support (#529): CI tests it (Linux, Windows and macOS on PRs; all three on main) and the classifiers list it. The CI pre-commit job now audits dependencies on 3.13, the newest supported version. `.pre-commit-config.yaml` now builds hook environments with `python3` instead of a pinned `python3.12`, which the 3.13 runner didn't have (the remaining remote hooks move to `uv run` in #547). `path_utils.dedupe_paths` now rejects paths containing a NUL byte explicitly; on Windows with 3.13, `Path.resolve()` no longer raises for them, so such paths had slipped into root lists.
 - Progressive-disclosure operations over canonical handles: `resolve`,
   `resolve_at`, `inspect`, `outline`, `expand`, and `trace`. Supported `expand`
   / `trace` edges: `members`, `callees`, `imports`, `imported_by`,
@@ -132,13 +149,21 @@ are orthogonal to the navigation redesign and are unchanged.
 - `worktree-manager` agent and the `claude/development` "learning hub" workflow. Worktrees now use native tooling (the `EnterWorktree` tool / superpowers `using-git-worktrees` skill) under `.claude/worktrees`; removal safety remains via `scripts/worktree_safety.py` and the rules in `01-core-rules.md`. Also removed the now-obsolete `docs/CLAUDE_WORKTREE_WORKFLOW.md` and `.claude/startup-context.md`.
 - `cross-platform-validator` agent (`.claude/agents/cross-platform-validator.md` + `cross-platform-issues.yaml`) and its `scripts/test_cross_platform_agent.py` harness (#483). It was built on the Jedi-shaped tools removed in this release and re-implemented, semantically, a textual pattern check that `scripts/check_cross_platform_paths.py` already does statically. Cross-platform path validation now uses that script plus the rules in `.claude/instructions/10-cross-platform.md`.
 - Unused `diskcache` runtime dependency (#289). It was declared in `pyproject.toml` but never imported anywhere in the codebase — caching is entirely in-memory (`cache.py` uses `watchdog` + `DependencyTracker`; `file_artifact_cache.py` is an `OrderedDict` LRU) and there is no `pickle` usage in `src/`. Removing the dependency resolves CVE-2025-69872 (diskcache pickle deserialization, **no upstream fix exists**) outright rather than waiting on upstream, and drops the corresponding `--ignore-vuln` from the `pip-audit` pre-commit hook. The `DOCUMENTATION.md` architecture diagram, which showed the result cache as "DiskCache", now reads "In-Memory".
+- `safety` dev dependency (#522). Every release pins `filelock<4`, which blocks the filelock security fix, and nothing ran it: CI had already dropped its safety step and pre-commit scans dependencies with `pip-audit`. Removing it also drops `nltk`, which was the source of 22 open Dependabot alerts.
 
 ### Changed
 
+- Every Python pre-commit hook now runs from the uv environment with `uv run --frozen` (#547), finishing #413. detect-secrets, bandit, pydocstyle, commitizen and the `pre-commit-hooks` file checks were remote hook repos with their own pinned versions, which Dependabot never updated and which had drifted from `uv.lock`: the commit hook ran bandit 1.8.6 while CI ran 1.9.4, and commitizen 3.13.0 while the lock had 4.19.3. `pre-commit-hooks` 4.5.0 joins the dev group. Hook behavior is unchanged (verified hook-by-hook against deliberately bad files), and neither upgraded tool flags anything new. Only markdownlint (Node) stays remote; contract tests enforce this.
+- Python 3.11 is now the minimum (#528). ruff, black and mypy target 3.11; the CI and release workflows test 3.11 and 3.12 (Codecov uploads moved from the 3.10 job to 3.11); the `filelock` version split and the `tomli` fallback are gone; `asyncio.TimeoutError` is written as the built-in `TimeoutError`, which it aliases from 3.11.
+- Bumped the pinned dev linters: ruff 0.15.21 → 0.16.10, mypy 2.2.0 → 2.4.0 (#525). Neither surfaces new findings. Redoes Dependabot #521, which updated the pins without regenerating `uv.lock`.
 - Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
 
 ### Fixed
 
+- `inspect`, `expand`, `outline` and `trace` now describe external (stdlib / site-packages) symbols reached through a re-export, such as `asyncio.Queue`, `json.JSONDecoder`, or `pathlib.Path` on Python 3.13 (where it moved to `pathlib._local`) (#529). Previously `resolve_canonical` could not follow external modules, so the alias retry (#431) found nothing and these returned a placeholder node (`kind: "variable"`, empty location) instead of the class. `resolve` now takes kind and location from the external resolver when the canonical definition is outside the project. An external re-export under a *different* name (`from x import A as B`) still stays unresolved rather than risk describing the wrong object.
+- The release workflow's `validate` job now runs `pytest`, `mypy` and `bandit` through `uv run` (#540). Since #414 the job installs dependencies with `uv sync` into `.venv`, so the bare commands were no longer on `PATH` and the next tag push would have failed. A contract test (`tests/test_ci_uv_run_tools.py`) fails if any workflow step calls a venv tool without `uv run`.
+- `pip install pyeye-mcp` no longer installs a server that can't start (#537). The `mcp` requirement had no upper bound, so installs without the lockfile resolved mcp 2.x, which removed `mcp.server.fastmcp` (the server failed with `ModuleNotFoundError`). It's now capped at `mcp[cli]>=1.13.0,<2` until the `MCPServer` migration (#538). Plugin installs were unaffected because they use `uv.lock`. Also removed the unused standalone `fastmcp` dependency (pyeye uses the FastMCP bundled in `mcp`), which drops 35 transitive packages including authlib, opentelemetry-api and dnspython. A contract test (`tests/test_mcp_dependency_contract.py`) ties the declared `mcp` range to the API the server imports.
+- Resolved open Dependabot security alerts (#522) by upgrading locked versions within current majors: pyjwt 2.15.1, anyio ≥4.14.2, urllib3 2.8.0, fastmcp/fastmcp-slim 3.4.11, mcp 1.30.0, opentelemetry-api 1.45.1, setuptools 84.2.1, pip 26.2.2, msgpack 1.2.4. `filelock` now requires ≥4.2.1, which needs Python 3.11 (see the Python 3.11 requirement under BREAKING CHANGES, #528). The CI pre-commit job now runs on Python 3.12 so `pip-audit` audits the newest supported environment. Bumped `black` to 26.10.1 (GHSA-cg8m-r9f2-5wm2).
 - CI no longer posts a false "Documentation-only change detected" comment on PRs that also change code (#500). The feedback now lives in `ci.yml` and reuses the same `changes` (docs-vs-code) classifier as the test gate, so the comment can never contradict what CI actually ran; the divergent `docs.yml` workflow was removed. Also stripped fabricated time/percentage "CI savings" figures from the workflow comments, keeping the accurate platform-multiplier table.
 
 ## [1.0.0] - 2025-10-04

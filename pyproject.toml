@@ -3,7 +3,7 @@ name = "pyeye-mcp"
 dynamic = ["version"]
 description = "PyEye - MCP server for semantic analysis and code navigation"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
     {name = "Mark O'Keefe (O'Keefe & Co Consulting Pty Ltd)", email = "mark_okeefe@mac.com"}
@@ -14,24 +14,25 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 
 dependencies = [
-    "fastmcp>=0.1.0",
     "jedi>=0.19.0",
     # TODO: Tree-sitter dependencies - planned for future pattern matching capabilities
     # Currently all analysis is done via Jedi semantic analysis
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
     "watchdog>=3.0.0",
-    "mcp[cli]>=1.13.0",
+    # <2: mcp 2.x removed mcp.server.fastmcp, which the server imports (#537).
+    # Lift with the MCPServer migration (#538).
+    "mcp[cli]>=1.13.0,<2",
     "aiofiles>=24.0.0",
-    "filelock>=3.13.0",  # Cross-platform file locking for atomic operations
+    "filelock>=4.2.1",  # Cross-platform file locking for atomic operations
     "psutil>=6.0.0",  # System and process metrics
 ]
 
@@ -50,22 +51,21 @@ dev = [
     # Single source of truth for these tool versions: .pre-commit-config.yaml
     # runs them via `uv run`, so the pin here drives pre-commit, CI, and local
     # dev alike (#413).
-    "black==26.5.1",  # Pinned for reproducible formatting
-    "ruff==0.15.21",  # Pinned to avoid unexpected linting rule changes
-    "mypy==2.2.0",  # Pinned to avoid type checking behavior changes
+    "black==26.10.1",  # Pinned for reproducible formatting
+    "ruff==0.17.2",  # Pinned to avoid unexpected linting rule changes
+    "mypy==2.4.0",  # Pinned to avoid type checking behavior changes
     "types-setuptools",  # mypy stubs for setuptools
     "types-requests",  # mypy stubs for requests
     "types-aiofiles",  # mypy stubs for aiofiles
     "types-PyYAML",  # mypy stubs for PyYAML (lazy-imported in config.py)
     "detect-secrets==1.5.0",  # Pinned to match current version
     "bandit[toml]==1.9.4",  # Pinned for consistent security checks
-    "safety>=3.0.0",  # Dependency vulnerability scanning (Safety DB)
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks
+    "pre-commit-hooks==6.0.0",  # General file checks run by pre-commit via `uv run` (#547)
     "click>=8.0.0",  # CLI for scripts/dogfooding_metrics.py (was only transitively present)
     "setuptools_scm[toml]>=8",  # _version.py generation (mirrors [build-system].requires)
-    "tomli>=2.0.0; python_version < '3.11'",  # TOML parsing for Python 3.10
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
@@ -105,7 +105,7 @@ __version_tuple__ = {version_tuple}
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint.isort]
 # Make ruff's import sorting compatible with black
@@ -147,10 +147,10 @@ ignore = [
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

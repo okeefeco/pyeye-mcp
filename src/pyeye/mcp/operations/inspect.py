@@ -764,7 +764,7 @@ async def _measure_with_budget(
     start = time.perf_counter()
     try:
         return await asyncio.wait_for(measurement_coro, timeout=budget_seconds)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         elapsed = time.perf_counter() - start
         logger.warning(
             "inspect.edge_counts: %s timeout after %.2fs (handle=%r)",

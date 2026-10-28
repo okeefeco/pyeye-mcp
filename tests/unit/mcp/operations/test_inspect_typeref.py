@@ -127,8 +127,10 @@ class TestBareNameLeaf:
         assert (
             type_node["raw"] == "Path"
         ), f"raw must be the annotation as written; got {type_node['raw']!r}"
-        assert type_node.get("handle") == "pathlib.Path", (
-            f"handle must canonicalize Path → pathlib.Path; got " f"{type_node.get('handle')!r}"
+        # Definition site: pathlib.Path (<=3.12) or pathlib._local.Path (3.13+, #529).
+        expected = f"{Path.__module__}.Path"
+        assert type_node.get("handle") == expected, (
+            f"handle must canonicalize Path → {expected}; got " f"{type_node.get('handle')!r}"
         )
         assert "args" not in type_node, f"bare names omit 'args' (got {type_node.get('args')!r})"
 

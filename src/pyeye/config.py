@@ -83,10 +83,7 @@ class ProjectConfig:
                         self.config.update(data)
 
             elif config_path.name == "pyproject.toml":
-                try:
-                    import tomllib
-                except ImportError:
-                    import tomli as tomllib
+                import tomllib
 
                 with open(config_path, "rb") as f:
                     data = tomllib.load(f)

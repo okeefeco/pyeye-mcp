@@ -921,6 +921,15 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
         # Fallback: use the file derived from the handle path
         file_str = _handle_to_file(handle, analyzer) or ""
 
+    if not file_str:
+        # Neither project lookup can place the canonical handle, so the
+        # definition is external (stdlib / site-packages). resolve_canonical
+        # follows external re-exports (#529); take kind and location from the
+        # external resolver rather than degrading to a placeholder.
+        external = await _resolve_external_dotted_name(str(handle), analyzer)
+        if external is not None:
+            return external
+
     scope = classify_scope(file_str, analyzer) if file_str else "external"
     file_posix = Path(file_str).as_posix() if file_str else ""
 

@@ -199,7 +199,13 @@ class TestExternalDottedName:
 
     @pytest.mark.asyncio
     async def test_external_fqn_resolves_to_canonical_handle(self, analyzer: JediAnalyzer) -> None:
-        """resolve('pathlib.Path') must return found=True with the FQN as handle."""
+        """resolve('pathlib.Path') must return found=True with the definition-site handle.
+
+        The definition site depends on the Python version: ``pathlib.Path`` on
+        <=3.12, ``pathlib._local.Path`` on 3.13+ (#529). ``__module__`` tracks it.
+        """
+        import pathlib
+
         from pyeye.mcp.operations.resolve import resolve
 
         result = await resolve("pathlib.Path", analyzer)
@@ -208,7 +214,28 @@ class TestExternalDottedName:
             result["found"] is True
         ), f"resolve('pathlib.Path') must succeed (stdlib symbol); got {result!r}"
         assert "ambiguous" not in result
-        assert result["handle"] == "pathlib.Path"
+        assert result["handle"] == f"{pathlib.Path.__module__}.Path"
+
+    @pytest.mark.asyncio
+    async def test_external_reexport_keeps_kind_and_location(self, analyzer: JediAnalyzer) -> None:
+        """An external re-export resolves with the definition's kind and real location (#529).
+
+        ``asyncio.Queue`` is re-exported by ``asyncio/__init__.py`` via a star
+        import on every supported Python, so this guards the canonicalized
+        external path on all CI versions, not only where pathlib moved.
+        """
+        import asyncio
+
+        from pyeye.mcp.operations.resolve import resolve
+
+        result = await resolve("asyncio.Queue", analyzer)
+
+        assert result["found"] is True, result
+        assert result["handle"] == f"{asyncio.Queue.__module__}.Queue"
+        assert result["kind"] == "class", result
+        assert result["scope"] == "external"
+        assert result["location"]["file"].endswith("asyncio/queues.py"), result["location"]
+        assert result["location"]["line_start"] > 1
 
     @pytest.mark.asyncio
     async def test_external_fqn_classified_as_external(self, analyzer: JediAnalyzer) -> None:

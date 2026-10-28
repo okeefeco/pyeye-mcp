@@ -3,44 +3,50 @@
 
 version: 2
 updates:
-  # Python dependencies via pip
-  - package-ecosystem: "pip"
+  # Python dependencies via uv: updates pyproject.toml AND uv.lock together.
+  # The "pip" ecosystem left uv.lock stale, so every PR failed CI's
+  # `uv sync --locked` before anything ran (#532).
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       # Weekly updates to balance security and PR noise
       interval: "weekly"
       day: "monday"
       time: "04:00"
-    # Allow up to 10 open pull requests for pip dependencies
+    # Allow up to 10 open pull requests for Python dependencies
     open-pull-requests-limit: 10
-    # Group dependency updates when possible
+    # Group dependency updates when possible. The uv ecosystem does not
+    # support `dependency-type` in groups, so membership is by name pattern
+    # only and a dependency joins the FIRST group it matches.
     groups:
-      # Group all development dependencies together
+      # Dev/docs tooling (the `dev` and `docs` dependency-groups), all update types
       dev-dependencies:
         patterns:
           - "pytest*"
           - "mypy*"
+          - "types-*"
           - "black"
           - "ruff"
           - "pre-commit"
+          - "pre-commit-hooks"
           - "bandit"
-          - "safety"
           - "detect-secrets"
+          - "pip-audit"
+          - "commitizen"
           - "coverage*"
           - "pydocstyle"
-        dependency-type: "development"
-      # Group all minor and patch updates for production dependencies
-      production-minor:
+          - "sphinx*"
+          - "myst-parser"
+      # Everything else: minor and patch updates together; majors stay individual
+      minor-and-patch:
         patterns:
           - "*"
-        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"
     # Labels to apply to PRs
     labels:
       - "dependencies"
-      - "automated"
     # Commit message prefix
     commit-message:
       prefix: "chore"
@@ -61,7 +67,6 @@ updates:
     labels:
       - "dependencies"
       - "ci/cd"
-      - "automated"
     commit-message:
       prefix: "ci"
       include: "scope"
