@@ -116,3 +116,22 @@ def test_default_stages_scopes_unscoped_hooks_to_commit():
     assert config.get("default_stages") == ["pre-commit"]
     assert _runs_at(_hook(config, "conformance-linter"), config, "post-checkout") is False
     assert _runs_at(_hook(config, "conformance-linter"), config, "pre-commit") is True
+
+
+def test_hook_python_is_not_pinned_to_a_minor_version():
+    """Hook envs must build with the running interpreter, not a fixed minor (#529).
+
+    ``default_language_version: python: python3.12`` broke CI the moment the
+    pre-commit job moved to Python 3.13: the runner had no ``python3.12``, so
+    virtualenv could not build the detect-secrets hook env. Any minor pin
+    re-breaks on the next interpreter bump (3.14, #543).
+    """
+    config = _load()
+    pins = [("default_language_version", config.get("default_language_version", {}).get("python"))]
+    pins += [
+        (hook["id"], hook.get("language_version"))
+        for repo in config["repos"]
+        for hook in repo["hooks"]
+    ]
+    pinned = [(where, v) for where, v in pins if v and v not in ("python3", "python", "default")]
+    assert not pinned, f"hook Python pinned to a specific version: {pinned}"

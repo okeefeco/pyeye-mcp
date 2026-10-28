@@ -284,9 +284,61 @@ class TestProjectSearchFallback:
         with (
             patch("pyeye.canonicalization.find_module_file", return_value=None),
             patch.object(analyzer, "find_symbol", side_effect=RuntimeError("search boom")),
+            # Isolate the project-search error path from the external fallback (#529).
+            patch("pyeye.canonicalization._resolve_via_external_inference", return_value=None),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# External (stdlib / site-packages) re-exports — #529
+# ---------------------------------------------------------------------------
+
+
+class TestExternalReExportCanonicalizes:
+    """External re-export paths collapse to their definition site (#529).
+
+    External modules are not project files, so ``find_module_file`` misses them;
+    canonicalization must follow the import the way ``resolve`` does. Expected
+    handles come from the runtime ``__module__``, so the tests hold on every
+    Python version (``pathlib.Path`` moved to ``pathlib._local`` in 3.13).
+    """
+
+    @pytest.mark.asyncio
+    async def test_star_import_reexport(self, analyzer: JediAnalyzer) -> None:
+        """asyncio/__init__.py re-exports Queue via ``from .queues import *``."""
+        import asyncio
+
+        result = await resolve_canonical("asyncio.Queue", analyzer)
+        assert result == Handle(f"{asyncio.Queue.__module__}.Queue")
+
+    @pytest.mark.asyncio
+    async def test_explicit_reexport(self, analyzer: JediAnalyzer) -> None:
+        """json/__init__.py re-exports JSONDecoder via ``from .decoder import ...``."""
+        import json
+
+        result = await resolve_canonical("json.JSONDecoder", analyzer)
+        assert result == Handle(f"{json.JSONDecoder.__module__}.JSONDecoder")
+
+    @pytest.mark.asyncio
+    async def test_pathlib_path_follows_python_version_layout(self, analyzer: JediAnalyzer) -> None:
+        """pathlib.Path is defined in pathlib (<=3.12) or pathlib._local (3.13+)."""
+        import pathlib
+
+        result = await resolve_canonical("pathlib.Path", analyzer)
+        assert result == Handle(f"{pathlib.Path.__module__}.Path")
+
+    @pytest.mark.asyncio
+    async def test_external_definition_site_is_idempotent(self, analyzer: JediAnalyzer) -> None:
+        import asyncio
+
+        canonical = f"{asyncio.Queue.__module__}.Queue"
+        assert await resolve_canonical(canonical, analyzer) == Handle(canonical)
+
+    @pytest.mark.asyncio
+    async def test_unknown_external_leaf_returns_none(self, analyzer: JediAnalyzer) -> None:
+        assert await resolve_canonical("json.NoSuchThingXyz", analyzer) is None
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +489,8 @@ class TestMultiHopResolutionEdgeCases:
                 new_callable=AsyncMock,
                 return_value=[{"name": "Config", "file": "x.py"}],  # No full_name key
             ),
+            # Isolate the project-search branch from the external fallback (#529).
+            patch("pyeye.canonicalization._resolve_via_external_inference", return_value=None),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
         assert result is None

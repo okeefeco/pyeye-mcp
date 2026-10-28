@@ -1,6 +1,8 @@
 # .pre-commit-config.yaml
 default_language_version:
-  python: python3.12
+  # The interpreter pre-commit runs under, not a fixed minor: a pin breaks
+  # whenever CI moves the pre-commit job to a new Python (#529).
+  python: python3
 
 # Install pre-commit, commit-msg, post-commit, post-merge, AND post-checkout
 # hooks on `pre-commit install`. post-commit drives the decision-log nudge;

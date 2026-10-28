@@ -1,8 +1,9 @@
 # CI Workflow
 #
-# PR matrix strategy (Issue #65): on PRs, test both supported Python versions
-# (3.11 and 3.12) on Linux and Windows, and only 3.12 on macOS. Pushes to
-# main run the full 3-OS x 2-version matrix. macOS combinations are dropped
+# PR matrix strategy (Issue #65): on PRs, test every supported Python (3.11,
+# 3.12, 3.13) on Linux, the oldest and newest (3.11, 3.13) on Windows, and
+# only the newest (3.13) on macOS. Pushes to main run the full 3-OS x
+# 3-version matrix. macOS combinations are dropped
 # on PRs first because macOS bills at 10x (see the multiplier table below).
 #
 # Platform minute multipliers (GitHub-hosted runners):
@@ -32,7 +33,7 @@ jobs:
         with:
           # pip-audit audits this interpreter's env, so use the newest supported
           # Python (#522). Lint/type targets come from pyproject (ruff/black/mypy).
-          python-version: '3.12'
+          python-version: '3.13'
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Install dependencies
@@ -92,19 +93,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux - both supported versions
+          # Linux - every supported version (cheapest runner)
           - os: ubuntu-latest
             python-version: '3.11'
           - os: ubuntu-latest
             python-version: '3.12'
-          # Windows - both supported versions
+          - os: ubuntu-latest
+            python-version: '3.13'
+          # Windows - oldest and newest
           - os: windows-latest
             python-version: '3.11'
           - os: windows-latest
-            python-version: '3.12'
-          # macOS - one version only (biggest savings)
+            python-version: '3.13'
+          # macOS - newest only (biggest savings)
           - os: macos-latest
-            python-version: '3.12'
+            python-version: '3.13'
 
     steps:
       - uses: actions/checkout@v7
@@ -144,7 +147,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
 
     steps:
       - uses: actions/checkout@v7
@@ -376,12 +379,14 @@ jobs:
             python-version: '3.11'
           - os: ubuntu-latest
             python-version: '3.12'
+          - os: ubuntu-latest
+            python-version: '3.13'
           - os: windows-latest
             python-version: '3.11'
           - os: windows-latest
-            python-version: '3.12'
+            python-version: '3.13'
           - os: macos-latest
-            python-version: '3.12'
+            python-version: '3.13'
     steps:
       - name: Skip tests for docs-only changes
         run: echo "Skipping tests - documentation only changes detected"

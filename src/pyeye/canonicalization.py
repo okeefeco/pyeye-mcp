@@ -181,8 +181,12 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
     module_file = find_module_file(module_dotted, analyzer) if module_dotted else None
 
     if module_dotted and module_file is None:
-        # Module path not found — try the project search as a fallback
-        return await _resolve_via_project_search(symbol_name, identifier, analyzer)
+        # Module path not found — try the project search as a fallback, then
+        # follow the import for external (stdlib/site-packages) modules (#529)
+        found = await _resolve_via_project_search(symbol_name, identifier, analyzer)
+        if found is not None:
+            return found
+        return _resolve_via_external_inference(identifier, analyzer)
 
     full_name = await _get_full_name_from_file(module_file, symbol_name, analyzer)
     if full_name is None:
@@ -426,6 +430,48 @@ async def _get_full_name_from_file(
     except Exception as exc:
         logger.debug("_get_full_name_from_file(%r, %r) failed: %s", module_file, symbol_name, exc)
 
+    return None
+
+
+def _resolve_via_external_inference(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
+    """Fallback for external modules: follow the import to the definition site (#529).
+
+    External (stdlib / site-packages) modules are not project files, so
+    :func:`find_module_file` misses them and the chain walk never starts.  Infer
+    the symbol through a synthetic import instead — the same technique as
+    ``resolve``'s ``_resolve_external_dotted_name`` — and return Jedi's
+    definition-site ``full_name``.  This is what lets the #431 alias retry
+    canonicalize external re-exports such as ``asyncio.Queue`` (star import) or
+    ``pathlib.Path`` (moved to ``pathlib._local`` in Python 3.13).
+
+    An inferred definition is accepted only when its name equals the requested
+    leaf.  Inference can land on a *different* object (``collections.abc.Mapping``
+    infers to typeshed's ``typing._SpecialGenericAlias``); returning that would
+    make callers describe the wrong symbol.  The cost: an external re-export
+    under a different name (``from x import A as B``) stays unresolved — an
+    honest miss rather than a wrong answer.
+    """
+    parts = identifier.split(".")
+    module_dotted, leaf = ".".join(parts[:-1]), parts[-1]
+    if not module_dotted or not leaf:
+        return None
+    try:
+        import jedi
+
+        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf}"
+        script = jedi.Script(code=fake_code, project=analyzer.project)
+        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf))
+    except Exception as exc:
+        logger.debug("_resolve_via_external_inference(%r) failed: %s", identifier, exc)
+        return None
+
+    for name in inferred:
+        if name.name != leaf or not name.full_name:
+            continue
+        try:
+            return Handle(name.full_name)
+        except ValueError:
+            continue
     return None
 
 
