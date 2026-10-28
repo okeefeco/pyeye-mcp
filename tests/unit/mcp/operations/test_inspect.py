@@ -1227,7 +1227,6 @@ class TestInspectEdgeTimeout:
         The other measured edge (``members``) should still be measured
         independently and present in edge_counts.
         """
-        import asyncio
         from unittest.mock import patch
 
         from pyeye.mcp.operations.inspect import inspect
@@ -1236,7 +1235,7 @@ class TestInspectEdgeTimeout:
         # _measure_with_budget catches TimeoutError from wait_for, but we also
         # need to handle the case where the coroutine itself raises it.
         async def superclasses_timeout(*_args: object, **_kwargs: object) -> int:
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
         with patch.object(
             inspect_ops,
@@ -1305,13 +1304,12 @@ class TestInspectEdgeTimeout:
         This tests the full timeout path: every edge is absent, consistent with
         the invariant that absence means 'not measured'.
         """
-        import asyncio
         from unittest.mock import patch
 
         from pyeye.mcp.operations.inspect import inspect
 
         async def always_timeout(*_args: object, **_kwargs: object) -> int:
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
         with (
             patch.object(inspect_ops, "_count_class_members", side_effect=always_timeout),

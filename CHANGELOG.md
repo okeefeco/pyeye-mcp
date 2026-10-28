@@ -104,6 +104,22 @@ until #333 lands, and will say so rather than guess.
 `configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
 are orthogonal to the navigation redesign and are unchanged.
 
+#### Python 3.11 or newer required (#528)
+
+Python 3.10 support is dropped: `requires-python` is now `>=3.11`. Python 3.10
+reached end of life on 2026-10-01 (PEP 619), and some security fixes in pyeye's
+dependencies (filelock ≥4.2.1) only ship for 3.11+.
+
+**Who needs to act:**
+
+- **Claude Code plugin users:** nothing to do. The plugin builds its own
+  environment with `uv`, which picks or downloads a suitable interpreter.
+- **`pip` / `pipx` installs:** install into a Python 3.11+ interpreter, for
+  example `pipx install --python python3.12 pyeye-mcp`.
+
+This only affects the interpreter pyeye *runs on*. pyeye still analyzes code
+written for older Python versions.
+
 ### Added
 
 - Progressive-disclosure operations over canonical handles: `resolve`,
@@ -136,13 +152,14 @@ are orthogonal to the navigation redesign and are unchanged.
 
 ### Changed
 
+- Python 3.11 is now the minimum (#528). ruff, black and mypy target 3.11; the CI and release workflows test 3.11 and 3.12 (Codecov uploads moved from the 3.10 job to 3.11); the `filelock` version split and the `tomli` fallback are gone; `asyncio.TimeoutError` is written as the built-in `TimeoutError`, which it aliases from 3.11.
 - Bumped the pinned dev linters: ruff 0.15.21 → 0.16.10, mypy 2.2.0 → 2.4.0 (#525). Neither surfaces new findings. Redoes Dependabot #521, which updated the pins without regenerating `uv.lock`.
 - Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
 
 ### Fixed
 
 - `pip install pyeye-mcp` no longer installs a server that can't start (#537). The `mcp` requirement had no upper bound, so installs without the lockfile resolved mcp 2.x, which removed `mcp.server.fastmcp` (the server failed with `ModuleNotFoundError`). It's now capped at `mcp[cli]>=1.13.0,<2` until the `MCPServer` migration (#538). Plugin installs were unaffected because they use `uv.lock`. Also removed the unused standalone `fastmcp` dependency (pyeye uses the FastMCP bundled in `mcp`), which drops 35 transitive packages including authlib, opentelemetry-api and dnspython. A contract test (`tests/test_mcp_dependency_contract.py`) ties the declared `mcp` range to the API the server imports.
-- Resolved open Dependabot security alerts (#522) by upgrading locked versions within current majors: pyjwt 2.15.1, anyio ≥4.14.2, urllib3 2.8.0, fastmcp/fastmcp-slim 3.4.11, mcp 1.30.0, opentelemetry-api 1.45.1, setuptools 84.2.1, pip 26.2.2, msgpack 1.2.4. `filelock` now requires ≥4.2.1 on Python ≥3.11; Python 3.10 stays on 3.x because filelock 4 needs 3.11 (the advisories only affect `ReadWriteLock`/`SoftFileLock` on Windows, and pyeye uses only `FileLock`). The same Python 3.11 floor applies to dnspython 2.9.0. The CI pre-commit job now runs on Python 3.12 so `pip-audit` audits the newest supported environment; lint and type-check targets stay `py310`. Bumped `black` to 26.10.1 (GHSA-cg8m-r9f2-5wm2).
+- Resolved open Dependabot security alerts (#522) by upgrading locked versions within current majors: pyjwt 2.15.1, anyio ≥4.14.2, urllib3 2.8.0, fastmcp/fastmcp-slim 3.4.11, mcp 1.30.0, opentelemetry-api 1.45.1, setuptools 84.2.1, pip 26.2.2, msgpack 1.2.4. `filelock` now requires ≥4.2.1, which needs Python 3.11 (see the Python 3.11 requirement under BREAKING CHANGES, #528). The CI pre-commit job now runs on Python 3.12 so `pip-audit` audits the newest supported environment. Bumped `black` to 26.10.1 (GHSA-cg8m-r9f2-5wm2).
 - CI no longer posts a false "Documentation-only change detected" comment on PRs that also change code (#500). The feedback now lives in `ci.yml` and reuses the same `changes` (docs-vs-code) classifier as the test gate, so the comment can never contradict what CI actually ran; the divergent `docs.yml` workflow was removed. Also stripped fabricated time/percentage "CI savings" figures from the workflow comments, keeping the accurate platform-multiplier table.
 
 ## [1.0.0] - 2025-10-04

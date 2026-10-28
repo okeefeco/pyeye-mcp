@@ -22,7 +22,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 
 **Solution**:
 
-- Ensure Python 3.10+ is installed: `python --version`
+- Ensure Python 3.11+ is installed: `python --version`
 - Use `uv` for consistent Python management:
 
   ```bash
@@ -582,9 +582,8 @@ Check debug logs to see detection results.
 
 **Answer**:
 
-- **Server requires**: Python 3.10+
+- **Server requires**: Python 3.11+
 - **Analyzed code**: Python 2.7+ (Jedi supports legacy code)
-- **Recommended**: Python 3.11+ for best performance
 
 ### Framework detection logic
 
