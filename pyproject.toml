@@ -31,7 +31,11 @@ dependencies = [
     "watchdog>=3.0.0",
     "mcp[cli]>=1.13.0",
     "aiofiles>=24.0.0",
-    "filelock>=3.13.0",  # Cross-platform file locking for atomic operations
+    # Cross-platform file locking for atomic operations. filelock's Windows
+    # ReadWriteLock/SoftFileLock advisories (#522) are fixed only in >=4.2.1,
+    # which needs Python >=3.11; 3.10 keeps 3.x (we only use FileLock).
+    "filelock>=4.2.1; python_version >= '3.11'",
+    "filelock>=3.13.0; python_version < '3.11'",
     "psutil>=6.0.0",  # System and process metrics
 ]
 
@@ -50,7 +54,7 @@ dev = [
     # Single source of truth for these tool versions: .pre-commit-config.yaml
     # runs them via `uv run`, so the pin here drives pre-commit, CI, and local
     # dev alike (#413).
-    "black==26.5.1",  # Pinned for reproducible formatting
+    "black==26.10.1",  # Pinned for reproducible formatting
     "ruff==0.15.21",  # Pinned to avoid unexpected linting rule changes
     "mypy==2.2.0",  # Pinned to avoid type checking behavior changes
     "types-setuptools",  # mypy stubs for setuptools
@@ -59,7 +63,6 @@ dev = [
     "types-PyYAML",  # mypy stubs for PyYAML (lazy-imported in config.py)
     "detect-secrets==1.5.0",  # Pinned to match current version
     "bandit[toml]==1.9.4",  # Pinned for consistent security checks
-    "safety>=3.0.0",  # Dependency vulnerability scanning (Safety DB)
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks

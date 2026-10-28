@@ -24,7 +24,6 @@ updates:
           - "ruff"
           - "pre-commit"
           - "bandit"
-          - "safety"
           - "detect-secrets"
           - "coverage*"
           - "pydocstyle"

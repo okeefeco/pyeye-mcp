@@ -114,8 +114,7 @@ Pre-commit runs automatically on commit and includes:
 ### Dependency Scanning
 
 - `pip-audit` - OSV database
-- `safety` - Safety DB
-- Both run via pre-commit
+- Runs via pre-commit
 
 ### Static Analysis
 
@@ -160,7 +159,6 @@ uv run mypy src/pyeye
 
 # Run security checks
 uv run pip-audit
-uv run safety check
 uv run bandit -r src/
 
 # Format code (usually automatic via pre-commit)

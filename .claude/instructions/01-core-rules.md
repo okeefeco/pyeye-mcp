@@ -66,7 +66,7 @@ When to update: When core safety or quality requirements change
 2. **Test failures** - Never commit if tests are failing
 3. **Linting errors** - Must pass ruff, black, mypy before committing
 4. **Type checking** - All type errors must be resolved
-5. **Security checks** - Must pass bandit and safety checks
+5. **Security checks** - Must pass bandit and pip-audit checks
 
 #### Validation Workflow
 
