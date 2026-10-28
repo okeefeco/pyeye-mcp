@@ -1182,8 +1182,7 @@ def blueprint_dependencies():
 
 ## Related Tools
 
-- **Navigation**: Use [Core Navigation Tools](./core-navigation.md) to navigate to route definitions
-- **Module Analysis**: Use [Module Analysis Tools](./module-analysis.md) to analyze Flask modules
+- **Navigation**: Use the core primitives (`resolve`, `inspect`, `outline`, `expand`, `trace`) to navigate route definitions and Flask modules; see the [API index](./README.md)
 - **Template Analysis**: Templates often use Jinja2, correlate with [find_templates](#find_templates)
 
 ## Best Practices

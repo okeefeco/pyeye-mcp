@@ -367,15 +367,14 @@ def test_complex_scenario():
 
 ```python
 def test_edge_case():
-    # Setup: Create a project with circular dependencies
+    # Setup: Create a project where pkg.a imports pkg.b and pkg.b imports pkg.a
     project = create_circular_project()
 
     # This should not cause infinite recursion
-    result = analyze_dependencies(project)
+    result = trace("pkg.a", follow=["imports"], project_path=project)
 
-    # Verify the circular dependency is detected but handled
-    assert result.has_circular
-    assert len(result.cycles) == 1
+    # Verify the cycle is reported as an edge back to the start, not followed forever
+    assert any(edge["to"] == "pkg.a" for edge in result["edges"])
 ```
 
 ## Performance Test Patterns

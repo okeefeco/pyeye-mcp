@@ -230,7 +230,7 @@ sudo dnf install python3-devel
    ```
 
 2. Ensure `__init__.py` files exist in namespace directories
-3. Use `find_in_namespace` tool to test resolution
+3. Test resolution with `resolve("mycompany")`, then `expand(<handle>, edge="submodules")` to list the subpackages contributed by each repo
 
 ---
 
@@ -485,7 +485,7 @@ Test basic operations:
 
 ```python
 # Using MCP tools
-find_symbol("TestClass", project_path="/path/to/project")
+resolve("TestClass", project_path="/path/to/project")
 ```
 
 ### Isolate Problem Projects

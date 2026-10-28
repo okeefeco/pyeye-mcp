@@ -1027,8 +1027,7 @@ def generate_model_docs(model_name):
 
 ## Related Tools
 
-- **Navigation**: Use [Core Navigation Tools](./core-navigation.md) to navigate to model definitions
-- **Module Analysis**: Use [Module Analysis Tools](./module-analysis.md) to analyze modules containing models
+- **Navigation**: Use the core primitives (`resolve`, `inspect`, `outline`, `expand`, `trace`) to navigate model definitions and the modules containing them; see the [API index](./README.md)
 - **Framework Integration**: Models often used with [Flask Tools](./flask-tools.md) or [Django Tools](./django-tools.md)
 
 ## Best Practices

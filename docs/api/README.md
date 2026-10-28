@@ -1,166 +1,109 @@
 # PyEye - API Reference
 
-This directory contains comprehensive API documentation for all 30+ MCP tools provided by the PyEye Server.
+This directory holds reference documentation for PyEye's **framework plugin
+tools** and for `configure_packages`. The core navigation interface is documented
+elsewhere, on purpose (see below).
 
 ## 📚 Documentation Structure
 
-- **[Core Navigation Tools](./core-navigation.md)** - 11 tools for code navigation and symbol finding
-- **[Module Analysis Tools](./module-analysis.md)** - 4 tools for package and module analysis
-- **[Pydantic Tools](./pydantic-tools.md)** - 7 tools for Pydantic model analysis
-- **[Flask Tools](./flask-tools.md)** - 8 tools for Flask application analysis
-- **[Django Tools](./django-tools.md)** - 5 tools for Django project analysis
-- **[Quick Reference](./quick-reference.md)** - Cheatsheet for common operations
+- **[Pydantic Tools](./pydantic-tools.md)** - Pydantic model, validator, and schema analysis
+- **[Flask Tools](./flask-tools.md)** - Flask routes, blueprints, templates, extensions, and error handlers
+- **[Django Tools](./django-tools.md)** - Django models, views, URLs, templates, and migrations
+- **[configure_packages](#configure_packages)** - Register additional package locations (below)
 
-## 🚀 Quick Start
+Plugin tools are registered only when the server detects the framework in the
+project. To see the tools a running server exposes, list them from your MCP
+client.
 
-### Finding Symbols
+> **Known issue:** plugin tools are currently registered under their Python
+> function names, not the prefixed names in `register_tools()`. Django's
+> `find_models`, `find_views` and `find_templates` therefore collide with the
+> Pydantic and Flask tools of the same name, and the Django doc's
+> `find_django_*` names are not what the server exposes. Tracked in
+> [#555](https://github.com/okeefeco/pyeye-mcp/issues/555).
 
-```python
-# Find a class definition
-find_symbol(name="MyClass", fuzzy=False)
+## 🧭 Core Navigation: Where It's Documented
 
-# Find with fuzzy matching
-find_symbol(name="MyCls", fuzzy=True)
+The core interface is six progressive-disclosure primitives: `resolve`,
+`resolve_at`, `inspect`, `outline`, `expand`, `trace`. They have no page here:
 
-# Search across multiple projects
-find_symbol_multi(name="SharedClass", project_paths=[".", "../lib"])
-```
+- The README's [Core Tools](../../README.md#core-tools) section lists them, and
+  states the known limitation that "who calls / references this" is not answered
+  (deferred to [#333](https://github.com/okeefeco/pyeye-mcp/issues/333)).
+- The `python-explore` skill (`skills/python-explore/SKILL.md`) covers the
+  mechanics, the supported-edge list, and worked examples. A test checks it
+  against the live edge registry, so it can't drift silently the way a
+  hand-maintained page here would.
 
-### Navigating Code
+The v1 navigation tools were removed in 2.0. The CHANGELOG's migration map lists
+the replacement for each.
 
-```python
-# Jump to definition
-goto_definition(file="app.py", line=42, column=10)
+## configure_packages
 
-# Find all references
-find_references(file="models.py", line=15, column=4)
+Register additional package locations, namespace packages, and standalone script
+directories for analysis, alongside the current project.
 
-# Get type information
-get_type_info(file="utils.py", line=100, column=20)
-```
+### Parameters
 
-### Analyzing Dependencies
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `packages` | `list[str]` | `None` | Package paths to add |
+| `namespaces` | `dict[str, list[str]]` | `None` | Namespace name → repo paths that contribute to it |
+| `standalone_dirs` | `list[str]` | `None` | Directories of standalone Python scripts (non-package files) |
+| `recursive` | `bool` | `True` | Stored with `standalone_dirs`; see note below |
+| `file_pattern` | `str` | `"*.py"` | Stored with `standalone_dirs`; see note below |
+| `exclude_patterns` | `list[str]` | `None` | Stored with `standalone_dirs`; see note below |
+| `save` | `bool` | `True` | Write the updated configuration to `.pyeye.json` |
 
-```python
-# List all modules
-list_modules(project_path=".")
+Calls are **additive**: `packages` and `standalone_dirs` are appended to what is
+already configured, and `namespaces` are merged by name. With `save=True`, the
+file is written only when at least one of `packages`, `namespaces`, or
+`standalone_dirs` is given.
 
-# Analyze dependencies
-analyze_dependencies(module_path="myapp.services")
+> **Note:** `recursive`, `file_pattern` and `exclude_patterns` are persisted but
+> not currently read by the analysis path. Tracked in
+> [#513](https://github.com/okeefeco/pyeye-mcp/issues/513).
 
-# Get module details
-get_module_info(module_path="myapp.models")
-```
+### Returns
 
-## 🔌 Framework-Specific Tools
-
-The server automatically detects and activates framework-specific tools:
-
-- **Django**: Models, views, URLs, templates, migrations
-- **Flask**: Routes, blueprints, templates, extensions, error handlers
-- **Pydantic**: Models, validators, schemas, inheritance
-
-## ⚙️ Configuration
-
-Tools respect configuration from multiple sources:
-
-1. `.pyeye.json` in project root
-2. `pyproject.toml` `[tool.pyeye]` section
-3. Environment variables
-4. Global config `~/.config/pyeye/config.json`
-
-Example configuration:
-
-```json
+```typescript
 {
-  "packages": ["../shared-lib", "~/repos/utils"],
-  "namespaces": {
-    "company": ["~/repos/company-auth", "~/repos/company-api"]
-  }
+  packages: string[];                     // All package paths in use; the project itself is first
+  namespaces: {[name: string]: string[]}; // Configured namespace packages
+  standalone: {                           // Standalone-script configuration
+    dirs: string[];
+    recursive: boolean;
+    file_pattern: string;
+    exclude_patterns: string[];
+  };
+  config_file: string;                    // Path of the project's .pyeye.json
 }
 ```
 
-## 📖 Tool Categories
-
-### Core Navigation (11 tools)
-
-Essential tools for navigating and understanding Python code:
-
-- Symbol finding and navigation
-- Definition and reference tracking
-- Type information and call hierarchies
-- Multi-project and namespace support
-
-### Module Analysis (4 tools)
-
-Tools for understanding project structure:
-
-- Package and module listing
-- Dependency analysis
-- Circular dependency detection
-- Module metrics and exports
-
-### Framework Tools (20+ tools)
-
-Specialized tools for popular frameworks:
-
-- **Pydantic**: Model schemas, validators, inheritance
-- **Flask**: Routes, blueprints, templates, extensions
-- **Django**: Models, views, URLs, migrations
-
-## 🎯 Common Use Cases
-
-### Code Navigation
+### Example
 
 ```python
-# Find where a function is defined
-result = find_symbol("process_data")
-# Jump to its definition
-goto_definition(file=result[0]["file"], line=result[0]["line"], column=0)
+configure_packages(
+    packages=["../my-lib", "~/repos/shared-utils"],
+    namespaces={"company": ["~/repos/company-auth", "~/repos/company-api"]},
+)
+
+# Add a package for this session only, without writing .pyeye.json
+configure_packages(packages=["../temp-package"], save=False)
 ```
 
-### Dependency Analysis
+After a call, cached analyzers for every configured path are invalidated, so
+the next query sees the new configuration.
 
-```python
-# Check for circular dependencies
-deps = analyze_dependencies("myapp.core")
-if deps["circular_dependencies"]:
-    print("Warning: Circular dependencies detected!")
-```
+## ⚙️ Configuration Sources
 
-### Framework Analysis
+Configuration can also be set without calling the tool. The loader's own
+docstring (`ProjectConfig.load_config` in `src/pyeye/config.py`) is the
+authoritative order; later sources override earlier ones:
 
-```python
-# Find all Flask routes
-routes = find_flask_routes()
-# Get Pydantic model schema
-schema = get_model_schema("UserModel")
-```
+1. Global config `~/.config/pyeye/config.json`
+2. A project config file: `.pyeye.json` or `pyproject.toml` `[tool.pyeye]`
+3. Override file `.pyeye.override.json` (local development)
+4. Auto-discovery, used only when nothing above configured any packages
 
-## 📊 Return Value Patterns
-
-Most tools return structured data with consistent patterns:
-
-- **Location results**: Include `file`, `line`, `column` fields
-- **List results**: Return arrays of matches
-- **Analysis results**: Return dictionaries with categorized data
-- **Error handling**: Tools raise exceptions for invalid inputs
-
-## 🔍 Error Handling
-
-Tools handle errors consistently:
-
-- **Invalid parameters**: Raise `ValidationError`
-- **File not found**: Return empty results or specific error
-- **Timeout**: Configurable via `PYEYE_ANALYSIS_TIMEOUT`
-- **Memory limits**: Configurable via environment variables
-
-## 📝 Notes
-
-- All file paths support both absolute and relative paths
-- Line numbers are 1-indexed (matching editor display)
-- Column numbers are 0-indexed (matching LSP standard)
-- Results are cached for performance (TTL configurable)
-- File watchers automatically invalidate cache on changes
-
-For detailed documentation of each tool, see the category-specific documentation files.
+See [DOCUMENTATION.md](../../DOCUMENTATION.md#configuration) for the file format.
