@@ -1832,3 +1832,167 @@ class TestImportEdgeRoundTrip:
             f"imports; only checked {module_imports_checked}"
         )
         assert not violations, "forward/reverse import disagreement:\n" + "\n".join(violations)
+
+
+# ---------------------------------------------------------------------------
+# #360 — GUARDED module-scope imports (TYPE_CHECKING / try-except / conditional)
+# ---------------------------------------------------------------------------
+
+# ``guarded_imports_fixture`` binds Widget (under ``if TYPE_CHECKING:``),
+# Premium/Deluxe (under ``try``/``except ImportError``) and Config (under a
+# conditional flag) at MODULE scope, and additionally holds a function-local and
+# a class-body import that must NOT be treated as module-scope.  See its
+# docstring for the full layout.
+_GUARDED_HANDLE = "mypackage._core.guarded_imports_fixture"
+# ``deep_guarded_imports_fixture`` uses non-``if`` guards: ``with suppress(...)``
+# and a ``try``/``else`` block.
+_DEEP_GUARDED_HANDLE = "mypackage._core.deep_guarded_imports_fixture"
+
+_WIDGETS_WIDGET = "mypackage._core.widgets.Widget"
+_WIDGETS_PREMIUM = "mypackage._core.widgets.Premium"
+_WIDGETS_DELUXE = "mypackage._core.widgets.Deluxe"
+_WIDGETS_CONFIG = "mypackage._core.widgets.Config"
+_WIDGETS_DEFAULT_NAME = "mypackage._core.widgets.DEFAULT_NAME"
+_WIDGETS_MAKE_WIDGET = "mypackage._core.widgets.make_widget"
+
+
+class TestGuardedImportsExcludedFromMembers:
+    """Imports nested in top-level guards bind module names → NOT members (#360).
+
+    ``_module_members`` subtracts import-bound names so ``members`` stays disjoint
+    from ``imports``.  A guarded import is still a module-scope binding, so it
+    must be subtracted too — Jedi surfaces it in ``get_names(all_scopes=False)``
+    exactly like an unguarded one.
+    """
+
+    def test_type_checking_import_not_a_member(self, analyzer: JediAnalyzer) -> None:
+        """``if TYPE_CHECKING: from .widgets import Widget`` is not defined here."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert _WIDGETS_WIDGET not in members, f"TYPE_CHECKING import leaked: {members}"
+        assert not any(m.endswith(".Widget") for m in members)
+
+    def test_try_except_import_not_a_member(self, analyzer: JediAnalyzer) -> None:
+        """Both branches of the ``try``/``except ImportError`` shim are imports."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert _WIDGETS_PREMIUM not in members
+        assert _WIDGETS_DELUXE not in members
+        assert not any(m.endswith(".Premium") for m in members)
+
+    def test_conditional_import_not_a_member(self, analyzer: JediAnalyzer) -> None:
+        """``if _FEATURE_FLAG: from .widgets import Config`` is an import."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert _WIDGETS_CONFIG not in members
+        assert not any(m.endswith(".Config") for m in members)
+
+    def test_with_and_try_else_imports_not_members(self, analyzer: JediAnalyzer) -> None:
+        """``with suppress(...)`` and ``try``/``else`` guards behave the same."""
+        members = {str(h) for h in _members_for(_DEEP_GUARDED_HANDLE, analyzer)}
+        assert _WIDGETS_WIDGET not in members
+        assert _WIDGETS_CONFIG not in members
+        assert not any(m.endswith(".suppress") for m in members), "contextlib import leaked"
+        assert not any(m.endswith(".os") for m in members), "os import leaked"
+
+    def test_guarded_def_is_still_a_member(self, analyzer: JediAnalyzer) -> None:
+        """Only guarded IMPORTS are subtracted — a guarded ``def`` stays a member."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert f"{_GUARDED_HANDLE}.guarded_function" in members
+
+    def test_function_local_import_does_not_drop_member(self, analyzer: JediAnalyzer) -> None:
+        """A ``def``-body import binds a LOCAL name — the module-level def survives.
+
+        ``load_default`` imports ``DEFAULT_NAME`` from ``widgets``; the module also
+        DEFINES ``DEFAULT_NAME``.  Descending into function bodies when collecting
+        import-bound names would wrongly subtract the real member.
+        """
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert f"{_GUARDED_HANDLE}.DEFAULT_NAME" in members
+
+    def test_class_body_import_does_not_drop_member(self, analyzer: JediAnalyzer) -> None:
+        """A class-body import binds a CLASS attribute — the module-level def survives."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        assert f"{_GUARDED_HANDLE}.make_widget" in members
+
+    def test_exact_member_set(self, analyzer: JediAnalyzer) -> None:
+        """The fixture's members are exactly its locally-DEFINED top-level names."""
+        members = {str(h) for h in _members_for(_GUARDED_HANDLE, analyzer)}
+        expected = {
+            f"{_GUARDED_HANDLE}._FEATURE_FLAG",
+            f"{_GUARDED_HANDLE}.DEFAULT_NAME",
+            f"{_GUARDED_HANDLE}.make_widget",
+            f"{_GUARDED_HANDLE}.guarded_consumer",
+            f"{_GUARDED_HANDLE}.load_default",
+            f"{_GUARDED_HANDLE}.Holder",
+            f"{_GUARDED_HANDLE}.guarded_function",
+        }
+        assert members == expected
+
+
+class TestGuardedImportsIncludedInImports:
+    """Guarded module-scope imports ARE dependencies → present on the ``imports`` edge.
+
+    The complement of the members exclusion: subtracting a guarded import from
+    ``members`` without emitting it from ``imports`` would make the dependency
+    invisible on every edge rather than merely misfiled.
+    """
+
+    def test_type_checking_import_present(self, analyzer: JediAnalyzer) -> None:
+        result = _imports_for(_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _WIDGETS_WIDGET in handles, f"TYPE_CHECKING import missing; got {handles}"
+
+    def test_try_except_shim_branches_present(self, analyzer: JediAnalyzer) -> None:
+        """Both the primary and the fallback import are statically present."""
+        result = _imports_for(_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _WIDGETS_PREMIUM in handles, f"try-branch import missing; got {handles}"
+        assert _WIDGETS_DELUXE in handles, f"except-branch import missing; got {handles}"
+
+    def test_conditional_import_present(self, analyzer: JediAnalyzer) -> None:
+        result = _imports_for(_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _WIDGETS_CONFIG in handles, f"conditional import missing; got {handles}"
+
+    def test_with_and_try_else_imports_present(self, analyzer: JediAnalyzer) -> None:
+        """Non-``if`` guards (``with``, ``try``/``else``) are module-scope too."""
+        result = _imports_for(_DEEP_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert _WIDGETS_WIDGET in handles, f"with-guarded import missing; got {handles}"
+        assert _WIDGETS_CONFIG in handles, f"try/else-guarded import missing; got {handles}"
+
+    def test_function_local_import_absent(self, analyzer: JediAnalyzer) -> None:
+        """A ``def``-body import is NOT a module import — it must not be emitted."""
+        result = _imports_for(_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            _WIDGETS_DEFAULT_NAME not in handles
+        ), f"function-local import leaked into the imports edge; got {handles}"
+
+    def test_class_body_import_absent(self, analyzer: JediAnalyzer) -> None:
+        """A class-body import binds a class attribute — not a module import."""
+        result = _imports_for(_GUARDED_HANDLE, analyzer)
+        assert result is not None
+        handles = {str(h) for h in result.handles}
+        assert (
+            _WIDGETS_MAKE_WIDGET not in handles
+        ), f"class-body import leaked into the imports edge; got {handles}"
+
+    def test_imports_and_members_stay_disjoint(self, analyzer: JediAnalyzer) -> None:
+        """The #360 invariant: guarded names land in exactly ONE of the two edges."""
+        import_result = _imports_for(_GUARDED_HANDLE, analyzer)
+        members_result = resolve_members(
+            _find_jedi_name_for_handle(_GUARDED_HANDLE, analyzer), analyzer
+        )
+        assert import_result is not None
+        import_handles = {str(h) for h in import_result.handles}
+        member_handles = {str(h) for h in members_result.handles}
+        overlap = import_handles & member_handles
+        assert not overlap, f"imports and members overlap for the guarded fixture: {overlap}"
+        # And the guarded names are covered — present in imports, absent from members.
+        for guarded in (_WIDGETS_WIDGET, _WIDGETS_PREMIUM, _WIDGETS_CONFIG):
+            assert guarded in import_handles
+            assert guarded not in member_handles

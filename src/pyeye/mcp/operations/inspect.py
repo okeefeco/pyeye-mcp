@@ -831,7 +831,8 @@ async def _count_module_members(jedi_name: Any, analyzer: JediAnalyzer) -> int:
     Delegates to :func:`edges.resolve_members` — the single enumeration source
     for member counts since Phase 5.  Unlike the former flat ``get_names``
     approach, this **excludes import-bound names** (spec §3.3 correctness fix),
-    so the count may be lower than before for modules with top-level imports.
+    so the count may be lower than before for modules with imports — including
+    imports guarded by ``if TYPE_CHECKING:`` / ``try``-``except`` (#360).
 
     **Why ``async def`` with no ``await``**: ``_build_edge_counts`` gathers
     coroutines as ``Awaitable[int]`` and wraps each in ``asyncio.wait_for``

@@ -375,6 +375,12 @@ class TestTraceUnresolvedImports:
 
     _UNRESOLVED_FIXTURE = "mypackage._core.unresolved_imports_fixture"
     _IMPORTS_FIXTURE = "mypackage._core.imports_fixture"
+    # An all-resolved seed must stay inside the fixture project: ``direct_importer``
+    # imports only ``mypackage._core.widgets``.  ``imports_fixture`` is NOT usable
+    # here any more — it imports ``os``, and since #360 the walk reaches os's
+    # platform-guarded ``from posix/nt import _exit`` statements, whose C-extension
+    # targets Jedi cannot resolve (a genuine unresolved entry, not a regression).
+    _PROJECT_ONLY_IMPORTS_FIXTURE = "mypackage._core.direct_importer"
 
     @pytest.mark.asyncio
     async def test_imports_trace_surfaces_per_node_map(self, analyzer: JediAnalyzer) -> None:
@@ -390,7 +396,7 @@ class TestTraceUnresolvedImports:
     async def test_imports_traced_all_resolved_yields_empty_map(
         self, analyzer: JediAnalyzer
     ) -> None:
-        result = await trace(self._IMPORTS_FIXTURE, ["imports"], analyzer, max_depth=1)
+        result = await trace(self._PROJECT_ONLY_IMPORTS_FIXTURE, ["imports"], analyzer, max_depth=1)
         assert result["unresolved_imports"] == {}
 
     @pytest.mark.asyncio
