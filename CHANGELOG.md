@@ -122,7 +122,7 @@ written for older Python versions.
 
 ### Added
 
-- Python 3.13 support (#529): CI tests it (Linux, Windows and macOS on PRs; all three on main) and the classifiers list it. The CI pre-commit job now audits dependencies on 3.13, the newest supported version. `.pre-commit-config.yaml` now builds hook environments with `python3` instead of a pinned `python3.12`, which the 3.13 runner didn't have (the remaining remote hooks move to `uv run` in #547).
+- Python 3.13 support (#529): CI tests it (Linux, Windows and macOS on PRs; all three on main) and the classifiers list it. The CI pre-commit job now audits dependencies on 3.13, the newest supported version. `.pre-commit-config.yaml` now builds hook environments with `python3` instead of a pinned `python3.12`, which the 3.13 runner didn't have (the remaining remote hooks move to `uv run` in #547). `path_utils.dedupe_paths` now rejects paths containing a NUL byte explicitly; on Windows with 3.13, `Path.resolve()` no longer raises for them, so such paths had slipped into root lists.
 - Progressive-disclosure operations over canonical handles: `resolve`,
   `resolve_at`, `inspect`, `outline`, `expand`, and `trace`. Supported `expand`
   / `trace` edges: `members`, `callees`, `imports`, `imported_by`,

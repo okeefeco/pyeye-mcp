@@ -58,6 +58,10 @@ def dedupe_paths(paths: Iterable[str | Path], *, resolve_output: bool = False) -
     seen: set[str] = set()
     for raw in paths:
         path = Path(raw)
+        # Reject NUL explicitly: on Windows with Python 3.13, resolve() returns
+        # for such a path instead of raising ValueError (#529).
+        if "\x00" in path.as_posix():
+            continue
         try:
             resolved = path.resolve()
         except (OSError, ValueError):

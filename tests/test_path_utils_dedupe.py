@@ -51,6 +51,29 @@ class TestDedupePaths:
         result = dedupe_paths([good, bad])
         assert result == [good]
 
+    def test_skips_nul_paths_even_when_resolve_does_not_raise(self, tmp_path: Path) -> None:
+        """A NUL path is skipped even where ``resolve()`` accepts it (#529).
+
+        On Windows with Python 3.13, ``Path("bad\\x00name").resolve()`` returns
+        instead of raising, so relying on the exception let it through. Simulate
+        that here so the guard is exercised on every CI platform.
+        """
+        from unittest.mock import patch
+
+        good = tmp_path / "good"
+        good.mkdir()
+        bad = Path("bad\x00name")
+        real_resolve = Path.resolve
+
+        def lenient_resolve(self: Path, strict: bool = False) -> Path:
+            if "\x00" in self.name:
+                return self  # Windows 3.13: no exception for an embedded NUL
+            return real_resolve(self, strict=strict)
+
+        with patch.object(Path, "resolve", lenient_resolve):
+            result = dedupe_paths([good, bad])
+        assert result == [good]
+
     def test_accepts_str_inputs(self, tmp_path: Path) -> None:
         d = tmp_path / "s"
         d.mkdir()
