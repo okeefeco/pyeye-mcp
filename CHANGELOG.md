@@ -136,6 +136,7 @@ are orthogonal to the navigation redesign and are unchanged.
 
 ### Changed
 
+- Bumped the pinned dev linters: ruff 0.15.21 → 0.16.10, mypy 2.2.0 → 2.4.0 (#525). Neither surfaces new findings. Redoes Dependabot #521, which updated the pins without regenerating `uv.lock`.
 - Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
 
 ### Fixed
