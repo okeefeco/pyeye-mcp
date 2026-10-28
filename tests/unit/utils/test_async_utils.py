@@ -436,18 +436,87 @@ class TestRglobAsyncNestedCheckouts:
     async def test_includes_files_in_a_submodule(self, tmp_path):
         """Regression guard for the chosen rule: submodules stay indexed.
 
-        A submodule's ``.git`` is a *directory*. Submodule source is often
-        genuinely imported by the parent project, so it is deliberately NOT
-        treated as a nested checkout. Guards existing behaviour.
+        Since git 1.7.8 a submodule's ``.git`` is a *file* too, pointing at
+        ``<super>/.git/modules/<name>`` — so "``.git`` is a file" alone does
+        not mean "linked worktree". Submodule source is often genuinely
+        imported by the parent project, so it must NOT be treated as a nested
+        checkout. The fixture mirrors what ``git submodule add`` writes.
         """
         submodule = tmp_path / "vendor" / "shared-lib"
         submodule.mkdir(parents=True)
-        (submodule / ".git").mkdir()
+        (submodule / ".git").write_text("gitdir: ../../.git/modules/vendor/shared-lib\n")
+        gitdir = tmp_path / ".git" / "modules" / "vendor" / "shared-lib"
+        gitdir.mkdir(parents=True)
+        # A submodule gitdir is a full repository: no ``commondir`` back-pointer.
+        (gitdir / "HEAD").write_text("ref: refs/heads/main\n")
+        (gitdir / "config").write_text("")
         (submodule / "lib.py").write_text("")
 
         results = await rglob_async("*.py", tmp_path)
 
         assert [p.name for p in results] == ["lib.py"]
+
+    async def test_includes_a_submodule_whose_path_is_named_worktrees(self, tmp_path):
+        """The rule reads git's structure, not a ``worktrees`` path segment.
+
+        A submodule checked out at ``worktrees/lib`` has the gitdir
+        ``.git/modules/worktrees/lib`` — a path that *contains* a
+        ``worktrees`` component. Guards against distinguishing the two kinds
+        of pointer by path shape alone.
+        """
+        submodule = tmp_path / "worktrees" / "lib"
+        submodule.mkdir(parents=True)
+        (submodule / ".git").write_text("gitdir: ../../.git/modules/worktrees/lib\n")
+        gitdir = tmp_path / ".git" / "modules" / "worktrees" / "lib"
+        gitdir.mkdir(parents=True)
+        (gitdir / "HEAD").write_text("ref: refs/heads/main\n")
+        (submodule / "lib.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.name for p in results] == ["lib.py"]
+
+    async def test_excludes_a_worktree_with_a_live_gitdir(self, tmp_path):
+        """A resolvable worktree pointer is confirmed via git's ``commondir``."""
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        (worktree / ".git").write_text("gitdir: ../.git/worktrees/wt\n")
+        gitdir = tmp_path / ".git" / "worktrees" / "wt"
+        gitdir.mkdir(parents=True)
+        (gitdir / "commondir").write_text("../..\n")
+        (worktree / "duplicate.py").write_text("")
+        (tmp_path / "real.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.name for p in results] == ["real.py"]
+
+    async def test_excludes_a_worktree_whose_gitdir_was_pruned(self, tmp_path):
+        """A dangling worktree pointer still marks a duplicate checkout.
+
+        ``git worktree prune`` deletes ``.git/worktrees/<name>`` but leaves the
+        checkout on disk — still a full second copy of the tree, so the layout
+        of the pointer is used when the target is gone.
+        """
+        worktree = tmp_path / "stale"
+        worktree.mkdir()
+        (worktree / ".git").write_text("gitdir: /gone/.git/worktrees/stale\n")
+        (worktree / "duplicate.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert results == []
+
+    async def test_includes_files_beside_an_unreadable_dot_git_file(self, tmp_path):
+        """A ``.git`` file that is not a gitdir pointer is not a worktree."""
+        odd = tmp_path / "odd"
+        odd.mkdir()
+        (odd / ".git").write_text("not a pointer\n")
+        (odd / "app.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.name for p in results] == ["app.py"]
 
     async def test_scanning_from_inside_a_worktree_still_returns_files(self, tmp_path):
         """The scan root itself is never treated as a nested checkout.
