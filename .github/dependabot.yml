@@ -39,7 +39,6 @@ updates:
     # Labels to apply to PRs
     labels:
       - "dependencies"
-      - "automated"
     # Commit message prefix
     commit-message:
       prefix: "chore"
@@ -60,7 +59,6 @@ updates:
     labels:
       - "dependencies"
       - "ci/cd"
-      - "automated"
     commit-message:
       prefix: "ci"
       include: "scope"
