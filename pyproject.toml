@@ -63,6 +63,7 @@ dev = [
     "pip-audit>=2.6.0",  # Dependency vulnerability scanning (OSV database)
     "commitizen>=3.13.0",
     "pydocstyle==6.3.0",  # Pinned for consistent docstring checks
+    "pre-commit-hooks==4.5.0",  # General file checks run by pre-commit via `uv run` (#547)
     "click>=8.0.0",  # CLI for scripts/dogfooding_metrics.py (was only transitively present)
     "setuptools_scm[toml]>=8",  # _version.py generation (mirrors [build-system].requires)
     # Note: pre-commit removed from dev deps - install at user level instead:
