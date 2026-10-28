@@ -135,3 +135,48 @@ def test_hook_python_is_not_pinned_to_a_minor_version():
     ]
     pinned = [(where, v) for where, v in pins if v and v not in ("python3", "python", "default")]
     assert not pinned, f"hook Python pinned to a specific version: {pinned}"
+
+
+# Remote repos allowed to stay remote: non-Python hooks only, which uv can't run.
+_ALLOWED_REMOTE_REPOS = {"https://github.com/igorshubovych/markdownlint-cli"}
+
+# Python tool hooks that must run from the uv-managed venv (#413, #547).
+_UV_RUN_HOOKS = {
+    "detect-secrets",
+    "bandit",
+    "pydocstyle",
+    "commitizen",
+    "trailing-whitespace",
+    "end-of-file-fixer",
+    "check-yaml",
+    "check-toml",
+    "check-added-large-files",
+    "check-case-conflict",
+    "check-merge-conflict",
+    "check-docstring-first",
+    "debug-statements",
+    "detect-private-key",
+    "mixed-line-ending",
+    "name-tests-test",
+    "check-json",
+    "pretty-format-json",
+}
+
+
+def test_only_non_python_hooks_use_remote_repos():
+    """Python hooks run via ``uv run`` so their versions come from uv.lock (#547).
+
+    A remote repo pins its own tool version (``rev:``) in a separate env, which
+    drifted from the lock (bandit 1.8.6 vs 1.9.4, commitizen 3.13.0 vs 4.19.3)
+    and depended on ``default_language_version`` (#529).
+    """
+    remote = {repo["repo"] for repo in _load()["repos"] if repo["repo"] != "local"}
+    unexpected = remote - _ALLOWED_REMOTE_REPOS
+    assert not unexpected, f"unexpected remote hook repos: {unexpected}"
+
+
+def test_python_tool_hooks_run_through_uv():
+    config = _load()
+    for hook_id in sorted(_UV_RUN_HOOKS):
+        entry = _hook(config, hook_id).get("entry", "")
+        assert entry.startswith("uv run --frozen "), f"{hook_id}: entry {entry!r}"

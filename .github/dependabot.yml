@@ -28,6 +28,7 @@ updates:
           - "black"
           - "ruff"
           - "pre-commit"
+          - "pre-commit-hooks"
           - "bandit"
           - "detect-secrets"
           - "pip-audit"
