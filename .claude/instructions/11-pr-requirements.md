@@ -15,7 +15,6 @@ When to update: When PR requirements or quality standards change
 1. **detect-secrets** - No hardcoded credentials
 2. **bandit** - No Python security vulnerabilities
 3. **pip-audit** - No vulnerable dependencies (OSV database)
-4. **safety** - No vulnerable dependencies (Safety DB)
 
 ### Handling Security Findings
 

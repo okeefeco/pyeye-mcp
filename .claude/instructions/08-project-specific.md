@@ -91,7 +91,6 @@ uv run mypy src/pyeye
 
 # Security checks
 uv run pip-audit
-uv run safety check
 uv run bandit -r src/
 ```
 
