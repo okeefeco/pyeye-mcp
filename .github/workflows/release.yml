@@ -69,17 +69,17 @@ jobs:
       - name: Run comprehensive tests
         run: |
           # Run the full test suite with coverage
-          pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+          uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
           echo "✅ All tests passed"
 
       - name: Run type checking
         run: |
-          mypy src/pyeye --ignore-missing-imports
+          uv run mypy src/pyeye --ignore-missing-imports
           echo "✅ Type checking passed"
 
       - name: Run security checks
         run: |
-          bandit -r src/ -ll
+          uv run bandit -r src/ -ll
           echo "✅ Security checks passed"
 
       - name: Run pre-commit checks
