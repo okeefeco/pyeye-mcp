@@ -27,7 +27,7 @@ This is the PyEye Server - an extensible MCP (Model Context Protocol) server tha
 
 ## Architecture
 
-- **Core Server**: FastMCP-based MCP server implementation
+- **Core Server**: MCPServer-based MCP server implementation (MCP Python SDK 2.x)
 - **Project Manager**: Handles multiple projects with LRU caching (max 10)
 - **Analysis Engine**: Jedi for semantic analysis and type inference
 - **Caching Layer**: File watchers (watchdog) + result cache (5min TTL)

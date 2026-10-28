@@ -5,7 +5,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import ValidationError
@@ -67,7 +67,7 @@ class TestMCPServer:
     def test_server_initialization(self):
         """Test that MCP server is properly initialized."""
         assert mcp is not None
-        assert isinstance(mcp, FastMCP)
+        assert isinstance(mcp, MCPServer)
         assert mcp.name == "PyEye"
 
     def test_server_has_tools(self):

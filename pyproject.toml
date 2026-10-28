@@ -28,9 +28,9 @@ dependencies = [
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
     "watchdog>=3.0.0",
-    # <2: mcp 2.x removed mcp.server.fastmcp, which the server imports (#537).
-    # Lift with the MCPServer migration (#538).
-    "mcp[cli]>=1.13.0,<2",
+    # The server uses mcp 2.x's MCPServer (#538); 1.x lacks mcp.server.mcpserver.
+    # Floor is the version the migration was verified against.
+    "mcp[cli]>=2.3.0,<3",
     "aiofiles>=24.0.0",
     "filelock>=4.2.1",  # Cross-platform file locking for atomic operations
     "psutil>=6.0.0",  # System and process metrics

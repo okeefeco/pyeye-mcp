@@ -471,7 +471,7 @@ The server uses file watching to automatically update when code changes:
 
 ```text
 PyEye
-├── Core Server (FastMCP)
+├── Core Server (MCPServer, MCP Python SDK)
 │   └── MCP tools (primitives + auto-activated framework plugins)
 ├── Project Manager
 │   ├── Multi-project support (LRU cache, max 10)
@@ -609,5 +609,5 @@ MIT License - see LICENSE file for details
 Built on top of:
 
 - [Jedi](https://github.com/davidhalter/jedi) - Python static analysis and type inference
-- [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) - MCP server framework (`MCPServer`)
 - [Watchdog](https://github.com/gorakhargosh/watchdog) - File system monitoring
