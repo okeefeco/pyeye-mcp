@@ -1,7 +1,7 @@
 # CI Workflow
 #
 # PR matrix strategy (Issue #65): on PRs, test both supported Python versions
-# (3.11 and 3.12) on Linux and Windows, and only 3.11 on macOS. Pushes to
+# (3.11 and 3.12) on Linux and Windows, and only 3.12 on macOS. Pushes to
 # main run the full 3-OS x 2-version matrix. macOS combinations are dropped
 # on PRs first because macOS bills at 10x (see the multiplier table below).
 #
@@ -104,7 +104,7 @@ jobs:
             python-version: '3.12'
           # macOS - one version only (biggest savings)
           - os: macos-latest
-            python-version: '3.11'
+            python-version: '3.12'
 
     steps:
       - uses: actions/checkout@v7
@@ -381,7 +381,7 @@ jobs:
           - os: windows-latest
             python-version: '3.12'
           - os: macos-latest
-            python-version: '3.11'
+            python-version: '3.12'
     steps:
       - name: Skip tests for docs-only changes
         run: echo "Skipping tests - documentation only changes detected"
