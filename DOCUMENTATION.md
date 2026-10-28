@@ -464,7 +464,7 @@ The server automatically detects and activates framework-specific tools when it 
 └─────────────────────────┬───────────────────────────┘
                           │ MCP Protocol
 ┌─────────────────────────▼───────────────────────────┐
-│                    FastMCP Server                    │
+│                     MCPServer                        │
 ├──────────────────────────────────────────────────────┤
 │                   Project Manager                    │
 │  ┌────────────┐ ┌────────────┐ ┌────────────┐      │

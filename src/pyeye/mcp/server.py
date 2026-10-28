@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
@@ -59,7 +59,10 @@ logger = logging.getLogger(__name__)
 
 # Initialize the MCP server.  The instructions block carries an in-band pointer
 # to where pyeye bugs are reported (#458), so it is always in the agent's context.
-mcp = FastMCP("PyEye", instructions=meta.server_instructions())
+# Keyword arguments only after `name`: MCPServer's second positional is `title`,
+# so a positional instructions string would silently become the title (#538).
+# mcp 2.x reports an empty server version unless one is passed.
+mcp = MCPServer("PyEye", instructions=meta.server_instructions(), version=meta.version())
 
 # Initialize unified metrics session
 _unified_session_id = None
