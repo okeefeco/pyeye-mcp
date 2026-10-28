@@ -727,7 +727,7 @@ print("=" * 50)
 print(f"Python version: {sys.version}")
 
 # Check required packages
-packages = ["jedi", "fastmcp", "mcp", "watchdog", "pydantic"]
+packages = ["jedi", "mcp", "watchdog", "pydantic"]
 for pkg in packages:
     try:
         module = __import__(pkg)
