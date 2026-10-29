@@ -69,6 +69,7 @@ _VALID_STUB_NONCALLABLE: dict = {
 
 # A well-formed supported members ExpandResult
 _VALID_EXPAND_MEMBERS: dict = {
+    "found": True,
     "source": "mypackage._core.widgets.Widget",
     "edge": "members",
     "stubs": [
@@ -85,6 +86,7 @@ _VALID_EXPAND_MEMBERS: dict = {
 
 # A well-formed supported callees ExpandResult (with unresolved_call_sites)
 _VALID_EXPAND_CALLEES: dict = {
+    "found": True,
     "source": "mypackage._core.widgets.Widget.render",
     "edge": "callees",
     "stubs": [
@@ -102,6 +104,7 @@ _VALID_EXPAND_CALLEES: dict = {
 
 # A well-formed supported imports ExpandResult (with unresolved_imports) — #494
 _VALID_EXPAND_IMPORTS: dict = {
+    "found": True,
     "source": "mypackage._core.imports_fixture",
     "edge": "imports",
     "stubs": [
@@ -119,6 +122,7 @@ _VALID_EXPAND_IMPORTS: dict = {
 
 # A well-formed unsupported ExpandResult — deferred_reference_backend reason
 _VALID_EXPAND_UNSUPPORTED_DEFERRED: dict = {
+    "found": True,
     "source": "mypackage._core.widgets.Widget",
     "edge": "callers",
     "unsupported": True,
@@ -128,6 +132,7 @@ _VALID_EXPAND_UNSUPPORTED_DEFERRED: dict = {
 
 # A well-formed unsupported ExpandResult — not_yet_implemented reason
 _VALID_EXPAND_UNSUPPORTED_NYI: dict = {
+    "found": True,
     "source": "mypackage._core.widgets.Widget",
     "edge": "superclasses",
     "unsupported": True,
@@ -137,6 +142,7 @@ _VALID_EXPAND_UNSUPPORTED_NYI: dict = {
 
 # A well-formed unsupported ExpandResult — unknown_edge reason
 _VALID_EXPAND_UNSUPPORTED_UNKNOWN: dict = {
+    "found": True,
     "source": "mypackage._core.widgets.Widget",
     "edge": "no_such_edge",
     "unsupported": True,

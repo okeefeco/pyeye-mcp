@@ -71,6 +71,13 @@ Notes that matter:
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
   dotted handle.
+- **Not found:** check `found` on every `resolve`/`inspect`/`outline`/`expand` result.
+  An unresolvable handle returns `{found: false, reason: "unresolved", …}` — for
+  `inspect`/`outline`/`expand` also the echoed `handle` (plus `edge` for `expand`) and a
+  `detail` naming the next step, with **no** node, tree, or stubs. That is "this handle
+  doesn't exist as written" (often the right name under the wrong module path) — not an
+  empty symbol. Re-`resolve` the bare name to get the canonical handle. By contrast,
+  `expand`'s `stubs: []` with `found: true` *is* a measured zero.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.

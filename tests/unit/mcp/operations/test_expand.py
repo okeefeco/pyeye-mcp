@@ -211,37 +211,29 @@ class TestExpandEmptyIsSupported:
         assert "unresolved_call_sites" not in result
 
 
-class TestExpandUnresolvableSourceGraceful:
-    """An unresolvable source handle → graceful supported-empty, never raises.
+class TestExpandUnresolvableSourceNotFound:
+    """An unresolvable source handle → explicit not-found, never raises (#545).
 
-    Mirrors how ``inspect`` returns a minimal node (rather than raising) when the
-    source handle cannot be resolved to a Jedi ``Name``.  For ``expand`` this is
-    a supported result with ``stubs: []`` (NOT the unsupported branch), plus
-    ``unresolved_call_sites: 0`` for the callees edge.
+    NOT ``stubs: []`` — that is the measured-empty answer, and claiming it for a
+    handle that does not exist is the #332 measured-zero lie.  The full
+    cross-tool contract lives in ``test_not_found.py``.
     """
 
     _GHOST_HANDLE = "mypackage._core.widgets.does_not_exist_xyz"
 
     @pytest.mark.asyncio
-    async def test_members_unresolvable_source_empty(self, analyzer: JediAnalyzer) -> None:
-        result = await expand(self._GHOST_HANDLE, "members", analyzer)
-        assert result["stubs"] == []
-        assert result["source"] == self._GHOST_HANDLE
-        assert result["edge"] == "members"
-        # Supported branch — unresolvable is graceful-empty, NOT unsupported.
-        assert "unsupported" not in result
-        assert "reason" not in result
-        assert "unresolved_call_sites" not in result
-
-    @pytest.mark.asyncio
-    async def test_callees_unresolvable_source_empty_with_zero(
-        self, analyzer: JediAnalyzer
+    @pytest.mark.parametrize("edge", ["members", "callees"])
+    async def test_unresolvable_source_is_not_found(
+        self, edge: str, analyzer: JediAnalyzer
     ) -> None:
-        result = await expand(self._GHOST_HANDLE, "callees", analyzer)
-        assert result["stubs"] == []
+        result = await expand(self._GHOST_HANDLE, edge, analyzer)
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
+        assert result["handle"] == self._GHOST_HANDLE
+        assert result["edge"] == edge
+        assert "stubs" not in result
         assert "unsupported" not in result
-        # callees graceful path still carries the callees-only field as 0.
-        assert result["unresolved_call_sites"] == 0
+        assert "unresolved_call_sites" not in result
 
 
 # ---------------------------------------------------------------------------

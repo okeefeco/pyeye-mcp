@@ -385,12 +385,16 @@ async def inspect(
         project_path: Project root path (default: current directory)
 
     Returns:
-        Node dict with universal fields (handle, kind, scope, location,
-        docstring, edge_counts={}) plus kind-dependent fields:
+        Node dict with ``found: True``, universal fields (handle, kind, scope,
+        location, docstring, edge_counts={}) plus kind-dependent fields:
         - class: signature (constructor), superclasses (list of Handle strings)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
         - attribute/property/variable: type?, default? (simple literals only)
+
+        If the handle does not resolve:
+        ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
+        — no node fields.  Call resolve() on the name to get a canonical handle.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -472,21 +476,31 @@ async def expand(
         unsupported branch with ``reason: "not_yet_implemented"``.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
-    Response shape — discriminated union:
+    Response shape — discriminated union.  ``found`` is always present.
 
-    *Supported branch* (``"unsupported"`` key absent):
+    *Source not found* (``found: False`` — the handle does not resolve, checked
+    before the edge, so this wins over any unsupported edge):
     ::
 
-        { "source": str,                 # canonical source handle
+        { "found": False, "handle": str, "edge": str,
+          "reason": "unresolved",
+          "detail": str }               # next step: call resolve() on the name
+
+    *Supported branch* (``found: True``, ``"unsupported"`` key absent):
+    ::
+
+        { "found":  True,
+          "source": str,                 # canonical source handle
           "edge":   str,
           "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...] }  # imports ONLY (#494); [] when all resolved
 
-    *Unsupported branch* (``"stubs"`` key absent):
+    *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
 
-        { "source": str,
+        { "found":  True,
+          "source": str,
           "edge":   str,
           "unsupported": True,
           "reason":  str,               # deferred_reference_backend |
@@ -508,9 +522,9 @@ async def expand(
         project_path: Project root path (default: current directory).
 
     Returns:
-        ExpandResult dict — supported branch or unsupported branch (see above).
-        Never raises; unresolvable source handles yield graceful supported-empty
-        results consistent with inspect()'s minimal-node contract.
+        ExpandResult dict — not-found, supported, or unsupported (see above).
+        Never raises.  ``stubs: []`` always means "measured, none found" — it is
+        never returned for an unresolvable handle.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
@@ -675,9 +689,11 @@ async def outline(
             expanded — so ``children`` is always the complete direct-member set.
 
     Returns:
-        ``OutlineTree`` dict — ``{"node": Stub, "children": [OutlineTree, ...]}``.
-        Never raises; an unresolvable handle yields a minimal single-node tree
-        with ``children: []``.  Children within each parent are in source order
+        ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
+        [OutlineTree, ...]}`` (``found`` on the root only).  Never raises; an
+        unresolvable handle yields
+        ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
+        — no placeholder tree.  Children within each parent are in source order
         (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget
         gracefully (all of depth 1 before any of depth 2, etc.).
     """

@@ -281,21 +281,13 @@ class TestInspectResponseConformance:
 
     @pytest.mark.asyncio
     async def test_inspect_unknown_handle_passes(self) -> None:
-        """inspect() on an unknown handle returns minimal node; passes linter.
-
-        The minimal fallback node has kind='variable', empty edge_counts,
-        and no re_exports.  It must pass the linter even though it's a fallback.
-        """
+        """inspect() on an unknown handle returns the not-found shape; passes linter (#545)."""
         from pyeye.mcp.operations.inspect import inspect
 
         analyzer = _make_analyzer(_RESOLVE_PROJECT)
         result = await inspect("completely.unknown.handle.xyz", analyzer)
-        # Fallback node: kind='variable', edge_counts={}.
-        # Since callers/references were removed (#332), a variable handle has no
-        # required edges — empty edge_counts is fully valid and passes the linter.
-        assert isinstance(result, dict)
-        assert result["kind"] == "variable"
-        assert result["edge_counts"] == {}
+        assert result["found"] is False
+        assert "kind" not in result
         lint_response(result, "inspect")
 
     @pytest.mark.asyncio

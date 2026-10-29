@@ -8,12 +8,20 @@ and the Phase-1 stub builder — it adds NO new resolution logic of its own.
 
 Discriminated union (spec §4.2)
 -------------------------------
-The response is one of two mutually-exclusive shapes, distinguished by the
-presence of ``unsupported``:
+The response is one of three mutually-exclusive shapes.  ``found`` is always
+present: ``False`` for the not-found shape, ``True`` otherwise; a found result
+is then supported or unsupported, distinguished by the presence of
+``unsupported``:
+
+**Source not found** (the handle does not resolve — whatever the edge, #545)::
+
+    { "found": False, "handle": str, "edge": str,
+      "reason": "unresolved", "detail": str }   # shared shape — see not_found
 
 **Supported edge** (the edge has a working resolver)::
 
-    { "source": str,                # canonical source handle
+    { "found": True,
+      "source": str,                # canonical source handle
       "edge": str,
       "stubs": [Stub, ...],         # [] means MEASURED, none found
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
@@ -22,7 +30,8 @@ presence of ``unsupported``:
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, or an unknown name)::
 
-    { "source": str,
+    { "found": True,
+      "source": str,
       "edge": str,
       "unsupported": True,
       "reason": "deferred_reference_backend" | "not_yet_implemented"
@@ -44,12 +53,12 @@ Design invariants
   returns a list (``[]`` when every import resolved, the unresolvable targets
   otherwise); for every other edge it returns ``None`` and the key is omitted.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
-- ``expand`` NEVER raises: an unresolvable source handle yields a graceful
-  supported empty result (consistent with how ``inspect`` returns a minimal node
-  rather than raising).  Source-not-found is intentionally NOT surfaced as a
-  distinct discriminator in this slice; callers are expected to
-  ``resolve``/``inspect`` before calling ``expand``, so a ghost handle is
-  ruled out upstream — this is deliberate, not an oversight.
+- ``expand`` NEVER raises: an unresolvable source handle yields the not-found
+  shape, NOT a supported ``stubs: []`` (which would claim "measured, none
+  found" for a symbol that does not exist).  The source is resolved BEFORE the
+  edge registry is consulted, so the unsupported branch is never returned for
+  a ghost handle either (#545 — reverses the earlier "callers rule ghosts out
+  upstream" design, whose upstream guard, ``inspect``, itself fabricated).
 - ``reason`` IS the ``edge_status`` value — the status string doubles as the
   unsupported reason (single source of truth in :mod:`edges`).
 
@@ -72,6 +81,7 @@ from pyeye.mcp.operations.edges import (
     edge_status,
 )
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
+from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.resolve import _normalise_kind
 from pyeye.mcp.operations.stubs import build_stub
 
@@ -125,11 +135,13 @@ def _unsupported_detail(edge: str, reason: str) -> str:
 async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     """Walk one *edge* from *handle*, returning a discriminated-union result.
 
-    Consults the edge registry (:func:`edge_status`); for unsupported edges it
-    returns the unsupported branch immediately (no handle resolution needed).
-    For implemented edges it resolves the source handle to a Jedi ``Name``, runs
-    the edge's resolver, and builds a stub per adjacent from the ``Name`` the
-    resolver carried (avoiding a wasteful — and, for builtins, unreliable —
+    Resolves the source handle to a Jedi ``Name`` FIRST — an unresolvable handle
+    returns the shared not-found shape whatever the edge (#545), so ``found:
+    True`` on any later branch is always a claim about a handle that really was
+    resolved.  Then consults the edge registry (:func:`edge_status`): an
+    unsupported edge returns the unsupported branch; an implemented edge runs its
+    resolver and builds a stub per adjacent from the ``Name`` the resolver
+    carried (avoiding a wasteful — and, for builtins, unreliable —
     re-resolution).
 
     Args:
@@ -140,26 +152,38 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         analyzer: Configured ``JediAnalyzer`` for the project.
 
     Returns:
-        Either the supported branch (``source``/``edge``/``stubs`` and, for
-        ``callees`` only, ``unresolved_call_sites``) or the unsupported branch
+        The not-found shape (``found: False``) for an unresolvable source, else
+        — with ``found: True`` — either the supported branch
+        (``source``/``edge``/``stubs`` and, for ``callees`` only,
+        ``unresolved_call_sites``) or the unsupported branch
         (``unsupported``/``reason``/``detail``).  The unsupported branch is
         also returned for an *implemented* edge when its resolver returns
         ``None`` — the wrong-kind signal meaning the edge does not apply to
         this handle's kind (e.g. ``imported_by`` on a non-module).  That case
-        is distinct from both a source-not-found unresolvable handle (which
-        yields a graceful supported empty result) and a measured-empty
-        ``EdgeResult`` (resolver matched the kind but found no adjacents →
-        supported ``stubs: []``).  Never raises.
+        is distinct from a measured-empty ``EdgeResult`` (resolver matched the
+        kind but found no adjacents → supported ``stubs: []``).  Never raises.
     """
-    status = edge_status(edge)
+    # ------------------------------------------------------------------
+    # Resolve the source handle first.  A ghost handle is reported as not-found
+    # — never as ``stubs: []`` (the #332 measured-zero lie) and never as an
+    # unsupported result implying the handle was found (#545).
+    # ------------------------------------------------------------------
+    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
+
+    if jedi_name is None:
+        return not_found(handle, edge=edge)
+
+    # Prefer the canonical resolved full_name; fall back to the input handle.
+    source = jedi_name.full_name if getattr(jedi_name, "full_name", None) else handle
 
     # ------------------------------------------------------------------
-    # Unsupported edge — short-circuit with the mapped reason.  No handle
-    # resolution is needed (the edge is unsupported regardless of the source).
+    # Unsupported edge — the mapped reason, independent of the source's kind.
     # ------------------------------------------------------------------
+    status = edge_status(edge)
     if status != STATUS_IMPLEMENTED:
         return {
-            "source": handle,
+            "found": True,
+            "source": source,
             "edge": edge,
             "unsupported": True,
             "reason": status,
@@ -167,24 +191,6 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
             # #458: this is a limitation moment — point at where to report it.
             "report_issues": meta.issues_url(),
         }
-
-    # ------------------------------------------------------------------
-    # Implemented edge — resolve the source handle to a Jedi Name.
-    # ------------------------------------------------------------------
-    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-
-    if jedi_name is None:
-        # Source handle unresolvable → graceful supported-empty result, mirroring
-        # how inspect returns a minimal node (never raises) for the same case.
-        result: dict[str, Any] = {"source": handle, "edge": edge, "stubs": []}
-        if edge == "callees":
-            # Mirror resolve_callees, which always sets unresolved_call_sites for the
-            # callees edge; no resolver runs on this not-found path so we synthesize count=0.
-            result["unresolved_call_sites"] = 0
-        return result
-
-    # Prefer the canonical resolved full_name; fall back to the input handle.
-    source = jedi_name.full_name if getattr(jedi_name, "full_name", None) else handle
 
     # ------------------------------------------------------------------
     # Run the edge resolver and build a stub per carried (handle, Name) pair.
@@ -199,8 +205,8 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # lie).  Surface it as the UNSUPPORTED branch with a KIND-SPECIFIC detail
     # (synthesized inline — the generic _unsupported_detail can't name the kind).
     # This is DISTINCT from the source-not-found path above (jedi_name is None →
-    # graceful supported-empty) and from a measured-empty EdgeResult (the
-    # resolver matched the kind but found no adjacents → supported ``stubs: []``).
+    # found: False) and from a measured-empty EdgeResult (the resolver matched
+    # the kind but found no adjacents → supported ``stubs: []``).
     raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
     edge_result = await raw if isawaitable(raw) else raw
 
@@ -214,6 +220,7 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         # branch must be revisited to generate an edge-specific detail rather
         # than the hardcoded module-only hint.
         return {
+            "found": True,
             "source": source,
             "edge": edge,
             "unsupported": True,
@@ -230,7 +237,7 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
     ]
 
-    result = {"source": source, "edge": edge, "stubs": stubs}
+    result: dict[str, Any] = {"found": True, "source": source, "edge": edge, "stubs": stubs}
     # unresolved_call_sites: int for callees → key present; None for members →
     # key absent.  This automatically yields the callees-only field.
     if edge_result.unresolved_call_sites is not None:
