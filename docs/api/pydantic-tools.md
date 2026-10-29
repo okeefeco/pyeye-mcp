@@ -4,7 +4,7 @@ Specialized tools for analyzing Pydantic models, validators, and schemas. These 
 
 ## Table of Contents
 
-1. [find_models](#find_models)
+1. [find_pydantic_models](#find_pydantic_models)
 2. [get_model_schema](#get_model_schema)
 3. [find_validators](#find_validators)
 4. [find_field_validators](#find_field_validators)
@@ -14,7 +14,7 @@ Specialized tools for analyzing Pydantic models, validators, and schemas. These 
 
 ---
 
-## find_models
+## find_pydantic_models
 
 Find all Pydantic models in the project.
 
@@ -48,7 +48,7 @@ Array<{
 
 ```python
 # Find all Pydantic models
-models = find_models()
+models = find_pydantic_models()
 # Returns: [
 #   {
 #     "name": "UserModel",
@@ -90,7 +90,7 @@ models = find_models()
 # ]
 
 # Filter models with validators
-models_with_validators = [m for m in find_models() if m["validators"]]
+models_with_validators = [m for m in find_pydantic_models() if m["validators"]]
 ```
 
 ### Error Conditions
@@ -266,7 +266,7 @@ openapi_schema = schema["schema"]  # Can be used directly in OpenAPI specs
 
 - Analyzes model definition and inheritance
 - Caches schema per model
-- More expensive than find_models
+- More expensive than find_pydantic_models
 
 ### Use Cases
 
@@ -923,7 +923,7 @@ def analyze_pydantic_model(model_name):
 ```python
 # Check validation coverage across models
 def validation_coverage_report():
-    models = find_models()
+    models = find_pydantic_models()
     field_validators = find_field_validators()
 
     report = []

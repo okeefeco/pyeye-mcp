@@ -38,6 +38,7 @@ except ImportError:
         return "default_session"
 
 
+from ..plugins.base import AnalyzerPlugin
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
 from ..plugins.pydantic import PydanticPlugin
@@ -137,14 +138,45 @@ def initialize_plugins(project_path: str = ".") -> None:
                 _plugins.append(plugin)
                 logger.info(f"Activated {plugin.name()} plugin with namespace support")
 
-                # Register plugin tools
-                for tool_name, tool_func in plugin.register_tools().items():
-                    # Wrap tool function to work with MCP
-                    globals()[tool_name] = mcp.tool()(tool_func)
-
         except Exception as e:
             logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
             # Don't raise - plugins are optional
+
+    # Outside the per-plugin try: a duplicate name is a bug in the declared names,
+    # not an optional plugin failing to load, so it must not be swallowed.
+    register_plugin_tools(mcp, _plugins)
+
+
+def register_plugin_tools(server: MCPServer, plugins: list[AnalyzerPlugin]) -> list[str]:
+    """Register every plugin tool on ``server`` under the name its plugin declares.
+
+    The ``register_tools()`` keys are the tool names. Registering by the
+    function's ``__name__`` instead (the pre-#555 behaviour) made Django's
+    ``find_models`` / ``find_views`` / ``find_templates`` collide with the
+    Pydantic and Flask methods of the same name, and the SDK resolves a
+    collision by keeping the first tool and logging a warning.
+
+    Args:
+        server: The MCP server to register on
+        plugins: Activated plugins, in load order
+
+    Returns:
+        The registered tool names, in registration order
+
+    Raises:
+        ValueError: If two plugins declare the same tool name
+    """
+    registered: list[str] = []
+    for plugin in plugins:
+        for tool_name, tool_func in plugin.register_tools().items():
+            if tool_name in registered:
+                raise ValueError(
+                    f"Plugin {plugin.name()} declares tool {tool_name!r}, "
+                    "which another plugin already registered"
+                )
+            server.tool(name=tool_name)(tool_func)
+            registered.append(tool_name)
+    return registered
 
 
 def filter_fields(

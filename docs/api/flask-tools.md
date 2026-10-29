@@ -4,18 +4,18 @@ Specialized tools for analyzing Flask applications, routes, blueprints, and exte
 
 ## Table of Contents
 
-1. [find_routes](#find_routes)
-2. [find_blueprints](#find_blueprints)
-3. [find_views](#find_views)
-4. [find_templates](#find_templates)
-5. [find_extensions](#find_extensions)
-6. [find_config](#find_config)
+1. [find_flask_routes](#find_flask_routes)
+2. [find_flask_blueprints](#find_flask_blueprints)
+3. [find_flask_views](#find_flask_views)
+4. [find_flask_templates](#find_flask_templates)
+5. [find_flask_extensions](#find_flask_extensions)
+6. [find_flask_config](#find_flask_config)
 7. [find_error_handlers](#find_error_handlers)
 8. [find_cli_commands](#find_cli_commands)
 
 ---
 
-## find_routes
+## find_flask_routes
 
 Find all Flask routes in the project.
 
@@ -50,7 +50,7 @@ Array<{
 
 ```python
 # Find all routes
-routes = find_routes()
+routes = find_flask_routes()
 # Returns: [
 #   {
 #     "route": "/api/users/<int:user_id>",
@@ -116,7 +116,7 @@ async_routes = [r for r in routes if r["is_async"]]
 
 ---
 
-## find_blueprints
+## find_flask_blueprints
 
 Find all Flask blueprints in the project.
 
@@ -157,7 +157,7 @@ Array<{
 
 ```python
 # Find all blueprints
-blueprints = find_blueprints()
+blueprints = find_flask_blueprints()
 # Returns: [
 #   {
 #     "name": "api",
@@ -226,7 +226,7 @@ error_handling_blueprints = [b for b in blueprints if b["error_handlers"]]
 
 ---
 
-## find_views
+## find_flask_views
 
 Find all Flask view functions and classes.
 
@@ -277,7 +277,7 @@ Array<{
 
 ```python
 # Find all views
-views = find_views()
+views = find_flask_views()
 # Returns: [
 #   {
 #     "name": "index",
@@ -351,7 +351,7 @@ async_views = [v for v in views if v["is_async"]]
 
 ---
 
-## find_templates
+## find_flask_templates
 
 Find all Flask templates and render_template calls.
 
@@ -392,7 +392,7 @@ Array<{
 
 ```python
 # Find all templates
-templates = find_templates()
+templates = find_flask_templates()
 # Returns: [
 #   {
 #     "template_file": "/project/templates/index.html",
@@ -462,7 +462,7 @@ child_templates = [t for t in templates if t["extends"]]
 
 ---
 
-## find_extensions
+## find_flask_extensions
 
 Find Flask extensions in use.
 
@@ -515,7 +515,7 @@ Array<{
 
 ```python
 # Find all extensions
-extensions = find_extensions()
+extensions = find_flask_extensions()
 # Returns: [
 #   {
 #     "name": "Flask-SQLAlchemy",
@@ -588,7 +588,7 @@ has_security = any(
 
 ---
 
-## find_config
+## find_flask_config
 
 Find Flask configuration files and app.config usage.
 
@@ -642,7 +642,7 @@ Array<{
 
 ```python
 # Find all configuration
-configs = find_config()
+configs = find_flask_config()
 # Returns: [
 #   {
 #     "type": "class",
@@ -972,10 +972,10 @@ for cmd in commands:
 ```python
 # Comprehensive Flask application analysis
 def analyze_flask_app():
-    routes = find_routes()
-    blueprints = find_blueprints()
-    extensions = find_extensions()
-    config = find_config()
+    routes = find_flask_routes()
+    blueprints = find_flask_blueprints()
+    extensions = find_flask_extensions()
+    config = find_flask_config()
 
     analysis = {
         "routes": {
@@ -1030,7 +1030,7 @@ def analyze_flask_app():
 ```python
 # Generate OpenAPI/Swagger documentation
 def generate_api_docs():
-    routes = find_routes()
+    routes = find_flask_routes()
 
     openapi = {
         "openapi": "3.0.0",
@@ -1081,9 +1081,9 @@ def generate_api_docs():
 ```python
 # Security audit for Flask app
 def security_audit():
-    routes = find_routes()
-    config = find_config()
-    extensions = find_extensions()
+    routes = find_flask_routes()
+    config = find_flask_config()
+    extensions = find_flask_extensions()
     error_handlers = find_error_handlers()
 
     issues = []
@@ -1146,8 +1146,8 @@ def security_audit():
 ```python
 # Build blueprint dependency graph
 def blueprint_dependencies():
-    blueprints = find_blueprints()
-    templates = find_templates()
+    blueprints = find_flask_blueprints()
+    templates = find_flask_templates()
 
     graph = {}
 
@@ -1183,13 +1183,13 @@ def blueprint_dependencies():
 ## Related Tools
 
 - **Navigation**: Use the core primitives (`resolve`, `inspect`, `outline`, `expand`, `trace`) to navigate route definitions and Flask modules; see the [API index](./README.md)
-- **Template Analysis**: Templates often use Jinja2, correlate with [find_templates](#find_templates)
+- **Template Analysis**: Templates often use Jinja2, correlate with [find_flask_templates](#find_flask_templates)
 
 ## Best Practices
 
-1. **Regular route audits** - Use `find_routes` to ensure all routes are protected
+1. **Regular route audits** - Use `find_flask_routes` to ensure all routes are protected
 2. **Blueprint organization** - Keep related routes in same blueprint
-3. **Template tracking** - Use `find_templates` to find orphaned templates
+3. **Template tracking** - Use `find_flask_templates` to find orphaned templates
 4. **Extension inventory** - Document all extensions and their configs
 5. **Error handler coverage** - Ensure all error codes have handlers
 6. **CLI documentation** - Keep CLI commands documented with help text

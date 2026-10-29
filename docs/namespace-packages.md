@@ -229,10 +229,10 @@ results = await analyzer.find_symbol("User", scope="all")
 
    ```python
    # Better - searches less code
-   models = await find_models(scope="namespace:company.models")
+   models = await find_pydantic_models(scope="namespace:company.models")
 
    # Slower - searches everything
-   models = await find_models(scope="all")
+   models = await find_pydantic_models(scope="all")
    ```
 
 2. **Leverage scope aliases for common patterns**
