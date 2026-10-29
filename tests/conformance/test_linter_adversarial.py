@@ -20,7 +20,7 @@ from tests.conformance.response_linter import ConformanceViolation, lint_respons
 # Shared fixtures — minimal valid responses used as starting points
 # ---------------------------------------------------------------------------
 
-# Minimal valid class inspect response (all 5 Phase 4 edges present)
+# Minimal valid class inspect response (both measured class edges present: members, superclasses)
 _VALID_CLASS: dict = {
     "found": True,
     "handle": "pkg.X",
