@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=96a44eff"></script>
+      <script src="../../../_static/documentation_options.js?v=a991b680"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -378,6 +378,7 @@
         <span class="k">return</span> <span class="s2">&quot;default_session&quot;</span>
 
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalyzerPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.django</span><span class="w"> </span><span class="kn">import</span> <span class="n">DjangoPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlaskPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">PydanticPlugin</span>
@@ -477,14 +478,45 @@
                 <span class="n">_plugins</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">plugin</span><span class="p">)</span>
                 <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Activated </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">()</span><span class="si">}</span><span class="s2"> plugin with namespace support&quot;</span><span class="p">)</span>
 
-                <span class="c1"># Register plugin tools</span>
-                <span class="k">for</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_func</span> <span class="ow">in</span> <span class="n">plugin</span><span class="o">.</span><span class="n">register_tools</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                    <span class="c1"># Wrap tool function to work with MCP</span>
-                    <span class="nb">globals</span><span class="p">()[</span><span class="n">tool_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()(</span><span class="n">tool_func</span><span class="p">)</span>
-
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load plugin </span><span class="si">{</span><span class="n">plugin_class</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="c1"># Don&#39;t raise - plugins are optional</span>
+
+    <span class="c1"># Outside the per-plugin try: a duplicate name is a bug in the declared names,</span>
+    <span class="c1"># not an optional plugin failing to load, so it must not be swallowed.</span>
+    <span class="n">register_plugin_tools</span><span class="p">(</span><span class="n">mcp</span><span class="p">,</span> <span class="n">_plugins</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register_plugin_tools</span><span class="p">(</span><span class="n">server</span><span class="p">:</span> <span class="n">MCPServer</span><span class="p">,</span> <span class="n">plugins</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AnalyzerPlugin</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register every plugin tool on ``server`` under the name its plugin declares.</span>
+
+<span class="sd">    The ``register_tools()`` keys are the tool names. Registering by the</span>
+<span class="sd">    function&#39;s ``__name__`` instead (the pre-#555 behaviour) made Django&#39;s</span>
+<span class="sd">    ``find_models`` / ``find_views`` / ``find_templates`` collide with the</span>
+<span class="sd">    Pydantic and Flask methods of the same name, and the SDK resolves a</span>
+<span class="sd">    collision by keeping the first tool and logging a warning.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        server: The MCP server to register on</span>
+<span class="sd">        plugins: Activated plugins, in load order</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The registered tool names, in registration order</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If two plugins declare the same tool name</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">registered</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">plugin</span> <span class="ow">in</span> <span class="n">plugins</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_func</span> <span class="ow">in</span> <span class="n">plugin</span><span class="o">.</span><span class="n">register_tools</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">tool_name</span> <span class="ow">in</span> <span class="n">registered</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Plugin </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">()</span><span class="si">}</span><span class="s2"> declares tool </span><span class="si">{</span><span class="n">tool_name</span><span class="si">!r}</span><span class="s2">, &quot;</span>
+                    <span class="s2">&quot;which another plugin already registered&quot;</span>
+                <span class="p">)</span>
+            <span class="n">server</span><span class="o">.</span><span class="n">tool</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">tool_name</span><span class="p">)(</span><span class="n">tool_func</span><span class="p">)</span>
+            <span class="n">registered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tool_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">registered</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">filter_fields</span><span class="p">(</span>
