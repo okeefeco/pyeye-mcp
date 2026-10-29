@@ -85,7 +85,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye.handle import Handle
@@ -181,8 +181,12 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
     module_file = find_module_file(module_dotted, analyzer) if module_dotted else None
 
     if module_dotted and module_file is None:
-        # Module path not found — try the project search as a fallback, then
-        # follow the import for external (stdlib/site-packages) modules (#529)
+        # The prefix is not a module: the symbol may be nested in a class (#506)
+        member = await _resolve_class_member(identifier, analyzer)
+        if member is not None:
+            return member
+        # Otherwise try the project search, then follow the import for external
+        # (stdlib/site-packages) modules (#529)
         found = await _resolve_via_project_search(symbol_name, identifier, analyzer)
         if found is not None:
             return found
@@ -255,6 +259,34 @@ def find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
         if mod_file.exists():
             return mod_file
 
+    return None
+
+
+def find_definition_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
+    """Return the Jedi ``Name`` defined in the project whose ``full_name`` is *handle*.
+
+    Unlike a single split at the last dot, this strips trailing components until
+    a module file is found, so it places symbols nested in classes
+    (``module.Class.attr``, ``module.Outer.Inner``) as well as module-level ones
+    (#506). Only the definition itself matches: nothing is inferred, so a class
+    attribute is never confused with the type of its value.
+
+    Returns ``None`` when no project module along the handle defines it.
+    """
+    prefix = handle
+    while "." in prefix:
+        prefix = prefix.rsplit(".", 1)[0]
+        module_file = find_module_file(prefix, analyzer)
+        if module_file is None:
+            continue
+        try:
+            script = file_artifact_cache.get_script(module_file, analyzer.project)
+            for name in script.get_names(all_scopes=True, definitions=True, references=False):
+                if name.full_name == handle:
+                    return name
+        except Exception as exc:
+            logger.debug("find_definition_name(%r) failed in %s: %s", handle, module_file, exc)
+        return None
     return None
 
 
@@ -431,6 +463,26 @@ async def _get_full_name_from_file(
         logger.debug("_get_full_name_from_file(%r, %r) failed: %s", module_file, symbol_name, exc)
 
     return None
+
+
+async def _resolve_class_member(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
+    """Canonicalize a symbol nested in a class, e.g. ``module.Class.attr`` (#506).
+
+    A definition-site handle is its own canonical form. Otherwise the parent may
+    be a re-export alias (``package.Class`` for ``package._impl.Class``):
+    canonicalize the parent, then look the member up under the canonical parent.
+    """
+    if find_definition_name(identifier, analyzer) is not None:
+        return Handle(identifier)
+
+    parent, leaf = identifier.rsplit(".", 1)
+    canonical_parent = await _resolve_canonical_impl(parent, analyzer)
+    if canonical_parent is None or str(canonical_parent) == parent:
+        return None
+    candidate = f"{canonical_parent}.{leaf}"
+    if find_definition_name(candidate, analyzer) is None:
+        return None
+    return Handle(candidate)
 
 
 def _resolve_via_external_inference(identifier: str, analyzer: JediAnalyzer) -> Handle | None:

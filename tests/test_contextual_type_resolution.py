@@ -14,10 +14,11 @@ fail loudly instead of coincidentally matching a path fragment.
 Historical note: this file previously exercised the same guarantee through the
 legacy ``lookup()`` entry point, removed in #505.  The parameter and return-type
 halves port directly onto ``inspect``.  The third case — the same guarantee on a
-*class attribute* annotation — has no ``inspect`` equivalent yet, because
-``inspect`` on an attribute handle currently returns a degraded
-``scope: "external"`` node with an empty location (#506).  That assertion is
-deliberately absent rather than weakened; restore it when #506 lands.
+*class attribute* annotation — was dropped then because attribute handles did not
+resolve (#506).  It is restored below against ``attribute_types_project``: the
+``lookup_project`` fixture sits inside the ``tests.fixtures`` package, so Jedi
+names its symbols ``fixtures.lookup_project.*`` and its ``lookup_project.*``
+attribute handles cannot be anchored.
 """
 
 from pathlib import Path
@@ -28,6 +29,7 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.inspect import inspect as inspect_impl
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "lookup_project"
+_ATTRIBUTE_FIXTURE = Path(__file__).parent / "fixtures" / "attribute_types_project"
 
 
 @pytest.fixture
@@ -74,3 +76,25 @@ class TestReturnTypeResolvesContextually:
         assert (
             return_type.get("handle") == "lookup_project.models.ServiceConfig"
         ), f"Return type resolved to the wrong symbol: {return_type}"
+
+
+class TestClassAttributeTypeResolvesContextually:
+    """Class attribute annotations resolve via the file's imports (#506)."""
+
+    @pytest.mark.asyncio
+    async def test_attribute_type_resolves_to_imported_class_not_same_named_one(self) -> None:
+        """``Slot.widget: Widget`` must resolve ``Widget`` to ``attrpkg.real.Widget``,
+        which ``attrpkg.holder`` imports, never ``attrpkg.other.Widget``."""
+        analyzer = JediAnalyzer(str(_ATTRIBUTE_FIXTURE))
+
+        node = await inspect_impl("attrpkg.holder.Slot.widget", analyzer)
+
+        assert node["found"] is True
+        assert node["scope"] == "project"
+        type_ref = node.get("type")
+        assert type_ref is not None, f"Expected a type for Slot.widget, got: {node}"
+        assert type_ref.get("raw") == "Widget"
+        assert type_ref.get("handle") == "attrpkg.real.Widget", (
+            "Widget must resolve through the importing file's chain, not by global "
+            f"name search; got: {type_ref}"
+        )

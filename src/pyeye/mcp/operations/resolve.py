@@ -65,7 +65,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
-from pyeye.canonicalization import find_namespace_package_dirs, resolve_canonical
+from pyeye.canonicalization import (
+    find_definition_name,
+    find_namespace_package_dirs,
+    resolve_canonical,
+)
 from pyeye.handle import Handle
 from pyeye.path_utils import dedupe_paths
 from pyeye.scope import classify_scope
@@ -836,6 +840,13 @@ async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _S
     Returns ``None`` when Jedi cannot infer the symbol (bogus name, module not
     installed, etc.). Caller (``_resolve_dotted_name``) guarantees the input
     contains at least one dot.
+
+    An inferred definition is accepted only when its name equals the requested
+    leaf, matching ``canonicalization._resolve_via_external_inference`` (#529).
+    Inference answers "what value is this?", so it can land on a different
+    object: ``collections.abc.Mapping`` infers to ``typing._SpecialGenericAlias``
+    (#544), and a class attribute infers to its value's type (#506). Reporting
+    that object would be a confident wrong answer; ``None`` is an honest miss.
     """
     parts = name.split(".")
     module_dotted = ".".join(parts[:-1])
@@ -854,7 +865,7 @@ async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _S
 
     for jedi_name in inferred:
         full_name = jedi_name.full_name
-        if not full_name:
+        if not full_name or jedi_name.name != leaf:
             continue
         try:
             handle = Handle(full_name)
@@ -909,6 +920,7 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
     match_found = False
     match_line: int | None = None
     match_column: int | None = None
+    definition_name: Any | None = None
     for match in matches:
         if match.get("full_name") == str(handle):
             file_str = match.get("file", "")
@@ -918,8 +930,13 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
             match_found = True
             break
     else:
-        # Fallback: use the file derived from the handle path
-        file_str = _handle_to_file(handle, analyzer) or ""
+        # Not in the name index (class attributes, methods): place the definition
+        # directly, which also handles symbols nested in classes (#506).
+        definition_name = find_definition_name(str(handle), analyzer)
+        if definition_name is not None and definition_name.module_path:
+            file_str = definition_name.module_path.as_posix()
+        else:
+            file_str = _handle_to_file(handle, analyzer) or ""
 
     if not file_str:
         # Neither project lookup can place the canonical handle, so the
@@ -937,7 +954,9 @@ async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResu
     # The Jedi Name is also the only source that can promote function → method
     # (the flat match ``type`` cannot see class nesting, #406); prefer it for
     # kind, then fall back to the match type, then to canonical re-derivation.
-    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_column, analyzer)
+    jedi_name = definition_name or _get_jedi_name_from_match(
+        file_posix, match_line, match_column, analyzer
+    )
     if jedi_name is not None:
         location = cast(_Location, location_from_name(file_posix, jedi_name))
         kind = _normalise_kind_from_name(jedi_name)
