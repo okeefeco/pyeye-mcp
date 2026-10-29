@@ -104,6 +104,38 @@ until #333 lands, and will say so rather than guess.
 `configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
 are orthogonal to the navigation redesign and are unchanged.
 
+#### Unresolvable handles return an explicit not-found result (#545)
+
+`inspect`, `outline` and `expand` no longer invent an answer when a handle does
+not resolve. Previously `inspect` returned a placeholder node (`kind:
+"variable"`, `scope: "external"`, empty `file`) that looked like a real
+variable, `outline` returned the same placeholder as a one-node tree with
+`children: []`, and `expand` returned `stubs: []` — which its own contract
+defines as "measured, none found" — plus `unresolved_call_sites: 0` for
+`callees`. All three now return:
+
+```json
+{"found": false, "handle": "<input>", "reason": "unresolved",
+ "detail": "Handle '<input>' did not resolve to a symbol. Call resolve('<leaf>') to find its canonical handle."}
+```
+
+`expand` also echoes `edge`. A not-found result carries no `kind`, `location`,
+`node`, `children` or `stubs`. `reason` uses the same value `resolve` already
+returns.
+
+Every successful response from these three tools now includes `found: true`
+(on the root of an `outline` tree only), so callers check one field instead of
+guessing from which keys are present. `expand` now resolves the handle before
+checking the edge, so a nonexistent handle paired with an unsupported edge such
+as `callers` reports not-found rather than "unsupported". `trace` is unchanged:
+it already lists unresolved start handles in `unresolved_roots`.
+
+**Required action:** check `found` before reading `inspect` / `outline` /
+`expand` results. Code that treated `kind == "variable"` with an empty
+`location.file`, or an empty `stubs` list, as "symbol not found" must switch to
+`found is False`. An empty `stubs` list with `found: true` now always means the
+symbol exists and has no neighbours on that edge.
+
 #### Python 3.11 or newer required (#528)
 
 Python 3.10 support is dropped: `requires-python` is now `>=3.11`. Python 3.10
