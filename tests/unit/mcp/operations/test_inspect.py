@@ -10,7 +10,7 @@ Fixture layout
 tests/fixtures/resolve_project/
   mypackage/
     __init__.py           # re-exports Widget from _core.widgets
-    usage.py              # usage site: callers/references for edge_counts tests
+    usage.py              # real call/read sites, so tests can prove callers/references stay omitted
     _core/
       __init__.py         # empty
       widgets.py          # Widget class (line 21), make_widget function (line 71),
@@ -1186,8 +1186,9 @@ class TestInspectEdgeCounts:
     async def test_unmeasured_edges_absent_for_function(self, analyzer: JediAnalyzer) -> None:
         """(f) Unmeasured edge types are absent for function handles too.
 
-        Phase 4 measures callers and references for functions.
-        All other 11 edge types must be absent.
+        inspect measures no edges for functions: their only edges were callers and
+        references, which are omitted (#332, deferred to #333). Every edge in
+        _PHASE4_UNMEASURED_EDGES must be absent.
         """
         from pyeye.mcp.operations.inspect import inspect
 
@@ -1195,12 +1196,14 @@ class TestInspectEdgeCounts:
 
         for edge in _PHASE4_UNMEASURED_EDGES:
             assert edge not in result["edge_counts"], (
-                f"Phase 4 only measures callers+references for functions; "
-                f"{edge!r} must be ABSENT. Got edge_counts={result['edge_counts']!r}"
+                f"inspect measures no edges for functions (callers/references are "
+                f"omitted, #332); {edge!r} must be ABSENT. "
+                f"Got edge_counts={result['edge_counts']!r}"
             )
 
-    # ------------------------------------------------------------------ (g) — covered by
-    # test_function_with_no_callers_returns_zero (callers=0 present)
+    # ------------------------------------------------------------------ (g) — the former
+    # "callers=0 present" case no longer applies: callers are not measured (#332).
+    # See test_function_omits_callers_and_references.
 
     @pytest.mark.asyncio
     async def test_all_measured_edges_present_for_class(self, analyzer: JediAnalyzer) -> None:
