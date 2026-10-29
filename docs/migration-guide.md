@@ -286,10 +286,10 @@ subclasses = await analyzer.find_subclasses("User", scope=scope)
 
 ```python
 # Instead of
-results = await find_models(scope="all")
+results = await find_pydantic_models(scope="all")
 
 # Use
-results = await find_models(scope="namespace:company.models")
+results = await find_pydantic_models(scope="namespace:company.models")
 ```
 
 ## Rollback Procedure

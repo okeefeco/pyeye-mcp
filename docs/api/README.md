@@ -12,15 +12,9 @@ elsewhere, on purpose (see below).
 - **[configure_packages](#configure_packages)** - Register additional package locations (below)
 
 Plugin tools are registered only when the server detects the framework in the
-project. To see the tools a running server exposes, list them from your MCP
-client.
-
-> **Known issue:** plugin tools are currently registered under their Python
-> function names, not the prefixed names in `register_tools()`. Django's
-> `find_models`, `find_views` and `find_templates` therefore collide with the
-> Pydantic and Flask tools of the same name, and the Django doc's
-> `find_django_*` names are not what the server exposes. Tracked in
-> [#555](https://github.com/okeefeco/pyeye-mcp/issues/555).
+project, under the names each plugin declares in `register_tools()` (pinned by
+`tests/test_plugin_tool_names_conformance.py`). To see the tools a running
+server exposes, list them from your MCP client.
 
 ## 🧭 Core Navigation: Where It's Documented
 

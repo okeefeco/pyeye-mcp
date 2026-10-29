@@ -482,11 +482,16 @@ class MyFrameworkPlugin(AnalyzerPlugin):
         return (self.project_path / "myframework.yaml").exists()
 
     def register_tools(self) -> Dict[str, callable]:
-        """Register framework-specific MCP tools."""
+        """Register framework-specific MCP tools.
+
+        The keys are the MCP tool names. Prefix them with the framework so they
+        can't collide with another plugin's tools; a duplicate name stops the
+        server at startup.
+        """
         return {
-            "find_controllers": self.find_controllers,
-            "find_models": self.find_models,
-            "find_routes": self.find_routes,
+            "find_myframework_controllers": self.find_controllers,
+            "find_myframework_models": self.find_models,
+            "find_myframework_routes": self.find_routes,
         }
 
     def find_controllers(self) -> List[Dict[str, Any]]:

@@ -101,8 +101,47 @@ above. If you were using `find_references` or `get_call_hierarchy` for caller
 data, route that question to a language server instead — pyeye will not answer it
 until #333 lands, and will say so rather than guess.
 
-`configure_packages` and the framework plugin tools (Django, Pydantic, Flask)
-are orthogonal to the navigation redesign and are unchanged.
+`configure_packages` is orthogonal to the navigation redesign and is unchanged.
+The framework plugin tools keep their behaviour but several are renamed; see
+the next section.
+
+#### Framework plugin tools register under their declared names (#555)
+
+Each plugin declares its tool names as the keys of `register_tools()`, but the
+server registered tools under the Python method name and discarded the key. The
+method names collide across plugins, and the SDK keeps the first tool on a
+collision, so with Pydantic, Django and Flask all detected, Django's
+`find_models`, `find_views` and `find_templates` were never exposed (only a log
+warning). The documented `find_django_*` / `find_flask_*` /
+`find_pydantic_models` names did not exist.
+
+Tools now register under the declared keys. Methods, parameters and return
+shapes are unchanged; only the client-visible names move. In Claude Code, for
+example, `mcp__pyeye__find_routes` becomes `mcp__pyeye__find_flask_routes`.
+
+| Plugin | Old tool name | New tool name |
+|--------|---------------|---------------|
+| Flask | `find_routes` | `find_flask_routes` |
+| Flask | `find_blueprints` | `find_flask_blueprints` |
+| Flask | `find_views` | `find_flask_views` |
+| Flask | `find_templates` | `find_flask_templates` |
+| Flask | `find_extensions` | `find_flask_extensions` |
+| Flask | `find_config` | `find_flask_config` |
+| Pydantic | `find_models` | `find_pydantic_models` |
+| Django | `find_models` (often hidden by Pydantic's) | `find_django_models` |
+| Django | `find_views` (often hidden by Flask's) | `find_django_views` |
+| Django | `find_urls` | `find_django_urls` |
+| Django | `find_templates` (often hidden by Flask's) | `find_django_templates` |
+| Django | `find_migrations` | `find_django_migrations` |
+
+Unchanged: `find_error_handlers`, `find_cli_commands`, `get_model_schema`,
+`find_validators`, `find_field_validators`, `find_model_config`,
+`trace_model_inheritance`, `find_computed_fields`.
+
+`scope_defaults.methods` in `.pyeye.json` is keyed on method names and is not
+affected by the rename. A duplicate plugin tool name now stops the server at startup instead
+of silently dropping a tool, and `tests/test_plugin_tool_names_conformance.py`
+pins the registered names.
 
 #### Unresolvable handles return an explicit not-found result (#545)
 
