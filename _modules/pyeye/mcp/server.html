@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=83437911"></script>
+      <script src="../../../_static/documentation_options.js?v=96a44eff"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -728,12 +728,16 @@
 <span class="sd">        project_path: Project root path (default: current directory)</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        Node dict with universal fields (handle, kind, scope, location,</span>
-<span class="sd">        docstring, edge_counts={}) plus kind-dependent fields:</span>
+<span class="sd">        Node dict with ``found: True``, universal fields (handle, kind, scope,</span>
+<span class="sd">        location, docstring, edge_counts={}) plus kind-dependent fields:</span>
 <span class="sd">        - class: signature (constructor), superclasses (list of Handle strings)</span>
 <span class="sd">        - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod</span>
 <span class="sd">        - module: is_package, package?</span>
 <span class="sd">        - attribute/property/variable: type?, default? (simple literals only)</span>
+
+<span class="sd">        If the handle does not resolve:</span>
+<span class="sd">        ``{&quot;found&quot;: False, &quot;handle&quot;: str, &quot;reason&quot;: &quot;unresolved&quot;, &quot;detail&quot;: str}``</span>
+<span class="sd">        — no node fields.  Call resolve() on the name to get a canonical handle.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># See note on resolve() above re: dict() widening.</span>
@@ -815,21 +819,31 @@
 <span class="sd">        unsupported branch with ``reason: &quot;not_yet_implemented&quot;``.</span>
 <span class="sd">      - Unrecognised edge names return ``reason: &quot;unknown_edge&quot;``.</span>
 
-<span class="sd">    Response shape — discriminated union:</span>
+<span class="sd">    Response shape — discriminated union.  ``found`` is always present.</span>
 
-<span class="sd">    *Supported branch* (``&quot;unsupported&quot;`` key absent):</span>
+<span class="sd">    *Source not found* (``found: False`` — the handle does not resolve, checked</span>
+<span class="sd">    before the edge, so this wins over any unsupported edge):</span>
 <span class="sd">    ::</span>
 
-<span class="sd">        { &quot;source&quot;: str,                 # canonical source handle</span>
+<span class="sd">        { &quot;found&quot;: False, &quot;handle&quot;: str, &quot;edge&quot;: str,</span>
+<span class="sd">          &quot;reason&quot;: &quot;unresolved&quot;,</span>
+<span class="sd">          &quot;detail&quot;: str }               # next step: call resolve() on the name</span>
+
+<span class="sd">    *Supported branch* (``found: True``, ``&quot;unsupported&quot;`` key absent):</span>
+<span class="sd">    ::</span>
+
+<span class="sd">        { &quot;found&quot;:  True,</span>
+<span class="sd">          &quot;source&quot;: str,                 # canonical source handle</span>
 <span class="sd">          &quot;edge&quot;:   str,</span>
 <span class="sd">          &quot;stubs&quot;:  [Stub, ...],         # [] == measured-empty (NOT unsupported)</span>
 <span class="sd">          &quot;unresolved_call_sites&quot;: int,  # callees ONLY; absent otherwise</span>
 <span class="sd">          &quot;unresolved_imports&quot;: [target, ...] }  # imports ONLY (#494); [] when all resolved</span>
 
-<span class="sd">    *Unsupported branch* (``&quot;stubs&quot;`` key absent):</span>
+<span class="sd">    *Unsupported branch* (``found: True``, ``&quot;stubs&quot;`` key absent):</span>
 <span class="sd">    ::</span>
 
-<span class="sd">        { &quot;source&quot;: str,</span>
+<span class="sd">        { &quot;found&quot;:  True,</span>
+<span class="sd">          &quot;source&quot;: str,</span>
 <span class="sd">          &quot;edge&quot;:   str,</span>
 <span class="sd">          &quot;unsupported&quot;: True,</span>
 <span class="sd">          &quot;reason&quot;:  str,               # deferred_reference_backend |</span>
@@ -851,9 +865,9 @@
 <span class="sd">        project_path: Project root path (default: current directory).</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        ExpandResult dict — supported branch or unsupported branch (see above).</span>
-<span class="sd">        Never raises; unresolvable source handles yield graceful supported-empty</span>
-<span class="sd">        results consistent with inspect()&#39;s minimal-node contract.</span>
+<span class="sd">        ExpandResult dict — not-found, supported, or unsupported (see above).</span>
+<span class="sd">        Never raises.  ``stubs: []`` always means &quot;measured, none found&quot; — it is</span>
+<span class="sd">        never returned for an unresolvable handle.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">analyzer</span> <span class="o">=</span> <span class="n">get_analyzer</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
     <span class="c1"># dict(...) widens the operation&#39;s return to plain dict[str, Any] for the wire.</span>
@@ -1018,9 +1032,11 @@
 <span class="sd">            expanded — so ``children`` is always the complete direct-member set.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        ``OutlineTree`` dict — ``{&quot;node&quot;: Stub, &quot;children&quot;: [OutlineTree, ...]}``.</span>
-<span class="sd">        Never raises; an unresolvable handle yields a minimal single-node tree</span>
-<span class="sd">        with ``children: []``.  Children within each parent are in source order</span>
+<span class="sd">        ``OutlineTree`` dict — ``{&quot;found&quot;: True, &quot;node&quot;: Stub, &quot;children&quot;:</span>
+<span class="sd">        [OutlineTree, ...]}`` (``found`` on the root only).  Never raises; an</span>
+<span class="sd">        unresolvable handle yields</span>
+<span class="sd">        ``{&quot;found&quot;: False, &quot;handle&quot;: str, &quot;reason&quot;: &quot;unresolved&quot;, &quot;detail&quot;: str}``</span>
+<span class="sd">        — no placeholder tree.  Children within each parent are in source order</span>
 <span class="sd">        (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget</span>
 <span class="sd">        gracefully (all of depth 1 before any of depth 2, etc.).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
