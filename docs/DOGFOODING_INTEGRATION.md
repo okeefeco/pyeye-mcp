@@ -129,9 +129,9 @@ python scripts/dogfooding_metrics.py end
   "final_metrics": {
     "total_mcp_calls": 15,
     "tool_calls": [
-      {"tool": "find_symbol", "count": 8, "avg_ms": 45.2},
-      {"tool": "find_references", "count": 5, "avg_ms": 120.8},
-      {"tool": "get_type_info", "count": 2, "avg_ms": 35.1}
+      {"tool": "resolve", "count": 8, "avg_ms": 45.2},
+      {"tool": "expand", "count": 5, "avg_ms": 120.8},
+      {"tool": "inspect", "count": 2, "avg_ms": 35.1}
     ]
   },
   "grep_count": 2,
@@ -147,8 +147,8 @@ python scripts/dogfooding_metrics.py end
 ### MCP Tool Usage Log
 
 ```jsonl
-{"timestamp": "2025-08-24T11:15:30", "tool": "find_symbol", "params": {"name": "MetricsCollector"}}
-{"timestamp": "2025-08-24T11:16:45", "tool": "find_references", "params": {"file": "/path/to/file.py", "line": 107}}
+{"timestamp": "2025-08-24T11:15:30", "tool": "resolve", "params": {"identifier": "MetricsCollector"}}
+{"timestamp": "2025-08-24T11:16:45", "tool": "expand", "params": {"handle": "pyeye.metrics.MetricsCollector", "edge": "members"}}
 ```
 
 ## Testing

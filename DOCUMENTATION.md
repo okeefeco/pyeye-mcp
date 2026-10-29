@@ -175,251 +175,19 @@ Create `~/.config/pyeye/config.json`:
 
 ## Tools Reference
 
-### find_symbol
-
-Find symbol definitions in the project.
-
-**Parameters:**
-
-- `name` (str): Symbol name to search for
-- `project_path` (str): Root path of project (default: ".")
-- `fuzzy` (bool): Use fuzzy matching (default: False)
-- `use_config` (bool): Use configuration file (default: True)
-
-**Returns:** List of symbol locations with file, line, column, and type
-
-**Example:**
-
-```python
-find_symbol("User", fuzzy=True)
-# Returns all symbols containing "User"
-```
-
-### goto_definition
-
-Jump to symbol definition from a position.
-
-**Parameters:**
-
-- `file` (str): Path to file
-- `line` (int): Line number (1-indexed)
-- `column` (int): Column number (0-indexed)
-- `project_path` (str): Root path (default: ".")
-
-**Returns:** Definition location or None
-
-**Example:**
-
-```python
-goto_definition("app.py", 45, 10)
-# Jumps to definition of symbol at line 45, column 10
-```
-
-### find_references
-
-Find all references to a symbol.
-
-**Parameters:**
-
-- `file` (str): Path to file
-- `line` (int): Line number
-- `column` (int): Column number
-- `project_path` (str): Root path
-- `include_definitions` (bool): Include definitions in results
-
-**Returns:** List of reference locations
-
-### get_type_info
-
-Get type information at a position.
-
-**Parameters:**
-
-- `file` (str): Path to file
-- `line` (int): Line number
-- `column` (int): Column number
-- `project_path` (str): Root path
-
-**Returns:** Type information including inferred types and docstring
-
-### find_imports
-
-Find all imports of a module.
-
-**Parameters:**
-
-- `module_name` (str): Name of module
-- `project_path` (str): Root path
-
-**Returns:** List of import locations
-
-### get_call_hierarchy
-
-Get call hierarchy for a function.
-
-**Parameters:**
-
-- `function_name` (str): Function name
-- `file` (str, optional): Specific file to search
-- `project_path` (str): Root path
-
-**Returns:** Call hierarchy with callers and callees
-
-### configure_packages
-
-Configure additional package locations.
-
-**Parameters:**
-
-- `packages` (List[str]): Package paths to include
-- `namespaces` (Dict): Namespace packages with paths
-- `save` (bool): Save to config file
-
-**Returns:** Current configuration
-
-### find_symbol_multi
-
-Search across multiple projects.
-
-**Parameters:**
-
-- `name` (str): Symbol name
-- `project_paths` (List[str]): Projects to search
-- `fuzzy` (bool): Fuzzy matching
-
-**Returns:** Results grouped by project
-
-### configure_namespace_package
-
-Set up distributed namespace packages.
-
-**Parameters:**
-
-- `namespace` (str): Package namespace
-- `repo_paths` (List[str]): Repository paths
-
-**Returns:** Configuration details and structure
-
-### find_in_namespace
-
-Search within namespace packages.
-
-**Parameters:**
-
-- `import_path` (str): Full import path
-- `namespace_repos` (List[str]): Repos to search
-
-**Returns:** Locations where import is found
-
-### list_packages
-
-List all Python packages in the project.
-
-**Parameters:**
-
-- `project_path` (str): Root path of the project (default: ".")
-
-**Returns:** List of packages with structure information
-
-**Example:**
-
-```python
-list_packages()
-# Returns:
-# [
-#   {
-#     "name": "mypackage",
-#     "path": "/project/src/mypackage",
-#     "is_namespace": false,
-#     "subpackages": ["subpkg1", "subpkg2"],
-#     "modules": ["module1", "module2"]
-#   }
-# ]
-```
-
-### list_modules
-
-List all Python modules with exports and metrics.
-
-**Parameters:**
-
-- `project_path` (str): Root path of the project (default: ".")
-
-**Returns:** List of modules with exports, classes, functions, and metrics
-
-**Example:**
-
-```python
-list_modules()
-# Returns:
-# [
-#   {
-#     "name": "server",
-#     "import_path": "pyeye.mcp",
-#     "file": "src/pyeye/server.py",
-#     "exports": ["mcp", "configure_packages"],
-#     "classes": ["MCPServer"],
-#     "functions": ["find_symbol", "goto_definition"],
-#     "imports_from": ["fastmcp", "jedi", "pathlib"],
-#     "size_lines": 850,
-#     "has_tests": true
-#   }
-# ]
-```
-
-### analyze_dependencies
-
-Analyze import dependencies for a module.
-
-**Parameters:**
-
-- `module_path` (str): Import path of the module (e.g., "pyeye.mcp")
-- `project_path` (str): Root path of the project (default: ".")
-
-**Returns:** Dependencies analysis including imports, imported_by, and circular dependencies
-
-**Example:**
-
-```python
-analyze_dependencies("pyeye.mcp")
-# Returns:
-# {
-#   "module": "pyeye.mcp",
-#   "imports": {
-#     "internal": ["pyeye.config", "pyeye.project_manager"],
-#     "external": ["fastmcp", "jedi"],
-#     "stdlib": ["pathlib", "logging"]
-#   },
-#   "imported_by": ["pyeye.__init__"],
-#   "circular_dependencies": []
-# }
-```
-
-### get_module_info
-
-Get detailed information about a specific module.
-
-**Parameters:**
-
-- `module_path` (str): Import path of the module (e.g., "pyeye.mcp")
-- `project_path` (str): Root path of the project (default: ".")
-
-**Returns:** Detailed module information including exports, classes, functions, metrics, and dependencies
-
-**Example:**
-
-```python
-get_module_info("pyeye.analyzer")
-# Returns comprehensive module information including:
-# - Module docstring
-# - All exports (public API)
-# - Classes with methods and docstrings
-# - Functions with arguments and docstrings
-# - Variables and constants
-# - Import statements
-# - Code metrics (lines, complexity)
-# - Full dependency analysis
-```
+PyEye's core interface is six progressive-disclosure primitives — `resolve`,
+`resolve_at`, `inspect`, `outline`, `expand`, `trace` — plus `configure_packages`
+for registering extra package locations. The tool list lives in the README's
+[Core Tools](README.md#core-tools) section; the mechanics, the authoritative
+supported-edge list, and worked examples live in the `python-explore` skill
+(`skills/python-explore/SKILL.md`), which is conformance-tested against the live
+edge registry. Neither is restated here so the three cannot drift apart.
+
+`configure_packages` parameters and return shape are documented in
+[docs/api/README.md](docs/api/README.md#configure_packages).
+
+The v1 navigation tools were removed in 2.0. The CHANGELOG's migration map lists
+the replacement for each.
 
 ### Framework-Specific Tools
 
@@ -612,7 +380,7 @@ When loading configuration from files:
    ```python
    @mcp.tool()
    @validate_mcp_inputs
-   def find_symbol(name: str, project_path: str = "."):
+   async def resolve(identifier: str, project_path: str = "."):
        # Inputs are automatically validated
        pass
    ```

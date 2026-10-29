@@ -66,11 +66,11 @@ Active Sessions: 2
 
 🔧 TOP MCP TOOLS USED
 ----------------------------------------
-  find_symbol: 45 calls
-  find_references: 32 calls
-  get_type_info: 28 calls
-  list_modules: 18 calls
-  analyze_dependencies: 15 calls
+  resolve: 45 calls
+  inspect: 32 calls
+  expand: 28 calls
+  outline: 18 calls
+  trace: 15 calls
 
 💡 RECOMMENDATIONS
 ----------------------------------------

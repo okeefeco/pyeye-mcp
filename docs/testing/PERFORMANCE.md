@@ -48,7 +48,7 @@ search_threshold = PerformanceThresholds(
 # Use in test
 def test_symbol_search_performance():
     start = time.perf_counter()
-    results = find_symbol("TestClass")
+    results = resolve("TestClass")
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     assert_performance_threshold(
@@ -87,13 +87,13 @@ def test_symbol_search_micro():
     project = create_minimal_project()
 
     # Warm up
-    find_symbol("warmup", project)
+    resolve("warmup", project)
 
     # Measure
     times = []
     for _ in range(100):
         elapsed = measure_operation(
-            lambda: find_symbol("TestClass", project)
+            lambda: resolve("TestClass", project)
         )
         times.append(elapsed)
 
@@ -108,23 +108,17 @@ Test complete workflows:
 
 ```python
 # tests/performance/benchmarks/test_refactoring_benchmark.py
-def test_refactoring_workflow_performance():
-    """Benchmark complete refactoring workflow."""
+def test_exploration_workflow_performance():
+    """Benchmark a resolve -> inspect -> expand exploration workflow."""
     project = create_large_project(modules=50)
 
     with timer() as t:
-        # Find symbol
-        symbols = find_symbol("OldName", project)
+        # Resolve the name to canonical handle(s)
+        result = resolve("TargetClass", project)
 
-        # Get all references
-        references = []
-        for symbol in symbols:
-            refs = find_references(symbol)
-            references.extend(refs)
-
-        # Perform rename
-        for ref in references:
-            rename_symbol(ref, "NewName")
+        # Inspect it, then follow its members edge
+        node = inspect(result["handle"], project)
+        members = expand(node["handle"], edge="members", project_path=project)
 
     assert t.elapsed_ms < 2000  # Complete in < 2 seconds
 ```
@@ -141,17 +135,17 @@ import concurrent.futures
 def test_sustained_load():
     """Test sustained load handling."""
     project = create_project()
-    operations = ["find_symbol", "goto_def", "find_refs"]
+    operations = ["resolve", "inspect", "outline"]
 
     def perform_operation():
         op = random.choice(operations)
         start = time.perf_counter()
-        if op == "find_symbol":
-            find_symbol("Class", project)
-        elif op == "goto_def":
-            goto_definition("function", project)
+        if op == "resolve":
+            resolve("Class", project)
+        elif op == "inspect":
+            inspect("pkg.module.function", project)
         else:
-            find_references("variable", project)
+            outline("pkg.module", project)
         return time.perf_counter() - start
 
     # Run 1000 operations with 10 concurrent workers
@@ -208,7 +202,7 @@ def test_memory_usage():
 
     # Perform operations
     for _ in range(100):
-        find_symbol("Class", project)
+        resolve("Class", project)
         cache_result("key", "value")
 
     current, peak = tracemalloc.get_traced_memory()
@@ -370,9 +364,9 @@ def test_no_performance_regression():
 
     # Measure current performance
     operations = {
-        "symbol_search": lambda: find_symbol("Test"),
-        "goto_def": lambda: goto_definition("func"),
-        "find_refs": lambda: find_references("var")
+        "resolve": lambda: resolve("Test"),
+        "inspect": lambda: inspect("pkg.module.func"),
+        "outline": lambda: outline("pkg.module")
     }
 
     for name, operation in operations.items():
@@ -411,7 +405,7 @@ def test_cpu_hotspots():
     # Run performance-critical operations
     project = create_large_project()
     for _ in range(100):
-        find_symbol("Class", project)
+        resolve("Class", project)
 
     profiler.disable()
 
@@ -517,7 +511,7 @@ def test_metrics_collection():
 
     # Perform operations
     with collector.timer("symbol_search"):
-        find_symbol("Test")
+        resolve("Test")
 
     with collector.timer("cache_lookup"):
         cache.get("key")
