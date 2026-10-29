@@ -1396,27 +1396,6 @@ class TestInspectHelperUnits:
         assert _is_simple_literal("3.14") is True
         assert _is_simple_literal("True") is True
 
-    def test_make_location_with_column_end(self) -> None:
-        """_make_location includes column_end when provided."""
-        from pyeye.mcp.operations.inspect import _make_location
-
-        loc = _make_location("myfile.py", 10, 20, column_start=4, column_end=12)
-
-        assert loc["file"] == "myfile.py"
-        assert loc["line_start"] == 10
-        assert loc["line_end"] == 20
-        assert loc["column_start"] == 4
-        assert loc["column_end"] == 12  # exercises the column_end branch (line 154)
-
-    def test_make_location_without_optional_columns(self) -> None:
-        """_make_location omits column_start / column_end when not provided."""
-        from pyeye.mcp.operations.inspect import _make_location
-
-        loc = _make_location("f.py", 1, 5)
-
-        assert "column_start" not in loc
-        assert "column_end" not in loc
-
     def test_attr_target_position_name_node(self) -> None:
         """_attr_target_position returns start position for a plain ast.Name node."""
         import ast
@@ -1642,26 +1621,23 @@ class TestInspectSpanLocation:
         assert result is None
 
 
-class TestInspectNotFoundFallback:
-    """Tests for the minimal-node fallback when a handle cannot be resolved."""
+class TestInspectNotFound:
+    """An unresolvable handle yields an explicit not-found, never a fabricated
+    ``kind: "variable"`` node (#545).  The full cross-tool contract lives in
+    ``test_not_found.py``."""
 
     @pytest.mark.asyncio
-    async def test_unresolved_handle_returns_minimal_node(self, analyzer: JediAnalyzer) -> None:
-        """inspect returns a valid minimal node for an unresolvable handle (lines 1147-1148).
-
-        The minimal node must have all universal fields with safe defaults,
-        following the contract that inspect never raises.
-        """
+    async def test_unresolved_handle_returns_not_found(self, analyzer: JediAnalyzer) -> None:
         from pyeye.mcp.operations.inspect import inspect
 
         result = await inspect("totally.bogus.handle.DoesNotExist999", analyzer)
 
-        # Must not raise; must return the minimal fallback dict
+        assert result["found"] is False
+        assert result["reason"] == "unresolved"
         assert result["handle"] == "totally.bogus.handle.DoesNotExist999"
-        assert result["kind"] == "variable"  # safe default
-        assert result["scope"] == "external"  # safe default
-        assert "location" in result
-        assert isinstance(result["edge_counts"], dict)
+        assert "kind" not in result
+        assert "location" not in result
+        assert "edge_counts" not in result
 
 
 class TestBuildAttributeFieldsPropertyBranch:

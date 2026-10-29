@@ -67,6 +67,7 @@ from pyeye.mcp.operations.edges import (
 
 # Kind normalisation + method detection live in resolve (the lower-level module)
 # so resolve, inspect, and stubs share one source of truth (#406).
+from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.resolve import _normalise_kind_from_name
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
@@ -105,40 +106,6 @@ def _is_simple_literal(value_str: str) -> bool:
         return True
     except (ValueError, SyntaxError):
         return False
-
-
-def _make_location(
-    file_str: str,
-    line_start: int,
-    line_end: int,
-    column_start: int | None = None,
-    column_end: int | None = None,
-) -> dict[str, Any]:
-    """Build a location pointer dict.
-
-    Returns a dict with ``file``, ``line_start``, ``line_end``, and optionally
-    ``column_start`` / ``column_end`` when provided and non-None.
-
-    Args:
-        file_str: POSIX file path string.
-        line_start: 1-indexed start line.
-        line_end: 1-indexed end line (must be >= line_start).
-        column_start: Optional 0-indexed start column.
-        column_end: Optional 0-indexed end column.
-
-    Returns:
-        A location pointer dict — never contains ``source``, ``text``, or ``snippet``.
-    """
-    loc: dict[str, Any] = {
-        "file": file_str,
-        "line_start": line_start,
-        "line_end": line_end,
-    }
-    if column_start is not None:
-        loc["column_start"] = column_start
-    if column_end is not None:
-        loc["column_end"] = column_end
-    return loc
 
 
 def _extract_function_flags_from_ast(file_path: Path, line: int) -> tuple[bool, bool, bool]:
@@ -1069,10 +1036,11 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         analyzer: Configured JediAnalyzer for the project.
 
     Returns:
-        A Node dict with universal fields + kind-dependent fields +
-        ``edge_counts``.  Returns the dict even on partial/missing data;
-        never raises.  If the handle cannot be resolved, returns a minimal node
-        with kind ``"variable"`` as the safest default.
+        A Node dict carrying ``found: True`` plus universal fields +
+        kind-dependent fields + ``edge_counts``.  Returns the dict even on
+        partial/missing data; never raises.  If the handle cannot be resolved,
+        returns the shared not-found shape (:func:`not_found`) — never a
+        placeholder node (#545).
     """
     # ------------------------------------------------------------------
     # Step 1 — Locate the symbol (canonicalizing re-export aliases, #431)
@@ -1080,16 +1048,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
 
     if jedi_name is None:
-        # Minimal fallback — handle not found
-        logger.debug("inspect(%r): symbol not found; returning minimal node", handle)
-        return {
-            "handle": handle,
-            "kind": "variable",
-            "scope": "external",
-            "location": _make_location("", 1, 1, 0, 0),
-            "docstring": None,
-            "edge_counts": {},
-        }
+        logger.debug("inspect(%r): symbol not found", handle)
+        return not_found(handle)
 
     # ------------------------------------------------------------------
     # Step 2 — Build universal fields
@@ -1144,6 +1104,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     # Step 4 — Assemble node
     # ------------------------------------------------------------------
     node: dict[str, Any] = {
+        "found": True,
         "handle": handle,
         "kind": kind,
         "scope": scope,

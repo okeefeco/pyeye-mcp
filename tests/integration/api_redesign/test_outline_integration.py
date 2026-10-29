@@ -530,7 +530,7 @@ class TestOutlineCountConsistencyEndToEnd:
 
 class TestOutlineUnresolvableHandleEndToEnd:
     """Calling outline with a bogus handle must never raise and must return
-    a minimal single-node OutlineTree with children: [].
+    the explicit not-found shape — never a placeholder tree (#545).
 
     This is the docstring's "never raises" guarantee tested at the wire
     boundary (through the full decorator stack), not just the unit layer.
@@ -549,8 +549,8 @@ class TestOutlineUnresolvableHandleEndToEnd:
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_unresolvable_handle_returns_dict_with_required_keys(self) -> None:
-        """outline with a bogus handle returns a plain dict with 'node' and 'children'."""
+    async def test_unresolvable_handle_returns_not_found(self) -> None:
+        """outline with a bogus handle returns a plain dict with found: False."""
         from pyeye.mcp.server import outline
 
         result = await outline(
@@ -559,15 +559,13 @@ class TestOutlineUnresolvableHandleEndToEnd:
         )
 
         assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
-        assert "node" in result, f"'node' missing from minimal-fallback result: {result!r}"
-        assert "children" in result, (
-            "'children' must be present on the minimal single-node fallback "
-            f"(docstring guarantee); got keys={list(result.keys())!r}"
-        )
+        assert result["found"] is False, result
+        assert result["handle"] == "does.not.exist.Nope"
+        assert result["reason"] == "unresolved"
 
     @pytest.mark.asyncio
-    async def test_unresolvable_handle_returns_empty_children(self) -> None:
-        """The minimal fallback OutlineTree has children: [] (no members to walk)."""
+    async def test_unresolvable_handle_has_no_placeholder_tree(self) -> None:
+        """No 'node' / 'children': 'children: []' would read as a measured leaf."""
         from pyeye.mcp.server import outline
 
         result = await outline(
@@ -575,7 +573,5 @@ class TestOutlineUnresolvableHandleEndToEnd:
             project_path=str(_FIXTURE),
         )
 
-        assert result["children"] == [], (
-            f"Minimal fallback must have children=[] (docstring guarantee); "
-            f"got children={result['children']!r}"
-        )
+        assert "node" not in result, result
+        assert "children" not in result, result

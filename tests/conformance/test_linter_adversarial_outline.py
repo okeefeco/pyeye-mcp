@@ -59,6 +59,7 @@ _STUB_METHOD: dict = {
 
 # A well-formed tree: module → class → method (both leaves carry children: [])
 _VALID_OUTLINE: dict = {
+    "found": True,
     "node": _STUB_MODULE,
     "children": [
         {
@@ -91,11 +92,12 @@ class TestOutlineAcceptsValid:
     def test_empty_children_on_leaf_passes(self) -> None:
         """children: [] is a valid genuine-leaf marker (measured-empty)."""
         # Top-level node with no children (empty module-like)
-        lint_response({"node": _STUB_MODULE, "children": []}, "outline")
+        lint_response({"found": True, "node": _STUB_MODULE, "children": []}, "outline")
 
     def test_truncated_node_passes(self) -> None:
         """A node cut off by max_depth with truncation_reason and no children passes."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_depth",
@@ -105,6 +107,7 @@ class TestOutlineAcceptsValid:
     def test_truncated_max_nodes_passes(self) -> None:
         """O.5 — a max_nodes truncation carries member_count (the withheld count)."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_nodes",
@@ -115,6 +118,7 @@ class TestOutlineAcceptsValid:
     def test_truncated_external_passes(self) -> None:
         """external is a valid truncation_reason for outline (not for trace)."""
         tree = {
+            "found": True,
             "node": {**_STUB_CLASS, "scope": "external"},
             "truncated": True,
             "truncation_reason": "external",
@@ -165,13 +169,14 @@ class TestOutlineStructuralFloor:
 
     def test_truncated_true_without_truncation_reason_rejected(self) -> None:
         """O.2 — truncated: true requires truncation_reason."""
-        tree = {"node": _STUB_CLASS, "truncated": True}
+        tree = {"found": True, "node": _STUB_CLASS, "truncated": True}
         with pytest.raises(ConformanceViolation, match="truncation_reason"):
             lint_response(tree, "outline")
 
     def test_truncated_true_with_children_rejected(self) -> None:
         """O.2 — a truncated node must NOT carry children (absent-not-empty)."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_depth",
@@ -183,6 +188,7 @@ class TestOutlineStructuralFloor:
     def test_max_nodes_truncation_without_member_count_rejected(self) -> None:
         """O.5 — a max_nodes truncation MUST signpost member_count (#358)."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_nodes",
@@ -193,6 +199,7 @@ class TestOutlineStructuralFloor:
     def test_member_count_bool_rejected(self) -> None:
         """O.5 — member_count must be a plain int, not a bool."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_nodes",
@@ -204,6 +211,7 @@ class TestOutlineStructuralFloor:
     def test_member_count_negative_rejected(self) -> None:
         """O.5 — member_count must be non-negative."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_nodes",
@@ -215,6 +223,7 @@ class TestOutlineStructuralFloor:
     def test_max_depth_truncation_needs_no_member_count(self) -> None:
         """O.5 is scoped to max_nodes — a max_depth truncation needs no member_count."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_depth",
@@ -231,6 +240,7 @@ class TestOutlineStructuralFloor:
     def test_unknown_truncation_reason_rejected(self) -> None:
         """O.2 — truncation_reason must be one of the outline enum values."""
         tree = {
+            "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_galaxies",  # not in the outline enum
@@ -280,6 +290,7 @@ class TestOutlineTruncationReasonEnum:
     def test_external_is_accepted_for_outline(self) -> None:
         """O.5 — external is in the outline enum and must be accepted."""
         tree = {
+            "found": True,
             "node": {**_STUB_CLASS, "scope": "external"},
             "truncated": True,
             "truncation_reason": "external",

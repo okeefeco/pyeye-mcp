@@ -111,6 +111,20 @@ Note: Check A layering (no source content) is applied to the whole tree by
 lists.  No second traversal is needed in Check O — the existing walk reaches
 ``node`` Stubs and ``children`` items at any depth automatically.
 
+Check N — found discriminator (operation ∈ inspect / outline / expand, #545)
+---------------------------------------------------------------------------
+N.1 ``found`` is REQUIRED at the top level and is exactly ``True`` or ``False``
+    (a plain bool, not truthy).  Absence is rejected: a consumer must be able to
+    branch on the value, never on key presence.
+N.2 ``found: False`` ⇒ the response is EXACTLY the not-found shape
+    ``{found, handle, reason, detail}`` (plus ``edge`` for ``expand``):
+    single-line str ``handle``/``detail``/``edge``, ``reason`` ∈
+    {``unresolved``}.  No node / tree / stubs fields may bleed in — a fabricated
+    answer alongside ``found: False`` is the #545 failure.  The operation's
+    structural floor (B / E / O) is skipped for this branch.
+N.3 ``found`` appears only on the ROOT of an outline response, never on a
+    nested ``children`` tree (it is a response-level fact, not per-node).
+
 Usage
 -----
 ::
@@ -1382,6 +1396,13 @@ def _check_outline_tree_node(
         )
         return
 
+    # N.3 — found is a response-level field: root only (the root's path is "").
+    if path and "found" in tree:
+        violations.append(
+            f"[N.3 outline found root-only] {path}: nested OutlineTree carries 'found'. "
+            "'found' is a response-level discriminator and belongs on the root only."
+        )
+
     # O.1 — node: REQUIRED, must pass Stub structural floor
     if "node" not in tree:
         violations.append(
@@ -1517,6 +1538,92 @@ def _check_outline_structural_floor(
 
 
 # ---------------------------------------------------------------------------
+# Check N — found discriminator (#545)
+# ---------------------------------------------------------------------------
+
+# N.* — operations whose every response carries the ``found`` discriminator.
+_FOUND_DISCRIMINATED_OPERATIONS: frozenset[str] = frozenset({"inspect", "outline", "expand"})
+
+# N.2 — Valid reason values for a not-found response.  Deliberately hardcoded
+# (not imported from the implementation) so the linter stays an independent
+# oracle, like ``_VALID_UNSUPPORTED_REASONS``.
+_VALID_NOT_FOUND_REASONS: frozenset[str] = frozenset({"unresolved"})
+
+# N.2 — The exact key set of a not-found response, per operation.
+_NOT_FOUND_KEYS: frozenset[str] = frozenset({"found", "handle", "reason", "detail"})
+_NOT_FOUND_KEYS_BY_OPERATION: dict[str, frozenset[str]] = {
+    "inspect": _NOT_FOUND_KEYS,
+    "outline": _NOT_FOUND_KEYS,
+    "expand": _NOT_FOUND_KEYS | {"edge"},
+}
+
+
+def _check_found_discriminator(
+    response: dict[str, Any],
+    operation: str,
+    violations: list[str],
+) -> bool:
+    """N.1–N.2 — Validate the top-level ``found`` discriminator.
+
+    Args:
+        response: The operation response dict.
+        operation: One of ``_FOUND_DISCRIMINATED_OPERATIONS``.
+        violations: Mutable list to append violation messages to.
+
+    Returns:
+        ``True`` when the response is the not-found branch (``found is False``),
+        in which case the caller skips the operation's structural floor — the
+        not-found shape carries none of the fields that floor checks.
+    """
+    if "found" not in response:
+        violations.append(
+            f"[N.1 found required] {operation!r} response is missing 'found'. "
+            "Every inspect/outline/expand response carries found: true or "
+            "found: false so a consumer branches on a value, not key presence (#545)."
+        )
+        return False
+
+    found = response["found"]
+    if found is True:
+        return False
+    if found is not False:
+        violations.append(
+            f"[N.1 found type] 'found' must be exactly True or False; "
+            f"got {_truncate(found)} (type={type(found).__name__!r})."
+        )
+        return False
+
+    expected_keys = _NOT_FOUND_KEYS_BY_OPERATION[operation]
+    actual_keys = set(response)
+    if actual_keys != expected_keys:
+        extra = sorted(actual_keys - expected_keys)
+        missing = sorted(expected_keys - actual_keys)
+        violations.append(
+            f"[N.2 not-found exact shape] found: false response must carry exactly "
+            f"{sorted(expected_keys)}; extra={extra}, missing={missing}. "
+            "A fabricated answer alongside found: false is the #545 failure."
+        )
+
+    for key in ("handle", "detail", "edge"):
+        if key not in response or key not in expected_keys:
+            continue
+        value = response[key]
+        if not isinstance(value, str) or not value or "\n" in value:
+            violations.append(
+                f"[N.2 not-found field] '{key}' must be a non-empty single-line str; "
+                f"got {_truncate(value)} (type={type(value).__name__!r})."
+            )
+
+    if "reason" in response and response["reason"] not in _VALID_NOT_FOUND_REASONS:
+        violations.append(
+            f"[N.2 not-found reason] 'reason' {_truncate(response['reason'])} is not "
+            f"recognised. Must be one of {sorted(_VALID_NOT_FOUND_REASONS)}."
+        )
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1538,6 +1645,9 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
             - ``trace``    gets T.1–T.4 Subgraph structural-floor
             - ``outline``  gets O.1–O.4 OutlineTree structural-floor (recursive)
             - ``stub``     gets S.1–S.2 structural-floor
+            - ``inspect`` / ``outline`` / ``expand`` also get N.1–N.2 (the
+              ``found`` discriminator); a ``found: false`` response skips the
+              operation's structural floor
             - others don't get operation-specific checks
 
     Raises:
@@ -1548,7 +1658,13 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
     violations: list[str] = []
     _check_layering(response, operation, violations)
 
-    if operation == "expand":
+    is_not_found = operation in _FOUND_DISCRIMINATED_OPERATIONS and _check_found_discriminator(
+        response, operation, violations
+    )
+
+    if is_not_found:
+        pass  # N.2 already validated the whole (field-free) not-found shape.
+    elif operation == "expand":
         _check_expand_structural_floor(response, violations)
     elif operation == "trace":
         _check_trace_structural_floor(response, violations)

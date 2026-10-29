@@ -22,6 +22,7 @@ from tests.conformance.response_linter import ConformanceViolation, lint_respons
 
 # Minimal valid class inspect response (all 5 Phase 4 edges present)
 _VALID_CLASS: dict = {
+    "found": True,
     "handle": "pkg.X",
     "kind": "class",
     "scope": "project",
@@ -44,6 +45,7 @@ _VALID_CLASS: dict = {
 
 # Minimal valid function inspect response
 _VALID_FUNCTION: dict = {
+    "found": True,
     "handle": "pkg.my_func",
     "kind": "function",
     "scope": "project",
@@ -61,6 +63,7 @@ _VALID_FUNCTION: dict = {
 
 # Minimal valid module inspect response
 _VALID_MODULE: dict = {
+    "found": True,
     "handle": "pkg",
     "kind": "module",
     "scope": "project",
@@ -541,6 +544,7 @@ class TestAbsenceVsZeroDetection:
     def test_unknown_kind_empty_edge_counts_allowed(self) -> None:
         """Unknown kind with empty edge_counts is allowed (no measurement applicable)."""
         good = {
+            "found": True,
             "handle": "pkg.x",
             "kind": "unknown_future_kind",
             "scope": "project",
@@ -613,6 +617,7 @@ class TestLinterAcceptsValidResponses:
     def test_valid_class_response_passes(self) -> None:
         """A well-formed class inspect response passes all checks."""
         good = {
+            "found": True,
             "handle": "pkg.X",
             "kind": "class",
             "scope": "project",
@@ -705,6 +710,7 @@ class TestLinterAcceptsValidResponses:
         an empty edge_counts is the valid shape.
         """
         good = {
+            "found": True,
             "handle": "pkg.MY_CONST",
             "kind": "variable",
             "scope": "project",
@@ -720,6 +726,7 @@ class TestLinterAcceptsValidResponses:
     def test_attribute_response_passes(self) -> None:
         """An attribute inspect response with empty edge_counts passes (#332)."""
         good = {
+            "found": True,
             "handle": "pkg.X.my_attr",
             "kind": "attribute",
             "scope": "project",
@@ -738,6 +745,7 @@ class TestLinterAcceptsValidResponses:
         edges — an empty edge_counts is the valid shape.
         """
         good = {
+            "found": True,
             "handle": "pkg.X.do_thing",
             "kind": "method",
             "scope": "project",
@@ -757,6 +765,7 @@ class TestLinterAcceptsValidResponses:
     def test_empty_edge_counts_for_unknown_kind(self) -> None:
         """A response with empty edge_counts and unknown kind is accepted."""
         good = {
+            "found": True,
             "handle": "pkg.x",
             "kind": "future_kind",
             "scope": "external",

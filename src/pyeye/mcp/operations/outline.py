@@ -25,7 +25,9 @@ Public API
 .. code-block:: python
 
     tree = await outline("mypackage._core.widgets.Widget", analyzer)
-    # → {"node": Stub, "children": [...OutlineTree...]}
+    # → {"found": True, "node": Stub, "children": [...OutlineTree...]}
+    #   (nested OutlineTrees carry no "found"; an unresolvable handle returns
+    #   the shared not-found shape from ``not_found``)
 
     tree = await outline("mypackage._core.widgets", analyzer, max_depth=2)
     # → root with children; containers at depth 2 are truncated
@@ -66,6 +68,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
+from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -190,8 +193,9 @@ async def outline(
             are marked ``truncated: "max_nodes"`` without peeking.
 
     Returns:
-        A nested ``OutlineTree`` dict.  Never raises; an unresolvable root
-        yields a minimal single-node tree ``{"node": ..., "children": []}``.
+        A nested ``OutlineTree`` dict whose root carries ``found: True``.  Never
+        raises; an unresolvable root yields the shared not-found shape
+        (:func:`not_found`) — never a placeholder tree (#545).
 
     Note:
         ``async def`` for surface uniformity with ``inspect``/``trace``.  The body
@@ -203,9 +207,7 @@ async def outline(
     root_jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
 
     if root_jedi_name is None:
-        # Unresolvable — return minimal single-node fallback (mirrors inspect).
-        stub = _make_fallback_stub(handle)
-        return {"node": stub, "children": []}
+        return not_found(handle)
 
     root_stub = build_stub(root_jedi_name, handle, analyzer)
 
@@ -224,9 +226,10 @@ async def outline(
         effective_max_depth = 1
 
     # ------------------------------------------------------------------
-    # 2. Build root tree node and initialise BFS state.
+    # 2. Build root tree node and initialise BFS state.  ``found`` is a
+    # response-level field, so only the root tree carries it (#545).
     # ------------------------------------------------------------------
-    root_tree: dict[str, Any] = {"node": root_stub}
+    root_tree: dict[str, Any] = {"found": True, "node": root_stub}
 
     # node_count tracks every node added to the tree (root + all children).
     # The root always counts as node 1.
@@ -333,30 +336,3 @@ async def outline(
         tree_node["children"] = children
 
     return root_tree
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_fallback_stub(handle: str) -> dict[str, Any]:
-    """Build a minimal fallback stub for an unresolvable *handle*.
-
-    Mirrors ``inspect``'s minimal-node fallback: returns a dict with all
-    required Stub fields populated with reasonable defaults so the caller can
-    return a well-formed (but clearly minimal) ``OutlineTree``.
-
-    Args:
-        handle: The unresolvable handle string.
-
-    Returns:
-        A dict with ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``.
-    """
-    return {
-        "handle": handle,
-        "kind": "variable",  # safest default for an unknown symbol
-        "scope": "external",
-        "line_start": 1,
-        "line_end": 1,
-    }

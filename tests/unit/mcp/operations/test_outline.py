@@ -1052,21 +1052,21 @@ class TestOutlineMidExpansionTruncation:
 
 
 class TestOutlineUnresolvableHandle:
-    """An unresolvable handle yields a minimal single-node tree with
-    ``children: []`` (mirrors ``inspect``'s minimal-node fallback)."""
+    """An unresolvable handle yields an explicit not-found, never a fabricated
+    tree (#545).  The full cross-tool contract lives in ``test_not_found.py``."""
 
     @pytest.mark.asyncio
-    async def test_unresolvable_handle_returns_minimal_tree(
+    async def test_unresolvable_handle_returns_not_found(
         self, nested_analyzer: JediAnalyzer
     ) -> None:
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
         bad_handle = "definitely.not.a.real.symbol.in.any.fixture"
         tree = await outline(bad_handle, nested_analyzer)
-        # Must not raise; must return a dict with a node.
-        assert isinstance(tree, dict), "outline must return a dict even for bad handles"
-        assert "node" in tree, "minimal fallback must have a node"
-        # Must carry children: [] (minimal measured empty) — NOT be truncated.
-        assert "children" in tree, "fallback tree must carry children: []"
-        assert tree["children"] == [], "fallback tree children must be empty"
-        assert "truncated" not in tree, "fallback tree must not be truncated"
+        assert tree["found"] is False
+        assert tree["reason"] == "unresolved"
+        assert tree["handle"] == bad_handle
+        # No placeholder node / children — "children: []" would read as a
+        # measured leaf.
+        assert "node" not in tree
+        assert "children" not in tree
