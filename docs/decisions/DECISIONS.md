@@ -2,6 +2,18 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-10-29 — Shipped prose may not show an unmeasured edge inside `edge_counts`; checked structurally, not as free text (#396)
+
+**Friction:** In #392 / PR #395, `subclasses` was correctly dropped from `inspect`'s `edge_counts`, but three skill examples and two `server.py` docstrings still showed it there. CI passed because the skill conformance test checks only the supported-edge *list*, never example prose; a reviewer caught it by hand.
+**Decision:** Add a structural scan over shipped surfaces (`python-explore` SKILL.md, `server.py` source, README). Within any paragraph mentioning `edge_counts`, after stripping backticks and line wraps, an edge counts as *claimed present* only as a brace key, as dotted or subscript access, or as an `<edge>: <n>` count. If it is in the response linter's `_PHASE4_UNMEASURED_EDGES`, the test fails. That set is the one already enforced on live responses, so prose and responses share one definition of "measured". Rejected:
+
+- **Marked example blocks:** exact, but needs authoring discipline, and misses unmarked text (the #395 miss included a comment).
+- **A bare-name free-text scan:** it would flag correct omission prose like "`edge_counts` omits `callers`".
+
+Known residue: claims phrased entirely in free prose ("0 subclasses") are not caught.
+**Anchor:** #396 ; `tests/test_edge_counts_prose_conformance.py::unmeasured_edge_claims` / `SHIPPED_SURFACES` ; `tests/conformance/response_linter.py::_PHASE4_UNMEASURED_EDGES` ; regression baseline is the parent of `c092261` (PR #395).
+**Verify:** gold — `uv run pytest tests/test_edge_counts_prose_conformance.py` passes on current surfaces, and its embedded verbatim pre-#395 lines are each flagged. Running `unmeasured_edge_claims` on `git show c092261^:skills/python-explore/SKILL.md` and `…:src/pyeye/mcp/server.py` flags `subclasses` in both (checked at authoring time; the replay uses today's unmeasured set, so it also flags `callers`, which was still measured then). PARTIAL residue: free-prose claims need human review.
+
 ## 2026-10-29 — Plugin tools register under their `register_tools()` keys; a duplicate name fails startup (#555)
 
 **Friction:** `initialize_plugins` registered `mcp.tool()(tool_func)`, which names a tool after `tool_func.__name__` and throws away the declared key. The method names collide across plugins, and the SDK keeps the first tool on a collision, logging only a warning. So with Pydantic, Django and Flask all detected, Django's `find_models` / `find_views` / `find_templates` were never exposed, and the documented `find_django_*` / `find_flask_*` / `find_pydantic_models` names did not exist.
