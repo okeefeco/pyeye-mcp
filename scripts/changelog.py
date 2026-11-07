@@ -186,16 +186,35 @@ def notes(text: str, version: str) -> str:
     raise ChangelogError(f"no '## [{version}]' section in CHANGELOG.md")
 
 
-def pending_release(text: str, tags: list[str], head_subject: str) -> str | None:
-    """The version to tag for a merge whose commit subject is *head_subject*.
+_PR_MERGE_SUBJECT = re.compile(r"^Merge pull request #\d+ from \S+$")
 
-    Tags only when the newest released section is untagged **and** the merge is
-    a release PR (subject ``release: vX.Y.Z``), so a stray heading can't publish.
+
+def pr_title(head_message: str) -> str:
+    """The PR title a merge to ``main`` came from, given its commit message.
+
+    A squash merge's subject *is* the title (``release: v2.0.0 (#600)``). A merge
+    commit's subject is ``Merge pull request #N from <branch>``, and GitHub puts
+    the title on the next non-empty line (#585). Anything else is just the
+    subject.
+    """
+    lines = [line.strip() for line in head_message.strip().splitlines()]
+    subject = lines[0] if lines else ""
+    if _PR_MERGE_SUBJECT.match(subject):
+        return next((line for line in lines[1:] if line), "")
+    return subject
+
+
+def pending_release(text: str, tags: list[str], head_message: str) -> str | None:
+    """The version to tag for a merge to ``main`` whose message is *head_message*.
+
+    Tags only when the newest released section is untagged **and** the merge
+    came from a release PR (title ``release: vX.Y.Z``), so a stray heading can't
+    publish. Squash and merge-commit merges are both recognised.
     """
     version = latest_version(parse(text))
     if version is None or version in tags:
         return None
-    if not re.match(rf"^release: v{re.escape(version)}\b", head_subject.strip()):
+    if not re.match(rf"^release: v{re.escape(version)}\b", pr_title(head_message)):
         return None
     return version
 
@@ -255,7 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("notes", help="print a version's section").add_argument("version")
     sub.add_parser("latest", help="print the newest released version")
     p_pend = sub.add_parser("pending-release", help="version to tag after a merge")
-    p_pend.add_argument("--head-subject", required=True)
+    p_pend.add_argument(
+        "--head-message", required=True, help="full message of the merge commit on main"
+    )
     p_check = sub.add_parser("check", help="validate CHANGELOG.md (CI)")
     p_check.add_argument("--no-tags", action="store_true", help="skip tag consistency")
     args = parser.parse_args(argv)
@@ -279,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "latest":
             print(latest_version(parse(text)) or "")
         elif args.command == "pending-release":
-            print(pending_release(text, git_tag_versions(repo), args.head_subject) or "")
+            print(pending_release(text, git_tag_versions(repo), args.head_message) or "")
         elif args.command == "check":
             tags = None if args.no_tags else git_tag_versions(repo)
             if tags is not None and not tags:

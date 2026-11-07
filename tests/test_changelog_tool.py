@@ -133,6 +133,31 @@ class TestPendingRelease:
         """A stray version heading in an ordinary PR must not publish."""
         assert cl.pending_release(self._PENDING, ["1.0.0"], subject) is None
 
+    def test_merge_commit_of_a_release_pr(self):
+        """GitHub's merge-commit format: PR title on the line after the subject (#585)."""
+        message = "Merge pull request #600 from okeefeco/release/v2.0.0\n\nrelease: v2.0.0"
+        assert cl.pending_release(self._PENDING, ["1.0.0"], message) == "2.0.0"
+
+    def test_squash_subject_with_a_body(self):
+        message = "release: v2.0.0 (#600)\n\n* release: v2.0.0\n\nCo-authored-by: x"
+        assert cl.pending_release(self._PENDING, ["1.0.0"], message) == "2.0.0"
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # merge commit of an ordinary PR
+            "Merge pull request #601 from okeefeco/fix/1-x\n\nfix: something",
+            # a squash body that merely mentions the release line
+            "fix: something (#601)\n\n* release: v2.0.0",
+            # merges that aren't PR merges don't count, even with the line
+            "Merge branch 'main' into feature\n\nrelease: v2.0.0",
+            # the release line must be the PR title, not later in the message
+            "Merge pull request #600 from okeefeco/release/v2.0.0\n\nchore: x\n\nrelease: v2.0.0",
+        ],
+    )
+    def test_merge_and_body_lookalikes_never_tag(self, message):
+        assert cl.pending_release(self._PENDING, ["1.0.0"], message) is None
+
     def test_already_tagged_is_a_no_op(self):
         assert cl.pending_release(self._PENDING, ["1.0.0", "2.0.0"], "release: v2.0.0") is None
 
