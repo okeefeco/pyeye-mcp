@@ -1,5 +1,6 @@
 """Tests for dogfooding automation setup."""
 
+import json
 import os
 import subprocess
 import sys
@@ -13,21 +14,6 @@ from scripts.dogfooding_metrics import DogfoodingMetrics
 
 class TestAutomationSetup:
     """Test automated dogfooding setup."""
-
-    @pytest.mark.skipif(os.name == "nt", reason="Windows doesn't use Unix permissions")
-    def test_install_hooks_script_exists(self):
-        """Test that install hooks script exists and is executable."""
-        script_path = Path("scripts/install_hooks.sh")
-        assert script_path.exists()
-        assert script_path.stat().st_mode & 0o111  # Executable
-
-    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
-    def test_install_hooks_script_exists_windows(self):
-        """Test that install hooks script exists on Windows."""
-        script_path = Path("scripts/install_hooks.sh")
-        assert script_path.exists()
-        # On Windows, just check it's a file (executable check doesn't apply)
-        assert script_path.is_file()
 
     @pytest.mark.skipif(os.name == "nt", reason="Windows doesn't use Unix permissions")
     def test_setup_aliases_script_exists(self):
@@ -69,22 +55,8 @@ class TestAutomationSetup:
         assert result.returncode == 0
         assert "Dogfooding metrics" in result.stdout
 
-    def test_git_hook_templates_valid(self):
-        """Test that git hook templates are valid bash scripts."""
-        install_script = Path("scripts/install_hooks.sh")
-        content = install_script.read_text()
-
-        # Check that hook templates have proper shebang
-        assert "#!/bin/bash" in content
-
-        # Check for key functionality
-        assert "post-checkout" in content
-        assert "pre-commit" in content
-        assert "prepare-commit-msg" in content
-        assert "dogfooding_metrics.py" in content
-
     def test_session_stats_saving(self):
-        """Test that session stats are saved for git hooks."""
+        """Test that the latest session's stats are saved."""
         with tempfile.TemporaryDirectory() as tmpdir:
             metrics = DogfoodingMetrics(data_dir=Path(tmpdir))
 
@@ -165,26 +137,7 @@ class TestShellIntegration:
 
 
 class TestGitHookLogic:
-    """Test the logic that would be in git hooks."""
-
-    def test_branch_issue_extraction(self):
-        """Test extracting issue numbers from branch names."""
-        test_cases = [
-            ("feat/123-add-feature", "123"),
-            ("fix/456-bug-fix", "456"),
-            ("docs/789-update-readme", "789"),
-            ("main", None),
-            ("develop", None),
-            ("feat-without-number", None),
-        ]
-
-        for branch, expected in test_cases:
-            # Simulate the grep command from git hook
-            import re
-
-            match = re.search(r"[0-9]+", branch)
-            issue = match.group() if match else None
-            assert issue == expected
+    """Session-file detection used by the shell helpers."""
 
     def test_metrics_session_file_detection(self):
         """Test detecting active metrics sessions."""
@@ -212,3 +165,40 @@ class TestDocumentation:
         assert "Quick Setup" in content
         assert "Git Hooks" in content
         assert "Shell Aliases" in content
+
+
+class TestSessionHandover:
+    """Starting a session finalises the open one instead of discarding it (#578).
+
+    The retired ``install_hooks.sh`` ended the session in a hand-written git
+    ``pre-commit`` hook. Without it, the next ``start`` (e.g. the post-checkout
+    hook on the next branch) would overwrite ``current_session.json`` and the
+    open session's data would never reach ``history.jsonl``.
+    """
+
+    @staticmethod
+    def _history(data_dir: Path) -> list[dict]:
+        history = data_dir / "history.jsonl"
+        if not history.exists():
+            return []
+        return [json.loads(line) for line in history.read_text().splitlines()]
+
+    def test_start_saves_open_session_to_history(self, tmp_path):
+        metrics = DogfoodingMetrics(data_dir=tmp_path)
+        metrics.start_session(issue_number=1)
+        metrics.log_time_saved(5, "handover test")
+
+        metrics.start_session(issue_number=2)
+
+        history = self._history(tmp_path)
+        assert [s["issue"] for s in history] == [1]
+        assert "end_time" in history[0]
+        assert history[0]["time_saved_estimates"][0]["minutes"] == 5
+        assert metrics._load_session()["issue"] == 2
+
+    def test_start_without_open_session_writes_no_history(self, tmp_path):
+        metrics = DogfoodingMetrics(data_dir=tmp_path)
+        metrics.start_session(issue_number=1)
+
+        assert self._history(tmp_path) == []
+        assert metrics._load_session()["issue"] == 1
