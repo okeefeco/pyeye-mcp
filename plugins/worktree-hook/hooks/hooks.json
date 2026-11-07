@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/worktree_create.py\"",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/worktree_create.py\"",
             "type": "command"
           }
         ]
@@ -14,7 +14,7 @@
       {
         "hooks": [
           {
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/worktree_remove.py\"",
+            "command": "uv run --quiet --script \"${CLAUDE_PLUGIN_ROOT}/worktree_remove.py\"",
             "type": "command"
           }
         ]

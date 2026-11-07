@@ -73,8 +73,15 @@ naming:
 by placing `.claude/hooks/worktree_create.yaml` at its repo root; project
 settings merge on top of the bundled defaults.
 
-No dependencies required — the script uses PyYAML if present and falls back to a
-minimal built-in parser otherwise.
+## Requirements
+
+The hooks need [uv](https://docs.astral.sh/uv/) on your `PATH`, the same as the
+pyeye plugin. Each script declares its Python version and dependencies in a
+[PEP 723](https://peps.python.org/pep-0723/) header, and `hooks/hooks.json` runs
+it with `uv run --script`. uv uses an installed Python 3.10+ (or downloads one)
+and a cached environment with PyYAML, so you don't need a particular system
+Python. The first run needs network access to fetch PyYAML; later runs use the
+cache.
 
 ## Installation
 
