@@ -64,7 +64,9 @@ class JediAnalyzer:
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
         """
-        self.project_path = Path(project_path)
+        # Resolve so the Jedi project root (and so every location.file) is absolute
+        # whatever spelling the caller used (#603).
+        self.project_path = Path(project_path).resolve()
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
