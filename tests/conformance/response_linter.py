@@ -94,17 +94,24 @@ Check O — outline OutlineTree structural floors (operation == "outline")
 O.1 ``node`` is REQUIRED and passes the Stub structural floor (S.*).
 O.2 ``truncated`` present ⇒ value is exactly ``true`` (absent-not-false contract),
     ``truncation_reason`` present and in the outline enum
-    {``max_depth``, ``max_nodes``, ``external``}, and ``children`` ABSENT.
+    {``max_depth``, ``max_nodes``, ``external``, ``survey_leaf``}, and ``children``
+    ABSENT.
     ``truncated: false`` is rejected.  A truncated node carrying ``children``
     (even ``children: []``) is rejected (Contract 1 — absent ⇔ not expanded).
 O.3 ``truncated`` absent ⇒ ``truncation_reason`` absent.
 O.4 ``children`` present ⇒ it is a list (possibly empty) of OutlineTree; each
     item is validated recursively (applies the same O.* + A.* rules at every
     depth).
-O.5 a ``max_nodes`` truncation MUST carry ``member_count`` (a non-negative plain
-    int — the count of withheld direct members); any ``member_count`` present is
-    a non-negative int.  SHAPE only — the value invariant
-    (``member_count == inspect.edge_counts.members``) is covered by unit tests.
+O.5 ``<edge>_count`` keys (``member_count`` ↔ ``members``, ``submodule_count``
+    ↔ ``submodules``; #599) are non-negative plain ints, and a ``max_nodes``
+    truncation MUST carry EXACTLY ONE — the edge it withheld (members in member
+    mode, submodules in package survey mode).  SHAPE only — the value invariant
+    (``X_count == inspect(h).edge_counts[X]``) needs an analyzer and is covered by
+    tests (``tests/test_outline_survey_leaf.py::TestCountInvariant``).
+O.6 count placement: any other truncation (``max_depth`` / ``external`` /
+    ``survey_leaf``) carries no count; a walked node may carry ``member_count``
+    (members not in this view — a survey package, #596) only when > 0, and never
+    ``submodule_count`` (its submodules are its children).
 
 Note: Check A layering (no source content) is applied to the whole tree by
 ``_check_layering`` / ``_walk``, which already recurses into nested dicts and
@@ -718,11 +725,13 @@ _VALID_STUB_SCOPES: frozenset[str] = frozenset({"project", "external"})
 # would silently loosen trace validation.  Outline uses a separate constant below.
 _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
 
-# O.2 — Valid outline truncation_reason values (superset of trace's: adds "external").
-# Outline's external cap fires when a subtree of an external node is not walked;
-# trace never emits "external" as a per-node reason, so the two enums are kept apart.
+# O.2 — Valid outline truncation_reason values (superset of trace's: adds "external"
+# and "survey_leaf").  Outline's external cap fires when a subtree of an external
+# node is not walked; "survey_leaf" marks a module with members that package survey
+# mode does not walk (#596).  Trace emits neither as a per-node reason, so the two
+# enums are kept apart.
 _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
-    {"max_depth", "max_nodes", "external"}
+    {"max_depth", "max_nodes", "external", "survey_leaf"}
 )
 
 # ---------------------------------------------------------------------------
@@ -1365,6 +1374,75 @@ def _check_trace_structural_floor(
 # ---------------------------------------------------------------------------
 
 
+def _check_outline_count_values(
+    tree: dict[str, Any], path: str, count_keys: list[str], violations: list[str]
+) -> None:
+    """O.5 — every ``<edge>_count`` present is a non-negative plain int."""
+    for key in count_keys:
+        val = tree[key]
+        if isinstance(val, bool) or not isinstance(val, int):
+            violations.append(
+                f"[O.5 outline {key} type] {path}.{key}: expected a non-negative "
+                f"plain int; got {_truncate(val)} (type={type(val).__name__!r})."
+            )
+        elif val < 0:
+            violations.append(f"[O.5 outline {key} range] {path}.{key}: must be >= 0; got {val}.")
+
+
+def _check_outline_counts(
+    tree: dict[str, Any],
+    path: str,
+    has_truncated: bool,
+    has_children: bool,
+    violations: list[str],
+) -> None:
+    """O.5 / O.6 — shape and placement of an outline node's ``<edge>_count`` keys."""
+    # O.5 / O.6 — <edge>_count keys (#358, #596, #599).  Each count is named for
+    # the edge it measures (``member_count`` ↔ ``members``, ``submodule_count`` ↔
+    # ``submodules``) and mirrors ``inspect().edge_counts`` — the VALUE invariant
+    # needs an analyzer, so it is a test-level check; the linter checks SHAPE and
+    # PLACEMENT.  Where a count may appear is read from the node's state:
+    #   - a ``max_nodes`` truncation carries EXACTLY ONE count — the edge it
+    #     withheld (members in member mode, submodules in survey mode);
+    #   - a walked node may carry ``member_count`` > 0 — members not in this view
+    #     (a survey package, whose children are submodules); never
+    #     ``submodule_count`` (submodules there ARE the children);
+    #   - any other truncation (max_depth / external / survey_leaf) carries none.
+    count_keys = [k for k in _OUTLINE_COUNT_KEYS if k in tree]
+    _check_outline_count_values(tree, path, count_keys, violations)
+
+    is_max_nodes_trunc = (
+        tree.get("truncated") is True and tree.get("truncation_reason") == "max_nodes"
+    )
+    if is_max_nodes_trunc:
+        if len(count_keys) != 1:
+            violations.append(
+                f"[O.5 outline max_nodes count required] {path}: a 'max_nodes' truncation "
+                "must carry exactly one of 'member_count' / 'submodule_count' (the count "
+                f"of the edge it withheld); got {count_keys or 'none'}. See spec §4 "
+                "reserve-before-expand / §6.4 count-consistency."
+            )
+    elif has_truncated:
+        if count_keys:
+            violations.append(
+                f"[O.6 outline count placement] {path}: {count_keys} on a "
+                f"{tree.get('truncation_reason')!r} truncation. Only 'max_nodes' "
+                "truncations count what they withheld."
+            )
+    elif has_children:
+        if "submodule_count" in tree:
+            violations.append(
+                f"[O.6 outline count placement] {path}: 'submodule_count' on a walked "
+                "node. A walked node's submodules are its children, never a count."
+            )
+        mc = tree.get("member_count")
+        if isinstance(mc, int) and not isinstance(mc, bool) and mc == 0:
+            violations.append(
+                f"[O.6 outline member_count range] {path}.member_count: a walked node "
+                "discloses unlisted members only when > 0 (omit the key when zero)."
+            )
+
+
 def _check_outline_tree_node(
     tree: Any,
     path: str,
@@ -1474,34 +1552,7 @@ def _check_outline_tree_node(
             "See spec §4.2 Contract 2."
         )
 
-    # O.5 — member_count: a "max_nodes" truncation MUST signpost the fresh count
-    # of direct members it withheld; it is a non-negative plain int.  This is the
-    # honest "how much did you hide" signal that lets reserve-before-expand stay
-    # honest instead of silently shortening a children list (#358 / spec §4 +
-    # §6.4).  The linter checks SHAPE only — the count's VALUE
-    # (== inspect.edge_counts.members) is a runtime invariant covered by tests.
-    has_member_count = "member_count" in tree
-    is_max_nodes_trunc = (
-        tree.get("truncated") is True and tree.get("truncation_reason") == "max_nodes"
-    )
-    if is_max_nodes_trunc and not has_member_count:
-        violations.append(
-            f"[O.5 outline member_count required] {path}: a 'max_nodes' truncation "
-            "must carry 'member_count' (the count of withheld direct members). "
-            "See spec §4 reserve-before-expand / §6.4 count-consistency."
-        )
-    if has_member_count:
-        mc = tree["member_count"]
-        if isinstance(mc, bool) or not isinstance(mc, int):
-            violations.append(
-                f"[O.5 outline member_count type] {path}.member_count: "
-                f"expected a non-negative plain int; got {_truncate(mc)} "
-                f"(type={type(mc).__name__!r})."
-            )
-        elif mc < 0:
-            violations.append(
-                f"[O.5 outline member_count range] {path}.member_count: " f"must be >= 0; got {mc}."
-            )
+    _check_outline_counts(tree, path, has_truncated, has_children, violations)
 
     # O.4 — children: if present, must be a list of OutlineTree
     if has_children:
@@ -1535,6 +1586,10 @@ def _check_outline_structural_floor(
         violations: Mutable list to append violation messages to.
     """
     _check_outline_tree_node(response, "", violations)
+
+
+# O.5 — ``<edge>_count`` keys an outline node may carry (#599), in a stable order.
+_OUTLINE_COUNT_KEYS: tuple[str, ...] = ("member_count", "submodule_count")
 
 
 # ---------------------------------------------------------------------------

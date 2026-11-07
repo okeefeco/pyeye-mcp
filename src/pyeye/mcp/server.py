@@ -774,12 +774,30 @@ async def outline(
       expanded only if the budget admits ALL its direct members, else it is cut
       off whole.  Such a node ALSO carries ``member_count`` — the count of
       direct members withheld (a fresh count; the children were never partially
-      listed).  Recover with a larger ``max_nodes`` or by targeting the subtree.
+      listed) — or, in package survey mode, ``submodule_count`` (the submodules
+      withheld).  Recover with a larger ``max_nodes`` or by targeting the subtree.
     - ``"external"`` — external-scope container at depth ≥ 1; no deeper walk
       into third-party code.
+    - ``"survey_leaf"`` — package survey mode only (below): a module that HAS
+      members, which a survey does not walk.  Recover with ``outline`` on that
+      module's handle.  No ``member_count`` (one would cost a walk per leaf).
 
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
+
+    **Package survey mode.** When *handle* is a package that has submodules, the
+    tree walks the ``submodules`` edge instead of ``members``: children are its
+    child modules/subpackages.  Module members are never walked in a survey — a
+    module with members is ``truncated: "survey_leaf"``; only a module with no
+    members is ``children: []``.  A walked package whose ``__init__`` defines
+    members carries ``member_count`` (present only when > 0) — those members are
+    not in the tree; ``expand(pkg, "members")`` lists them.  A package root with
+    no submodules is outlined by its ``members`` instead.
+
+    **Counts are named for their edge.** ``member_count`` / ``submodule_count``
+    always equal ``inspect(handle).edge_counts["members"]`` /
+    ``["submodules"]``.  On a ``truncated`` node the count was withheld by the
+    cap; on a walked node (``children`` present) it is not part of this view.
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/inspect).
