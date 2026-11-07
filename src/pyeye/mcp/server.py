@@ -654,7 +654,7 @@ async def trace(
 async def outline(
     handle: str,
     project_path: str = ".",
-    max_depth: int | None = None,
+    max_depth: int | None = 1,
     max_nodes: int = 200,
 ) -> dict[str, Any]:
     """Python: Structural skeleton of a module or class — names, kinds, signatures, line spans.
@@ -665,8 +665,13 @@ async def outline(
     ``signature`` when Jedi yields one.  No source content anywhere in the tree.
 
     Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
-    ``outline()`` to see the complete structural skeleton in one call — the
-    single-call answer to "show me the structure of this scope."
+    ``outline()`` to see the structural skeleton in one call — the single-call
+    answer to "show me the structure of this scope."
+
+    **Default is direct members only (``max_depth=1``).**  Nested non-empty
+    containers (a class inside the module, a subpackage) come back as
+    ``truncated: "max_depth"`` — drill on demand by calling ``outline`` on that
+    node's handle, or pass a larger ``max_depth`` (``None`` = unbounded).
 
     **Static-surface ceiling.** The tree walks the ``members`` edge, so it is
     complete over what is *statically defined in source* but not over runtime.
@@ -711,9 +716,9 @@ async def outline(
     Args:
         handle: Canonical Python dotted-name string (from resolve/inspect).
         project_path: Project root path (default: current directory).
-        max_depth: Maximum depth from the root (root is depth 0).  ``None``
-            means unbounded within scope; the external cap and ``max_nodes``
-            still apply.  At the frontier, ``resolve_members`` is peeked once
+        max_depth: Maximum depth from the root (root is depth 0).  Default
+            ``1`` — direct members only.  ``None`` means unbounded within scope;
+            the external cap and ``max_nodes`` still apply.  At the frontier, ``resolve_members`` is peeked once
             to distinguish a genuine empty container from a cut-off one.
         max_nodes: Total-node budget for the tree (root counts as 1, default
             200).  A container the budget cannot fully admit is cut off whole

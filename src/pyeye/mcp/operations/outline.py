@@ -29,8 +29,15 @@ Public API
     #   (nested OutlineTrees carry no "found"; an unresolvable handle returns
     #   the shared not-found shape from ``not_found``)
 
+    tree = await outline("mypackage._core.widgets", analyzer)
+    # → default depth-1 (#474): direct members; non-empty nested containers
+    #   are truncated: "max_depth" — drill on demand by outlining them
+
     tree = await outline("mypackage._core.widgets", analyzer, max_depth=2)
     # → root with children; containers at depth 2 are truncated
+
+    tree = await outline("mypackage._core.widgets", analyzer, max_depth=None)
+    # → unbounded walk (still bounded by max_nodes and the external cap)
 
 ``async def`` matches the surrounding tool surface (``inspect``/``trace`` are
 async) and leaves room for an async edge resolver in the future.  The body does
@@ -149,7 +156,7 @@ def _is_expandable(jedi_name: Any, kind: str, survey_mode: bool) -> bool:
 async def outline(
     handle: str,
     analyzer: JediAnalyzer,
-    max_depth: int | None = None,
+    max_depth: int | None = 1,
     max_nodes: int = 200,
 ) -> dict[str, Any]:
     """Return the structural skeleton of *handle* as a nested ``OutlineTree``.
@@ -161,12 +168,14 @@ async def outline(
     **Package survey mode (#423).** When *handle* resolves to a PACKAGE, the walk
     switches to the ``submodules`` containment edge instead of ``members``: the
     tree is the package's child modules/subpackages (drill on demand), plain
-    modules are leaves (their members are not walked), and — when ``max_depth``
-    is left ``None`` — the default depth is **1** (top-level submodules only) so
-    the survey is never a full recursive dump.  A module/class root is unchanged:
-    survey mode is off, ``members`` is walked, and ``max_depth=None`` stays
-    unbounded.  This kind-dependent default (package root → depth-1; module/class
-    root → unbounded) is intentional.
+    modules are leaves (their members are not walked).  A module/class root keeps
+    survey mode off and walks ``members``.
+
+    **Default depth is 1 for every root kind (#474).**  With no ``max_depth``
+    argument the tree is the root's *direct* structure: direct members (or
+    top-level submodules for a package), with non-empty nested containers cut off
+    as ``truncated: "max_depth"`` — drill on demand by outlining them.  Deeper
+    walks are explicit: ``max_depth=N``, or ``max_depth=None`` for unbounded.
 
     Static-surface ceiling: because the walk is over ``members``, the tree is
     complete over statically-defined members but NOT over runtime-injected ones
@@ -183,11 +192,10 @@ async def outline(
     Args:
         handle: Canonical dotted-name handle of the root symbol.
         analyzer: Configured ``JediAnalyzer`` for the project.
-        max_depth: Maximum depth of recursion from the root (depth 0).  ``None``
-            means unbounded within scope for a module/class root (the external cap
-            and ``max_nodes`` still apply regardless); for a PACKAGE root, ``None``
-            defaults to depth-1 (survey mode, #423).  An explicit value overrides
-            the package default.
+        max_depth: Maximum depth of recursion from the root (depth 0).  Defaults
+            to ``1`` (direct members only, #474) for every root kind.  ``None``
+            means unbounded within scope (the external cap and ``max_nodes``
+            still apply regardless).
         max_nodes: Maximum total nodes in the tree (root counts as 1, default
             200).  Containers that cannot be expanded due to an exhausted budget
             are marked ``truncated: "max_nodes"`` without peeking.
@@ -215,15 +223,10 @@ async def outline(
     # Survey mode (#423): a PACKAGE root walks the `submodules` containment edge
     # instead of `members`, giving a drillable project/package tree.  It is set
     # from the ROOT handle only — a module/class root keeps the unchanged
-    # members behavior.  Kind-dependent default depth: a package root with no
-    # explicit max_depth is treated as depth-1 (top-level submodules first, drill
-    # on demand) so the survey is not a full recursive dump; module/class roots
-    # keep `None` (unbounded within scope).
+    # members behavior.  Depth is NOT kind-dependent: the depth-1 default lives
+    # in the signature for every root kind (#474), and ``None`` is unbounded.
     # ------------------------------------------------------------------
     survey_mode = _is_package(root_jedi_name)
-    effective_max_depth = max_depth
-    if survey_mode and max_depth is None:
-        effective_max_depth = 1
 
     # ------------------------------------------------------------------
     # 2. Build root tree node and initialise BFS state.  ``found`` is a
@@ -285,10 +288,10 @@ async def outline(
             tree_node["truncation_reason"] = _REASON_EXTERNAL
             continue
 
-        # Depth-frontier peek (spec §5.3): at the (effective) max_depth, call the
+        # Depth-frontier peek (spec §5.3): at max_depth, call the
         # child-adjacents resolver ONCE to distinguish genuine empty containers
         # from cut-off ones.  In survey mode the peek checks `submodules`.
-        if effective_max_depth is not None and depth >= effective_max_depth:
+        if max_depth is not None and depth >= max_depth:
             adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
             if not adjacents:
                 # Genuine empty container (no members / no submodules).

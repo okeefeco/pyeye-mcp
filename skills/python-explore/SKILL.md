@@ -58,7 +58,7 @@ code, `Read` the `file:line` it points you at.
 | `resolve(identifier)` | Turn a name, dotted path, or `file:line` into a canonical handle | `{handle, kind, scope, location}` — or `{ambiguous, candidates}` |
 | `resolve_at(file, line, column)` | Turn a position (stack frame, pasted line) into a handle | same shape as `resolve` |
 | `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node, plus kind-dependent fields (e.g. `superclasses`, `re_exports`); no source |
-| `outline(handle)` | See the structural skeleton of a module or class in one call | a tree of member stubs |
+| `outline(handle)` | See the structural skeleton of a module or class in one call | a tree of member stubs (direct members by default; `max_depth` to go deeper) |
 | `expand(handle, edge)` | Walk ONE edge to the immediate neighbours | a list of stubs |
 | `trace(start, follow, …)` | Walk edges across multiple hops | a subgraph (nodes + edges) |
 
@@ -285,8 +285,16 @@ resolve_at("myapp/cache.py", line=42, column=8)  -> { handle: "myapp.cache.Cache
 **"What's inside this module?"** — skeleton in one call:
 
 ```text
-outline("myapp.cache")  -> tree of (Cache, DependencyTracker, ...) with their methods
+outline("myapp.cache")        -> direct members (Cache, DependencyTracker, ...); classes marked truncated: max_depth
+outline("myapp.cache.Cache")  -> drill into one class: its methods and attributes
+outline("myapp.cache", max_depth=2)  -> module + each class's members in one call
 ```
+
+`outline` defaults to **direct members only** (`max_depth=1`) for every root.
+A nested container that has members comes back `truncated: max_depth` with no
+`children`. That means "not walked yet", not "empty": `outline` its handle to
+drill in, or pass a larger `max_depth` (`None` = unbounded, still capped by
+`max_nodes`).
 
 **Cold start: "what's in this package / project?"** — orient top-down, drill on
 demand. `outline` on a *package* surveys its child modules/subpackages (depth-1
