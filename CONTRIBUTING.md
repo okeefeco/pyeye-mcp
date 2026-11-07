@@ -183,6 +183,16 @@ uv run pytest -v
 
 For comprehensive testing guidelines, including performance testing and cross-platform considerations, see [Testing Guide](docs/testing-guide.md).
 
+To call tools by hand in a browser (optional; needs Node.js), start the
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) on the server:
+
+```bash
+npx @modelcontextprotocol/inspector uv run python -m pyeye.mcp
+```
+
+Tests are the main way tools are checked: they call them in-process with
+`mcp.call_tool(...)`.
+
 ### Code Style
 
 This project uses several tools to maintain code quality:

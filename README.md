@@ -542,8 +542,8 @@ export PYEYE_POOL_TTL=7200            # Increase TTL to 2 hours
 # Or disable pooling if needed
 export PYEYE_ENABLE_CONNECTION_POOLING=false
 
-# Start the server
-uv run mcp dev src/pyeye/server.py
+# Start the server (normally your MCP client starts it for you)
+python -m pyeye.mcp
 ```
 
 Connection pooling provides significant performance improvements:
@@ -584,9 +584,6 @@ uv run pytest
 # Format code
 uv run black src/
 uv run ruff check src/
-
-# Test the server
-uv run mcp dev src/pyeye/server.py
 ```
 
 ## Documentation

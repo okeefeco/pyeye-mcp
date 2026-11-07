@@ -115,19 +115,23 @@ sudo dnf install python3-devel
    claude mcp list
    ```
 
-2. Check server logs:
+2. Check server logs. Your MCP client starts the server, so set the logging
+   variables on the server entry, restart the client, reproduce the problem,
+   and read the log:
 
    ```bash
-   # Enable debug logging
-   export PYEYE_DEBUG=true
-   uv run mcp dev src/pyeye/server.py
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user \
+     -e PYEYE_LOG_LEVEL=DEBUG -e PYEYE_LOG_FILE=/tmp/pyeye.log \
+     -- python -m pyeye.mcp
+   tail -f /tmp/pyeye.log
    ```
 
 3. Reinstall MCP configuration:
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add /path/to/pyeye-mcp
+   claude mcp add pyeye -s user -- python -m pyeye.mcp
    ```
 
 ---
@@ -416,20 +420,23 @@ sudo dnf install python3-devel
 
 ### Enable Debug Logging
 
-**Step 1**: Set debug environment variable:
+pyeye reads two logging variables: `PYEYE_LOG_LEVEL` (`DEBUG`, `INFO`,
+`WARNING`, `ERROR`; default `INFO`) and `PYEYE_LOG_FILE` (append logs to this
+file; otherwise they go to stderr only).
+
+**Step 1**: The MCP client starts the server, so set the variables on its server
+entry (Claude Code shown; other clients take an `env` map in their config):
 
 ```bash
-export PYEYE_DEBUG=true
-export PYEYE_LOG_LEVEL=DEBUG
+claude mcp remove pyeye
+claude mcp add pyeye -s user \
+  -e PYEYE_LOG_LEVEL=DEBUG -e PYEYE_LOG_FILE=/tmp/pyeye.log \
+  -- python -m pyeye.mcp
 ```
 
-**Step 2**: Run server in dev mode:
+**Step 2**: Restart the client and reproduce the problem.
 
-```bash
-uv run mcp dev src/pyeye/server.py
-```
-
-**Step 3**: Check logs for detailed information about:
+**Step 3**: Read `/tmp/pyeye.log` for detailed information about:
 
 - Project loading
 - Cache hits/misses
@@ -441,18 +448,19 @@ uv run mcp dev src/pyeye/server.py
 
 Log locations:
 
-- Console output (when run in dev mode)
-- `~/.local/share/pyeye/logs/` (if configured)
-- Claude Code logs: Check Claude's debug output
+- The file named by `PYEYE_LOG_FILE`, if set. Every process appends to it, and
+  each line carries the PID, so several servers can share one file.
+- Otherwise stderr, which your MCP client captures (for Claude Code, run
+  `claude --debug` to see MCP server output).
 
-Important log patterns to look for:
+Each line looks like this:
 
 ```text
-[INFO] Loading project: /path/to/project
-[DEBUG] Cache hit for find_symbol: MyClass
-[WARNING] Plugin django not activated: manage.py not found
-[ERROR] Analysis failed: TimeoutError
+2026-11-07 14:02:11 [PID 4242] pyeye.project_manager INFO: <message>
 ```
+
+Filter by `[PID n]` when several servers write to the same file. Look for
+`WARNING` and `ERROR` lines first.
 
 ### Verify Jedi Installation
 

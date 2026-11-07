@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `SECURITY.md` (#69): report vulnerabilities privately through GitHub's private vulnerability reporting, now enabled for the repository, rather than public issues. It covers supported versions (2.x), response goals, scope, and pyeye's security model: static analysis only, and it reads whatever paths the MCP client points it at, so path validation is a sanity check rather than a sandbox. Linked from the README.
 
+### Fixed
+
+- Documented commands for starting and setting up the server now work (#553). Several pointed at `src/pyeye/server.py`, which doesn't exist: `uv run mcp dev …`, and the `DOCUMENTATION.md` Claude Code and Claude Desktop setup. Running the real module as a script fails anyway, because of its relative imports. Others used `uv run pyeye` (the script is `pyeye-mcp`) or invalid `claude mcp add` forms, including the Sphinx quickstart's Claude Code setup. All now use `python -m pyeye.mcp`. The debugging guides set `PYEYE_LOG_LEVEL` / `PYEYE_LOG_FILE` on the client's server entry, replacing the non-existent `PYEYE_DEBUG` and a made-up log directory. `mcp dev` is dropped; CONTRIBUTING shows the MCP Inspector via `npx` instead. A test now checks that documented server commands and console-script names exist.
+
 ## [2.0.0] - 2026-11-07
 
 ### BREAKING CHANGES

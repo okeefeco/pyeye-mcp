@@ -76,9 +76,6 @@ Example `.pyeye.json`:
 ## Development Commands
 
 ```bash
-# Run server in dev mode
-uv run mcp dev src/pyeye/server.py
-
 # Run tests with coverage
 uv run pytest --cov=src/pyeye --cov-fail-under=85
 

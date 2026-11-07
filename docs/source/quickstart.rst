@@ -28,23 +28,20 @@ The server runs as an MCP (Model Context Protocol) server that AI assistants can
 For Claude Code
 ~~~~~~~~~~~~~~
 
-Add the server to Claude Code:
+Add the server to Claude Code (available in every project):
 
 .. code-block:: bash
 
-   claude mcp add python-code-intelligence-mcp \
-     --command "uv run mcp dev src/pyeye/server.py" \
-     --directory "/path/to/your/project"
+   claude mcp add pyeye -s user -- python -m pyeye.mcp
 
 For Other MCP Clients
 ~~~~~~~~~~~~~~~~~~~~
 
-The server can be used with any MCP-compatible client:
+The server speaks MCP over stdio. Configure your client to run:
 
 .. code-block:: bash
 
-   # Run the server directly
-   uv run mcp dev src/pyeye/server.py
+   python -m pyeye.mcp    # or the ``pyeye-mcp`` console script
 
 Basic Configuration
 ------------------
@@ -172,12 +169,15 @@ Common Issues
 Debug Mode
 ~~~~~~~~~
 
-Enable debug logging for troubleshooting:
+Enable debug logging for troubleshooting. The MCP client starts the server, so
+set the variables on its server entry, then restart the client:
 
 .. code-block:: bash
 
-   export PYEYE_LOG_LEVEL=DEBUG
-   uv run mcp dev src/pyeye/server.py
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user \
+     -e PYEYE_LOG_LEVEL=DEBUG -e PYEYE_LOG_FILE=/tmp/pyeye.log \
+     -- python -m pyeye.mcp
 
 Configuration Validation
 ~~~~~~~~~~~~~~~~~~~~~~~~
