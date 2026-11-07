@@ -192,6 +192,52 @@ def _mark_empty_adjacents(
         tree_node["children"] = []
 
 
+def _mark_non_expandable(
+    tree_node: dict[str, Any],
+    jedi_name: Any,
+    kind: str,
+    analyzer: JediAnalyzer,
+    survey_mode: bool,
+) -> None:
+    """Mark a node the walk will not expand.
+
+    In member mode that is a non-container — a genuine leaf, no peek.  In survey
+    mode a plain module is not walked either, but it may HAVE members, so it is
+    classified by a cheap emptiness peek rather than claimed empty (#596).
+    """
+    if survey_mode and _is_container(kind):
+        _mark_unwalked_survey_node(tree_node, jedi_name, analyzer)
+    else:
+        tree_node["children"] = []
+
+
+def _disclose_init_members(
+    tree_node: dict[str, Any], jedi_name: Any, analyzer: JediAnalyzer, survey_mode: bool
+) -> None:
+    """Disclose a walked survey package's own ``__init__`` member count (#596).
+
+    A survey lists only submodules, so the members a package's ``__init__``
+    defines would vanish silently.  ``init_member_count`` is present only when
+    > 0; recovery is ``expand(pkg, "members")``.  No-op in member mode, where
+    members ARE the children.
+    """
+    if not survey_mode:
+        return
+    init_members = len(resolve_members(jedi_name, analyzer).adjacents)
+    if init_members:
+        tree_node["init_member_count"] = init_members
+
+
+def _is_survey_root(jedi_name: Any, analyzer: JediAnalyzer) -> bool:
+    """Return whether the ROOT handle switches ``outline`` into survey mode.
+
+    Only a package that HAS submodules is surveyed (#596): a survey of nothing is
+    useless, and marking a submodule-less root ``survey_leaf`` ("outline it to
+    see its members") would point back at the very call that produced it.
+    """
+    return _is_package(jedi_name) and bool(resolve_submodules(jedi_name, analyzer).adjacents)
+
+
 def _is_expandable(jedi_name: Any, kind: str, survey_mode: bool) -> bool:
     """Return whether a node should be walked under the active mode.
 
@@ -285,12 +331,9 @@ async def outline(
     # members behavior.  Depth is NOT kind-dependent: the depth-1 default lives
     # in the signature for every root kind (#474), and ``None`` is unbounded.
     # ------------------------------------------------------------------
-    # A package root with NO submodules gets member mode (#596): a survey of
-    # nothing is useless, and marking the root ``survey_leaf`` ("outline it to
-    # see its members") would point back at this very call.
-    survey_mode = _is_package(root_jedi_name) and bool(
-        resolve_submodules(root_jedi_name, analyzer).adjacents
-    )
+    # A package root with NO submodules gets member mode (#596) — see
+    # _is_survey_root.
+    survey_mode = _is_survey_root(root_jedi_name, analyzer)
 
     # ------------------------------------------------------------------
     # 2. Build root tree node and initialise BFS state.  ``found`` is a
@@ -322,10 +365,7 @@ async def outline(
         # not walked either, but it may HAVE members, so it is classified by a
         # cheap emptiness peek rather than claimed empty (#596).
         if not _is_expandable(jedi_name, kind, survey_mode):
-            if survey_mode and _is_container(kind):
-                _mark_unwalked_survey_node(tree_node, jedi_name, analyzer)
-            else:
-                tree_node["children"] = []
+            _mark_non_expandable(tree_node, jedi_name, kind, analyzer, survey_mode)
             continue
 
         # --- Container: determine which cap (if any) fires. ---
@@ -406,14 +446,6 @@ async def outline(
         children.sort(key=lambda t: (t["node"]["line_start"], t["node"]["handle"]))
 
         tree_node["children"] = children
-
-        # Survey disclosure (#596): a walked package lists only its submodules,
-        # so the members its own ``__init__`` defines would vanish silently.
-        # Disclose their count (present only when > 0); recovery is
-        # ``expand(pkg, "members")``.
-        if survey_mode:
-            init_members = len(resolve_members(jedi_name, analyzer).adjacents)
-            if init_members:
-                tree_node["init_member_count"] = init_members
+        _disclose_init_members(tree_node, jedi_name, analyzer, survey_mode)
 
     return root_tree
