@@ -24,15 +24,23 @@ import click  # noqa: E402
 
 from pyeye.constants import METRICS_DIR  # noqa: E402
 
+# `type/<issue>-description` (the documented branch convention), plus the flat
+# `type-<issue>-...` / `worktree-type-<issue>-...` forms native EnterWorktree
+# produces without the naming hook. The issue number must be the whole segment
+# right after the type, so session IDs and version numbers don't match (#576).
+_ISSUE_BRANCH = re.compile(r"^(?:worktree-)?[a-z]+[/-](\d+)(?:-|$)")
+
 
 def _extract_issue(branch: str) -> int | None:
-    """Return the first run of digits in a branch name as an issue number.
+    """Return the issue number of a ``type/<issue>-description`` branch.
 
-    Mirrors the old hook's ``grep -oE '[0-9]+' | head -1`` so e.g.
-    ``chore/462-foo`` → ``462`` and ``main`` → ``None``.
+    ``chore/462-foo`` → ``462``, ``worktree-feat-474-x`` → ``474``. Branches that
+    don't follow the convention return ``None`` even if they contain digits, e.g.
+    ``main``, ``release/v1.1.3`` or remote-control's ``worktree-bridge-cse_01…``
+    (whose ``01`` was previously read as issue #1, #576).
     """
-    match = re.search(r"\d+", branch)
-    return int(match.group()) if match else None
+    match = _ISSUE_BRANCH.match(branch)
+    return int(match.group(1)) if match else None
 
 
 def _current_branch() -> str:
