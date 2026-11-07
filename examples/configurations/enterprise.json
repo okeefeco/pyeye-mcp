@@ -84,10 +84,8 @@
   "scope_defaults": {
     "global": "namespace:company",
     "methods": {
-      "find_models": "namespace:company.libs",
-      "find_routes": "namespace:company.services",
-      "find_subclasses": "first-party",
-      "list_modules": "main"
+      "find_flask_routes": "namespace:company.services",
+      "find_pydantic_models": "namespace:company.libs"
     }
   }
 }

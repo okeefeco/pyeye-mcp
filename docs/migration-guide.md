@@ -44,7 +44,7 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
      "scope_defaults": {
        "global": "all",
        "methods": {
-         "list_modules": "main"
+         "find_pydantic_models": "main"
        }
      },
      "scope_aliases": {
@@ -120,14 +120,14 @@ await analyzer.list_modules(...)     # scope="main"
 await analyzer.find_routes(...)      # scope="main"
 ```
 
-Override defaults in configuration:
+Override the default for framework plugin tools in configuration. Keys are MCP
+tool names (see [Default Scopes for Plugin Tools](namespace-packages.md#default-scopes-for-plugin-tools)):
 
 ```json
 {
   "scope_defaults": {
     "methods": {
-      "list_modules": "all",
-      "find_routes": "namespace:api"
+      "find_flask_routes": "namespace:api"
     }
   }
 }
@@ -182,8 +182,7 @@ routes = await analyzer.find_routes(scope="backend")
   "scope_defaults": {
     "global": "all",
     "methods": {
-      "list_modules": "main",
-      "find_models": "namespace:company"
+      "find_pydantic_models": "namespace:company"
     }
   },
   "scope_aliases": {
@@ -197,8 +196,8 @@ routes = await analyzer.find_routes(scope="backend")
 
 - `PYEYE_CACHE_TTL`: Cache TTL in seconds (default: 300)
 
-Default scopes are set in the config file (`scope_defaults`), not through the
-environment. The full list of environment variables is in the README's
+Default scopes for the framework plugin tools are set in the config file
+(`scope_defaults`), not through the environment. The full list of environment variables is in the README's
 [Performance Settings](../README.md#performance-settings).
 
 ## API Changes
