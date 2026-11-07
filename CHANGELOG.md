@@ -232,6 +232,7 @@ written for older Python versions.
 
 ### Added
 
+- Releases are pull requests (#583). `python scripts/changelog.py prepare X.Y.Z` promotes `[Unreleased]` to a dated version section and refuses an under-bump (e.g. `### BREAKING CHANGES` released as a minor). Merging the `release: vX.Y.Z` PR tags the merge commit and publishes it, with the version's CHANGELOG section as the GitHub Release notes. `python scripts/changelog.py check` replaces `validate_changelog.py`, which could not fail in CI, and now requires every `v*` tag to have a section. The missing 1.0.1, 1.1.1 and 1.1.2 sections are backfilled, and the 0.x sections are put back in order.
 - Python 3.13 support (#529): CI tests it (Linux, Windows and macOS on PRs; all three on main) and the classifiers list it. The CI pre-commit job now audits dependencies on 3.13, the newest supported version. `.pre-commit-config.yaml` now builds hook environments with `python3` instead of a pinned `python3.12`, which the 3.13 runner didn't have (the remaining remote hooks move to `uv run` in #547). `path_utils.dedupe_paths` now rejects paths containing a NUL byte explicitly; on Windows with 3.13, `Path.resolve()` no longer raises for them, so such paths had slipped into root lists.
 - Progressive-disclosure operations over canonical handles: `resolve`,
   `resolve_at`, `inspect`, `outline`, `expand`, and `trace`. Supported `expand`
@@ -287,6 +288,43 @@ written for older Python versions.
 - `pip install pyeye-mcp` no longer installs a server that can't start (#537). The `mcp` requirement had no upper bound, so installs without the lockfile resolved mcp 2.x, which removed `mcp.server.fastmcp` (the server failed with `ModuleNotFoundError`). The requirement now has an upper bound on the major the server is built for (`mcp[cli]>=2.3.0,<3` after the `MCPServer` migration, #538). Plugin installs were unaffected because they use `uv.lock`. Also removed the unused standalone `fastmcp` dependency (pyeye uses the FastMCP bundled in `mcp`), which drops 35 transitive packages including authlib, opentelemetry-api and dnspython. A contract test (`tests/test_mcp_dependency_contract.py`) ties the declared `mcp` range to the API the server imports.
 - Resolved open Dependabot security alerts (#522) by upgrading locked versions within current majors: pyjwt 2.15.1, anyio ≥4.14.2, urllib3 2.8.0, fastmcp/fastmcp-slim 3.4.11, mcp 1.30.0, opentelemetry-api 1.45.1, setuptools 84.2.1, pip 26.2.2, msgpack 1.2.4. `filelock` now requires ≥4.2.1, which needs Python 3.11 (see the Python 3.11 requirement under BREAKING CHANGES, #528). The CI pre-commit job now runs on Python 3.12 so `pip-audit` audits the newest supported environment. Bumped `black` to 26.10.1 (GHSA-cg8m-r9f2-5wm2).
 - CI no longer posts a false "Documentation-only change detected" comment on PRs that also change code (#500). The feedback now lives in `ci.yml` and reuses the same `changes` (docs-vs-code) classifier as the test gate, so the comment can never contradict what CI actually ran; the divergent `docs.yml` workflow was removed. Also stripped fabricated time/percentage "CI savings" figures from the workflow comments, keeping the accurate platform-multiplier table.
+
+## [1.1.2] - 2026-03-11
+
+### Fixed
+
+- Correct MRO computation and cross-project `find_symbol` (#307).
+
+## [1.1.1] - 2026-03-10
+
+### Added
+
+- `get_call_hierarchy` accepts class names (#303).
+- A performance-metrics tool, and a faster `find_subclasses` (#304).
+
+### Fixed
+
+- The release workflow uses the `gh` CLI instead of deprecated release actions (#305).
+- Clone URLs in the docs; development artifacts removed (#300).
+
+## [1.0.1] - 2026-02-17
+
+### Added
+
+- Standalone script analysis (#236).
+- Source-layout auto-detection from `pyproject.toml`.
+- Polymorphic reference search via `include_subclasses`.
+- PyPI publishing through Trusted Publisher, with TestPyPI first.
+
+### Fixed
+
+- `src/`-layout projects in `find_imports`, `list_modules` and `list_packages`, and the src paths passed to Jedi (#277).
+- Relative imports in `find_imports`.
+- Base-class detection falls back to the AST when Jedi fails.
+- `find_references` searches standalone files outside the project path.
+
+The 1.0.1, 1.1.1 and 1.1.2 sections were backfilled during the 2.0 release from
+their GitHub Releases, which list every change: <https://github.com/okeefeco/pyeye-mcp/releases>.
 
 ## [1.0.0] - 2025-10-04
 
@@ -361,31 +399,6 @@ This is a breaking change that requires migration steps:
 - Outdated release documentation: RELEASING.md, RELEASE_CHECKLIST.md
 - Release automation tests (no longer applicable)
 
-## [0.1.0] - 2025-08-24
-
-### Added
-
-- Initial release of PyEye Server
-- Core navigation tools (find_symbol, goto_definition, find_references)
-- Multi-project support with LRU caching
-- Namespace package resolution across repositories
-- File watching with automatic cache updates
-- Configuration system (files, env vars, auto-discovery)
-- Plugin architecture for framework-specific intelligence
-- Django plugin with model/view/URL analysis
-- Pydantic plugin with model schema extraction
-- Flask plugin with route/blueprint/template analysis
-- Module and package analysis tools
-- Circular dependency detection
-- Connection pooling for optimized multi-project workflows
-- Comprehensive test suite
-- Pre-commit hooks for code quality
-- Documentation and examples
-
-### Fixed
-
-- Author and copyright information corrected
-
 ## [0.2.0] - 2025-08-25
 
 ### Feat
@@ -433,9 +446,36 @@ This is a breaking change that requires migration steps:
 - use manual TOML parsing for Python 3.10 compatibility
 - improve release process and add worktree safety (issues #162-#165)
 
-## v0.1.0 (2025-08-24)
+## [0.1.0] - 2025-08-24
 
-### Feat
+### Added
+
+- Initial release of PyEye Server
+- Core navigation tools (find_symbol, goto_definition, find_references)
+- Multi-project support with LRU caching
+- Namespace package resolution across repositories
+- File watching with automatic cache updates
+- Configuration system (files, env vars, auto-discovery)
+- Plugin architecture for framework-specific intelligence
+- Django plugin with model/view/URL analysis
+- Pydantic plugin with model schema extraction
+- Flask plugin with route/blueprint/template analysis
+- Module and package analysis tools
+- Circular dependency detection
+- Connection pooling for optimized multi-project workflows
+- Comprehensive test suite
+- Pre-commit hooks for code quality
+- Documentation and examples
+
+### Fixed
+
+- Author and copyright information corrected
+
+### Generated commit log
+
+Commit subjects generated by commitizen at the time; kept for history.
+
+#### Feat
 
 - Update dev workflow to use PAT for branch protection bypass
 - Implement development versioning strategy
@@ -463,7 +503,7 @@ This is a breaking change that requires migration steps:
 - Add comprehensive pre-commit hooks and achieve 100% compliance
 - Add comprehensive pre-commit hooks and achieve 100% compliance
 
-### Fix
+#### Fix
 
 - correct changelog generation in release workflow
 - disable coverage requirement for version consistency tests in release workflow
@@ -532,13 +572,13 @@ This is a breaking change that requires migration steps:
 - Remove deprecated safety check and fix mypy CI issues
 - Update CI workflow to use pyproject.toml for uv cache
 
-### Refactor
+#### Refactor
 
 - use as_posix() for all file paths in API responses
 - Replace print statements with logging in settings.py
 - Move Jedi methods from server to JediAnalyzer
 
-### Perf
+#### Perf
 
 - Implement connection pooling for multiple projects
 - implement smart cache invalidation for 2-3x performance improvement
