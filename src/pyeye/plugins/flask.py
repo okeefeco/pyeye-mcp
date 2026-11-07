@@ -78,7 +78,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask routes in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -149,7 +150,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask blueprints in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -215,7 +217,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask view functions and classes.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -257,7 +260,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask templates and render_template calls.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -331,7 +335,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask extensions in use.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -403,7 +408,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask configuration files and app.config usage.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -448,7 +454,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find error handler functions.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -497,7 +504,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask CLI commands.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace

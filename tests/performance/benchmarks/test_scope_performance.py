@@ -235,7 +235,8 @@ class TestSmartScopeResolver:
         # Methods that should search main only
         assert resolver.get_smart_default("list_modules") == "main"
         assert resolver.get_smart_default("list_packages") == "main"
-        assert resolver.get_smart_default("find_routes") == "main"
+        # Plugin tools resolve by MCP tool name, defaulting to "main" (#559)
+        assert resolver.plugin_tool_default("find_flask_routes") == "main"
 
         # Unknown method should default to "all"
         assert resolver.get_smart_default("unknown_method") == "all"

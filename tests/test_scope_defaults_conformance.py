@@ -9,11 +9,11 @@ maintainer as a live capability, which is exactly the drift that let entries for
 
 **What this does NOT guarantee.** It checks *existence*, not *liveness*: a key
 naming a real-but-uncalled method (e.g. ``find_imports``, orphaned when
-``lookup_builders`` was removed) still passes.  Liveness is deliberately not
-asserted because it is not statically decidable here — the plugin-provided keys
-below are dispatched through ``plugin.register_tools()`` at activation time, so a
-zero-call-site count does not imply dead.  Existence is the strongest check that
-is reliable for every key; the honest residue is stated rather than papered over.
+``lookup_builders`` was removed) still passes.  These keys are internal: they
+are only consulted by ``JediAnalyzer.get_project_files(method_name=...)``, which
+no 2.x tool reaches with ``scope=None``.  The user-facing defaults are the plugin
+tools', which resolve by MCP tool name through
+``SmartScopeResolver.plugin_tool_default`` and are not listed here (#559).
 """
 
 import pytest
@@ -21,26 +21,7 @@ import pytest
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.scope_utils import SmartScopeResolver
 
-# Keys supplied by framework plugins rather than JediAnalyzer.  These are
-# registered at plugin-activation time, so they cannot be checked against the
-# analyzer's attributes.
-_PLUGIN_PROVIDED = {
-    "find_routes",
-    "find_models",
-    "find_views",
-    "find_blueprints",
-    "find_templates",
-    "find_validators",
-    "find_field_validators",
-    "find_model_config",
-    "find_computed_fields",
-    "find_extensions",
-    "find_config",
-    "find_error_handlers",
-    "find_cli_commands",
-}
-
-_ANALYZER_KEYS = sorted(set(SmartScopeResolver.SMART_DEFAULTS) - _PLUGIN_PROVIDED)
+_ANALYZER_KEYS = sorted(SmartScopeResolver.SMART_DEFAULTS)
 
 
 class TestSmartDefaultsConformance:

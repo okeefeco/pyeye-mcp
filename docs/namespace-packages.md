@@ -7,7 +7,7 @@ This guide explains how to configure and use namespace packages and scope contro
 - [Overview](#overview)
 - [Core Concepts](#core-concepts)
 - [Configuration](#configuration)
-- [Smart Defaults](#smart-defaults)
+- [Default Scopes for Plugin Tools](#default-scopes-for-plugin-tools)
 - [Scope Specifications](#scope-specifications)
 - [Performance Optimization](#performance-optimization)
 - [Examples](#examples)
@@ -86,9 +86,8 @@ Scopes control which code the analyzer searches through:
   "scope_defaults": {
     "global": "all",
     "methods": {
-      "list_modules": "main",
-      "find_models": "namespace:company",
-      "find_subclasses": "all"
+      "find_pydantic_models": "namespace:company",
+      "find_flask_routes": "my-services"
     }
   },
   "scope_aliases": {
@@ -112,47 +111,54 @@ company = ["~/repos/company-*"]
 global = "all"
 
 [tool.pyeye.scope_defaults.methods]
-list_modules = "main"
-find_routes = "my-services"
+find_flask_routes = "my-services"
 
 [tool.pyeye.scope_aliases]
 my-services = ["main", "namespace:company"]
 ```
 
-## Smart Defaults
+## Default Scopes for Plugin Tools
 
-The server uses intelligent defaults based on the method being called:
+The framework plugin tools (Pydantic, Django and Flask, e.g.
+`find_pydantic_models`, `find_django_views`, `find_flask_routes`) take an
+optional `scope` argument. When a call doesn't pass one, the scope comes from
+the project configuration, in this order:
 
-### Methods that search everywhere by default
+1. `scope_defaults.methods.<tool name>`: the MCP tool name, such as
+   `find_pydantic_models`
+2. `scope_defaults.global`
+3. `"main"`, since framework code usually lives in the main project
 
-These methods need to find references across all code:
+An explicit `scope` argument always wins, and `scope_aliases` are expanded in
+both cases.
 
-- `find_subclasses` - Find all implementations (backs the `subclasses` edge)
-- `find_symbol` - Resolve a name anywhere (backs `resolve`)
-
-### Methods that search main project by default
-
-These methods typically focus on the current project:
-
-- `list_modules` - Project structure
-- `list_packages` - Package organization
-- Framework-specific methods (`find_routes`, `find_models`, etc.)
-
-### Overriding Defaults
-
-You can override defaults globally or per-method:
+This is what makes a namespace project complete by default: an AI agent calling
+`find_pydantic_models()` doesn't know the models live in `company-*` repos, but
+the project config does.
 
 ```json
 {
+  "namespaces": { "company": ["../company-*"] },
   "scope_defaults": {
-    "global": "my-services",
+    "global": "main",
     "methods": {
-      "list_modules": "all",
-      "find_models": "namespace:company.models"
+      "find_pydantic_models": "namespace:company",
+      "find_django_models": "all"
     }
   }
 }
 ```
+
+Notes:
+
+- **Keys are tool names.** Older docs used method names such as `find_models`,
+  which is ambiguous between Django and Pydantic, or `list_modules` and
+  `find_subclasses`, which aren't plugin tools. Those keys never had an effect.
+  pyeye now logs a warning naming any key that isn't a plugin tool.
+- **Only the plugin tools use these defaults.** The core tools (`resolve`,
+  `resolve_at`, `inspect`, `outline`, `expand`, `trace`) don't take a `scope`.
+- **Defaults are read when the server starts.** Restart your MCP client after
+  editing them.
 
 ## Scope Specifications
 
@@ -251,7 +257,7 @@ results = await analyzer.find_symbol("User", scope="all")
    {
      "scope_defaults": {
        "methods": {
-         "find_models": "namespace:company.models"
+         "find_pydantic_models": "namespace:company.models"
        }
      }
    }
@@ -300,8 +306,7 @@ results = await analyzer.find_symbol("User", scope="all")
   },
   "scope_defaults": {
     "methods": {
-      "find_subclasses": "all",
-      "list_modules": "main"
+      "find_pydantic_models": "all"
     }
   }
 }
@@ -324,8 +329,7 @@ results = await analyzer.find_symbol("User", scope="all")
   "scope_defaults": {
     "global": "first-party",
     "methods": {
-      "find_subclasses": "all",
-      "list_modules": "main"
+      "find_flask_routes": "production"
     }
   }
 }

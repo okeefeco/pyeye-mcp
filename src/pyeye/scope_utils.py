@@ -32,20 +32,8 @@ class SmartScopeResolver:
         # Methods that typically want main project only
         "list_modules": "main",
         "list_packages": "main",
-        # Plugin methods default to main (faster, more focused)
-        "find_routes": "main",
-        "find_models": "main",
-        "find_views": "main",
-        "find_blueprints": "main",
-        "find_templates": "main",
-        "find_validators": "main",
-        "find_field_validators": "main",
-        "find_model_config": "main",
-        "find_computed_fields": "main",
-        "find_extensions": "main",
-        "find_config": "main",
-        "find_error_handlers": "main",
-        "find_cli_commands": "main",
+        # Plugin tools are NOT listed here: they resolve through
+        # plugin_tool_default(), keyed on the MCP tool name (#559).
         # Symbol finding defaults to all (want to find everywhere)
         "find_symbol": "all",
         "goto_definition": "all",
@@ -61,6 +49,8 @@ class SmartScopeResolver:
         self.config = config
         # Create instance copy of defaults to avoid modifying class-level dict
         self.smart_defaults = self.SMART_DEFAULTS.copy()
+        self.global_default: Scope | None = None
+        self.user_method_defaults: dict[str, Scope] = {}
         self._load_user_defaults()
 
     def _load_user_defaults(self) -> None:
@@ -73,11 +63,34 @@ class SmartScopeResolver:
 
         # Load method-specific overrides (modify instance copy, not class dict)
         method_overrides = self.config.config.get("scope_defaults", {}).get("methods", {})
+        self.user_method_defaults = dict(method_overrides)
         for method, scope in method_overrides.items():
             self.smart_defaults[method] = scope
 
         # Load scope aliases
         self.scope_aliases = self.config.config.get("scope_aliases", {})
+
+    def plugin_tool_default(self, tool_name: str) -> Scope:
+        """Default scope for a plugin tool called without ``scope`` (#559).
+
+        Order: ``scope_defaults.methods.<tool_name>`` (the MCP tool name, e.g.
+        ``find_pydantic_models``), then ``scope_defaults.global``, then
+        ``"main"``, since framework code usually lives in the main project.
+        """
+        if tool_name in self.user_method_defaults:
+            return self.user_method_defaults[tool_name]
+        if self.global_default:
+            return self.global_default
+        return "main"
+
+    def ignored_method_keys(self, tool_names: set[str]) -> list[str]:
+        """Configured ``scope_defaults.methods`` keys that aren't plugin tool names.
+
+        No 2.x tool other than the plugin tools consults these defaults, so a
+        key such as ``find_models`` (an old method name, ambiguous between
+        Django and Pydantic) or ``list_modules`` has no effect.
+        """
+        return sorted(key for key in self.user_method_defaults if key not in tool_names)
 
     def get_smart_default(self, method_name: str) -> str:
         """Get intelligent default scope for a method.
@@ -93,7 +106,7 @@ class SmartScopeResolver:
             return self.smart_defaults[method_name]
 
         # Fall back to global default if configured
-        if hasattr(self, "global_default") and self.global_default:
+        if self.global_default:
             return str(self.global_default)
 
         # Ultimate fallback

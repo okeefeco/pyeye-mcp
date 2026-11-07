@@ -1,7 +1,14 @@
 """Main MCP server implementation for PyEye."""
 
+import functools
 import json
 import logging
+import typing
+from collections.abc import Callable
+from inspect import (
+    isawaitable as _isawaitable,
+    signature as _signature,  # `inspect` is shadowed by the MCP tool below
+)
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -38,11 +45,12 @@ except ImportError:
         return "default_session"
 
 
-from ..plugins.base import AnalyzerPlugin
+from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
 from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
+from ..scope_utils import SmartScopeResolver
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from . import meta
@@ -123,11 +131,9 @@ def initialize_plugins(project_path: str = ".") -> None:
     config = ProjectConfig(project_path)
 
     # Try to activate each plugin
-    plugin_classes = [PydanticPlugin, DjangoPlugin, FlaskPlugin]
-
-    for plugin_class in plugin_classes:
+    for plugin_class in _PLUGIN_CLASSES:
         try:
-            plugin = plugin_class(project_path)  # type: ignore[abstract]
+            plugin = plugin_class(project_path)
             if plugin.detect():
                 # Pass namespace configuration to the plugin
                 from pathlib import Path
@@ -142,12 +148,74 @@ def initialize_plugins(project_path: str = ".") -> None:
             logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
             # Don't raise - plugins are optional
 
+    # Plugin tools called without ``scope`` resolve it through scope_defaults
+    # (#559). Report configured keys that can't apply instead of ignoring them.
+    resolver = SmartScopeResolver(config)
+    ignored = resolver.ignored_method_keys(all_plugin_tool_names(project_path))
+    if ignored:
+        logger.warning(
+            "Ignoring scope_defaults.methods keys that aren't plugin tool names: %s. "
+            "Keys must be MCP tool names such as find_pydantic_models (#559).",
+            ", ".join(ignored),
+        )
+
     # Outside the per-plugin try: a duplicate name is a bug in the declared names,
     # not an optional plugin failing to load, so it must not be swallowed.
-    register_plugin_tools(mcp, _plugins)
+    register_plugin_tools(mcp, _plugins, resolver)
 
 
-def register_plugin_tools(server: MCPServer, plugins: list[AnalyzerPlugin]) -> list[str]:
+_PLUGIN_CLASSES: tuple[type[AnalyzerPlugin], ...] = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
+
+
+def all_plugin_tool_names(project_path: str) -> set[str]:
+    """Every tool name any plugin declares, whether or not it is active here."""
+    names: set[str] = set()
+    for plugin_class in _PLUGIN_CLASSES:
+        names.update(plugin_class(project_path).register_tools())
+    return names
+
+
+def _with_scope_default(
+    tool_name: str, func: Callable[..., Any], resolver: SmartScopeResolver
+) -> Callable[..., Any]:
+    """Make ``func``'s ``scope`` optional, defaulting through ``scope_defaults`` (#559).
+
+    The MCP schema is built from the returned callable's signature, so ``scope``
+    becomes ``Scope | None = None``; every other parameter is unchanged. A call
+    without ``scope`` gets ``resolver.plugin_tool_default(tool_name)``, and an
+    explicit ``scope`` always wins. Either way, ``scope_aliases`` are expanded.
+    """
+    signature = _signature(func)
+    if "scope" not in signature.parameters:
+        return func
+    hints = typing.get_type_hints(func)
+
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        bound = signature.bind_partial(*args, **kwargs)
+        if bound.arguments.get("scope") is None:
+            bound.arguments["scope"] = resolver.plugin_tool_default(tool_name)
+        # Plugins resolve only main/all/packages/namespace:/package:, so an
+        # alias (from config or the caller) would otherwise search nothing.
+        bound.arguments["scope"] = resolver.resolve_aliases(bound.arguments["scope"])
+        result = func(*bound.args, **bound.kwargs)
+        return await result if _isawaitable(result) else result
+
+    parameters = [
+        p.replace(default=None, annotation=Scope | None) if p.name == "scope" else p
+        for p in signature.parameters.values()
+    ]
+    wrapper.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
+    wrapper.__annotations__ = {**hints, "scope": Scope | None}
+    del wrapper.__wrapped__  # the schema must come from the new signature
+    return wrapper
+
+
+def register_plugin_tools(
+    server: MCPServer,
+    plugins: list[AnalyzerPlugin],
+    resolver: SmartScopeResolver | None = None,
+) -> list[str]:
     """Register every plugin tool on ``server`` under the name its plugin declares.
 
     The ``register_tools()`` keys are the tool names. Registering by the
@@ -159,6 +227,8 @@ def register_plugin_tools(server: MCPServer, plugins: list[AnalyzerPlugin]) -> l
     Args:
         server: The MCP server to register on
         plugins: Activated plugins, in load order
+        resolver: If given, tools with a ``scope`` parameter default it through
+            ``scope_defaults`` when the caller omits it (#559)
 
     Returns:
         The registered tool names, in registration order
@@ -174,6 +244,8 @@ def register_plugin_tools(server: MCPServer, plugins: list[AnalyzerPlugin]) -> l
                     f"Plugin {plugin.name()} declares tool {tool_name!r}, "
                     "which another plugin already registered"
                 )
+            if resolver is not None:
+                tool_func = _with_scope_default(tool_name, tool_func, resolver)
             server.tool(name=tool_name)(tool_func)
             registered.append(tool_name)
     return registered

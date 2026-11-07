@@ -37,9 +37,7 @@
   "scope_defaults": {
     "global": "namespace:core",
     "methods": {
-      "find_models": "namespace:core",
-      "find_subclasses": "all",
-      "list_modules": "main"
+      "find_pydantic_models": "namespace:core"
     }
   }
 }

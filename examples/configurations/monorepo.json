@@ -18,10 +18,6 @@
     ]
   },
   "scope_defaults": {
-    "global": "all",
-    "methods": {
-      "list_modules": "main",
-      "list_packages": "all"
-    }
+    "global": "all"
   }
 }

@@ -60,7 +60,8 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django models in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -103,7 +104,8 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django views in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -156,7 +158,8 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all URL patterns in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -179,7 +182,8 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django templates in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -213,7 +217,8 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django migrations in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace

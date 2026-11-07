@@ -62,7 +62,8 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all Pydantic models in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -106,7 +107,8 @@ class PydanticPlugin(AnalyzerPlugin):
 
         Args:
             model_name: Name of the model to get schema for
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -140,7 +142,8 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all Pydantic validators in the project.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -180,7 +183,8 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all field-specific validators.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -192,7 +196,8 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all model configurations.
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -244,7 +249,8 @@ class PydanticPlugin(AnalyzerPlugin):
 
         Args:
             model_name: Name of the model to trace
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
@@ -281,7 +287,8 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all computed fields (properties, computed_field decorator).
 
         Args:
-            scope: Search scope (default "main"):
+            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
+                project config, else ``scope_defaults.global``, else "main"):
                 - "main": Only the main project (default for plugins)
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
