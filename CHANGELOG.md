@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-07
+
 ### BREAKING CHANGES
 
 #### MCP tool surface redesigned around progressive-disclosure primitives
@@ -142,6 +144,11 @@ Unchanged: `find_error_handlers`, `find_cli_commands`, `get_model_schema`,
 affected by the rename. A duplicate plugin tool name now stops the server at startup instead
 of silently dropping a tool, and `tests/test_plugin_tool_names_conformance.py`
 pins the registered names.
+
+**Required action:** update anything that names the old tools: client
+configuration, prompts, and permission allow-lists (in Claude Code, rules such
+as `mcp__pyeye__find_routes`). A pyeye server that is already running keeps the
+old names until it restarts, so restart it after upgrading.
 
 #### Unresolvable handles return an explicit not-found result (#545)
 
