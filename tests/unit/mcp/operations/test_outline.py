@@ -295,7 +295,11 @@ class TestOutlineLeafNodes:
 
 
 class TestOutlineNestedClassRecursion:
-    """Nested classes recurse — ``members`` hierarchy, not function bodies."""
+    """Nested classes recurse — ``members`` hierarchy, not function bodies.
+
+    Deep recursion is opt-in since #474 (default depth is 1), so these pass
+    ``max_depth=None`` explicitly.
+    """
 
     @pytest.mark.asyncio
     async def test_nested_class_inner_is_present_in_tree(
@@ -304,7 +308,7 @@ class TestOutlineNestedClassRecursion:
         """module outline walks: mod → Outer → Inner (nested class)."""
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        tree = await outline(_MOD_HANDLE, nested_analyzer)
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=None)
         _assert_contract1(tree)
         outer_node = _find_child(tree, _OUTER_HANDLE)
         assert outer_node is not None, "Outer not in module children"
@@ -318,7 +322,7 @@ class TestOutlineNestedClassRecursion:
         """inner_method inside Inner is a leaf (``children: []``)."""
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        tree = await outline(_MOD_HANDLE, nested_analyzer)
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=None)
         _assert_contract1(tree)
         outer_node = _find_child(tree, _OUTER_HANDLE)
         assert outer_node is not None
@@ -399,10 +403,11 @@ class TestOutlineMaxDepth:
 
     @pytest.mark.asyncio
     async def test_max_depth_none_walks_fully(self, nested_analyzer: JediAnalyzer) -> None:
-        """max_depth=None (default) walks to all leaves; no truncated nodes."""
+        """Explicit max_depth=None opts back into an unbounded walk (#474): it
+        walks to all leaves; no truncated nodes."""
         from pyeye.mcp.operations.outline import outline  # type: ignore[import]
 
-        tree = await outline(_MOD_HANDLE, nested_analyzer)
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=None)
         _assert_contract1(tree)
 
         # No truncated nodes anywhere in the tree.
@@ -419,6 +424,99 @@ class TestOutlineMaxDepth:
         assert inner_node is not None
         inner_method_node = _find_child(inner_node, _INNER_METHOD_HANDLE)
         assert inner_method_node is not None
+
+
+class TestOutlineDefaultDepth:
+    """#474 — with no ``max_depth`` argument, EVERY root kind (module, class,
+    package) defaults to depth-1: direct members only, nested non-empty
+    containers cut off with ``truncated: "max_depth"`` (drill on demand).
+    ``max_depth=None`` is the explicit opt-in to an unbounded walk.
+    """
+
+    def test_operation_signature_default_is_1(self) -> None:
+        """The default is the integer 1, not a ``None`` sentinel — so
+        ``None`` is free to mean "unbounded" (#474 Option A)."""
+        import inspect as _inspect
+
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        assert _inspect.signature(outline).parameters["max_depth"].default == 1
+
+    def test_mcp_tool_signature_default_is_1(self) -> None:
+        """The MCP tool surface advertises the same default to clients."""
+        import inspect as _inspect
+
+        from pyeye.mcp.server import outline as outline_tool
+
+        assert _inspect.signature(outline_tool).parameters["max_depth"].default == 1
+
+    @pytest.mark.asyncio
+    async def test_module_root_default_is_depth_1(self, nested_analyzer: JediAnalyzer) -> None:
+        """outline(module) with no max_depth: direct members listed; Outer (a
+        non-empty class at depth 1) is cut off, not recursed into."""
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_MOD_HANDLE, nested_analyzer)
+        _assert_contract1(tree)
+        child_handles = {c["node"]["handle"] for c in tree["children"]}
+        assert {_TOP_LEVEL_FUNC_HANDLE, _OUTER_HANDLE, _EMPTY_HANDLE} <= child_handles
+
+        outer_node = _find_child(tree, _OUTER_HANDLE)
+        assert outer_node is not None
+        assert outer_node.get("truncated") is True
+        assert outer_node["truncation_reason"] == "max_depth"
+        assert "children" not in outer_node
+
+        # Frontier peek still holds: the genuinely empty class is a measured leaf.
+        empty_node = _find_child(tree, _EMPTY_HANDLE)
+        assert empty_node is not None
+        assert empty_node["children"] == []
+        assert "truncated" not in empty_node
+
+    @pytest.mark.asyncio
+    async def test_class_root_default_is_depth_1(self, nested_analyzer: JediAnalyzer) -> None:
+        """outline(class) with no max_depth: methods are leaves; the nested
+        class Inner is cut off at the depth-1 frontier."""
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_OUTER_HANDLE, nested_analyzer)
+        _assert_contract1(tree)
+        method_node = _find_child(tree, _OUTER_METHOD_HANDLE)
+        assert method_node is not None
+        assert method_node["children"] == []
+
+        inner_node = _find_child(tree, _INNER_HANDLE)
+        assert inner_node is not None
+        assert inner_node.get("truncated") is True
+        assert inner_node["truncation_reason"] == "max_depth"
+        assert "children" not in inner_node
+
+    @pytest.mark.asyncio
+    async def test_default_equals_explicit_max_depth_1(self, nested_analyzer: JediAnalyzer) -> None:
+        """The default response is byte-identical to an explicit max_depth=1."""
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        for handle in (_MOD_HANDLE, _OUTER_HANDLE):
+            assert await outline(handle, nested_analyzer) == await outline(
+                handle, nested_analyzer, max_depth=1
+            )
+
+    @pytest.mark.asyncio
+    async def test_explicit_deeper_max_depth_still_works(
+        self, nested_analyzer: JediAnalyzer
+    ) -> None:
+        """max_depth=2 drills one level further: Outer walked, Inner cut off."""
+        from pyeye.mcp.operations.outline import outline  # type: ignore[import]
+
+        tree = await outline(_MOD_HANDLE, nested_analyzer, max_depth=2)
+        _assert_contract1(tree)
+        outer_node = _find_child(tree, _OUTER_HANDLE)
+        assert outer_node is not None
+        assert "children" in outer_node
+        inner_node = _find_child(outer_node, _INNER_HANDLE)
+        assert inner_node is not None
+        assert inner_node.get("truncated") is True
+        assert inner_node["truncation_reason"] == "max_depth"
 
 
 class TestOutlineMaxNodes:

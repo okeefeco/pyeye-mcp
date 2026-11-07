@@ -6,7 +6,10 @@ and treats plain modules as leaves (their members are NOT walked).  A subpackage
 with children at the depth frontier is truncated (``max_depth``), preserving the
 §4.2 absence contracts.
 
-``outline`` of a *module* or *class* root is unchanged (survey mode off) — the
+Since #474 the depth-1 default applies to every root kind (module/class roots
+included), and an explicit ``max_depth=None`` means unbounded for packages too.
+
+``outline`` of a *module* or *class* root walks ``members`` (survey mode off) — the
 regression suite for that lives in ``tests/unit`` / ``tests/integration``; here we
 only assert the new package-handle contract, plus one explicit guard that a
 module root still walks members.
@@ -75,6 +78,17 @@ class TestOutlinePackageSurvey:
         handles = {c["node"]["handle"] for c in tree["children"]}
         assert "mypkg.A" not in handles
         assert "mypkg.__all__" not in handles
+
+    @pytest.mark.asyncio
+    async def test_max_depth_none_is_unbounded_survey(self, analyzer: JediAnalyzer) -> None:
+        # #474: explicit max_depth=None now means unbounded for a package root
+        # too (previously None was the depth-1 sentinel, so a full survey was
+        # unreachable).  sub is walked; gamma is a plain-module leaf.
+        tree = await outline("mypkg", analyzer, max_depth=None)
+        sub = _child(tree, "mypkg.sub")
+        assert "truncated" not in sub
+        gamma = _child(sub, "mypkg.sub.gamma")
+        assert gamma["children"] == []
 
 
 class TestOutlineModuleRootUnchanged:

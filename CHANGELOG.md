@@ -175,6 +175,24 @@ it already lists unresolved start handles in `unresolved_roots`.
 `found is False`. An empty `stubs` list with `found: true` now always means the
 symbol exists and has no neighbours on that edge.
 
+#### `outline` defaults to direct members only (#474)
+
+`outline(<module>)` and `outline(<class>)` called without `max_depth` used to
+walk the whole member tree, limited only by `max_nodes=200`. They now default to
+`max_depth=1`: the root's direct members, with any nested non-empty container (a
+class inside the module, a nested class) returned as `truncated: true,
+truncation_reason: "max_depth"` and no `children`. Package roots already
+defaulted to depth 1 and are unchanged.
+
+The `max_depth` default is now the integer `1` instead of `None`, and
+`max_depth=None` means unbounded for every root kind. For a package root this is
+new: `None` previously meant "depth 1", so a fully recursive package survey was
+not reachable.
+
+**Required action:** callers that relied on the deep default should pass
+`max_depth=None` (unbounded) or an explicit depth, or call `outline` again on a
+truncated node's handle to drill into it.
+
 #### Python 3.11 or newer required (#528)
 
 Python 3.10 support is dropped: `requires-python` is now `>=3.11`. Python 3.10
