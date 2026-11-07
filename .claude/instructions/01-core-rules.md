@@ -138,3 +138,13 @@ The user must use explicit words like:
 - "commit anyway"
 
 Without these explicit permissions, you MUST refuse and explain why.
+
+#### Pre-authorised bypass: deleting a squash-merged branch
+
+The user has pre-authorised ONE force operation (#607). Because PRs are squash-merged, `git branch -d` always refuses after a merge. You MAY run `git branch -D <feature-branch>` (and `git push origin --delete <feature-branch>` if the remote branch still exists) WITHOUT asking, ONLY when ALL of these hold:
+
+1. `gh pr view <N> --json state,headRefOid` reports `state` = `MERGED`.
+2. `headRefOid` equals `git rev-parse <feature-branch>`, so every local commit was in the merged PR.
+3. `git -C <worktree> status --short` is empty if the branch is checked out in a worktree.
+
+If ANY condition fails, this bypass does NOT apply: STOP and ask, because the branch holds unmerged work. Report the evidence (PR state, both SHAs) when you use it. It covers nothing else: no other `-D`, `--force`, or worktree `--force` removal.
