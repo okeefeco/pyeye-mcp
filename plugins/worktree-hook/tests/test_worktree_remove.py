@@ -414,6 +414,110 @@ def test_delete_branch_squash_detected_on_master_default(
     assert wtr.delete_branch(repo, "feat/607-master") is True
 
 
+def _branch_editing_line(
+    run_git: Callable[..., CompletedProcess[str]],
+    repo: Path,
+    tmp_path: Path,
+    branch: str,
+    line: int,
+) -> None:
+    """Branch with two commits; the first edits ``line`` of ``f.txt``.
+
+    Leaves the worktree removed and ``main`` checked out in ``repo``.
+    """
+    worktree = tmp_path / "wt"
+    run_git(repo, "worktree", "add", "-b", branch, str(worktree))
+    text = (worktree / "f.txt").read_text().replace(f"\n{line}\n", f"\n{line}-ours\n")
+    _commit_file(run_git, worktree, "f.txt", text, "ours")
+    _commit_file(run_git, worktree, "b.txt", "two\n", "second")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+
+
+def _edit_line_on_main(
+    run_git: Callable[..., CompletedProcess[str]], repo: Path, line: int, msg: str
+) -> None:
+    text = (repo / "f.txt").read_text().replace(f"\n{line}\n", f"\n{line}-other\n")
+    _commit_file(run_git, repo, "f.txt", text, msg)
+
+
+@pytest.fixture
+def numbered_repo(repo: Path, run_git: Callable[..., CompletedProcess[str]]) -> Path:
+    """``repo`` plus ``f.txt`` holding lines 1..60, so edits can sit in each other's context."""
+    _commit_file(run_git, repo, "f.txt", "".join(f"{i}\n" for i in range(1, 61)), "numbers")
+    return repo
+
+
+def test_delete_branch_squash_after_earlier_pr_touched_nearby_lines(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Another PR changed lines inside our diff context before ours was squashed.
+
+    The squash commit's context then differs from the branch's own diff, so no
+    patch-id matches; the content check must still recognise the merge.
+    """
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-ctx-squash", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    _squash_merge(run_git, numbered_repo, "feat/607-ctx-squash")
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-ctx-squash") is True
+
+
+def test_delete_branch_rebase_after_earlier_pr_touched_nearby_lines(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Same as above for a rebase merge: rebased commits have shifted context."""
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-ctx-rebase", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    run_git(numbered_repo, "cherry-pick", "main..feat/607-ctx-rebase")
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-ctx-rebase") is True
+
+
+def test_delete_branch_keeps_branch_whose_change_main_later_reverted(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """If main no longer contains part of the branch's change, the branch is kept.
+
+    Only one of the branch's two commits was ever applied to main, after an
+    earlier PR shifted its context. The file it adds is missing from main.
+    """
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-partial-ctx", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    first = run_git(numbered_repo, "rev-parse", "feat/607-partial-ctx~1").stdout.strip()
+    run_git(numbered_repo, "cherry-pick", first)
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-partial-ctx") is False
+
+
+def test_delete_branch_squash_merged_then_reverted_counts_as_merged(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Merged means "in the default branch's history", as with ``git branch -d``.
+
+    A merge commit that main later reverts still lets ``-d`` delete the branch,
+    because the work is recorded on main. A squash merge that was later
+    reverted gets the same treatment: the squash commit still holds the change.
+    """
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-reverted")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _squash_merge(run_git, repo, "feat/607-reverted")
+    run_git(repo, "revert", "--no-edit", "HEAD")
+
+    assert wtr.delete_branch(repo, "feat/607-reverted") is True
+
+
 def test_process_removal_deletes_squash_merged_branch(
     wtr: ModuleType,
     repo: Path,

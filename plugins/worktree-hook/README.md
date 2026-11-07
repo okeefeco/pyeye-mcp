@@ -58,8 +58,12 @@ naming:
   | Merge commit or fast-forward | the branch tip is an ancestor of the default branch |
   | Rebase | every branch commit has a patch-equivalent there (`git cherry`) |
   | Squash | the branch's whole change since its merge-base matches one commit there (`git patch-id`) |
+  | Any of these after other PRs edited nearby lines | a trial merge of the branch into the default branch (`git merge-tree`, git 2.38+) changes nothing |
 
-  Only then is it deleted with `-D`. Anything else, such as commits added after
+  The default branch may have moved on since the merge; later PRs don't
+  matter. "Merged" means the work is in the default branch's history, as with
+  `git branch -d`, so a merge that was later reverted still counts. Only then
+  is the branch deleted with `-D`. Anything else, such as commits added after
   the merge, a partial rebase, or a change edited while merging, is left in
   place rather than destroy work.
 

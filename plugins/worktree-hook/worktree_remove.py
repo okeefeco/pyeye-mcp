@@ -230,14 +230,37 @@ def _squash_commit(repo_root: Path, branch: str, target: str) -> str | None:
     return _patch_ids(repo_root, target_log.stdout).get(next(iter(branch_ids)))
 
 
+def _content_already_on(repo_root: Path, branch: str, target: str) -> bool:
+    """Merging ``branch`` into ``target`` would change nothing: its work is there.
+
+    Patch-ids hash each change's surrounding context lines. If another PR edited
+    lines near ours *before* ours was squash- or rebase-merged, the copies on
+    ``target`` carry different context and no patch-id matches. A trial merge
+    sidesteps that: ``git merge-tree --write-tree`` (git >= 2.38) merges in
+    memory, touching no working tree, index or ref. If the merge is clean and
+    its tree equals ``target``'s tree, every change the branch makes is already
+    on ``target``. If part of the change is missing, the merge would add it, so
+    the trees differ and the branch is kept. Older git, or a conflict, returns
+    False and leaves the decision to the patch checks.
+    """
+    merged = git("merge-tree", "--write-tree", "--no-messages", target, branch, cwd=str(repo_root))
+    if merged.returncode != 0 or not merged.stdout.strip():
+        return False
+    target_tree = git("rev-parse", f"{target}^{{tree}}", cwd=str(repo_root))
+    if target_tree.returncode != 0:
+        return False
+    return merged.stdout.split()[0] == target_tree.stdout.strip()
+
+
 def merged_into(repo_root: Path, branch: str) -> str | None:
     """Describe how ``branch`` was merged into a default branch, or return None.
 
     Works for every way a PR is merged: a merge commit or fast-forward
-    (ancestry), a rebase merge (every commit has an equivalent), or a squash
-    merge (the whole change matches one commit). Each default-branch ref from
-    :func:`default_branch_refs` is tried in turn. None means some of the
-    branch's work is not on any of them, so it must be kept.
+    (ancestry), a rebase merge (every commit has an equivalent), a squash merge
+    (the whole change matches one commit), and any of those after other PRs
+    changed nearby lines first (the content is already there). Each
+    default-branch ref from :func:`default_branch_refs` is tried in turn. None
+    means some of the branch's work is not on any of them, so it must be kept.
     """
     for target in default_branch_refs(repo_root):
         name = target.removeprefix("refs/heads/").removeprefix("refs/remotes/")
@@ -248,6 +271,8 @@ def merged_into(repo_root: Path, branch: str) -> str | None:
         squash = _squash_commit(repo_root, branch, target)
         if squash:
             return f"squash-merged into {name} as {squash[:12]}"
+        if _content_already_on(repo_root, branch, target):
+            return f"content already on {name}"
     return None
 
 
