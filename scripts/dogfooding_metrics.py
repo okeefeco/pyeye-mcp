@@ -65,7 +65,13 @@ class DogfoodingMetrics:
         self.history_file = self.data_dir / "history.jsonl"
 
     def start_session(self, issue_number: int | None = None) -> dict[str, Any]:
-        """Start a new development session."""
+        """Start a new development session, first finalising any open one.
+
+        An open session is ended (saved to history) rather than overwritten, so
+        switching branches never silently discards its data (#578).
+        """
+        if self.session_file.exists():
+            self.end_session()
         # Get current MCP metrics via the MCP tool
         # For now, we'll simulate this - in production, call the actual MCP
         session: dict[str, Any] = {
@@ -98,7 +104,7 @@ class DogfoodingMetrics:
         with self.history_file.open("a") as f:
             f.write(json.dumps(session) + "\n")
 
-        # Save stats for commit message hook
+        # Latest session's stats, for quick inspection
         stats_file = self.data_dir / "last_session_stats.json"
         with stats_file.open("w") as f:
             json.dump(session["stats"], f, indent=2)

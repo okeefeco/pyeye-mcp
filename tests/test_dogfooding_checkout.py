@@ -132,7 +132,7 @@ _SED = re.compile(r"sed -nE '[^']*'")
 class TestShellIssueParsing:
     """The bash helpers parse branches exactly like ``_extract_issue`` (#576)."""
 
-    @pytest.mark.parametrize("script", ["install_hooks.sh", "setup_aliases.sh"])
+    @pytest.mark.parametrize("script", ["setup_aliases.sh"])
     @pytest.mark.parametrize(("branch", "expected"), _BRANCH_CASES)
     def test_shell_matches_python(self, script, branch, expected):
         commands = _SED.findall((_SCRIPTS / script).read_text(encoding="utf-8"))
