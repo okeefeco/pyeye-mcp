@@ -3,12 +3,6 @@
     "dirs": [
       "notebooks",
       "scripts"
-    ],
-    "exclude_patterns": [
-      "**/test_*",
-      "**/__pycache__/**"
-    ],
-    "file_pattern": "*.py",
-    "recursive": true
+    ]
   }
 }

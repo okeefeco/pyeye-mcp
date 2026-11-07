@@ -43,10 +43,7 @@ directories for analysis, alongside the current project.
 |-----------|------|---------|-------------|
 | `packages` | `list[str]` | `None` | Package paths to add |
 | `namespaces` | `dict[str, list[str]]` | `None` | Namespace name → repo paths that contribute to it |
-| `standalone_dirs` | `list[str]` | `None` | Directories of standalone Python scripts (non-package files) |
-| `recursive` | `bool` | `True` | Stored with `standalone_dirs`; see note below |
-| `file_pattern` | `str` | `"*.py"` | Stored with `standalone_dirs`; see note below |
-| `exclude_patterns` | `list[str]` | `None` | Stored with `standalone_dirs`; see note below |
+| `standalone_dirs` | `list[str]` | `None` | Directories of standalone Python scripts (non-package files). Every `.py` file under them is analysed |
 | `save` | `bool` | `True` | Write the updated configuration to `.pyeye.json` |
 
 Calls are **additive**: `packages` and `standalone_dirs` are appended to what is
@@ -54,9 +51,12 @@ already configured, and `namespaces` are merged by name. With `save=True`, the
 file is written only when at least one of `packages`, `namespaces`, or
 `standalone_dirs` is given.
 
-> **Note:** `recursive`, `file_pattern` and `exclude_patterns` are persisted but
-> not currently read by the analysis path. Tracked in
-> [#513](https://github.com/okeefeco/pyeye-mcp/issues/513).
+> **Removed in 2.0:** `recursive`, `file_pattern` and `exclude_patterns`. They
+> were saved to `.pyeye.json` but never took effect
+> ([#513](https://github.com/okeefeco/pyeye-mcp/issues/513)). Passing them is
+> not an error; they are ignored. If an existing `.pyeye.json` still contains
+> them under `standalone`, they are ignored with a warning, and the response
+> carries a `warnings` entry naming them.
 
 ### Returns
 
@@ -66,11 +66,9 @@ file is written only when at least one of `packages`, `namespaces`, or
   namespaces: {[name: string]: string[]}; // Configured namespace packages
   standalone: {                           // Standalone-script configuration
     dirs: string[];
-    recursive: boolean;
-    file_pattern: string;
-    exclude_patterns: string[];
   };
   config_file: string;                    // Path of the project's .pyeye.json
+  warnings?: string[];                    // Present only if the config has ignored keys
 }
 ```
 

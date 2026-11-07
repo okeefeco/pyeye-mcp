@@ -193,6 +193,27 @@ not reachable.
 `max_depth=None` (unbounded) or an explicit depth, or call `outline` again on a
 truncated node's handle to drill into it.
 
+#### `configure_packages` drops its standalone-scan options (#513, #253)
+
+`configure_packages` no longer takes `recursive`, `file_pattern` or
+`exclude_patterns`, and no longer saves them under `standalone` in `.pyeye.json`.
+They never took effect: their only reader, `JediAnalyzer._discover_standalone_files`,
+lost its last caller when `find_references` was removed (#505), and even with a
+caller it never read `exclude_patterns` from the config. That method is removed
+too. Standalone directories are still analysed, in full: every `.py` file under
+each `standalone.dirs` entry. The tool now has 4 parameters (`packages`,
+`namespaces`, `standalone_dirs`, `save`), which also resolves #253.
+
+`get_standalone_config()` now returns only `{"dirs": [...]}`. An existing
+`.pyeye.json` that still carries the removed keys loads normally: the keys are
+ignored with a logged warning, and the `configure_packages` response includes a
+`warnings` list naming them. The field is absent when there is nothing to report.
+
+**Required action:** none for the analysis itself, since the options never
+applied. Remove `recursive` / `file_pattern` / `exclude_patterns` from
+`standalone` in `.pyeye.json` to silence the warning. Clients that still pass
+them to `configure_packages` are not rejected; the arguments are ignored.
+
 #### Python 3.11 or newer required (#528)
 
 Python 3.10 support is dropped: `requires-python` is now `>=3.11`. Python 3.10
