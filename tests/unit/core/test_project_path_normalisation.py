@@ -98,8 +98,31 @@ def test_cached_analyzer_root_is_resolved_and_shared(project: Path) -> None:
 
 
 def test_jedi_analyzer_resolves_relative_project_path(project: Path) -> None:
-    """Defence in depth: a directly-constructed analyzer also normalises its root."""
+    """Defence in depth: a directly-constructed analyzer makes its root absolute."""
     analyzer = JediAnalyzer("proj")
     assert analyzer.project_path.is_absolute()
-    assert analyzer.project_path == project.resolve()
+    assert analyzer.project_path.resolve() == project.resolve()
     assert Path(os.fspath(analyzer.project.path)).is_absolute()
+
+
+def test_jedi_analyzer_keeps_absolute_spelling(project: Path) -> None:
+    """An absolute root keeps its spelling: no symlink/short-name canonicalisation.
+
+    Regression guard for the macOS (/var -> /private/var) and Windows (RUNNER~1)
+    CI failures. Callers that compare against their own path must still match.
+    """
+    absolute = Path(os.path.abspath(project))
+    analyzer = JediAnalyzer(absolute.as_posix())
+    assert analyzer.project_path == absolute
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_jedi_analyzer_does_not_follow_symlinked_root(project: Path, tmp_path: Path) -> None:
+    """A symlinked absolute root is kept as given, not replaced by its target.
+
+    Reproduces the macOS ``/var -> /private/var`` CI failure on any POSIX host.
+    """
+    link = tmp_path / "linked_proj"
+    link.symlink_to(project, target_is_directory=True)
+    analyzer = JediAnalyzer(link.as_posix())
+    assert analyzer.project_path == link

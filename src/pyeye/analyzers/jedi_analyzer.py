@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -64,9 +65,11 @@ class JediAnalyzer:
         Raises:
             ProjectNotFoundError: If the project path doesn't exist
         """
-        # Resolve so the Jedi project root (and so every location.file) is absolute
-        # whatever spelling the caller used (#603).
-        self.project_path = Path(project_path).resolve()
+        # Make the root absolute so every location.file is absolute whatever
+        # spelling the caller used (#603). abspath, not resolve(): an already
+        # absolute path must keep its spelling (no /var -> /private/var on macOS,
+        # no RUNNER~1 expansion on Windows) so callers' own paths still match.
+        self.project_path = Path(os.path.abspath(project_path))
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
