@@ -47,6 +47,9 @@ class TestTagRelease:
         steps = wf["jobs"]["tag"]["steps"]
         decide = next(s for s in steps if s.get("id") == "decide")
         assert "scripts/changelog.py pending-release" in decide["run"]
+        # The whole message, not just the subject: a merge commit carries the
+        # PR title on its third line (#585).
+        assert '--head-message "$HEAD_MESSAGE"' in decide["run"]
         # The commit message is attacker-influenced text: env only, never inline.
         assert "HEAD_MESSAGE" in decide["env"]
         assert "github.event.head_commit.message" not in decide["run"]

@@ -57,8 +57,10 @@ other change; this is the last chance to edit the release notes.
 On the merge to `main`, `.github/workflows/tag-release.yml`:
 
 1. reads the newest released version in `CHANGELOG.md` (`changelog.py pending-release`);
-2. if it has no tag **and** the merge commit's subject starts with `release: vX.Y.Z`,
-   tags that commit `vX.Y.Z`;
+2. if it has no tag **and** the merge came from a PR titled `release: vX.Y.Z`,
+   tags that commit `vX.Y.Z`. Squash merges and merge commits both work: the
+   PR title is the squash subject, or the line after a merge commit's
+   `Merge pull request #N from …` subject;
 3. dispatches `release.yml` on the new tag.
 
 `release.yml` then tests, builds, creates the GitHub Release, and publishes to

@@ -2,7 +2,7 @@
 #
 # A release PR (`python scripts/changelog.py prepare X.Y.Z`, titled
 # `release: vX.Y.Z`) promotes [Unreleased] to [X.Y.Z] in CHANGELOG.md. When it
-# merges, this workflow tags the merge commit `vX.Y.Z` and dispatches
+# merges (squash or merge commit), this workflow tags the merge commit `vX.Y.Z` and dispatches
 # release.yml on that tag.
 #
 # Why dispatch instead of relying on the tag push: tags pushed with GITHUB_TOKEN
@@ -46,8 +46,9 @@ jobs:
           # Passed via env, never interpolated into the script (injection-safe).
           HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          SUBJECT=$(printf '%s\n' "$HEAD_MESSAGE" | head -n1)
-          VERSION=$(python scripts/changelog.py pending-release --head-subject "$SUBJECT")
+          # Whole message: a merge commit carries the PR title after its
+          # "Merge pull request #N from ..." subject (#585).
+          VERSION=$(python scripts/changelog.py pending-release --head-message "$HEAD_MESSAGE")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [ -n "$VERSION" ]; then
             echo "Release merge: tagging v$VERSION"
