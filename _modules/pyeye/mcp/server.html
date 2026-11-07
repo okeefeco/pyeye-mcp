@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=d9ec7b16"></script>
+      <script src="../../../_static/documentation_options.js?v=61f63585"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -1117,12 +1117,30 @@
 <span class="sd">      expanded only if the budget admits ALL its direct members, else it is cut</span>
 <span class="sd">      off whole.  Such a node ALSO carries ``member_count`` — the count of</span>
 <span class="sd">      direct members withheld (a fresh count; the children were never partially</span>
-<span class="sd">      listed).  Recover with a larger ``max_nodes`` or by targeting the subtree.</span>
+<span class="sd">      listed) — or, in package survey mode, ``submodule_count`` (the submodules</span>
+<span class="sd">      withheld).  Recover with a larger ``max_nodes`` or by targeting the subtree.</span>
 <span class="sd">    - ``&quot;external&quot;`` — external-scope container at depth ≥ 1; no deeper walk</span>
 <span class="sd">      into third-party code.</span>
+<span class="sd">    - ``&quot;survey_leaf&quot;`` — package survey mode only (below): a module that HAS</span>
+<span class="sd">      members, which a survey does not walk.  Recover with ``outline`` on that</span>
+<span class="sd">      module&#39;s handle.  No ``member_count`` (one would cost a walk per leaf).</span>
 
 <span class="sd">    When both ``max_nodes`` AND a depth/external cap could apply to the same</span>
 <span class="sd">    node, ``truncation_reason`` is ``&quot;max_nodes&quot;`` (the harder global bound).</span>
+
+<span class="sd">    **Package survey mode.** When *handle* is a package that has submodules, the</span>
+<span class="sd">    tree walks the ``submodules`` edge instead of ``members``: children are its</span>
+<span class="sd">    child modules/subpackages.  Module members are never walked in a survey — a</span>
+<span class="sd">    module with members is ``truncated: &quot;survey_leaf&quot;``; only a module with no</span>
+<span class="sd">    members is ``children: []``.  A walked package whose ``__init__`` defines</span>
+<span class="sd">    members carries ``member_count`` (present only when &gt; 0) — those members are</span>
+<span class="sd">    not in the tree; ``expand(pkg, &quot;members&quot;)`` lists them.  A package root with</span>
+<span class="sd">    no submodules is outlined by its ``members`` instead.</span>
+
+<span class="sd">    **Counts are named for their edge.** ``member_count`` / ``submodule_count``</span>
+<span class="sd">    always equal ``inspect(handle).edge_counts[&quot;members&quot;]`` /</span>
+<span class="sd">    ``[&quot;submodules&quot;]``.  On a ``truncated`` node the count was withheld by the</span>
+<span class="sd">    cap; on a walked node (``children`` present) it is not part of this view.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        handle: Canonical Python dotted-name string (from resolve/inspect).</span>
