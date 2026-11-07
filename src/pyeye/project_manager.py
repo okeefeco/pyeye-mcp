@@ -315,7 +315,8 @@ class ProjectManager:
             return self.analyzers[path_key]
 
         # --- Cache miss: construct and store ---
-        config = ProjectConfig(project_path)
+        resolved_path_str = path_key.as_posix()
+        config = ProjectConfig(resolved_path_str)
 
         # Resolve namespace paths from config file AND namespace_resolver.
         # These must be computed BEFORE creating the analyzer so the Jedi
@@ -341,7 +342,7 @@ class ProjectManager:
                 namespace_config[ns_key] = [str(p) for p in ns_path_list]
 
         analyzer = JediAnalyzer(
-            project_path, config=config, namespace_config=namespace_config or None
+            resolved_path_str, config=config, namespace_config=namespace_config or None
         )
 
         # Bridge: apply package paths from config file to dependencies.
