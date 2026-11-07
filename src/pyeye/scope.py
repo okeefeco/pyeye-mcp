@@ -126,6 +126,11 @@ def _has_build_artifact_segment(path: Path, project_root: Path | None = None) ->
     ``.tox``, ``__pycache__``, and ``*.egg-info`` match at *any* depth because
     they are semantically unambiguous.
 
+    When *path* is under *project_root*, only the segments **below** the root are
+    tested: a project that lives under e.g. ``/ci/.tox/`` is not a build
+    artifact (#515). A path outside the root, or a call without a root, tests
+    every segment.
+
     Comparisons are case-folded so ``Build/`` and ``DIST/`` match on
     case-insensitive filesystems (Windows, macOS default).
     """
@@ -139,7 +144,9 @@ def _has_build_artifact_segment(path: Path, project_root: Path | None = None) ->
         if len(parts) > len(root_parts) and parts[: len(root_parts)] == root_parts:
             toplevel_idx = len(root_parts)  # index of the first child segment
 
-    for i, part in enumerate(parts):
+    # Under the root, skip the root's own segments and its ancestors (#515).
+    start = toplevel_idx if toplevel_idx is not None else 0
+    for i, part in enumerate(parts[start:], start):
         folded = part.casefold()
         # Top-level-only names
         if folded in _BUILD_ARTIFACT_TOPLEVEL:
