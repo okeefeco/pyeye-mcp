@@ -13,7 +13,7 @@
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=136aea5a"></script>
+      <script src="_static/documentation_options.js?v=b2fee039"></script>
       <script src="_static/doctools.js?v=fd6eb6e6"></script>
       <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/js/theme.js"></script>
@@ -356,7 +356,7 @@
 </div>
 </li>
 <li><p><strong>Set Up Development Environment</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--frozen
 pre-commit<span class="w"> </span>install
 </pre></div>
 </div>
@@ -492,7 +492,7 @@ pre-commit<span class="w"> </span>install
 <section id="building-documentation">
 <h3>Building Documentation<a class="headerlink" href="#building-documentation" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install documentation dependencies (the `docs` dependency-group)</span>
-uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>docs
+uv<span class="w"> </span>sync<span class="w"> </span>--frozen<span class="w"> </span>--group<span class="w"> </span>docs
 
 <span class="c1"># Build documentation</span>
 <span class="nb">cd</span><span class="w"> </span>docs
