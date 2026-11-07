@@ -281,22 +281,33 @@ Override files are perfect for local development configurations that shouldn't b
 
 ### Performance Settings
 
-All performance-critical settings can be configured via environment variables to tune for your specific workload:
+Performance settings are configured through environment variables:
 
 | Environment Variable | Default | Description | Valid Range |
 |---------------------|---------|-------------|-------------|
 | `PYEYE_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
 | `PYEYE_CACHE_TTL` | 300 | Cache time-to-live in seconds | 0-86400 (24h) |
+| `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; the main memory lever | 1-1000000 |
 | `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
-| `PYEYE_MAX_FILE_SIZE` | 1048576 | Maximum file size to analyze (bytes) | 1KB-100MB |
-| `PYEYE_MAX_WORKERS` | 4 | Maximum concurrent analysis workers | 1-32 |
-| `PYEYE_ANALYSIS_TIMEOUT` | 30.0 | Analysis timeout in seconds | 1.0-300.0 |
-| `PYEYE_ENABLE_MEMORY_PROFILING` | false | Enable memory profiling | true/false |
 | `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
 | **Connection Pooling** | | **Optimize multi-project workflows** | |
 | `PYEYE_ENABLE_CONNECTION_POOLING` | true | Enable connection pooling for multiple projects | true/false |
 | `PYEYE_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
 | `PYEYE_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
+| **Logging** | | | |
+| `PYEYE_LOG_LEVEL` | INFO | `DEBUG`, `INFO`, `WARNING` or `ERROR` | |
+| `PYEYE_LOG_FILE` | unset | Append logs to this file (otherwise stderr only) | |
+
+These are read when the server starts, from the server's own environment.
+The MCP client starts the server, so set them on its server entry (Claude
+Code: `claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- python -m pyeye.mcp`;
+other clients take an `env` map in their config), then restart the client.
+An `export` in your shell only reaches the server if the client was launched
+from that shell.
+
+Packages and namespaces are not configured through environment variables. Use
+`.pyeye.json`, `pyproject.toml`, the global config file, or the
+`configure_packages` tool (see [Configuration](#configuration)).
 
 #### Performance Tuning Examples
 
@@ -319,9 +330,8 @@ export PYEYE_WATCHER_DEBOUNCE=0.1   # Near real-time updates
 **Memory-constrained environment:**
 
 ```bash
-export PYEYE_MAX_PROJECTS=3         # Minimal project cache
-export PYEYE_MAX_FILE_SIZE=524288   # 512KB file limit
-export PYEYE_MAX_WORKERS=2          # Fewer workers
+export PYEYE_MAX_PROJECTS=3                 # Minimal project cache
+export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500  # Fewer parsed files in memory
 ```
 
 This file is automatically ignored by git and takes precedence over all other configuration sources.

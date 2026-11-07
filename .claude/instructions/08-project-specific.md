@@ -58,7 +58,7 @@ The server supports configuration via:
 
 - `.pyeye.json` in project root
 - `pyproject.toml` [tool.pyeye] section
-- Environment variables (PYEYE_PACKAGES, etc.)
+- Environment variables: performance tuning and logging ONLY (README "Performance Settings"). Packages and namespaces are NOT configurable through env vars (#556). NEVER document an env var that `src/` doesn't read (`tests/test_documented_env_vars.py` enforces this)
 - Global config `~/.config/pyeye/config.json`
 - Auto-discovery of sibling packages
 

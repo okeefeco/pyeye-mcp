@@ -178,21 +178,22 @@ sudo dnf install python3-devel
 
 ### Environment Variable Issues
 
-**Problem**: Environment variables not recognized.
+**Problem**: Environment variables seem to have no effect.
 
 **Solution**:
 
-1. Set variables correctly:
+1. Check the name. Only the variables in the README's
+   [Performance Settings](../README.md#performance-settings) table exist.
+   Packages and namespaces can't be set through the environment; use
+   `.pyeye.json` or `configure_packages` instead.
+
+2. Set them where the server starts. The MCP client launches the server, so
+   `env | grep PYEYE` in your shell doesn't show what the server sees. Put them
+   on the client's server entry and restart the client:
 
    ```bash
-   export PYEYE_PACKAGES="../lib1,../lib2"
-   export PYEYE_NAMESPACE_company="~/repos/auth,~/repos/api"
-   ```
-
-2. Verify they're set:
-
-   ```bash
-   env | grep PYEYE
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- python -m pyeye.mcp
    ```
 
 ### Multi-Project Setup Problems
@@ -254,13 +255,7 @@ sudo dnf install python3-devel
    }
    ```
 
-2. Increase timeout (default: 30s):
-
-   ```bash
-   export PYEYE_TIMEOUT=60
-   ```
-
-3. Limit project scope to relevant code
+2. Limit project scope to relevant code
 
 ### High Memory Usage
 
@@ -295,11 +290,8 @@ sudo dnf install python3-devel
 
 1. File watchers auto-update on changes (using watchdog)
 2. Force cache refresh by modifying a file
-3. Disable caching for debugging:
-
-   ```bash
-   export PYEYE_CACHE_ENABLED=false
-   ```
+3. Restart the MCP client to start the server with empty caches, or lower
+   `PYEYE_CACHE_TTL` (seconds, default 300).
 
 ### File Watcher Performance
 
@@ -315,26 +307,11 @@ sudo dnf install python3-devel
    }
    ```
 
-2. Increase debounce time (default: 1s):
+2. Increase debounce time (default: 0.5s):
 
    ```bash
-   export PYEYE_DEBOUNCE=2
+   export PYEYE_WATCHER_DEBOUNCE=2
    ```
-
-### Timeout Configurations
-
-**Problem**: Operations timing out prematurely.
-
-**Solution**:
-
-1. Increase analysis timeout:
-
-   ```bash
-   export PYEYE_ANALYSIS_TIMEOUT=60
-   ```
-
-2. For specific operations, use tool-specific timeouts
-3. Check system resources aren't constrained
 
 ---
 
@@ -612,48 +589,28 @@ Detection is automatic and happens when project loads.
 
 **Default settings** (usually optimal):
 
-```python
-CACHE_TTL = 300  # 5 minutes
-MAX_CACHED_PROJECTS = 10
-DEBOUNCE_DELAY = 1.0  # 1 second
+```bash
+PYEYE_CACHE_TTL=300          # 5 minutes
+PYEYE_MAX_PROJECTS=10
+PYEYE_WATCHER_DEBOUNCE=0.5   # seconds
 ```
+
+Set these on the MCP client's server entry, not with a shell `export`; see the
+README's [Performance Settings](../README.md#performance-settings).
 
 **For large codebases**:
 
 ```bash
 export PYEYE_CACHE_TTL=600  # 10 minutes
 export PYEYE_MAX_PROJECTS=5  # Fewer but larger projects
-export PYEYE_DEBOUNCE=2.0   # Reduce file watch overhead
+export PYEYE_WATCHER_DEBOUNCE=2.0   # Reduce file watch overhead
 ```
 
 **For rapid development**:
 
 ```bash
 export PYEYE_CACHE_TTL=60   # 1 minute
-export PYEYE_DEBOUNCE=0.5   # Faster updates
-```
-
-### Worker Configuration
-
-The server uses asynchronous processing. Tune based on CPU cores:
-
-```bash
-# For 4-core system (default)
-export PYEYE_WORKERS=4
-
-# For intensive analysis on 8-core system
-export PYEYE_WORKERS=6  # Leave some for system
-```
-
-### File Size Limits
-
-Prevent analysis of huge files:
-
-```json
-{
-  "max_file_size": 1048576,  // 1MB default
-  "skip_large_files": true
-}
+export PYEYE_WATCHER_DEBOUNCE=0.2   # Faster updates
 ```
 
 ### Debounce Settings
@@ -661,29 +618,30 @@ Prevent analysis of huge files:
 Control how quickly the server responds to file changes:
 
 ```bash
-# Default: 1 second
-export PYEYE_DEBOUNCE=1.0
+# Default: 0.5 seconds
+export PYEYE_WATCHER_DEBOUNCE=0.5
 
 # For slower systems or network drives
-export PYEYE_DEBOUNCE=3.0
+export PYEYE_WATCHER_DEBOUNCE=3.0
 
 # For local SSDs with small projects
-export PYEYE_DEBOUNCE=0.2
+export PYEYE_WATCHER_DEBOUNCE=0.2
 ```
 
 ### Project Limit Tuning
 
 Balance memory usage vs cache effectiveness:
 
-```python
+```bash
 # Small memory system (<8GB RAM)
-MAX_CACHED_PROJECTS = 3
+PYEYE_MAX_PROJECTS=3
+PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500
 
 # Standard system (16GB RAM)
-MAX_CACHED_PROJECTS = 10  # Default
+PYEYE_MAX_PROJECTS=10  # Default
 
 # High memory system (32GB+ RAM)
-MAX_CACHED_PROJECTS = 20
+PYEYE_MAX_PROJECTS=20
 ```
 
 ### Optimization Checklist

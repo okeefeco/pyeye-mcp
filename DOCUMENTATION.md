@@ -140,17 +140,11 @@ company = [
 
 ### Environment Variables
 
-```bash
-# Configure packages
-export PYEYE_PACKAGES=/path/to/pkg1:/path/to/pkg2
-
-# Configure namespace packages
-export PYEYE_NAMESPACE_company=~/repos/company-auth:~/repos/company-api
-export PYEYE_NAMESPACE_plugins=~/repos/plugin-*
-
-# Start Claude with configuration
-claude
-```
+Packages and namespaces are **not** configured through environment variables.
+Use a project config file (above), the global configuration (below), or the
+`configure_packages` tool. Environment variables only tune performance and
+logging; see the README's
+[Performance Settings](README.md#performance-settings).
 
 ### Global Configuration
 
@@ -583,8 +577,11 @@ def load_plugins(project_path: str):
 
 ## Environment Configuration
 
-- `PYEYE_PACKAGES`: Colon-separated list of package paths
-- `PYEYE_NAMESPACE_<name>`: Namespace package paths
+Environment variables tune performance and logging only. The full list is in
+the README's [Performance Settings](README.md#performance-settings). Set them on
+the MCP client's server entry (for example `claude mcp add … -e NAME=value …`),
+because the client is what starts the server.
+
 - `PYEYE_CACHE_TTL`: Cache TTL in seconds
 - `PYEYE_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
 - `PYEYE_MAX_PROJECTS`: Maximum cached projects (default: 10)
