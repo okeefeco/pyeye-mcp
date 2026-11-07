@@ -86,28 +86,33 @@ gh pr checks --watch
 1. **Merge with raw commands** (capture exit codes; verify state):
 
    ```bash
-   gh pr merge <PR-NUMBER> --merge --delete-branch
+   gh pr merge <PR-NUMBER> --squash   # squash is the only enabled method (#607); the remote branch auto-deletes
    [ $? -eq 0 ] || { echo "ERROR: merge failed"; exit 1; }
 
    # Auto-close of linked issues is async — verify:
-   gh pr view <PR-NUMBER> --json state,mergedAt,headRefDeleted
+   gh pr view <PR-NUMBER> --json state,mergedAt,mergeCommit
    ```
 
-2. **Clean up** after confirming the merge landed and there are no uncommitted changes (`git -C <worktree> status --short`): `git worktree remove <worktree-path>` (or `git branch -d <branch>` for a non-worktree branch). NEVER `--force` without explicit permission.
+2. **Clean up** after confirming the merge landed and there are no uncommitted changes (`git -C <worktree> status --short`): `git worktree remove <worktree-path>`, then handle the local branch per "Deleting a squash-merged branch" below. NEVER `--force` without explicit permission.
 
 ### "PR is merged" / "Update after merge" / "Sync with main" / "Merged externally"
 
-→ **Verify the merge BEFORE any cleanup** (never delete unmerged work):
+→ **Verify the merge BEFORE any cleanup** (never delete unmerged work). PRs are squash-merged, so the branch's commits are NOT on `main`. NEVER use `git branch -r --contains` / `--is-ancestor` as the check; it always says "not merged".
 
 ```bash
-# Confirm the PR merged and the work is on origin/main
-gh pr view <PR-NUMBER> --json state,mergedAt,mergeCommit
-git fetch origin main && git branch -r --contains "$(git rev-parse HEAD)" | grep -q origin/main && echo "confirmed on main"
+# 1. Confirm GitHub merged it, and that the head it merged is exactly the local tip
+gh pr view <PR-NUMBER> --json state,headRefOid,mergeCommit -q '"\(.state) \(.headRefOid) \(.mergeCommit.oid)"'
+git rev-parse <feature-branch>          # should equal headRefOid
 
-# Then update local main and clean up the branch (safe -d refuses if unmerged)
+# 2. Update main (a bridge-cse_* session instead fast-forwards its own worktree branch)
 git checkout main && git pull origin main
-git branch -d <feature-branch>
 ```
+
+#### Deleting a squash-merged branch
+
+`git branch -d` ALWAYS refuses after a squash merge, so the local branch needs `git branch -D`, which is a force operation. It still needs explicit user permission (`01-core-rules.md`). Ask with the evidence: `state` = `MERGED`, and `headRefOid` equals the local tip, so every local commit was in the merged PR. If the tip differs, say so: the branch holds commits that were never merged.
+
+The remote branch is deleted automatically on merge (`delete_branch_on_merge`). Worktrees removed through the worktree-hook plugin detect squash merges themselves and delete the branch (see `plugins/worktree-hook/README.md`).
 
 ### "Start issue X" / "Begin work on issue X"
 

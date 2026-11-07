@@ -51,9 +51,11 @@ gh pr create --title "chore(release): v2.0.0" --body "Release v2.0.0. See CHANGE
 
 The commit subject and the PR title **must** both be `chore(release): vX.Y.Z`.
 It has to be a conventional commit, because the commitizen `commit-msg` hook
-rejects anything else. And the two have to match, because a single-commit
-squash uses the commit subject. Review the promoted section like any
-other change; this is the last chance to edit the release notes.
+rejects anything else. PRs are squash-merged, and the repository uses the PR
+title as the squash commit's subject, so the PR title is what lands on `main`;
+keeping the commit subject identical avoids any doubt about which one counts.
+Review the promoted section like any other change; this is the last chance to
+edit the release notes.
 
 ### 3. Merge it
 
@@ -61,9 +63,10 @@ On the merge to `main`, `.github/workflows/tag-release.yml`:
 
 1. reads the newest released version in `CHANGELOG.md` (`changelog.py pending-release`);
 2. if it has no tag **and** the merge came from a PR titled `chore(release): vX.Y.Z`,
-   tags that commit `vX.Y.Z`. Squash merges and merge commits both work: the
-   PR title is the squash subject, or the line after a merge commit's
-   `Merge pull request #N from …` subject;
+   tags that commit `vX.Y.Z`. PRs are squash-merged with the PR title as the
+   commit subject. The workflow also recognises a merge commit's
+   `Merge pull request #N from …` form, but merge commits are disabled on
+   this repository;
 3. dispatches `release.yml` on the new tag.
 
 `release.yml` then tests, builds, creates the GitHub Release, and publishes to

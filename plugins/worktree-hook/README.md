@@ -46,9 +46,13 @@ naming:
 
 - **Clean teardown** — when Claude Code removes one of these worktrees
   (`ExitWorktree` or session-exit cleanup), the companion `WorktreeRemove` hook
-  force-removes the worktree directory and deletes its branch. The branch is
-  deleted with the *safe* `git branch -d`: if it still holds unmerged commits
-  the hook leaves it in place rather than destroy work.
+  force-removes the worktree directory and deletes its branch. It tries the
+  *safe* `git branch -d` first. If git refuses, the hook checks whether the
+  branch was **squash-merged**: the branch's whole change since its merge-base
+  must exactly match one commit on the default branch (`origin/HEAD`'s target,
+  then `origin/main`, then `main`, compared by `git patch-id`). Only then is it
+  deleted with `-D`. Anything else, such as commits added after the squash or a
+  change edited while merging, is left in place rather than destroy work.
 
 ## Configuration
 
@@ -118,7 +122,10 @@ Two things to know:
 - `ExitWorktree` still first **refuses** with "could not verify worktree state";
   confirm the removal (e.g. `discard_changes: true`) and the hook then runs.
 - If the branch holds unmerged commits the hook **keeps it on purpose**. Delete
-  it deliberately once you're sure: `git branch -D <type>/<name>`.
+  it deliberately once you're sure: `git branch -D <type>/<name>`. A
+  squash-merged branch is recognised and deleted (see *Clean teardown*). The
+  match is local, so fetch first if the merge landed after your last fetch;
+  otherwise the branch is kept, which is the safe outcome.
 
 Manual fallback, if you ever need to remove one yourself:
 
