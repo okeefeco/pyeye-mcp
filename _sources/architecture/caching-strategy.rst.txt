@@ -233,9 +233,11 @@ Environment variables can override configuration:
 
 .. code-block:: bash
 
-   export PYEYE_CACHE_TTL=600
-   export PYEYE_CACHE_MAX_ENTRIES=20000
-   export PYEYE_CACHE_MEMORY_MB=1000
+   export PYEYE_CACHE_TTL=600                    # seconds (default 300)
+   export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=4000  # parsed files kept (default 2000)
+
+There is no memory-size cap; ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES`` is the memory
+lever (roughly 200 KB per cached file).
 
 Cache Monitoring
 ---------------

@@ -13,7 +13,7 @@
   
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=cdcb1cb4"></script>
+      <script src="_static/documentation_options.js?v=a2acd424"></script>
       <script src="_static/doctools.js?v=fd6eb6e6"></script>
       <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/js/theme.js"></script>
@@ -421,28 +421,26 @@
 </section>
 <section id="environment-variables">
 <h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
-<p>Override configuration using environment variables:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Package paths (colon-separated)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_PACKAGES</span><span class="o">=</span><span class="s2">&quot;../lib1:../lib2:~/utils&quot;</span>
+<p>Environment variables tune performance and logging. They don’t configure
+packages or namespaces; use the configuration files above, or the
+<code class="docutils literal notranslate"><span class="pre">configure_packages</span></code> tool, for that.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Cache settings</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_TTL</span><span class="o">=</span><span class="m">600</span><span class="w">                    </span><span class="c1"># seconds (default 300)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_ARTIFACT_CACHE_MAX_ENTRIES</span><span class="o">=</span><span class="m">4000</span><span class="w">  </span><span class="c1"># parsed files kept (default 2000)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_MAX_PROJECTS</span><span class="o">=</span><span class="m">20</span><span class="w">                  </span><span class="c1"># projects kept (default 10)</span>
 
-<span class="c1"># Namespace configuration (JSON format)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_NAMESPACES</span><span class="o">=</span><span class="s1">&#39;{&quot;company&quot;: [&quot;~/auth&quot;, &quot;~/api&quot;]}&#39;</span>
-
-<span class="c1"># Cache settings</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_TTL</span><span class="o">=</span><span class="m">600</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_MAX_ENTRIES</span><span class="o">=</span><span class="m">20000</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-
-<span class="c1"># Analysis settings</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_MAX_WORKERS</span><span class="o">=</span><span class="m">8</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_TIMEOUT</span><span class="o">=</span><span class="m">60</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_INCLUDE_TESTS</span><span class="o">=</span><span class="nb">true</span>
+<span class="c1"># File watching</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_WATCHER_DEBOUNCE</span><span class="o">=</span><span class="m">1</span>.0<span class="w">             </span><span class="c1"># seconds (default 0.5)</span>
 
 <span class="c1"># Logging</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_LOG_LEVEL</span><span class="o">=</span>DEBUG
 <span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_LOG_FILE</span><span class="o">=</span>/tmp/pyeye.log
 </pre></div>
 </div>
+<p>The MCP client starts the server, so set these on the client’s server entry
+(for example <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">mcp</span> <span class="pre">add</span> <span class="pre">pyeye</span> <span class="pre">-s</span> <span class="pre">user</span> <span class="pre">-e</span> <span class="pre">PYEYE_LOG_LEVEL=DEBUG</span> <span class="pre">--</span> <span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pyeye.mcp</span></code>),
+not just in your shell. The full list, with ranges, is in the README’s
+<em>Performance Settings</em> table.</p>
 </section>
 <section id="global-configuration">
 <h2>Global Configuration<a class="headerlink" href="#global-configuration" title="Link to this heading"></a></h2>

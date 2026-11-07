@@ -13,7 +13,7 @@
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../_static/documentation_options.js?v=cdcb1cb4"></script>
+      <script src="../_static/documentation_options.js?v=a2acd424"></script>
       <script src="../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../_static/js/theme.js"></script>
@@ -533,11 +533,12 @@ expiration to maintain low latency.</p>
 <section id="environment-overrides">
 <h3>Environment Overrides<a class="headerlink" href="#environment-overrides" title="Link to this heading"></a></h3>
 <p>Environment variables can override configuration:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_TTL</span><span class="o">=</span><span class="m">600</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_MAX_ENTRIES</span><span class="o">=</span><span class="m">20000</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_MEMORY_MB</span><span class="o">=</span><span class="m">1000</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_CACHE_TTL</span><span class="o">=</span><span class="m">600</span><span class="w">                    </span><span class="c1"># seconds (default 300)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYEYE_ARTIFACT_CACHE_MAX_ENTRIES</span><span class="o">=</span><span class="m">4000</span><span class="w">  </span><span class="c1"># parsed files kept (default 2000)</span>
 </pre></div>
 </div>
+<p>There is no memory-size cap; <code class="docutils literal notranslate"><span class="pre">PYEYE_ARTIFACT_CACHE_MAX_ENTRIES</span></code> is the memory
+lever (roughly 200 KB per cached file).</p>
 </section>
 </section>
 <section id="cache-monitoring">

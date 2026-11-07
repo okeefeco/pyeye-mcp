@@ -86,29 +86,28 @@ Add configuration to your `pyproject.toml`:
 Environment Variables
 --------------------
 
-Override configuration using environment variables:
+Environment variables tune performance and logging. They don't configure
+packages or namespaces; use the configuration files above, or the
+``configure_packages`` tool, for that.
 
 .. code-block:: bash
 
-   # Package paths (colon-separated)
-   export PYEYE_PACKAGES="../lib1:../lib2:~/utils"
-
-   # Namespace configuration (JSON format)
-   export PYEYE_NAMESPACES='{"company": ["~/auth", "~/api"]}'
-
    # Cache settings
-   export PYEYE_CACHE_TTL=600
-   export PYEYE_CACHE_MAX_ENTRIES=20000
-   export PYEYE_CACHE_ENABLED=true
+   export PYEYE_CACHE_TTL=600                    # seconds (default 300)
+   export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=4000  # parsed files kept (default 2000)
+   export PYEYE_MAX_PROJECTS=20                  # projects kept (default 10)
 
-   # Analysis settings
-   export PYEYE_MAX_WORKERS=8
-   export PYEYE_TIMEOUT=60
-   export PYEYE_INCLUDE_TESTS=true
+   # File watching
+   export PYEYE_WATCHER_DEBOUNCE=1.0             # seconds (default 0.5)
 
    # Logging
    export PYEYE_LOG_LEVEL=DEBUG
    export PYEYE_LOG_FILE=/tmp/pyeye.log
+
+The MCP client starts the server, so set these on the client's server entry
+(for example ``claude mcp add pyeye -s user -e PYEYE_LOG_LEVEL=DEBUG -- python -m pyeye.mcp``),
+not just in your shell. The full list, with ranges, is in the README's
+*Performance Settings* table.
 
 Global Configuration
 -------------------
