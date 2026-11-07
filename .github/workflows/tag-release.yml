@@ -1,0 +1,73 @@
+# Tag a release when a release PR merges (#583)
+#
+# A release PR (`python scripts/changelog.py prepare X.Y.Z`, titled
+# `release: vX.Y.Z`) promotes [Unreleased] to [X.Y.Z] in CHANGELOG.md. When it
+# merges, this workflow tags the merge commit `vX.Y.Z` and dispatches
+# release.yml on that tag.
+#
+# Why dispatch instead of relying on the tag push: tags pushed with GITHUB_TOKEN
+# don't trigger `on: push` workflows, but `workflow_dispatch` always creates a
+# run. Why not call release.yml as a reusable workflow: PyPI trusted publishing
+# doesn't support reusable workflows, so release.yml must run top-level.
+
+name: Tag release
+
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+
+permissions:
+  contents: write  # push the tag
+  actions: write   # dispatch release.yml
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag and dispatch release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # all tags, to tell whether the version is already released
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Decide whether this merge is a release
+        id: decide
+        env:
+          # Passed via env, never interpolated into the script (injection-safe).
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          SUBJECT=$(printf '%s\n' "$HEAD_MESSAGE" | head -n1)
+          VERSION=$(python scripts/changelog.py pending-release --head-subject "$SUBJECT")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERSION" ]; then
+            echo "Release merge: tagging v$VERSION"
+          else
+            echo "Not a release merge (or already tagged): nothing to do"
+          fi
+
+      - name: Create and push tag
+        if: steps.decide.outputs.version != ''
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION" "$GITHUB_SHA"
+          git push origin "v$VERSION"
+
+      - name: Dispatch the release workflow on the tag
+        if: steps.decide.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: gh workflow run release.yml --ref "v$VERSION"

@@ -17,47 +17,82 @@ Development versions are automatically generated:
 - Tagged release: `0.2.0`
 - Development after tag: `0.2.1.dev0+g1234abc.d20250826`
 
-## Simplified Release Process
+## Release Process
 
-### 1. Prepare for Release
+A release is a pull request. Merging it tags the release and publishes it (#583).
 
-```bash
-# Ensure on main with latest changes
-git checkout main
-git pull origin main
+### 1. Keep `[Unreleased]` current
 
-# Run tests
-uv run pytest
+Every user-facing PR adds its entry under `## [Unreleased]` in `CHANGELOG.md`,
+in Keep a Changelog form (`### Added`, `### Changed`, `### Fixed`,
+`### Removed`, or `### BREAKING CHANGES` with a "Required action" note).
+Entries are written by hand, while the reasoning is fresh, and reviewed with the
+code.
 
-# Update CHANGELOG.md with release notes
-# Move items from "Unreleased" to new version section
-```
-
-### 2. Create Release Tag
+### 2. Open the release PR
 
 ```bash
-# Create annotated tag (version is derived from this!)
-git tag -a v0.3.0 -m "Release v0.3.0
+git checkout -b release/v2.0.0 origin/main
 
-Summary of changes:
-- Feature X added
-- Bug Y fixed
-See CHANGELOG.md for details"
+# Promote [Unreleased] to "## [2.0.0] - <today>" and start a fresh [Unreleased]
+python scripts/changelog.py prepare 2.0.0
 
-# Push tag to trigger release workflow
-git push origin v0.3.0
+git commit -am "release: v2.0.0"
+git push -u origin release/v2.0.0
+gh pr create --title "release: v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
 ```
 
-### 3. Release Workflow
+`prepare` refuses to:
 
-The GitHub Actions workflow automatically:
+- release an empty `[Unreleased]`
+- reuse or go below an existing version (section or tag)
+- under-bump: `### BREAKING CHANGES` needs a major bump (a minor one before
+  1.0), and `### Added` needs at least a minor one
 
-1. Validates tests pass
-2. Builds distributions (wheel and sdist)
-3. Creates GitHub release
-4. Uploads distribution files
+The PR title **must** be `release: vX.Y.Z`. Review the promoted section like any
+other change; this is the last chance to edit the release notes.
 
-That's it! No version files to update, no post-release bumps needed.
+### 3. Merge it
+
+On the merge to `main`, `.github/workflows/tag-release.yml`:
+
+1. reads the newest released version in `CHANGELOG.md` (`changelog.py pending-release`);
+2. if it has no tag **and** the merge commit's subject starts with `release: vX.Y.Z`,
+   tags that commit `vX.Y.Z`;
+3. dispatches `release.yml` on the new tag.
+
+`release.yml` then tests, builds, creates the GitHub Release, and publishes to
+TestPyPI and PyPI. The release body is the version's `CHANGELOG.md` section
+(`changelog.py notes`), followed by GitHub's generated PR list. A tag without a
+CHANGELOG section fails the release early.
+
+Both guards in step 2 are deliberate: an ordinary PR that adds a version heading
+by mistake never tags anything, and re-running the workflow on an already
+tagged version does nothing.
+
+> **Why dispatch:** a tag pushed with the workflow's `GITHUB_TOKEN` does not
+> trigger `on: push` workflows, but `workflow_dispatch` always creates a run.
+> **Why not a reusable workflow:** PyPI trusted publishing does not support
+> reusable workflows, so `release.yml` must run as a top-level workflow.
+
+### Manual tag (fallback)
+
+Pushing a tag by hand still runs `release.yml` directly, but the version must
+already have a `CHANGELOG.md` section:
+
+```bash
+git tag -a v2.0.1 -m "Release v2.0.1"
+git push origin v2.0.1
+```
+
+### CHANGELOG checks in CI
+
+`python scripts/changelog.py check` runs on every PR. It requires that:
+
+- the headings are well-formed and `[Unreleased]` comes first
+- released sections are dated, non-empty, unique and newest-first
+- every `v*` tag has a section
+- every section has a tag, except the newest, which may be a pending release
 
 ## How Versioning Works
 
@@ -90,7 +125,7 @@ With setuptools_scm:
 
 - ✅ No version in pyproject.toml to update
 - ✅ No version in **init**.py to maintain
-- ✅ No commitizen version tracking
+- ✅ No commitizen version tracking (commitizen only lints commit messages; see #210)
 - ✅ No dev version workflows
 - ✅ No post-release version bumps
 - ✅ Version always matches git state

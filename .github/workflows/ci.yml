@@ -282,10 +282,12 @@ jobs:
         run: uv run mypy src/pyeye --ignore-missing-imports
 
   changelog-validation:
-    # Validate changelog format
+    # Validate CHANGELOG.md structure and that every v* tag has a section (#583)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # tags are needed for the tag-consistency checks
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -294,7 +296,7 @@ jobs:
 
       - name: Validate changelog
         run: |
-          python scripts/validate_changelog.py
+          python scripts/changelog.py check
 
   security:
     # Always run security checks, even for docs

@@ -55,7 +55,7 @@ def test_invoked_tool_detection():
     assert _invoked_tool("python -m mypy src/pyeye") == "mypy"
     assert _invoked_tool("python -m pip_audit") == "pip-audit"
     assert _invoked_tool("uv run pytest --cov=src/pyeye") is None
-    assert _invoked_tool("python scripts/validate_changelog.py") is None
+    assert _invoked_tool("python scripts/changelog.py check") is None
     assert _invoked_tool('echo "pytest passed"') is None
 
 

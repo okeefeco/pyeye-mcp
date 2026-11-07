@@ -1,5 +1,7 @@
 # Release Workflow
-# Automated release process triggered by version tags
+# Runs on a version tag: pushed by hand, or dispatched on the tag by
+# tag-release.yml when a release PR merges (#583). Release notes come from that
+# version's CHANGELOG.md section.
 
 name: Release
 
@@ -65,6 +67,9 @@ jobs:
             exit 1
           fi
           echo "✅ Version verification passed"
+
+      - name: Verify CHANGELOG has a section for this version
+        run: python scripts/changelog.py notes "${{ steps.version.outputs.version }}" > /dev/null
 
       - name: Run comprehensive tests
         run: |
@@ -147,9 +152,13 @@ jobs:
             *a*|*b*|*rc*) PRERELEASE_FLAG="--prerelease" ;;
           esac
 
-          # Create release with auto-generated notes and attach assets
+          # Curated notes from this version's CHANGELOG section, followed by
+          # GitHub's generated PR list.
+          python scripts/changelog.py notes "${{ steps.version.outputs.version }}" > release-notes.md
+
           RELEASE_URL=$(gh release create "$TAG" \
             --title "Release $TAG" \
+            --notes-file release-notes.md \
             --generate-notes \
             $PRERELEASE_FLAG \
             dist/pyeye_mcp-${{ steps.version.outputs.version }}-py3-none-any.whl \

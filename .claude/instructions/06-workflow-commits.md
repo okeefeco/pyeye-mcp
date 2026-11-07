@@ -140,11 +140,12 @@ For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --bo
 
 ## Special Cases
 
-### Release Branches
+### Releases
 
-For release branches:
+A release is a PR; see `docs/RELEASE.md`.
 
-- Create a new worktree (don't reuse an existing feature worktree)
-- Follow semantic versioning
-- Include changelog updates
-- Tag after merge
+- Prepare it with `python scripts/changelog.py prepare X.Y.Z`. NEVER hand-edit the version heading.
+- The PR title MUST be exactly `release: vX.Y.Z`; the tag workflow keys on it.
+- NEVER tag manually after merging a release PR: `tag-release.yml` tags and publishes. A manual tag races it.
+- If `prepare` refuses (e.g. an under-bump against `### BREAKING CHANGES`), fix the version or the notes. Don't work around it.
+- NEVER generate CHANGELOG prose from commits (`cz changelog` / `cz bump`); commitizen only lints commit messages (#210).
