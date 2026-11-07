@@ -153,6 +153,9 @@ cython_debug/
 # (pyeye-scenarios skill) — never vendored, worktree-local
 .scenario-repos/
 
+# Native Claude Code worktrees (EnterWorktree / using-git-worktrees skill)
+.claude/worktrees/
+
 # Local override configuration files
 .pyeye.override.json
 .pyeye.local.json
