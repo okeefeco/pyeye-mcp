@@ -596,6 +596,14 @@ uv run mcp dev src/pyeye/server.py
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
 - [API Reference](#core-tools)
 
+## Security
+
+Please report vulnerabilities privately through
+[GitHub's private vulnerability reporting](https://github.com/okeefeco/pyeye-mcp/security/advisories/new),
+not in public issues. [SECURITY.md](SECURITY.md) covers supported versions, what
+to expect after reporting, and pyeye's security model (static analysis only; it
+reads whatever paths the MCP client points it at).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
