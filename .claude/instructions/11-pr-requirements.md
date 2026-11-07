@@ -50,11 +50,11 @@ pytest --cov=src/pyeye --cov-fail-under=85
 
 ### Environment Per Worktree
 
-**Each worktree needs its own environment** — set it up with `uv sync` (this is a `uv` project; `uv sync` creates/uses the worktree's `.venv` and installs main + the default `dev` group):
+**Each worktree needs its own environment** — set it up with `uv sync --frozen` (this is a `uv` project; it creates/uses the worktree's `.venv` and installs main + the default `dev` group exactly as locked, never re-resolving):
 
 ```bash
 # In the new worktree (created via the using-git-worktrees skill / EnterWorktree, under .claude/worktrees)
-uv sync
+uv sync --frozen
 # Pre-commit hooks work automatically - no installation needed!
 ```
 

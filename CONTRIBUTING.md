@@ -99,7 +99,7 @@ Please follow these steps for your contribution:
 2. Install dependencies (creates a uv-managed `.venv`; `dev` is uv's default group):
 
    ```bash
-   uv sync
+   uv sync --frozen
    ```
 
 3. Install pre-commit hooks:
@@ -128,6 +128,7 @@ silently re-resolves. Resolution happens in exactly one place: a deliberate
 `uv lock` / `uv add`, committed and reviewed.
 
 - **Hooks** pin `uv run --frozen` (use the lock as-is; never block, never rewrite it).
+- **Local setup** uses `uv sync --frozen` (install exactly what `uv.lock` says; never re-resolve, so it works offline and behind a PyPI mirror). Run `uv lock --check` if you want the drift check locally — CI enforces it either way.
 - **CI** pins `uv sync --locked` (assert `uv.lock` equals `pyproject.toml` and fail on drift). A per-step flag, not a `UV_LOCKED` env var — `UV_LOCKED` is mutually exclusive with the hooks' `--frozen`, and CI's `pre-commit` job runs those hooks.
 - **Changing dependencies** is the only sanctioned re-resolution: edit `pyproject.toml`, run `uv lock` (or `uv add`), and commit the updated `uv.lock` in the same change.
 

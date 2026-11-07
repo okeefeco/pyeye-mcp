@@ -27,7 +27,7 @@ repos:
   # own `rev:` in a separate env, which drifted from the lock (#547). Each local
   # hook below mirrors its upstream manifest (entry, types/files, args, stages,
   # require_serial). Only non-Python hooks (markdownlint) stay remote.
-  # Requires a synced env (`uv sync`); CI does this before running pre-commit.
+  # Requires a synced env (`uv sync --frozen`); CI does this before running pre-commit.
 
   # Security checks
   - repo: local
@@ -243,7 +243,7 @@ repos:
     hooks:
       - id: decision-log-nudge
         name: Decision-log nudge (contract-surface suggestion)
-        entry: python scripts/decision_log_nudge.py
+        entry: uv run --frozen python scripts/decision_log_nudge.py
         language: system
         stages: [post-commit]
         pass_filenames: false

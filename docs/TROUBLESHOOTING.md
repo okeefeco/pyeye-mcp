@@ -26,7 +26,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 - Use `uv` for consistent Python management:
 
   ```bash
-  uv sync
+  uv sync --frozen
   ```
 
 ### Virtual Environment Setup
@@ -38,7 +38,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 1. Sync the uv-managed environment (creates `.venv`, installs deps from the lock):
 
    ```bash
-   uv sync
+   uv sync --frozen
    ```
 
 2. Verify installation:
@@ -57,7 +57,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 
    ```bash
    rm -rf .venv
-   uv sync
+   uv sync --frozen
    ```
 
 2. Check for conflicting packages:

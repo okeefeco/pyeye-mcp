@@ -38,9 +38,10 @@ dependencies = [
 
 # Dev/docs dependencies are PEP 735 dependency-groups, NOT extras (#414):
 # they are uv-managed (driven by uv.lock) and NOT published in the package's
-# distribution metadata. `dev` is uv's default group, so a bare `uv sync`
-# installs main + dev — what CI, pre-commit, and contributors need. `docs` is
-# opt-in via `uv sync --group docs`. There are intentionally no
+# distribution metadata. `dev` is uv's default group, so `uv sync` (no
+# --group flags) installs main + dev — what CI, pre-commit, and contributors
+# need; local setup uses `uv sync --frozen`, CI `uv sync --locked`. `docs` is
+# opt-in via `--group docs`. There are intentionally no
 # [project.optional-dependencies] extras.
 [dependency-groups]
 dev = [

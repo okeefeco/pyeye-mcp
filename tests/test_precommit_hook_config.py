@@ -180,3 +180,25 @@ def test_python_tool_hooks_run_through_uv():
     for hook_id in sorted(_UV_RUN_HOOKS):
         entry = _hook(config, hook_id).get("entry", "")
         assert entry.startswith("uv run --frozen "), f"{hook_id}: entry {entry!r}"
+
+
+def test_no_hook_invokes_a_bare_python_interpreter():
+    """Hooks must run Python through the uv env, never a bare ``python`` (#574).
+
+    A ``language: system`` hook whose entry starts with ``python``/``python3``
+    depends on whatever interpreter is on PATH. Where there is none (Ubuntu
+    ships only ``python3``), pre-commit reports "Executable `python` not found".
+    For post-commit hooks such as ``decision-log-nudge`` that doesn't block the
+    commit, so the hook silently never runs. ``uv run --frozen python ...``
+    always uses the project's locked env.
+    """
+    offenders = []
+    for repo in _load()["repos"]:
+        for hook in repo["hooks"]:
+            first = hook.get("entry", "").split(maxsplit=1)[:1]
+            if first and first[0] in {"python", "python3"}:
+                offenders.append(hook["id"])
+    assert not offenders, (
+        "hooks invoking a bare python interpreter (use 'uv run --frozen python', "
+        f"#574): {offenders}"
+    )
