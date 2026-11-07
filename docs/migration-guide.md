@@ -195,11 +195,11 @@ routes = await analyzer.find_routes(scope="backend")
 
 ### Environment Variables
 
-New environment variables supported:
-
-- `PYEYE_DEFAULT_SCOPE`: Global default scope
 - `PYEYE_CACHE_TTL`: Cache TTL in seconds (default: 300)
-- `PYEYE_MAX_CONCURRENT`: Max concurrent searches (default: 10)
+
+Default scopes are set in the config file (`scope_defaults`), not through the
+environment. The full list of environment variables is in the README's
+[Performance Settings](../README.md#performance-settings).
 
 ## API Changes
 
