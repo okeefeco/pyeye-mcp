@@ -33,7 +33,7 @@ Configure this in your Claude Code MCP settings (`~/.config/claude/claude_deskto
   "mcpServers": {
     "pyeye": {
       "command": "uv",
-      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye"],
+      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye-mcp"],
       "env": {
         "PYEYE_LOG_FILE": "/Users/yourname/.pyeye/connection.log",
         "PYEYE_LOG_LEVEL": "INFO"
@@ -58,7 +58,7 @@ Or in Claude Code config:
   "mcpServers": {
     "pyeye": {
       "command": "uv",
-      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye"],
+      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye-mcp"],
       "env": {
         "PYEYE_LOG_FILE": "/Users/yourname/.pyeye/connection.log",
         "PYEYE_LOG_LEVEL": "INFO",

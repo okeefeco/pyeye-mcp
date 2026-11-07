@@ -51,12 +51,12 @@ pip install -e .
 ```bash
 # Add globally (available in all projects)
 claude mcp add pyeye -s user -- \
-  uv run python ~/GitHub/pyeye-mcp/src/pyeye/server.py
+  uv --directory ~/GitHub/pyeye-mcp run python -m pyeye.mcp
 
 # Or add to specific project
 cd your-project
 claude mcp add pyeye -- \
-  uv run python ~/GitHub/pyeye-mcp/src/pyeye/server.py
+  uv --directory ~/GitHub/pyeye-mcp run python -m pyeye.mcp
 
 # Verify connection
 claude mcp list
@@ -72,9 +72,12 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "pyeye": {
       "command": "uv",
       "args": [
+        "--directory",
+        "/path/to/pyeye-mcp",
         "run",
         "python",
-        "/path/to/pyeye-mcp/src/pyeye/server.py"
+        "-m",
+        "pyeye.mcp"
       ]
     }
   }
