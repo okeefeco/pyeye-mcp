@@ -112,7 +112,7 @@ git checkout main && git pull origin main
 
 `git branch -d` ALWAYS refuses after a squash merge, so the local branch needs `git branch -D`, which is a force operation. It still needs explicit user permission (`01-core-rules.md`). Ask with the evidence: `state` = `MERGED`, and `headRefOid` equals the local tip, so every local commit was in the merged PR. If the tip differs, say so: the branch holds commits that were never merged.
 
-The remote branch is deleted automatically on merge (`delete_branch_on_merge`). Worktrees removed through the worktree-hook plugin detect squash merges themselves and delete the branch (see `plugins/worktree-hook/README.md`).
+The remote branch is deleted automatically on merge (`delete_branch_on_merge`). Worktrees removed through the worktree-hook plugin detect merged branches themselves (merge commit, rebase or squash) and delete them (see `plugins/worktree-hook/README.md`).
 
 ### "Start issue X" / "Begin work on issue X"
 

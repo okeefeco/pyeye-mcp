@@ -327,6 +327,93 @@ def test_delete_branch_squash_detected_via_origin_head_only(
     assert wtr.delete_branch(repo, "feat/607-remote") is True
 
 
+def test_delete_branch_merge_commit_on_remote_with_stale_local_main(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A merge-commit merge that only the remote default branch has is recognised.
+
+    ``git branch -d`` checks against HEAD, which here is a stale local main.
+    """
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-mc")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    stale_main = run_git(repo, "rev-parse", "main").stdout.strip()
+    run_git(repo, "merge", "--no-ff", "-m", "Merge pull request #1", "feat/607-mc")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    run_git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    run_git(repo, "reset", "-q", "--hard", stale_main)
+
+    assert wtr.delete_branch(repo, "feat/607-mc") is True
+
+
+def test_delete_branch_merge_commit_when_main_checkout_on_other_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Merged into main, but the main checkout's HEAD is elsewhere: still deleted."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-head")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "merge", "--no-ff", "-m", "merge", "feat/607-head")
+    run_git(repo, "checkout", "-q", "-b", "unrelated", "HEAD~1")
+
+    assert wtr.delete_branch(repo, "feat/607-head") is True
+
+
+def test_delete_branch_rebase_merged_multi_commit_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A rebase merge copies each commit onto main; all equivalents present → deleted."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-rebased")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _commit_file(run_git, repo, "other.txt", "moved on\n", "main moved on")  # forces new SHAs
+    run_git(repo, "cherry-pick", "main..feat/607-rebased")
+
+    assert wtr.delete_branch(repo, "feat/607-rebased") is True
+
+
+def test_delete_branch_keeps_partially_rebased_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Only some commits have equivalents on main: the rest are unmerged, so keep it."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-partial")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _commit_file(run_git, repo, "other.txt", "moved on\n", "main moved on")
+    first = run_git(repo, "rev-parse", "feat/607-partial~1").stdout.strip()
+    run_git(repo, "cherry-pick", first)
+
+    assert wtr.delete_branch(repo, "feat/607-partial") is False
+
+
+def test_delete_branch_squash_detected_on_master_default(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Generic plugin: a repo whose default branch is ``master`` works too."""
+    run_git(repo, "branch", "-m", "main", "master")
+    worktree = tmp_path / "wt"
+    run_git(repo, "worktree", "add", "-b", "feat/607-master", str(worktree))
+    _commit_file(run_git, worktree, "a.txt", "one\n", "first")
+    _commit_file(run_git, worktree, "b.txt", "two\n", "second")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "merge", "--squash", "feat/607-master")
+    run_git(repo, "commit", "-m", "squash")
+
+    assert wtr.default_branch_refs(repo) == ["refs/heads/master"]
+    assert wtr.delete_branch(repo, "feat/607-master") is True
+
+
 def test_process_removal_deletes_squash_merged_branch(
     wtr: ModuleType,
     repo: Path,

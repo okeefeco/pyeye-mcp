@@ -17,12 +17,12 @@ Behaviour:
     1. Resolve the main repo root from the worktree path.
     2. Determine the worktree's branch *before* removal (removal invalidates it).
     3. ``git worktree remove --force`` the worktree directory.
-    4. ``git branch -d`` the branch — the *safe* delete. If git refuses
-       (commits not reachable from HEAD), check whether the branch was
-       squash-merged: its whole change must exactly match one commit on the
-       default branch (patch-id). Only then delete with ``-D``. Otherwise
-       leave it in place rather than destroy work; the user can ``git branch
-       -D`` deliberately (#607).
+    4. ``git branch -d`` the branch — the *safe* delete. If git refuses, check
+       the default branch for the branch's work, however the PR was merged:
+       merge commit/fast-forward (ancestry), rebase (every commit has an
+       equivalent) or squash (the whole change matches one commit). Only then
+       delete with ``-D``. Otherwise leave it in place rather than destroy
+       work; the user can ``git branch -D`` deliberately (#607).
 
 Output:
     All logging goes to stderr and a log file (never stdout). Per Claude Code's
@@ -133,19 +133,28 @@ def remove_worktree(repo_root: Path, worktree_path: Path) -> bool:
 #: work on a branch whose merge-base is very old; a miss just keeps the branch.
 SQUASH_SEARCH_LIMIT = 1000
 
+#: Default-branch refs to try when ``origin/HEAD`` is not set, best first. The
+#: remote refs come first: a PR is merged on the remote, and the local branch
+#: may not have been pulled yet.
+DEFAULT_BRANCH_CANDIDATES = (
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/master",
+    "refs/heads/main",
+    "refs/heads/master",
+)
+
 
 def default_branch_refs(repo_root: Path) -> list[str]:
     """Return the refs a merged branch would have landed on, best first.
 
-    The remote default branch (``origin/HEAD``'s target) comes first, because a
-    PR is squash-merged on the remote and the local ``main`` may not have been
-    pulled yet. Local ``main`` follows. Only refs that exist are returned.
+    ``origin/HEAD``'s target (the remote's declared default branch) comes first,
+    then the existing refs in :data:`DEFAULT_BRANCH_CANDIDATES`.
     """
     refs: list[str] = []
     origin_head = git("symbolic-ref", "-q", "refs/remotes/origin/HEAD", cwd=str(repo_root))
     if origin_head.returncode == 0 and origin_head.stdout.strip():
         refs.append(origin_head.stdout.strip())
-    for candidate in ("refs/remotes/origin/main", "refs/heads/main"):
+    for candidate in DEFAULT_BRANCH_CANDIDATES:
         if (
             candidate not in refs
             and git("rev-parse", "-q", "--verify", candidate, cwd=str(repo_root)).returncode == 0
@@ -172,71 +181,104 @@ def _patch_ids(repo_root: Path, diff_text: str) -> dict[str, str]:
     return ids
 
 
-def squash_merged_into(repo_root: Path, branch: str) -> str | None:
-    """Return the default-branch commit ``branch`` was squash-merged as, or None.
+def _is_ancestor(repo_root: Path, branch: str, target: str) -> bool:
+    """Merge commit or fast-forward: the branch tip is reachable from ``target``."""
+    return git("merge-base", "--is-ancestor", branch, target, cwd=str(repo_root)).returncode == 0
 
-    A squash merge replays the branch's *combined* change as one new commit, so
-    none of the branch's commits reach the default branch and ``git branch -d``
-    always refuses. We detect it by comparing the patch-id of the branch's whole
-    change since its merge-base with the patch-id of each later commit on the
-    default branch. Only an exact match counts: commits added after the squash,
-    or edits made while merging, give a different id and the branch is kept.
+
+def _rebase_merged(repo_root: Path, branch: str, target: str) -> bool:
+    """Rebase merge: every branch commit has a patch-equivalent commit on ``target``.
+
+    ``git cherry`` marks a branch commit ``-`` when an equivalent change is
+    already upstream and ``+`` when it is not. One ``+`` means unmerged work.
+    """
+    result = git("cherry", target, branch, cwd=str(repo_root))
+    lines = result.stdout.split("\n") if result.returncode == 0 else []
+    marks = [line[:1] for line in lines if line.strip()]
+    return bool(marks) and all(mark == "-" for mark in marks)
+
+
+def _squash_commit(repo_root: Path, branch: str, target: str) -> str | None:
+    """Squash merge: the commit on ``target`` that holds the branch's whole change.
+
+    A squash replays the branch's *combined* change as one new commit, so none
+    of the branch's commits reach ``target``. Compare the patch-id of the whole
+    change since the merge-base with each later commit on ``target``. Only an
+    exact match counts; edits made while merging give a different id.
+    """
+    base = git("merge-base", target, branch, cwd=str(repo_root))
+    if base.returncode != 0:
+        return None
+    merge_base = base.stdout.strip()
+    branch_diff = git("diff", "--binary", merge_base, branch, cwd=str(repo_root))
+    if branch_diff.returncode != 0 or not branch_diff.stdout.strip():
+        return None
+    branch_ids = _patch_ids(repo_root, branch_diff.stdout)
+    if not branch_ids:
+        return None
+    target_log = git(
+        "log",
+        "-p",
+        "--binary",
+        "--no-merges",
+        f"--max-count={SQUASH_SEARCH_LIMIT}",
+        f"{merge_base}..{target}",
+        cwd=str(repo_root),
+    )
+    if target_log.returncode != 0:
+        return None
+    return _patch_ids(repo_root, target_log.stdout).get(next(iter(branch_ids)))
+
+
+def merged_into(repo_root: Path, branch: str) -> str | None:
+    """Describe how ``branch`` was merged into a default branch, or return None.
+
+    Works for every way a PR is merged: a merge commit or fast-forward
+    (ancestry), a rebase merge (every commit has an equivalent), or a squash
+    merge (the whole change matches one commit). Each default-branch ref from
+    :func:`default_branch_refs` is tried in turn. None means some of the
+    branch's work is not on any of them, so it must be kept.
     """
     for target in default_branch_refs(repo_root):
-        base = git("merge-base", target, branch, cwd=str(repo_root))
-        if base.returncode != 0:
-            continue
-        merge_base = base.stdout.strip()
-        branch_diff = git("diff", "--binary", merge_base, branch, cwd=str(repo_root))
-        if branch_diff.returncode != 0 or not branch_diff.stdout.strip():
-            continue
-        branch_ids = _patch_ids(repo_root, branch_diff.stdout)
-        if not branch_ids:
-            continue
-        branch_id = next(iter(branch_ids))
-        target_log = git(
-            "log",
-            "-p",
-            "--binary",
-            "--no-merges",
-            f"--max-count={SQUASH_SEARCH_LIMIT}",
-            f"{merge_base}..{target}",
-            cwd=str(repo_root),
-        )
-        if target_log.returncode != 0:
-            continue
-        commit = _patch_ids(repo_root, target_log.stdout).get(branch_id)
-        if commit:
-            return commit
+        name = target.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+        if _is_ancestor(repo_root, branch, target):
+            return f"merged into {name}"
+        if _rebase_merged(repo_root, branch, target):
+            return f"rebase-merged into {name}"
+        squash = _squash_commit(repo_root, branch, target)
+        if squash:
+            return f"squash-merged into {name} as {squash[:12]}"
     return None
 
 
 def delete_branch(repo_root: Path, branch: str) -> bool:
     """Delete ``branch`` if its work is merged; keep it otherwise.
 
-    First the *safe* ``git branch -d``, which refuses a branch holding commits
-    not merged into its upstream/HEAD. If that refuses, check for a squash merge
-    (:func:`squash_merged_into`): only when the branch's whole change exactly
-    matches one commit on the default branch do we delete with ``-D``. Anything
-    else stays in place for the user to remove deliberately, rather than
-    silently destroying commits. Returns True only if the branch was deleted.
+    First the *safe* ``git branch -d``. It only checks against the branch's
+    upstream or the main checkout's ``HEAD``, so it refuses a branch that was
+    merged on the remote but not pulled, and every squash- or rebase-merged
+    branch. When it refuses, :func:`merged_into` checks against the default
+    branch; only if every change is accounted for do we delete with ``-D``.
+    Anything else stays in place for the user to remove deliberately, rather
+    than silently destroying commits. Returns True only if the branch was
+    deleted.
     """
     result = git("branch", "-d", branch, cwd=str(repo_root))
     if result.returncode == 0:
         logger.info("Deleted branch: %s", branch)
         return True
 
-    squash_commit = squash_merged_into(repo_root, branch)
-    if squash_commit:
+    how = merged_into(repo_root, branch)
+    if how:
         forced = git("branch", "-D", branch, cwd=str(repo_root))
         if forced.returncode == 0:
-            logger.info("Deleted branch %s (squash-merged as %s)", branch, squash_commit[:12])
+            logger.info("Deleted branch %s (%s)", branch, how)
             return True
-        logger.warning("Branch %r looks squash-merged but -D failed: %s", branch, forced.stderr)
+        logger.warning("Branch %r is %s but -D failed: %s", branch, how, forced.stderr.strip())
         return False
 
     logger.warning(
-        "Kept branch %r (unmerged commits, no matching squash merge): %s",
+        "Kept branch %r (work not found on the default branch): %s",
         branch,
         result.stderr.strip(),
     )
