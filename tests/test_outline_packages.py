@@ -2,7 +2,8 @@
 
 When the ROOT handle is a package, ``outline`` switches to *survey mode*: it
 walks the ``submodules`` containment edge (not ``members``), defaults to depth-1,
-and treats plain modules as leaves (their members are NOT walked).  A subpackage
+and does not walk plain modules' members — a plain module WITH members is marked
+``truncated: "survey_leaf"`` (never a false ``children: []``, #596).  A subpackage
 with children at the depth frontier is truncated (``max_depth``), preserving the
 §4.2 absence contracts.
 
@@ -54,14 +55,16 @@ class TestOutlinePackageSurvey:
         assert "children" not in sub
 
     @pytest.mark.asyncio
-    async def test_plain_module_children_are_leaves(self, analyzer: JediAnalyzer) -> None:
-        # alpha/beta are plain modules: in survey mode their members are NOT
-        # walked — they are leaves with children == [] and no truncated key.
+    async def test_plain_module_children_are_survey_leaves(self, analyzer: JediAnalyzer) -> None:
+        # alpha/beta are plain modules WITH members: survey mode does not walk
+        # them, so they are survey_leaf truncations with children ABSENT — never
+        # children: [], which would claim they are measured-empty (#596).
         tree = await outline("mypkg", analyzer)
         for h in ("mypkg.alpha", "mypkg.beta"):
             node = _child(tree, h)
-            assert node["children"] == []
-            assert "truncated" not in node
+            assert node.get("truncated") is True
+            assert node["truncation_reason"] == "survey_leaf"
+            assert "children" not in node
 
     @pytest.mark.asyncio
     async def test_depth2_expands_subpackage(self, analyzer: JediAnalyzer) -> None:
@@ -83,12 +86,14 @@ class TestOutlinePackageSurvey:
     async def test_max_depth_none_is_unbounded_survey(self, analyzer: JediAnalyzer) -> None:
         # #474: explicit max_depth=None now means unbounded for a package root
         # too (previously None was the depth-1 sentinel, so a full survey was
-        # unreachable).  sub is walked; gamma is a plain-module leaf.
+        # unreachable).  sub is walked; gamma is a plain module with members, so
+        # it is a survey_leaf (#596).
         tree = await outline("mypkg", analyzer, max_depth=None)
         sub = _child(tree, "mypkg.sub")
         assert "truncated" not in sub
         gamma = _child(sub, "mypkg.sub.gamma")
-        assert gamma["children"] == []
+        assert gamma["truncation_reason"] == "survey_leaf"
+        assert "children" not in gamma
 
 
 class TestOutlineModuleRootUnchanged:

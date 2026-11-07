@@ -139,7 +139,7 @@ from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 | 2 | `expand("jaraco.text", "imports")` (and `trace(... ["imports"])`) | the three `jaraco.*` targets (`context.ExceptionTrap`, `functools.compose`, `functools.method_cache`) report **`scope:project`**; stdlib targets stay `external` | ✅ **cross-repo edge scope** — **#454** (edges agree with `resolve`) |
 | 3 | `resolve("jaraco")` | `kind:module`, `scope:project`, anchored at `jaraco.text/jaraco` | ✅ **#444** namespace cold-start anchoring |
 | 4 | `inspect("jaraco")` | `is_package:true`, `edge_counts:{members:0, submodules:3}` | ✅ **#444 / #423** |
-| 5 | `outline("jaraco")` | `module`/`project` with 3 submodule children (`context`, `functools`, `text`; `text` `truncated:max_depth`) | ✅ **#444 / #423** depth-1 survey |
+| 5 | `outline("jaraco")` | `module`/`project` with 3 submodule children: `context` and `functools` `truncated:survey_leaf` (members, no submodules), `text` `truncated:max_depth`; no `children:[]` anywhere | ✅ **#444 / #423** depth-1 survey; **#596** (re-recorded 2026-11-08, PR for #596 — the 2026-06-22 capture's `children:[]` on `context`/`functools` was the #596 bug, mis-recorded as expected) |
 | 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ child handle resolves |
 | 7 | `expand("jaraco", "submodules")` | 3 stubs: `jaraco.context`, `jaraco.functools`, `jaraco.text` (all `project`) | ✅ **#423 / #444** namespace union across sibling repos |
 

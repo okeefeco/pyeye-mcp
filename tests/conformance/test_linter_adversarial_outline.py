@@ -400,3 +400,69 @@ class TestRealOutlineOutputConforms:
         analyzer = JediAnalyzer(str(_FIXTURE))
         result = await outline("mypackage._core.widgets", analyzer, max_nodes=5)
         lint_response(result, "outline")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# TestOutlineSurveyDisclosure (O.2 survey_leaf + O.6 init_member_count, #596)
+# ---------------------------------------------------------------------------
+
+
+class TestOutlineSurveyDisclosure:
+    def test_survey_leaf_reason_passes(self) -> None:
+        """O.2 — survey_leaf is a valid outline truncation_reason (#596)."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": "survey_leaf",
+        }
+        lint_response(tree, "outline")
+
+    def test_survey_leaf_with_children_rejected(self) -> None:
+        """O.2 — a survey_leaf was not walked, so children: [] must be absent."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": "survey_leaf",
+            "children": [],
+        }
+        with pytest.raises(ConformanceViolation, match="O.2"):
+            lint_response(tree, "outline")
+
+    def test_survey_leaf_is_rejected_for_trace(self) -> None:
+        """survey_leaf is outline-only; trace's enum stays narrow."""
+        from tests.conformance.response_linter import _VALID_TRUNCATION_REASONS
+
+        assert "survey_leaf" not in _VALID_TRUNCATION_REASONS
+
+    def test_init_member_count_on_walked_node_passes(self) -> None:
+        """O.6 — a positive init_member_count on a walked node passes."""
+        tree = {**_clone(), "init_member_count": 3}
+        lint_response(tree, "outline")
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_non_positive_init_member_count_rejected(self, value: int) -> None:
+        """O.6 — absent-when-zero: 0 (and negatives) are rejected."""
+        tree = {**_clone(), "init_member_count": value}
+        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count range"):
+            lint_response(tree, "outline")
+
+    @pytest.mark.parametrize("value", [True, "3", 2.0])
+    def test_non_int_init_member_count_rejected(self, value: object) -> None:
+        """O.6 — init_member_count must be a plain int (bool rejected)."""
+        tree = {**_clone(), "init_member_count": value}
+        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count type"):
+            lint_response(tree, "outline")
+
+    def test_init_member_count_on_truncated_node_rejected(self) -> None:
+        """O.6 — a truncated node was not surveyed; it may not disclose init members."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": "max_depth",
+            "init_member_count": 2,
+        }
+        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count placement"):
+            lint_response(tree, "outline")

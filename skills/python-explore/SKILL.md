@@ -298,8 +298,14 @@ drill in, or pass a larger `max_depth` (`None` = unbounded, still capped by
 
 **Cold start: "what's in this package / project?"** — orient top-down, drill on
 demand. `outline` on a *package* surveys its child modules/subpackages (depth-1
-by default — subpackages marked `truncated: max_depth`, modules as leaves); pass a
-higher `max_depth`, or `expand`/`trace` the `submodules` edge, to go deeper:
+by default — subpackages marked `truncated: max_depth`); pass a higher
+`max_depth`, or `expand`/`trace` the `submodules` edge, to go deeper. A survey
+lists modules, not their members: a module that has members comes back
+`truncated: survey_leaf` (`outline` that module to see them), and only a
+genuinely empty one is `children: []`. A package's own `__init__` members are
+not listed either — `init_member_count: N` says how many were left out
+(`expand(pkg, "members")` lists them). A package with no submodules is outlined
+by its members instead:
 
 ```text
 resolve("myapp")                  -> { handle: "myapp", kind: "module", scope: "project" }

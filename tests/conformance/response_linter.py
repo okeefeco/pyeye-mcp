@@ -94,7 +94,8 @@ Check O — outline OutlineTree structural floors (operation == "outline")
 O.1 ``node`` is REQUIRED and passes the Stub structural floor (S.*).
 O.2 ``truncated`` present ⇒ value is exactly ``true`` (absent-not-false contract),
     ``truncation_reason`` present and in the outline enum
-    {``max_depth``, ``max_nodes``, ``external``}, and ``children`` ABSENT.
+    {``max_depth``, ``max_nodes``, ``external``, ``survey_leaf``}, and ``children``
+    ABSENT.
     ``truncated: false`` is rejected.  A truncated node carrying ``children``
     (even ``children: []``) is rejected (Contract 1 — absent ⇔ not expanded).
 O.3 ``truncated`` absent ⇒ ``truncation_reason`` absent.
@@ -105,6 +106,10 @@ O.5 a ``max_nodes`` truncation MUST carry ``member_count`` (a non-negative plain
     int — the count of withheld direct members); any ``member_count`` present is
     a non-negative int.  SHAPE only — the value invariant
     (``member_count == inspect.edge_counts.members``) is covered by unit tests.
+O.6 ``init_member_count`` (#596 — survey disclosure of a walked package's own
+    ``__init__`` members) is optional; when present it is a POSITIVE plain int
+    (absent-when-zero — a ``0`` is rejected) and the node is walked (``children``
+    present, not truncated).
 
 Note: Check A layering (no source content) is applied to the whole tree by
 ``_check_layering`` / ``_walk``, which already recurses into nested dicts and
@@ -718,11 +723,13 @@ _VALID_STUB_SCOPES: frozenset[str] = frozenset({"project", "external"})
 # would silently loosen trace validation.  Outline uses a separate constant below.
 _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
 
-# O.2 — Valid outline truncation_reason values (superset of trace's: adds "external").
-# Outline's external cap fires when a subtree of an external node is not walked;
-# trace never emits "external" as a per-node reason, so the two enums are kept apart.
+# O.2 — Valid outline truncation_reason values (superset of trace's: adds "external"
+# and "survey_leaf").  Outline's external cap fires when a subtree of an external
+# node is not walked; "survey_leaf" marks a module with members that package survey
+# mode does not walk (#596).  Trace emits neither as a per-node reason, so the two
+# enums are kept apart.
 _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
-    {"max_depth", "max_nodes", "external"}
+    {"max_depth", "max_nodes", "external", "survey_leaf"}
 )
 
 # ---------------------------------------------------------------------------
@@ -1501,6 +1508,29 @@ def _check_outline_tree_node(
         elif mc < 0:
             violations.append(
                 f"[O.5 outline member_count range] {path}.member_count: " f"must be >= 0; got {mc}."
+            )
+
+    # O.6 — init_member_count: optional survey disclosure (#596).  Absent-when-
+    # zero (a 0 would be a "measured none" the walk never reports), and only on a
+    # walked node — a truncated node was not surveyed, so it discloses nothing.
+    if "init_member_count" in tree:
+        imc = tree["init_member_count"]
+        if isinstance(imc, bool) or not isinstance(imc, int):
+            violations.append(
+                f"[O.6 outline init_member_count type] {path}.init_member_count: "
+                f"expected a positive plain int; got {_truncate(imc)} "
+                f"(type={type(imc).__name__!r})."
+            )
+        elif imc <= 0:
+            violations.append(
+                f"[O.6 outline init_member_count range] {path}.init_member_count: "
+                f"must be > 0 (omit the key when zero); got {imc}."
+            )
+        if not has_children or has_truncated:
+            violations.append(
+                f"[O.6 outline init_member_count placement] {path}: "
+                "'init_member_count' may only appear on a walked node "
+                "('children' present, not truncated)."
             )
 
     # O.4 — children: if present, must be a list of OutlineTree
