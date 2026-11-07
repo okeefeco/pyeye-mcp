@@ -5,7 +5,7 @@
         "run",
         "--project",
         "${CLAUDE_PROJECT_DIR:-.}",
-        "--no-sync",
+        "--frozen",
         "python",
         "-m",
         "pyeye.mcp"
