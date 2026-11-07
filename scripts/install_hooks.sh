@@ -28,9 +28,10 @@ cat > "$GIT_HOOKS_DIR/post-checkout" << 'EOF'
 #!/bin/bash
 # Auto-start metrics session when switching branches
 
-# Extract issue number from branch name (e.g., feat/135-description -> 135)
+# Extract issue number from a type/<issue>-description branch (feat/135-x -> 135);
+# other branches, e.g. worktree-bridge-cse_01..., yield nothing (#576).
 BRANCH=$(git branch --show-current)
-ISSUE=$(echo "$BRANCH" | grep -oE '[0-9]+' | head -1)
+ISSUE=$(echo "$BRANCH" | sed -nE 's#^(worktree-)?[a-z]+[/-]([0-9]+)(-.*)?$#\2#p')
 
 # Only start session if we have dogfooding metrics and an issue number
 if [[ -f "scripts/dogfooding_metrics.py" ]] && [[ -n "$ISSUE" ]]; then

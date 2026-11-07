@@ -53,9 +53,9 @@ function mcp_cd() {
     builtin cd "\$@"
     # Auto-start session if we enter a project with dogfooding metrics
     if [[ -f "scripts/dogfooding_metrics.py" ]] && [[ ! -f "\$HOME/.pyeye/metrics/current_session.json" ]]; then
-        # Extract issue number from current branch
+        # Extract issue number from a type/<issue>-description branch (#576)
         local branch=\$(git branch --show-current 2>/dev/null || echo "")
-        local issue=\$(echo "\$branch" | grep -oE '[0-9]+' | head -1)
+        local issue=\$(echo "\$branch" | sed -nE 's#^(worktree-)?[a-z]+[/-]([0-9]+)(-.*)?$#\2#p')
         if [[ -n "\$issue" ]]; then
             echo "📊 Auto-starting dogfooding metrics for issue #\$issue..."
             python scripts/dogfooding_metrics.py start --issue "\$issue" 2>/dev/null || true

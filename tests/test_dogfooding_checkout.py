@@ -8,25 +8,47 @@ developer's machine and shelled out with a bare ``python`` interpreter.
 
 from __future__ import annotations
 
+import os
+import re
+import subprocess
+from pathlib import Path
+
 import click.testing
 import pytest
 
 import scripts.dogfooding_metrics as dm
 
+# Branch name → expected issue number, shared by the Python and shell parsers.
+_BRANCH_CASES = [
+    ("chore/462-pre-commit-managed-hooks", 462),
+    ("feat/23-add-validation", 23),
+    ("fix/7", 7),
+    # Flat forms: native EnterWorktree without the naming hook.
+    ("feat-474-outline-depth-1-default", 474),
+    ("worktree-feat-474-outline-depth-1-default", 474),
+    ("main", None),
+    ("develop", None),
+    ("", None),
+    # Regressions for #576: digits that are not an issue number.
+    ("worktree-bridge-cse_01Ns43uuZJsXcxcS7AZGV8dn", None),  # pragma: allowlist secret
+    ("dependabot-uv-fastmcp-4.1.3", None),
+    ("release/v1.1.3", None),
+    ("feat/v2-redesign", None),
+    ("fix/12abc", None),
+]
+
 
 class TestExtractIssue:
-    """Branch-name → issue-number parsing (first run of digits, like the old hook)."""
+    """Branch-name → issue-number parsing for ``type/<issue>-description`` branches.
+
+    Only the documented convention yields an issue (#576). Digits elsewhere in a
+    branch name (session IDs, version numbers) must not start a session against
+    the wrong issue.
+    """
 
     @pytest.mark.parametrize(
         ("branch", "expected"),
-        [
-            ("chore/462-pre-commit-managed-hooks", 462),
-            ("feat/23-add-validation", 23),
-            ("fix/7", 7),
-            ("main", None),
-            ("develop", None),
-            ("", None),
-        ],
+        _BRANCH_CASES,
     )
     def test_extract_issue(self, branch, expected):
         assert dm._extract_issue(branch) == expected
@@ -100,3 +122,25 @@ class TestStartOnCheckout:
         result = click.testing.CliRunner().invoke(dm.cli, ["start-on-checkout"])
         assert result.exit_code == 0
         assert recording.started == []
+
+
+_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+_SED = re.compile(r"sed -nE '[^']*'")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the shell helpers are bash-only")
+class TestShellIssueParsing:
+    """The bash helpers parse branches exactly like ``_extract_issue`` (#576)."""
+
+    @pytest.mark.parametrize("script", ["install_hooks.sh", "setup_aliases.sh"])
+    @pytest.mark.parametrize(("branch", "expected"), _BRANCH_CASES)
+    def test_shell_matches_python(self, script, branch, expected):
+        commands = _SED.findall((_SCRIPTS / script).read_text(encoding="utf-8"))
+        assert len(commands) == 1, f"{script}: expected one issue-parsing sed, got {commands}"
+        out = subprocess.run(  # noqa: S603 - fixed command built from a repo script
+            ["bash", "-c", f'printf "%s\\n" "$1" | {commands[0]}', "_", branch],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert (int(out) if out else None) == expected
