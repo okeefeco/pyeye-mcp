@@ -40,7 +40,7 @@ git clone https://github.com/okeefeco/pyeye-mcp.git
 cd pyeye-mcp
 
 # Install dependencies with uv
-uv sync
+uv sync --frozen
 
 # Or with pip
 pip install -e .
@@ -542,7 +542,7 @@ def load_plugins(project_path: str):
 ### Server Not Starting
 
 1. Check Python version: `python --version` (needs 3.11+)
-2. Verify installation: `uv sync` or `pip install -e .`
+2. Verify installation: `uv sync --frozen` or `pip install -e .`
 3. Check logs: Run with `--debug` flag
 
 ### Packages Not Found

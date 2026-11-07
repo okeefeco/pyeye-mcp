@@ -18,7 +18,7 @@ Using uv (recommended for development):
 
    git clone https://github.com/okeefeco/python-code-intelligence-mcp.git
    cd python-code-intelligence-mcp
-   uv sync
+   uv sync --frozen
 
 MCP Server Setup
 ---------------

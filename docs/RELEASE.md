@@ -124,7 +124,7 @@ If `__version__` shows "0.0.0+unknown":
 
 ```bash
 # Reinstall in development mode
-uv sync
+uv sync --frozen
 ```
 
 ### Clean vs Dev Versions

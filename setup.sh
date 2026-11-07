@@ -10,10 +10,11 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
-# Install the package + dev dependencies into a uv-managed .venv (lock-driven).
-# `dev` is uv's default group, so a bare `uv sync` includes all dev tooling.
-echo "📦 Installing dependencies (uv sync)..."
-uv sync
+# Install the package + dev dependencies into a uv-managed .venv, exactly as
+# locked. `dev` is uv's default group, so this includes all dev tooling;
+# `--frozen` installs from uv.lock as-is and never re-resolves or rewrites it.
+echo "📦 Installing dependencies (uv sync --frozen)..."
+uv sync --frozen
 
 # Install pre-commit hooks
 echo "🪝 Installing pre-commit hooks..."

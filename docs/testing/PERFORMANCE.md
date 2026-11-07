@@ -476,7 +476,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: uv sync  # installs the package + dev group (add benchmark tooling to a dependency-group if adopted)
+        run: uv sync --locked  # installs the package + dev group (add benchmark tooling to a dependency-group if adopted)
 
       - name: Run performance tests
         run: |

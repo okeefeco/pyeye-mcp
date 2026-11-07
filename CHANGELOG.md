@@ -250,6 +250,7 @@ written for older Python versions.
 - Python 3.11 is now the minimum (#528). ruff, black and mypy target 3.11; the CI and release workflows test 3.11 and 3.12 (Codecov uploads moved from the 3.10 job to 3.11); the `filelock` version split and the `tomli` fallback are gone; `asyncio.TimeoutError` is written as the built-in `TimeoutError`, which it aliases from 3.11.
 - Bumped the pinned dev linters: ruff 0.15.21 → 0.16.10, mypy 2.2.0 → 2.4.0 (#525). Neither surfaces new findings. Redoes Dependabot #521, which updated the pins without regenerating `uv.lock`.
 - Migrated the Claude instructions off the removed worktree agent and the persistent `claude/development` branch (`04-agent-triggers.md`, `02-session-startup.md`, `06-workflow-commits.md`, `08-project-specific.md`, `11-pr-requirements.md`, `00-documentation-system.md`). Per-worktree environment setup now uses `uv sync` (`dev` is a default dependency group as of #414).
+- Local environment setup now uses `uv sync --frozen` instead of bare `uv sync` (#573): `setup.sh`, the contributor/troubleshooting/Sphinx docs and the Claude instructions install exactly from `uv.lock` and never re-resolve or rewrite it. CI keeps `uv sync --locked`. A guard test (`tests/test_local_uv_sync_frozen.py`) fails if a bare `uv sync` comes back.
 
 ### Fixed
 

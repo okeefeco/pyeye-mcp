@@ -20,7 +20,7 @@ Quick Start for Contributors
 
    .. code-block:: bash
 
-      uv sync
+      uv sync --frozen
       pre-commit install
 
 3. **Run Tests**
@@ -163,7 +163,7 @@ Building Documentation
 .. code-block:: bash
 
    # Install documentation dependencies (the `docs` dependency-group)
-   uv sync --group docs
+   uv sync --frozen --group docs
 
    # Build documentation
    cd docs
