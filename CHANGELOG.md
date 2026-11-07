@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `SECURITY.md` (#69): report vulnerabilities privately through GitHub's private vulnerability reporting, now enabled for the repository, rather than public issues. It covers supported versions (2.x), response goals, scope, and pyeye's security model: static analysis only, and it reads whatever paths the MCP client points it at, so path validation is a sanity check rather than a sandbox. Linked from the README.
+
 ## [2.0.0] - 2026-11-07
 
 ### BREAKING CHANGES
