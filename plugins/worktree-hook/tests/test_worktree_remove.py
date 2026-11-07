@@ -185,6 +185,354 @@ def test_main_returns_error_when_worktree_path_missing(
     assert wtr.main() == 1
 
 
+# ---------------------------------------------------------------------------
+# Squash-merge detection (#607)
+#
+# Under squash merge a merged branch's commits never reach main, so the safe
+# ``git branch -d`` always refuses. The hook recognises a squash merge when the
+# branch's combined change has the same patch-id as one commit on the default
+# branch, and only then deletes with ``-D``. Anything else is kept.
+# ---------------------------------------------------------------------------
+
+
+def _commit_file(
+    run_git: Callable[..., CompletedProcess[str]], where: Path, name: str, text: str, msg: str
+) -> None:
+    (where / name).write_text(text)
+    run_git(where, "add", name)
+    run_git(where, "commit", "-m", msg)
+
+
+def _squash_merge(run_git: Callable[..., CompletedProcess[str]], repo: Path, branch: str) -> None:
+    """Squash-merge ``branch`` into ``main`` the way GitHub does (one new commit)."""
+    run_git(repo, "merge", "--squash", branch)
+    run_git(repo, "commit", "-m", f"squash {branch}")
+
+
+def _feature_branch_with_two_commits(
+    run_git: Callable[..., CompletedProcess[str]], repo: Path, tmp_path: Path, branch: str
+) -> Path:
+    worktree = tmp_path / "wt"
+    run_git(repo, "worktree", "add", "-b", branch, str(worktree))
+    _commit_file(run_git, worktree, "a.txt", "one\n", "first")
+    _commit_file(run_git, worktree, "b.txt", "two\n", "second")
+    return worktree
+
+
+def test_delete_branch_deletes_squash_merged_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A multi-commit branch squash-merged into main is recognised and deleted."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-squashed")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _squash_merge(run_git, repo, "feat/607-squashed")
+
+    assert wtr.delete_branch(repo, "feat/607-squashed") is True
+    assert _git_ok(run_git, repo, "rev-parse", "--verify", "refs/heads/feat/607-squashed") is False
+
+
+def test_delete_branch_squash_detected_after_main_moved_on(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Detection still works when unrelated commits landed on main after the squash."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-later")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _squash_merge(run_git, repo, "feat/607-later")
+    _commit_file(run_git, repo, "other.txt", "unrelated\n", "someone else's PR")
+
+    assert wtr.delete_branch(repo, "feat/607-later") is True
+
+
+def test_delete_branch_keeps_branch_with_commits_after_squash(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Work committed after the squash merge is unmerged, so the branch is kept."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-more")
+    _squash_merge(run_git, repo, "feat/607-more")
+    _commit_file(run_git, worktree, "c.txt", "follow-up\n", "not merged yet")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+
+    assert wtr.delete_branch(repo, "feat/607-more") is False
+    assert _git_ok(run_git, repo, "rev-parse", "--verify", "refs/heads/feat/607-more") is True
+
+
+def test_delete_branch_keeps_branch_when_squash_content_differs(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """If the change was altered while merging, there is no exact match: keep it."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-edited")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "merge", "--squash", "feat/607-edited")
+    (repo / "b.txt").write_text("two, edited during merge\n")
+    run_git(repo, "add", "b.txt")
+    run_git(repo, "commit", "-m", "squash with edits")
+
+    assert wtr.delete_branch(repo, "feat/607-edited") is False
+
+
+def test_delete_branch_keeps_unmerged_branch_even_with_no_main(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """With no default branch to compare against, unmerged work is kept."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-orphan")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "checkout", "-q", "-b", "trunk")
+    run_git(repo, "branch", "-D", "main")
+
+    assert wtr.delete_branch(repo, "feat/607-orphan") is False
+
+
+def test_default_branch_refs_prefers_origin_head(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+) -> None:
+    """origin/HEAD's target is checked first, then local main."""
+    run_git(repo, "update-ref", "refs/remotes/origin/trunk", "main")
+    run_git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+
+    assert wtr.default_branch_refs(repo) == ["refs/remotes/origin/trunk", "refs/heads/main"]
+
+
+def test_delete_branch_squash_detected_via_origin_head_only(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A squash that exists only on the remote default branch (local main stale) is found."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-remote")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    stale_main = run_git(repo, "rev-parse", "main").stdout.strip()
+    _squash_merge(run_git, repo, "feat/607-remote")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    run_git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    run_git(repo, "reset", "-q", "--hard", stale_main)  # local main never pulled
+
+    assert wtr.delete_branch(repo, "feat/607-remote") is True
+
+
+def test_delete_branch_merge_commit_on_remote_with_stale_local_main(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A merge-commit merge that only the remote default branch has is recognised.
+
+    ``git branch -d`` checks against HEAD, which here is a stale local main.
+    """
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-mc")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    stale_main = run_git(repo, "rev-parse", "main").stdout.strip()
+    run_git(repo, "merge", "--no-ff", "-m", "Merge pull request #1", "feat/607-mc")
+    run_git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    run_git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    run_git(repo, "reset", "-q", "--hard", stale_main)
+
+    assert wtr.delete_branch(repo, "feat/607-mc") is True
+
+
+def test_delete_branch_merge_commit_when_main_checkout_on_other_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Merged into main, but the main checkout's HEAD is elsewhere: still deleted."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-head")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "merge", "--no-ff", "-m", "merge", "feat/607-head")
+    run_git(repo, "checkout", "-q", "-b", "unrelated", "HEAD~1")
+
+    assert wtr.delete_branch(repo, "feat/607-head") is True
+
+
+def test_delete_branch_rebase_merged_multi_commit_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """A rebase merge copies each commit onto main; all equivalents present → deleted."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-rebased")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _commit_file(run_git, repo, "other.txt", "moved on\n", "main moved on")  # forces new SHAs
+    run_git(repo, "cherry-pick", "main..feat/607-rebased")
+
+    assert wtr.delete_branch(repo, "feat/607-rebased") is True
+
+
+def test_delete_branch_keeps_partially_rebased_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Only some commits have equivalents on main: the rest are unmerged, so keep it."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-partial")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _commit_file(run_git, repo, "other.txt", "moved on\n", "main moved on")
+    first = run_git(repo, "rev-parse", "feat/607-partial~1").stdout.strip()
+    run_git(repo, "cherry-pick", first)
+
+    assert wtr.delete_branch(repo, "feat/607-partial") is False
+
+
+def test_delete_branch_squash_detected_on_master_default(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Generic plugin: a repo whose default branch is ``master`` works too."""
+    run_git(repo, "branch", "-m", "main", "master")
+    worktree = tmp_path / "wt"
+    run_git(repo, "worktree", "add", "-b", "feat/607-master", str(worktree))
+    _commit_file(run_git, worktree, "a.txt", "one\n", "first")
+    _commit_file(run_git, worktree, "b.txt", "two\n", "second")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    run_git(repo, "merge", "--squash", "feat/607-master")
+    run_git(repo, "commit", "-m", "squash")
+
+    assert wtr.default_branch_refs(repo) == ["refs/heads/master"]
+    assert wtr.delete_branch(repo, "feat/607-master") is True
+
+
+def _branch_editing_line(
+    run_git: Callable[..., CompletedProcess[str]],
+    repo: Path,
+    tmp_path: Path,
+    branch: str,
+    line: int,
+) -> None:
+    """Branch with two commits; the first edits ``line`` of ``f.txt``.
+
+    Leaves the worktree removed and ``main`` checked out in ``repo``.
+    """
+    worktree = tmp_path / "wt"
+    run_git(repo, "worktree", "add", "-b", branch, str(worktree))
+    text = (worktree / "f.txt").read_text().replace(f"\n{line}\n", f"\n{line}-ours\n")
+    _commit_file(run_git, worktree, "f.txt", text, "ours")
+    _commit_file(run_git, worktree, "b.txt", "two\n", "second")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+
+
+def _edit_line_on_main(
+    run_git: Callable[..., CompletedProcess[str]], repo: Path, line: int, msg: str
+) -> None:
+    text = (repo / "f.txt").read_text().replace(f"\n{line}\n", f"\n{line}-other\n")
+    _commit_file(run_git, repo, "f.txt", text, msg)
+
+
+@pytest.fixture
+def numbered_repo(repo: Path, run_git: Callable[..., CompletedProcess[str]]) -> Path:
+    """``repo`` plus ``f.txt`` holding lines 1..60, so edits can sit in each other's context."""
+    _commit_file(run_git, repo, "f.txt", "".join(f"{i}\n" for i in range(1, 61)), "numbers")
+    return repo
+
+
+def test_delete_branch_squash_after_earlier_pr_touched_nearby_lines(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Another PR changed lines inside our diff context before ours was squashed.
+
+    The squash commit's context then differs from the branch's own diff, so no
+    patch-id matches; the content check must still recognise the merge.
+    """
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-ctx-squash", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    _squash_merge(run_git, numbered_repo, "feat/607-ctx-squash")
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-ctx-squash") is True
+
+
+def test_delete_branch_rebase_after_earlier_pr_touched_nearby_lines(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Same as above for a rebase merge: rebased commits have shifted context."""
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-ctx-rebase", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    run_git(numbered_repo, "cherry-pick", "main..feat/607-ctx-rebase")
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-ctx-rebase") is True
+
+
+def test_delete_branch_keeps_branch_whose_change_main_later_reverted(
+    wtr: ModuleType,
+    numbered_repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """If main no longer contains part of the branch's change, the branch is kept.
+
+    Only one of the branch's two commits was ever applied to main, after an
+    earlier PR shifted its context. The file it adds is missing from main.
+    """
+    _branch_editing_line(run_git, numbered_repo, tmp_path, "feat/607-partial-ctx", 30)
+    _edit_line_on_main(run_git, numbered_repo, 32, "earlier PR, nearby")
+    first = run_git(numbered_repo, "rev-parse", "feat/607-partial-ctx~1").stdout.strip()
+    run_git(numbered_repo, "cherry-pick", first)
+
+    assert wtr.delete_branch(numbered_repo, "feat/607-partial-ctx") is False
+
+
+def test_delete_branch_squash_merged_then_reverted_counts_as_merged(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """Merged means "in the default branch's history", as with ``git branch -d``.
+
+    A merge commit that main later reverts still lets ``-d`` delete the branch,
+    because the work is recorded on main. A squash merge that was later
+    reverted gets the same treatment: the squash commit still holds the change.
+    """
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-reverted")
+    run_git(repo, "worktree", "remove", "--force", str(worktree))
+    _squash_merge(run_git, repo, "feat/607-reverted")
+    run_git(repo, "revert", "--no-edit", "HEAD")
+
+    assert wtr.delete_branch(repo, "feat/607-reverted") is True
+
+
+def test_process_removal_deletes_squash_merged_branch(
+    wtr: ModuleType,
+    repo: Path,
+    run_git: Callable[..., CompletedProcess[str]],
+    tmp_path: Path,
+) -> None:
+    """End to end: tearing down a squash-merged worktree also removes its branch."""
+    worktree = _feature_branch_with_two_commits(run_git, repo, tmp_path, "feat/607-e2e")
+    _squash_merge(run_git, repo, "feat/607-e2e")
+
+    assert wtr.process_removal(str(worktree)) == 0
+    assert not worktree.exists()
+    assert _git_ok(run_git, repo, "rev-parse", "--verify", "refs/heads/feat/607-e2e") is False
+
+
 def _git_ok(
     run_git: Callable[..., CompletedProcess[str]],
     repo: Path,

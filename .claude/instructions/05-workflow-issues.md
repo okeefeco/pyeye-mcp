@@ -70,31 +70,23 @@ git checkout -b <branch-name>  # Create feature branch
 
 ### Our Approach
 
-This project uses **regular merge commits** (not squash merges) to preserve development history and maintain full traceability.
+This project uses **squash merge only** (#607). Each PR lands on `main` as ONE commit whose subject is the PR title. The repo enforces it: merge commits and rebase merges are disabled, the squash title is always the PR title, and merged head branches are deleted automatically.
 
-### Why We Don't Use Squash Merge
+### Consequences You MUST Account For
 
-- **Preserves development history**: Each commit tells part of the story
-- **Better debugging**: `git bisect` works more effectively with granular commits
-- **Proper attribution**: Individual commits show the evolution of the solution
-- **No tracking issues**: Git properly recognizes merged branches (no confusing warnings)
-
-### Guidelines
-
-1. **Keep commits clean and logical** - Since we preserve history, make each commit meaningful
-2. **Use descriptive commit messages** - Follow our conventional commit format
-3. **It's OK to have "fix" commits** - They show the review process and iterations
-4. **Never force push to shared branches** - Especially after others have reviewed or pulled
+- **The PR title IS the commit subject on `main`.** It MUST be a valid conventional commit (`type(scope): summary (#N)`). Release PRs MUST be titled exactly `chore(release): vX.Y.Z`, because `tag-release.yml` keys on it.
+- **Branch commits never reach `main`.** NEVER test "is it merged?" with commit ancestry (`git branch -r --contains`, `git merge-base --is-ancestor`, `git branch -d`). After a squash merge they report "not merged". Use the PR state instead (see `04-agent-triggers.md`).
+- **Branch commits are still the review history.** Keep them clean and logical; "fix" commits during review are fine, because they collapse on merge.
+- **Never force push to shared branches** - Especially after others have reviewed or pulled
 
 ### Merging Process
 
 When your PR is approved:
 
 ```bash
-# Regular merge (preserves all commits)
-gh pr merge <PR-NUMBER> --merge
+gh pr merge <PR-NUMBER> --squash
 
-# NOT recommended:
-# gh pr merge <PR-NUMBER> --squash  ❌
-# gh pr merge <PR-NUMBER> --rebase  ❌ (especially after push)
+# Disabled on this repo; don't use:
+# gh pr merge <PR-NUMBER> --merge   ❌
+# gh pr merge <PR-NUMBER> --rebase  ❌
 ```

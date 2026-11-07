@@ -46,9 +46,26 @@ naming:
 
 - **Clean teardown** — when Claude Code removes one of these worktrees
   (`ExitWorktree` or session-exit cleanup), the companion `WorktreeRemove` hook
-  force-removes the worktree directory and deletes its branch. The branch is
-  deleted with the *safe* `git branch -d`: if it still holds unmerged commits
-  the hook leaves it in place rather than destroy work.
+  force-removes the worktree directory and deletes its branch. It tries the
+  *safe* `git branch -d` first, which only compares against the branch's
+  upstream or the main checkout's `HEAD`. If git refuses, the hook looks for the
+  branch's work on the default branch (`origin/HEAD`'s target, then
+  `origin/main` / `origin/master`, then local `main` / `master`), however the PR
+  was merged:
+
+  | Merge style | Recognised when |
+  |---|---|
+  | Merge commit or fast-forward | the branch tip is an ancestor of the default branch |
+  | Rebase | every branch commit has a patch-equivalent there (`git cherry`) |
+  | Squash | the branch's whole change since its merge-base matches one commit there (`git patch-id`) |
+  | Any of these after other PRs edited nearby lines | a trial merge of the branch into the default branch (`git merge-tree`, git 2.38+) changes nothing |
+
+  The default branch may have moved on since the merge; later PRs don't
+  matter. "Merged" means the work is in the default branch's history, as with
+  `git branch -d`, so a merge that was later reverted still counts. Only then
+  is the branch deleted with `-D`. Anything else, such as commits added after
+  the merge, a partial rebase, or a change edited while merging, is left in
+  place rather than destroy work.
 
 ## Configuration
 
@@ -118,7 +135,10 @@ Two things to know:
 - `ExitWorktree` still first **refuses** with "could not verify worktree state";
   confirm the removal (e.g. `discard_changes: true`) and the hook then runs.
 - If the branch holds unmerged commits the hook **keeps it on purpose**. Delete
-  it deliberately once you're sure: `git branch -D <type>/<name>`.
+  it deliberately once you're sure: `git branch -D <type>/<name>`. A branch
+  merged by any style is recognised and deleted (see *Clean teardown*). The
+  check uses local refs, so fetch first if the merge landed after your last
+  fetch; otherwise the branch is kept, which is the safe outcome.
 
 Manual fallback, if you ever need to remove one yourself:
 
