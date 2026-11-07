@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Run with `uv run --script` (see hooks/hooks.json): uv provides a matching
+# Python and a cached environment holding the dependencies below (#608).
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """WorktreeRemove hook for Claude Code.
 
 Companion to ``worktree_create.py``. Claude Code's ``ExitWorktree``/cleanup flow

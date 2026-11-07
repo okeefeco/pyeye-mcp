@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Run with `uv run --script` (see hooks/hooks.json): uv provides a matching
+# Python and a cached environment holding the dependencies below (#608).
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyyaml>=6"]
+# ///
 """WorktreeCreate hook for Claude Code.
 
 Replaces the default git worktree creation with a custom implementation
@@ -39,10 +45,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-try:
-    import yaml
-except ImportError:
-    yaml = None  # type: ignore[assignment]
+import yaml
 
 LOG_FILE = Path.home() / ".claude" / "logs" / "worktree-create.log"
 # Bundled default config lives next to this script so the hook is relocatable
@@ -59,101 +62,15 @@ logger = logging.getLogger("worktree-create")
 
 
 def _load_yaml(path: Path) -> dict:
-    """Load a YAML file, returning empty dict if missing or unparseable."""
+    """Load a YAML file, returning an empty dict if it is missing or not a mapping."""
     if not path.is_file():
         logger.debug("Config not found: %s", path)
         return {}
 
-    if yaml is not None:
-        with open(path) as f:
-            data = yaml.safe_load(f)
-            logger.info("Loaded config: %s", path)
-            return data if isinstance(data, dict) else {}
-
-    # Fallback: minimal YAML subset parser for simple worktree config
-    # Handles only what we need: top-level keys, lists of mappings
-    return _parse_simple_yaml(path)
-
-
-def _parse_simple_yaml(path: Path) -> dict:
-    """Minimal YAML parser for worktree config when PyYAML is not available.
-
-    Handles the specific structure we need:
-    - Top-level scalar keys (work_dir_suffix: "-work")
-    - Top-level list keys with mapping items (branch_types list)
-    """
-    logger.debug("Using simple YAML parser for: %s", path)
-    result: dict = {}
-    current_list_key: str | None = None
-    current_item: dict | None = None
-    branch_types: list[dict] = []
-
     with open(path) as f:
-        for raw_line in f:
-            line = raw_line.rstrip()
-
-            # Skip empty lines and comments
-            stripped = line.lstrip()
-            if not stripped or stripped.startswith("#"):
-                continue
-
-            indent = len(line) - len(stripped)
-
-            # Top-level key (no indent)
-            if indent == 0 and ":" in stripped:
-                # Flush any pending item
-                if current_item is not None:
-                    branch_types.append(current_item)
-                    current_item = None
-
-                key, _, value = stripped.partition(":")
-                key = key.strip()
-                value = value.strip()
-
-                if not value:
-                    current_list_key = key
-                else:
-                    # Remove surrounding quotes
-                    value = value.strip("\"'")
-                    result[key] = value
-                    current_list_key = None
-                continue
-
-            # List item start (- canonical: ...)
-            if stripped.startswith("- ") and current_list_key:
-                if current_item is not None:
-                    branch_types.append(current_item)
-
-                item_content = stripped[2:].strip()
-                current_item = {}
-                if ":" in item_content:
-                    k, _, v = item_content.partition(":")
-                    v = v.strip()
-                    current_item[k.strip()] = v
-                continue
-
-            # Continuation of list item (aliases: [...])
-            if current_item is not None and ":" in stripped:
-                k, _, v = stripped.partition(":")
-                k = k.strip()
-                v = v.strip()
-
-                # Parse inline list [a, b, c]
-                if v.startswith("[") and v.endswith("]"):
-                    items = [i.strip().strip("\"'") for i in v[1:-1].split(",") if i.strip()]
-                    current_item[k] = items
-                else:
-                    current_item[k] = v.strip("\"'")
-                continue
-
-    # Flush last item
-    if current_item is not None:
-        branch_types.append(current_item)
-
-    if branch_types and current_list_key:
-        result[current_list_key] = branch_types
-
-    return result
+        data = yaml.safe_load(f)
+    logger.info("Loaded config: %s", path)
+    return data if isinstance(data, dict) else {}
 
 
 def load_config(repo_root: Path) -> dict:
