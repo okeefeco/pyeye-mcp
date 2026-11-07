@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=a2acd424"></script>
+      <script src="../../../_static/documentation_options.js?v=d9ec7b16"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -340,8 +340,15 @@
   <h1>Source code for pyeye.mcp.server</h1><div class="highlight"><pre>
 <span></span><span class="sd">&quot;&quot;&quot;Main MCP server implementation for PyEye.&quot;&quot;&quot;</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">typing</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">inspect</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">isawaitable</span> <span class="k">as</span> <span class="n">_isawaitable</span><span class="p">,</span>
+    <span class="n">signature</span> <span class="k">as</span> <span class="n">_signature</span><span class="p">,</span>  <span class="c1"># `inspect` is shadowed by the MCP tool below</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.mcpserver</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServer</span>
@@ -378,11 +385,12 @@
         <span class="k">return</span> <span class="s2">&quot;default_session&quot;</span>
 
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalyzerPlugin</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">AnalyzerPlugin</span><span class="p">,</span> <span class="n">Scope</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.django</span><span class="w"> </span><span class="kn">import</span> <span class="n">DjangoPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">FlaskPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..plugins.pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">PydanticPlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..project_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_project_manager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..scope_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">SmartScopeResolver</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">settings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">..validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_mcp_inputs</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.</span><span class="w"> </span><span class="kn">import</span> <span class="n">meta</span>
@@ -463,11 +471,9 @@
     <span class="n">config</span> <span class="o">=</span> <span class="n">ProjectConfig</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
 
     <span class="c1"># Try to activate each plugin</span>
-    <span class="n">plugin_classes</span> <span class="o">=</span> <span class="p">[</span><span class="n">PydanticPlugin</span><span class="p">,</span> <span class="n">DjangoPlugin</span><span class="p">,</span> <span class="n">FlaskPlugin</span><span class="p">]</span>
-
-    <span class="k">for</span> <span class="n">plugin_class</span> <span class="ow">in</span> <span class="n">plugin_classes</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">plugin_class</span> <span class="ow">in</span> <span class="n">_PLUGIN_CLASSES</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">plugin</span> <span class="o">=</span> <span class="n">plugin_class</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>  <span class="c1"># type: ignore[abstract]</span>
+            <span class="n">plugin</span> <span class="o">=</span> <span class="n">plugin_class</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">plugin</span><span class="o">.</span><span class="n">detect</span><span class="p">():</span>
                 <span class="c1"># Pass namespace configuration to the plugin</span>
                 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
@@ -482,12 +488,74 @@
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load plugin </span><span class="si">{</span><span class="n">plugin_class</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="c1"># Don&#39;t raise - plugins are optional</span>
 
+    <span class="c1"># Plugin tools called without ``scope`` resolve it through scope_defaults</span>
+    <span class="c1"># (#559). Report configured keys that can&#39;t apply instead of ignoring them.</span>
+    <span class="n">resolver</span> <span class="o">=</span> <span class="n">SmartScopeResolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+    <span class="n">ignored</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">ignored_method_keys</span><span class="p">(</span><span class="n">all_plugin_tool_names</span><span class="p">(</span><span class="n">project_path</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">ignored</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+            <span class="s2">&quot;Ignoring scope_defaults.methods keys that aren&#39;t plugin tool names: </span><span class="si">%s</span><span class="s2">. &quot;</span>
+            <span class="s2">&quot;Keys must be MCP tool names such as find_pydantic_models (#559).&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ignored</span><span class="p">),</span>
+        <span class="p">)</span>
+
     <span class="c1"># Outside the per-plugin try: a duplicate name is a bug in the declared names,</span>
     <span class="c1"># not an optional plugin failing to load, so it must not be swallowed.</span>
-    <span class="n">register_plugin_tools</span><span class="p">(</span><span class="n">mcp</span><span class="p">,</span> <span class="n">_plugins</span><span class="p">)</span>
+    <span class="n">register_plugin_tools</span><span class="p">(</span><span class="n">mcp</span><span class="p">,</span> <span class="n">_plugins</span><span class="p">,</span> <span class="n">resolver</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">register_plugin_tools</span><span class="p">(</span><span class="n">server</span><span class="p">:</span> <span class="n">MCPServer</span><span class="p">,</span> <span class="n">plugins</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AnalyzerPlugin</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="n">_PLUGIN_CLASSES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">type</span><span class="p">[</span><span class="n">AnalyzerPlugin</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">PydanticPlugin</span><span class="p">,</span> <span class="n">DjangoPlugin</span><span class="p">,</span> <span class="n">FlaskPlugin</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">all_plugin_tool_names</span><span class="p">(</span><span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Every tool name any plugin declares, whether or not it is active here.&quot;&quot;&quot;</span>
+    <span class="n">names</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">plugin_class</span> <span class="ow">in</span> <span class="n">_PLUGIN_CLASSES</span><span class="p">:</span>
+        <span class="n">names</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">plugin_class</span><span class="p">(</span><span class="n">project_path</span><span class="p">)</span><span class="o">.</span><span class="n">register_tools</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">names</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_with_scope_default</span><span class="p">(</span>
+    <span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">func</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">resolver</span><span class="p">:</span> <span class="n">SmartScopeResolver</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Make ``func``&#39;s ``scope`` optional, defaulting through ``scope_defaults`` (#559).</span>
+
+<span class="sd">    The MCP schema is built from the returned callable&#39;s signature, so ``scope``</span>
+<span class="sd">    becomes ``Scope | None = None``; every other parameter is unchanged. A call</span>
+<span class="sd">    without ``scope`` gets ``resolver.plugin_tool_default(tool_name)``, and an</span>
+<span class="sd">    explicit ``scope`` always wins. Either way, ``scope_aliases`` are expanded.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">signature</span> <span class="o">=</span> <span class="n">_signature</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;scope&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">signature</span><span class="o">.</span><span class="n">parameters</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">func</span>
+    <span class="n">hints</span> <span class="o">=</span> <span class="n">typing</span><span class="o">.</span><span class="n">get_type_hints</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="n">bound</span> <span class="o">=</span> <span class="n">signature</span><span class="o">.</span><span class="n">bind_partial</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">bound</span><span class="o">.</span><span class="n">arguments</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scope&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">bound</span><span class="o">.</span><span class="n">arguments</span><span class="p">[</span><span class="s2">&quot;scope&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">plugin_tool_default</span><span class="p">(</span><span class="n">tool_name</span><span class="p">)</span>
+        <span class="c1"># Plugins resolve only main/all/packages/namespace:/package:, so an</span>
+        <span class="c1"># alias (from config or the caller) would otherwise search nothing.</span>
+        <span class="n">bound</span><span class="o">.</span><span class="n">arguments</span><span class="p">[</span><span class="s2">&quot;scope&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_aliases</span><span class="p">(</span><span class="n">bound</span><span class="o">.</span><span class="n">arguments</span><span class="p">[</span><span class="s2">&quot;scope&quot;</span><span class="p">])</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">bound</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">bound</span><span class="o">.</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">result</span> <span class="k">if</span> <span class="n">_isawaitable</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="k">else</span> <span class="n">result</span>
+
+    <span class="n">parameters</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">annotation</span><span class="o">=</span><span class="n">Scope</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;scope&quot;</span> <span class="k">else</span> <span class="n">p</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">signature</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+    <span class="p">]</span>
+    <span class="n">wrapper</span><span class="o">.</span><span class="n">__signature__</span> <span class="o">=</span> <span class="n">signature</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
+    <span class="n">wrapper</span><span class="o">.</span><span class="vm">__annotations__</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">hints</span><span class="p">,</span> <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="n">Scope</span> <span class="o">|</span> <span class="kc">None</span><span class="p">}</span>
+    <span class="k">del</span> <span class="n">wrapper</span><span class="o">.</span><span class="n">__wrapped__</span>  <span class="c1"># the schema must come from the new signature</span>
+    <span class="k">return</span> <span class="n">wrapper</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register_plugin_tools</span><span class="p">(</span>
+    <span class="n">server</span><span class="p">:</span> <span class="n">MCPServer</span><span class="p">,</span>
+    <span class="n">plugins</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">AnalyzerPlugin</span><span class="p">],</span>
+    <span class="n">resolver</span><span class="p">:</span> <span class="n">SmartScopeResolver</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Register every plugin tool on ``server`` under the name its plugin declares.</span>
 
 <span class="sd">    The ``register_tools()`` keys are the tool names. Registering by the</span>
@@ -499,6 +567,8 @@
 <span class="sd">    Args:</span>
 <span class="sd">        server: The MCP server to register on</span>
 <span class="sd">        plugins: Activated plugins, in load order</span>
+<span class="sd">        resolver: If given, tools with a ``scope`` parameter default it through</span>
+<span class="sd">            ``scope_defaults`` when the caller omits it (#559)</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        The registered tool names, in registration order</span>
@@ -514,6 +584,8 @@
                     <span class="sa">f</span><span class="s2">&quot;Plugin </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">()</span><span class="si">}</span><span class="s2"> declares tool </span><span class="si">{</span><span class="n">tool_name</span><span class="si">!r}</span><span class="s2">, &quot;</span>
                     <span class="s2">&quot;which another plugin already registered&quot;</span>
                 <span class="p">)</span>
+            <span class="k">if</span> <span class="n">resolver</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">tool_func</span> <span class="o">=</span> <span class="n">_with_scope_default</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_func</span><span class="p">,</span> <span class="n">resolver</span><span class="p">)</span>
             <span class="n">server</span><span class="o">.</span><span class="n">tool</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">tool_name</span><span class="p">)(</span><span class="n">tool_func</span><span class="p">)</span>
             <span class="n">registered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tool_name</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">registered</span>
