@@ -12,7 +12,7 @@
   
       <script src="../../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../../_static/documentation_options.js?v=11983aaa"></script>
+      <script src="../../../_static/documentation_options.js?v=e7931e7c"></script>
       <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../../_static/js/theme.js"></script>
@@ -997,7 +997,7 @@
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">outline</span><span class="p">(</span>
     <span class="n">handle</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">project_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
-    <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_depth</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">max_nodes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Python: Structural skeleton of a module or class — names, kinds, signatures, line spans.</span>
@@ -1008,8 +1008,13 @@
 <span class="sd">    ``signature`` when Jedi yields one.  No source content anywhere in the tree.</span>
 
 <span class="sd">    Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then</span>
-<span class="sd">    ``outline()`` to see the complete structural skeleton in one call — the</span>
-<span class="sd">    single-call answer to &quot;show me the structure of this scope.&quot;</span>
+<span class="sd">    ``outline()`` to see the structural skeleton in one call — the single-call</span>
+<span class="sd">    answer to &quot;show me the structure of this scope.&quot;</span>
+
+<span class="sd">    **Default is direct members only (``max_depth=1``).**  Nested non-empty</span>
+<span class="sd">    containers (a class inside the module, a subpackage) come back as</span>
+<span class="sd">    ``truncated: &quot;max_depth&quot;`` — drill on demand by calling ``outline`` on that</span>
+<span class="sd">    node&#39;s handle, or pass a larger ``max_depth`` (``None`` = unbounded).</span>
 
 <span class="sd">    **Static-surface ceiling.** The tree walks the ``members`` edge, so it is</span>
 <span class="sd">    complete over what is *statically defined in source* but not over runtime.</span>
@@ -1054,9 +1059,9 @@
 <span class="sd">    Args:</span>
 <span class="sd">        handle: Canonical Python dotted-name string (from resolve/inspect).</span>
 <span class="sd">        project_path: Project root path (default: current directory).</span>
-<span class="sd">        max_depth: Maximum depth from the root (root is depth 0).  ``None``</span>
-<span class="sd">            means unbounded within scope; the external cap and ``max_nodes``</span>
-<span class="sd">            still apply.  At the frontier, ``resolve_members`` is peeked once</span>
+<span class="sd">        max_depth: Maximum depth from the root (root is depth 0).  Default</span>
+<span class="sd">            ``1`` — direct members only.  ``None`` means unbounded within scope;</span>
+<span class="sd">            the external cap and ``max_nodes`` still apply.  At the frontier, ``resolve_members`` is peeked once</span>
 <span class="sd">            to distinguish a genuine empty container from a cut-off one.</span>
 <span class="sd">        max_nodes: Total-node budget for the tree (root counts as 1, default</span>
 <span class="sd">            200).  A container the budget cannot fully admit is cut off whole</span>
