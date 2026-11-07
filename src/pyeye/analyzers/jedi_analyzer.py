@@ -275,8 +275,11 @@ class JediAnalyzer:
                 if (file_path.parent / "__init__.py").exists():
                     continue
 
-                # Skip default excludes
-                if any(exclude_dir in file_path.parts for exclude_dir in default_excludes):
+                # Skip default excludes, testing only components below the
+                # standalone dir so an ancestor named e.g. ``build`` doesn't
+                # exclude every script (#515).
+                rel_parts = file_path.relative_to(standalone_dir).parts
+                if any(exclude_dir in rel_parts for exclude_dir in default_excludes):
                     continue
 
                 # Skip user-defined excludes

@@ -146,8 +146,10 @@ async def rglob_async(pattern: str, path: Path) -> list[Path]:
 
     Two exclusion rules apply:
 
-    1. **Name-based** — any path component in ``EXCLUDED_DIRS`` (virtual envs,
-       caches, build artifacts).
+    1. **Name-based** — any path component *below* ``path`` in
+       ``EXCLUDED_DIRS`` (virtual envs, caches, build artifacts). Components of
+       ``path`` itself and its ancestors are never tested, so a project that
+       lives under e.g. ``~/dev/build/`` scans normally (#515).
     2. **Nested checkouts** (#507) — any directory *strictly below* ``path``
        that is a linked git worktree root. A linked worktree is a duplicate of
        the tree it was created from, so scanning one gives every project symbol
@@ -190,8 +192,10 @@ async def rglob_async(pattern: str, path: Path) -> list[Path]:
 
         results = []
         for p in path.rglob(pattern):
-            # Check if any parent directory is in the exclusion set
-            if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in p.parts):
+            # Test only components below the scan root: an ancestor named e.g.
+            # ``build`` must not exclude the whole project (#515).
+            rel_parts = p.relative_to(path).parts
+            if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in rel_parts):
                 continue
             if _under_nested_worktree(p):
                 continue
