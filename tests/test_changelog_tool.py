@@ -122,12 +122,19 @@ class TestPendingRelease:
     _PENDING = _log("", ("2.0.0", "2026-11-07", "- big\n"), _V1)
 
     def test_release_merge_of_untagged_top_version(self):
-        subject = "release: v2.0.0 (#600)"
+        subject = "chore(release): v2.0.0 (#600)"
         assert cl.pending_release(self._PENDING, ["1.0.0"], subject) == "2.0.0"
 
     @pytest.mark.parametrize(
         "subject",
-        ["fix: something (#601)", "release: v2.0.1", "chore: release: v2.0.0", "release: v2.0.00"],
+        [
+            "fix: something (#601)",
+            "chore(release): v2.0.1",
+            "chore(release): v2.0.00",
+            "chore: release v2.0.0",
+            # the pre-#587 form: not a conventional commit, so it can't be committed
+            "release: v2.0.0",
+        ],
     )
     def test_non_release_merges_never_tag(self, subject):
         """A stray version heading in an ordinary PR must not publish."""
@@ -135,11 +142,11 @@ class TestPendingRelease:
 
     def test_merge_commit_of_a_release_pr(self):
         """GitHub's merge-commit format: PR title on the line after the subject (#585)."""
-        message = "Merge pull request #600 from okeefeco/release/v2.0.0\n\nrelease: v2.0.0"
+        message = "Merge pull request #600 from okeefeco/release/v2.0.0\n\nchore(release): v2.0.0"
         assert cl.pending_release(self._PENDING, ["1.0.0"], message) == "2.0.0"
 
     def test_squash_subject_with_a_body(self):
-        message = "release: v2.0.0 (#600)\n\n* release: v2.0.0\n\nCo-authored-by: x"
+        message = "chore(release): v2.0.0 (#600)\n\n* chore(release): v2.0.0\n\nCo-authored-by: x"
         assert cl.pending_release(self._PENDING, ["1.0.0"], message) == "2.0.0"
 
     @pytest.mark.parametrize(
@@ -148,18 +155,20 @@ class TestPendingRelease:
             # merge commit of an ordinary PR
             "Merge pull request #601 from okeefeco/fix/1-x\n\nfix: something",
             # a squash body that merely mentions the release line
-            "fix: something (#601)\n\n* release: v2.0.0",
+            "fix: something (#601)\n\n* chore(release): v2.0.0",
             # merges that aren't PR merges don't count, even with the line
-            "Merge branch 'main' into feature\n\nrelease: v2.0.0",
+            "Merge branch 'main' into feature\n\nchore(release): v2.0.0",
             # the release line must be the PR title, not later in the message
-            "Merge pull request #600 from okeefeco/release/v2.0.0\n\nchore: x\n\nrelease: v2.0.0",
+            "Merge pull request #600 from okeefeco/release/v2.0.0\n\nchore: x\n\nchore(release): v2.0.0",
         ],
     )
     def test_merge_and_body_lookalikes_never_tag(self, message):
         assert cl.pending_release(self._PENDING, ["1.0.0"], message) is None
 
     def test_already_tagged_is_a_no_op(self):
-        assert cl.pending_release(self._PENDING, ["1.0.0", "2.0.0"], "release: v2.0.0") is None
+        assert (
+            cl.pending_release(self._PENDING, ["1.0.0", "2.0.0"], "chore(release): v2.0.0") is None
+        )
 
 
 class TestCheck:
@@ -228,3 +237,25 @@ class TestRepoChangelog:
         path.write_text(_log("### Fixed\n\n- x\n", _V1))
         assert cl.main(["--changelog", str(path), "prepare", "1.0.1"]) == 1
         assert "could not list git tags" in capsys.readouterr().err
+
+
+class TestReleaseTitleIsCommittable:
+    """The title ``prepare`` prescribes must pass the repo's commit-msg hook (#587)."""
+
+    def test_release_title_format(self):
+        assert cl.release_title("2.0.0") == "chore(release): v2.0.0"
+
+    def test_commitizen_accepts_the_release_title(self, tmp_path):
+        msg = tmp_path / "COMMIT_EDITMSG"
+        msg.write_text(cl.release_title("2.0.0") + "\n")
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "commitizen", "check", "--commit-msg-file", str(msg)],
+            cwd=_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_pending_release_accepts_exactly_the_release_title(self):
+        text = _log("", ("2.0.0", "2026-11-07", "- big\n"), _V1)
+        assert cl.pending_release(text, ["1.0.0"], cl.release_title("2.0.0")) == "2.0.0"

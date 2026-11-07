@@ -189,10 +189,21 @@ def notes(text: str, version: str) -> str:
 _PR_MERGE_SUBJECT = re.compile(r"^Merge pull request #\d+ from \S+$")
 
 
+def release_title(version: str) -> str:
+    """The commit subject and PR title of a release (#587).
+
+    It must be a valid conventional commit, because the commitizen
+    ``commit-msg`` hook rejects anything else (``release: v…`` included). And
+    commit and PR title must agree, because a single-commit squash uses the
+    commit subject.
+    """
+    return f"chore(release): v{version}"
+
+
 def pr_title(head_message: str) -> str:
     """The PR title a merge to ``main`` came from, given its commit message.
 
-    A squash merge's subject *is* the title (``release: v2.0.0 (#600)``). A merge
+    A squash merge's subject *is* the title (``chore(release): v2.0.0 (#600)``). A merge
     commit's subject is ``Merge pull request #N from <branch>``, and GitHub puts
     the title on the next non-empty line (#585). Anything else is just the
     subject.
@@ -208,13 +219,13 @@ def pending_release(text: str, tags: list[str], head_message: str) -> str | None
     """The version to tag for a merge to ``main`` whose message is *head_message*.
 
     Tags only when the newest released section is untagged **and** the merge
-    came from a release PR (title ``release: vX.Y.Z``), so a stray heading can't
+    came from a release PR (titled :func:`release_title`), so a stray heading can't
     publish. Squash and merge-commit merges are both recognised.
     """
     version = latest_version(parse(text))
     if version is None or version in tags:
         return None
-    if not re.match(rf"^release: v{re.escape(version)}\b", pr_title(head_message)):
+    if not re.match(rf"^{re.escape(release_title(version))}\b", pr_title(head_message)):
         return None
     return version
 
@@ -293,7 +304,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Promoted [Unreleased] to [{args.version}] - {today} in {path.name}.")
             print(
-                f"Next: open a PR titled 'release: v{args.version}'. Merging it tags and publishes."
+                f"Next: commit and open a PR, both titled '{release_title(args.version)}'. "
+                "Merging it tags and publishes."
             )
         elif args.command == "notes":
             print(notes(text, args.version))

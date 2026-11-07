@@ -37,9 +37,9 @@ git checkout -b release/v2.0.0 origin/main
 # Promote [Unreleased] to "## [2.0.0] - <today>" and start a fresh [Unreleased]
 python scripts/changelog.py prepare 2.0.0
 
-git commit -am "release: v2.0.0"
+git commit -am "chore(release): v2.0.0"
 git push -u origin release/v2.0.0
-gh pr create --title "release: v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
+gh pr create --title "chore(release): v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
 ```
 
 `prepare` refuses to:
@@ -49,7 +49,10 @@ gh pr create --title "release: v2.0.0" --body "Release v2.0.0. See CHANGELOG.md.
 - under-bump: `### BREAKING CHANGES` needs a major bump (a minor one before
   1.0), and `### Added` needs at least a minor one
 
-The PR title **must** be `release: vX.Y.Z`. Review the promoted section like any
+The commit subject and the PR title **must** both be `chore(release): vX.Y.Z`.
+It has to be a conventional commit, because the commitizen `commit-msg` hook
+rejects anything else. And the two have to match, because a single-commit
+squash uses the commit subject. Review the promoted section like any
 other change; this is the last chance to edit the release notes.
 
 ### 3. Merge it
@@ -57,7 +60,7 @@ other change; this is the last chance to edit the release notes.
 On the merge to `main`, `.github/workflows/tag-release.yml`:
 
 1. reads the newest released version in `CHANGELOG.md` (`changelog.py pending-release`);
-2. if it has no tag **and** the merge came from a PR titled `release: vX.Y.Z`,
+2. if it has no tag **and** the merge came from a PR titled `chore(release): vX.Y.Z`,
    tags that commit `vX.Y.Z`. Squash merges and merge commits both work: the
    PR title is the squash subject, or the line after a merge commit's
    `Merge pull request #N from …` subject;

@@ -145,7 +145,7 @@ For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --bo
 A release is a PR; see `docs/RELEASE.md`.
 
 - Prepare it with `python scripts/changelog.py prepare X.Y.Z`. NEVER hand-edit the version heading.
-- The PR title MUST be exactly `release: vX.Y.Z`; the tag workflow keys on it.
+- The commit subject AND the PR title MUST both be exactly `chore(release): vX.Y.Z`. The tag workflow keys on it, and commitizen rejects the non-conventional `release: vX.Y.Z` (#587).
 - NEVER tag manually after merging a release PR: `tag-release.yml` tags and publishes. A manual tag races it.
 - If `prepare` refuses (e.g. an under-bump against `### BREAKING CHANGES`), fix the version or the notes. Don't work around it.
 - NEVER generate CHANGELOG prose from commits (`cz changelog` / `cz bump`); commitizen only lints commit messages (#210).
