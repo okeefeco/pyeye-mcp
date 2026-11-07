@@ -517,27 +517,33 @@ class ProjectConfig:
         """Get standalone scripts configuration.
 
         Returns:
-            Dictionary with standalone directory configuration including:
-            - dirs: List of directories containing standalone scripts
-            - recursive: Whether to scan subdirectories (default True)
-            - file_pattern: Pattern to match files (default "*.py")
-            - exclude_patterns: Patterns to exclude (default [])
-        """
-        standalone = self.config.get("standalone", {})
-        if not standalone:
-            return {
-                "dirs": [],
-                "recursive": True,
-                "file_pattern": "*.py",
-                "exclude_patterns": [],
-            }
+            ``{"dirs": [...]}`` — the directories of standalone scripts. Every
+            ``.py`` file under them is analysed.
 
-        return {
-            "dirs": standalone.get("dirs", []),
-            "recursive": standalone.get("recursive", True),
-            "file_pattern": standalone.get("file_pattern", "*.py"),
-            "exclude_patterns": standalone.get("exclude_patterns", []),
-        }
+        Any other key under ``standalone`` is ignored: ``recursive``,
+        ``file_pattern`` and ``exclude_patterns`` were removed in 2.0 because
+        nothing ever applied them (#513). See :meth:`get_ignored_standalone_keys`.
+        """
+        standalone = self.config.get("standalone") or {}
+        ignored = self.get_ignored_standalone_keys()
+        if ignored:
+            logger.warning(self.ignored_standalone_keys_message(ignored))
+        return {"dirs": list(standalone.get("dirs", []))}
+
+    def get_ignored_standalone_keys(self) -> list[str]:
+        """Return the (sorted) keys under ``standalone`` that are ignored."""
+        standalone = self.config.get("standalone") or {}
+        return sorted(key for key in standalone if key != "dirs")
+
+    @staticmethod
+    def ignored_standalone_keys_message(keys: list[str]) -> str:
+        """Explain that *keys* under ``standalone`` in the config are ignored."""
+        names = ", ".join(f"standalone.{key}" for key in keys)
+        return (
+            f"Ignoring {names} in the {PROJECT_NAME} config: standalone directories "
+            "are scanned in full, and these options were removed in 2.0 because "
+            "they never took effect (#513). Remove them to silence this warning."
+        )
 
     def save_config(self, config_path: Path | None = None) -> None:
         """Save current configuration to a file.
@@ -579,9 +585,6 @@ def create_example_config(project_path: str = ".") -> None:
         },
         "standalone": {
             "dirs": ["notebooks", "scripts", "examples"],
-            "recursive": True,
-            "file_pattern": "*.py",
-            "exclude_patterns": ["**/test_*", "**/__pycache__/**"],
         },
         "exclude": ["**/tests/**", "**/migrations/**", "**/__pycache__/**"],
         "cache": {"ttl_seconds": 300, "max_size_mb": 100},

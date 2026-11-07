@@ -7,8 +7,6 @@ lives under a directory with one of those names was silently mis-scanned:
 
 * ``rglob_async`` (``EXCLUDED_DIRS``) found **zero** files under e.g.
   ``~/dev/build/myproject`` or a CI workspace mounted at ``/build``.
-* ``JediAnalyzer._discover_standalone_files`` did the same for standalone
-  script directories.
 * ``scope._has_build_artifact_segment`` matched ``.tox`` / ``__pycache__`` /
   ``*.egg-info`` anywhere, so every file of a project under ``.tox/`` was
   classified ``external``.
@@ -90,24 +88,6 @@ class TestRglobAsyncAncestors:
             "myproject/pkg/__init__.py",
             "myproject/pkg/core.py",
         }
-
-
-class TestStandaloneDiscoveryAncestors:
-    """Standalone script discovery ignores excluded names above the script dir."""
-
-    @pytest.mark.parametrize("ancestor", ["build", "dist", "env", "venv", ".venv", ".tox"])
-    async def test_standalone_dir_under_excluded_ancestor(self, tmp_path, ancestor):
-        proj = tmp_path / ancestor / "myproject"
-        scripts = proj / "scripts"
-        (scripts / "build").mkdir(parents=True)
-        (scripts / "tool.py").write_text("")
-        (scripts / "build" / "generated.py").write_text("")
-        analyzer = JediAnalyzer(str(proj))
-        analyzer.set_standalone_paths([scripts])
-
-        found = _rel(await analyzer._discover_standalone_files(), scripts)
-
-        assert found == {"tool.py"}  # excluded subdir below the script dir still skipped
 
 
 class TestScopeAncestors:

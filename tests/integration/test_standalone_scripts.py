@@ -46,8 +46,6 @@ class TestStandaloneConfiguration:
         assert "dirs" in standalone_config
         assert "notebooks" in standalone_config["dirs"]
         assert "scripts" in standalone_config["dirs"]
-        assert standalone_config["recursive"] is True
-        assert standalone_config["file_pattern"] == "*.py"
 
     def test_standalone_paths_set(self, standalone_analyzer):
         """Test that standalone paths are properly set."""
@@ -58,20 +56,12 @@ class TestStandaloneConfiguration:
 
 
 class TestStandaloneFileDiscovery:
-    """Test standalone file discovery."""
+    """Standalone directories are scanned in full via ``get_project_files``.
 
-    @pytest.mark.asyncio
-    async def test_discover_standalone_files(self, standalone_analyzer):
-        """Test that standalone files are discovered."""
-        files = await standalone_analyzer._discover_standalone_files()
-
-        # Should find 3 standalone files
-        assert len(files) == 3
-
-        file_names = {f.name for f in files}
-        assert "analysis1.py" in file_names
-        assert "analysis2.py" in file_names
-        assert "migrate.py" in file_names
+    The per-directory refinements (``recursive`` / ``file_pattern`` /
+    ``exclude_patterns``) and their ``_discover_standalone_files`` implementation
+    were removed in 2.0: nothing ever called it (#513).
+    """
 
     @pytest.mark.asyncio
     async def test_standalone_files_in_project_files(self, standalone_analyzer):
@@ -135,35 +125,14 @@ class TestStandaloneImports:
         assert any("analysis2.py" in imp_file for imp_file in import_files)
 
 
-class TestExcludePatterns:
-    """Test exclude pattern functionality."""
-
-    @pytest.mark.asyncio
-    async def test_exclude_patterns_respected(self, standalone_analyzer, standalone_project_path):
-        """Test that exclude patterns are respected in standalone file discovery."""
-        # Get standalone config with exclude patterns
-        config = ProjectConfig(str(standalone_project_path))
-        standalone_config = config.get_standalone_config()
-
-        # Discover files with exclude patterns
-        exclude_patterns = standalone_config.get("exclude_patterns", [])
-        files = await standalone_analyzer._discover_standalone_files(
-            exclude_patterns=exclude_patterns
-        )
-
-        file_names = {f.name for f in files}
-
-        # test_ files should be excluded (per config)
-        assert not any(f.startswith("test_") for f in file_names)
-
-
 class TestCrossPlatformPaths:
     """Test cross-platform path handling."""
 
     @pytest.mark.asyncio
     async def test_paths_use_posix(self, standalone_analyzer):
         """Test that standalone file paths use .as_posix() format."""
-        files = await standalone_analyzer._discover_standalone_files()
+        files = await standalone_analyzer.get_project_files(scope="standalone")
+        assert files  # the standalone scope is non-empty for this fixture
 
         for file_path in files:
             # File paths should be Path objects
@@ -172,15 +141,3 @@ class TestCrossPlatformPaths:
             # When converted to string for comparison/display, should use forward slashes
             path_str = file_path.as_posix()
             assert "\\" not in path_str  # No backslashes
-
-
-@pytest.mark.asyncio
-async def test_standalone_files_not_in_packages(standalone_analyzer):
-    """Test that standalone files in packages are excluded."""
-    # Standalone files should NOT be discovered if they're in a package
-    # (i.e., directory with __init__.py)
-    files = await standalone_analyzer._discover_standalone_files()
-
-    # None of the files should be from mypackage (which has __init__.py)
-    for file_path in files:
-        assert "mypackage" not in file_path.parts

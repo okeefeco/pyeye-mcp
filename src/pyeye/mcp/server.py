@@ -259,9 +259,6 @@ def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
     standalone_dirs: list[str] | None = None,
-    recursive: bool = True,
-    file_pattern: str = "*.py",
-    exclude_patterns: list[str] | None = None,
     save: bool = True,
 ) -> dict[str, Any]:
     """Python: Configure additional packages, namespaces, and standalone scripts for analysis.
@@ -269,10 +266,8 @@ def configure_packages(
     Args:
         packages: List of package paths to include
         namespaces: Namespace packages with their repo paths
-        standalone_dirs: Directories containing standalone Python scripts
-        recursive: Scan standalone directories recursively
-        file_pattern: Glob pattern for standalone files
-        exclude_patterns: Patterns to exclude from standalone scanning
+        standalone_dirs: Directories containing standalone Python scripts.
+            Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
     """
     # Load existing config
@@ -291,11 +286,6 @@ def configure_packages(
         # Update standalone configuration
         standalone_config = config.config.setdefault("standalone", {})
         standalone_config.setdefault("dirs", []).extend(standalone_dirs)
-        standalone_config["recursive"] = recursive
-        standalone_config["file_pattern"] = file_pattern
-        if exclude_patterns is None:
-            exclude_patterns = []
-        standalone_config["exclude_patterns"] = exclude_patterns
 
     # Save if requested
     if save and (packages or namespaces or standalone_dirs):
@@ -323,12 +313,18 @@ def configure_packages(
     else:
         manager.invalidate_analyzer(".")
 
-    return {
+    result: dict[str, Any] = {
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
         "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
+    # Report config keys that are present but ignored rather than letting them
+    # read as live (#513). Absent — not [] — when there are none.
+    ignored = config.get_ignored_standalone_keys()
+    if ignored:
+        result["warnings"] = [ProjectConfig.ignored_standalone_keys_message(ignored)]
+    return result
 
 
 @mcp.tool()
