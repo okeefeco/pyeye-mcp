@@ -1,7 +1,7 @@
 # Tag a release when a release PR merges (#583)
 #
 # A release PR (`python scripts/changelog.py prepare X.Y.Z`, titled
-# `release: vX.Y.Z`) promotes [Unreleased] to [X.Y.Z] in CHANGELOG.md. When it
+# `chore(release): vX.Y.Z`) promotes [Unreleased] to [X.Y.Z] in CHANGELOG.md. When it
 # merges (squash or merge commit), this workflow tags the merge commit `vX.Y.Z` and dispatches
 # release.yml on that tag.
 #
