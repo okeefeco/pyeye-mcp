@@ -303,8 +303,10 @@ by default — subpackages marked `truncated: max_depth`); pass a higher
 lists modules, not their members: a module that has members comes back
 `truncated: survey_leaf` (`outline` that module to see them), and only a
 genuinely empty one is `children: []`. A package's own `__init__` members are
-not listed either — `init_member_count: N` says how many were left out
-(`expand(pkg, "members")` lists them). A package with no submodules is outlined
+not listed either — `member_count: N` on a walked package says how many were left
+out (`expand(pkg, "members")` lists them). Counts are named for their edge and
+match `inspect`'s `edge_counts`: a survey cut by `max_nodes` carries
+`submodule_count`. A package with no submodules is outlined
 by its members instead:
 
 ```text

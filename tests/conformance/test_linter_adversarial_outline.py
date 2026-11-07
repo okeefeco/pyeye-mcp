@@ -403,7 +403,7 @@ class TestRealOutlineOutputConforms:
 
 
 # ---------------------------------------------------------------------------
-# TestOutlineSurveyDisclosure (O.2 survey_leaf + O.6 init_member_count, #596)
+# TestOutlineSurveyDisclosure (O.2 survey_leaf, O.5/O.6 edge-named counts; #596, #599)
 # ---------------------------------------------------------------------------
 
 
@@ -436,33 +436,71 @@ class TestOutlineSurveyDisclosure:
 
         assert "survey_leaf" not in _VALID_TRUNCATION_REASONS
 
-    def test_init_member_count_on_walked_node_passes(self) -> None:
-        """O.6 — a positive init_member_count on a walked node passes."""
-        tree = {**_clone(), "init_member_count": 3}
+    def test_member_count_on_walked_node_passes(self) -> None:
+        """O.6 — a walked survey package discloses unlisted members (> 0)."""
+        tree = {**_clone(), "member_count": 3}
         lint_response(tree, "outline")
 
-    @pytest.mark.parametrize("value", [0, -1])
-    def test_non_positive_init_member_count_rejected(self, value: int) -> None:
-        """O.6 — absent-when-zero: 0 (and negatives) are rejected."""
-        tree = {**_clone(), "init_member_count": value}
-        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count range"):
+    def test_zero_member_count_on_walked_node_rejected(self) -> None:
+        """O.6 — absent-when-zero on a walked node."""
+        tree = {**_clone(), "member_count": 0}
+        with pytest.raises(ConformanceViolation, match="O.6 outline member_count range"):
             lint_response(tree, "outline")
 
-    @pytest.mark.parametrize("value", [True, "3", 2.0])
-    def test_non_int_init_member_count_rejected(self, value: object) -> None:
-        """O.6 — init_member_count must be a plain int (bool rejected)."""
-        tree = {**_clone(), "init_member_count": value}
-        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count type"):
+    def test_submodule_count_on_walked_node_rejected(self) -> None:
+        """O.6 — a walked node's submodules are its children, never a count."""
+        tree = {**_clone(), "submodule_count": 2}
+        with pytest.raises(ConformanceViolation, match="O.6 outline count placement"):
             lint_response(tree, "outline")
 
-    def test_init_member_count_on_truncated_node_rejected(self) -> None:
-        """O.6 — a truncated node was not surveyed; it may not disclose init members."""
+    def test_survey_max_nodes_cut_with_submodule_count_passes(self) -> None:
+        """O.5 — a survey-mode max_nodes cut counts the submodules it withheld (#599)."""
         tree = {
             "found": True,
             "node": _STUB_MODULE,
             "truncated": True,
-            "truncation_reason": "max_depth",
-            "init_member_count": 2,
+            "truncation_reason": "max_nodes",
+            "submodule_count": 6,
         }
-        with pytest.raises(ConformanceViolation, match="O.6 outline init_member_count placement"):
+        lint_response(tree, "outline")
+
+    def test_max_nodes_cut_with_both_counts_rejected(self) -> None:
+        """O.5 — exactly one count: the edge withheld, not both."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": "max_nodes",
+            "member_count": 1,
+            "submodule_count": 6,
+        }
+        with pytest.raises(ConformanceViolation, match="O.5 outline max_nodes count required"):
+            lint_response(tree, "outline")
+
+    @pytest.mark.parametrize("key", ["member_count", "submodule_count"])
+    @pytest.mark.parametrize("value", [True, "3", 2.0, -1])
+    def test_bad_count_value_rejected(self, key: str, value: object) -> None:
+        """O.5 — every count is a non-negative plain int (bool rejected)."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": "max_nodes",
+            key: value,
+        }
+        with pytest.raises(ConformanceViolation, match=f"O.5 outline {key}"):
+            lint_response(tree, "outline")
+
+    @pytest.mark.parametrize("reason", ["max_depth", "external", "survey_leaf"])
+    @pytest.mark.parametrize("key", ["member_count", "submodule_count"])
+    def test_count_on_non_budget_truncation_rejected(self, reason: str, key: str) -> None:
+        """O.6 — only a max_nodes truncation counts what it withheld."""
+        tree = {
+            "found": True,
+            "node": _STUB_MODULE,
+            "truncated": True,
+            "truncation_reason": reason,
+            key: 2,
+        }
+        with pytest.raises(ConformanceViolation, match="O.6 outline count placement"):
             lint_response(tree, "outline")

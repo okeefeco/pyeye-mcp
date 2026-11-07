@@ -56,7 +56,9 @@ Truncation reasons (spec §5.4)
   honest ``member_count`` — the count of direct members withheld — alongside
   ``truncated``/``truncation_reason``.  Recovery is a fresh re-outline with a
   larger budget or a targeted subtree.  Genuinely empty containers are leaves
-  (``children: []``), never a ``max_nodes`` truncation.
+  (``children: []``), never a ``max_nodes`` truncation.  In package survey mode
+  the walked edge is ``submodules``, so the cut-off node carries
+  ``submodule_count`` instead (#599) — every count is named for its edge.
 - ``"external"`` — the node is an external-scope container at depth ≥ 1.  The
   external cap allows one level of members from the root and one from its
   immediate children, but no deeper walk into third-party code.  No peek, no
@@ -69,9 +71,14 @@ Truncation reasons (spec §5.4)
   ``outline`` the node itself.  A module with no members stays ``children: []``.
 
 Survey disclosure (#596): a walked package in survey mode carries
-``init_member_count`` — the count of members its own ``__init__`` defines, which
-the submodules-only tree does not list — present only when > 0.  A package ROOT
-with no submodules is outlined in member mode instead.
+``member_count`` — the count of members its own ``__init__`` defines, which the
+submodules-only tree does not list — present only when > 0.  A package ROOT with
+no submodules is outlined in member mode instead.
+
+Count naming (#599): ``member_count`` / ``submodule_count`` always measure the
+``members`` / ``submodules`` edge and equal ``inspect(h).edge_counts`` for that
+edge.  Whether a count was WITHHELD (a ``max_nodes`` truncation) or is NOT IN THIS
+VIEW (a walked survey package) is read from the node's state.
 
 Tiebreaker (spec §5.4): when both ``max_nodes`` AND ``max_depth``/``external``
 could fire on the same node, ``truncation_reason`` is ``"max_nodes"`` (the harder
@@ -100,6 +107,13 @@ _REASON_MAX_DEPTH: str = "max_depth"
 _REASON_MAX_NODES: str = "max_nodes"
 _REASON_EXTERNAL: str = "external"
 _REASON_SURVEY_LEAF: str = "survey_leaf"
+
+# ``<edge>_count`` keys (#599): each count is named for the edge it measures and
+# mirrors ``inspect(handle).edge_counts[<edge>]``.  Whether a count was WITHHELD by
+# a cap (``truncated`` + ``max_nodes``) or is simply NOT IN THIS VIEW (a walked
+# survey package, whose children are submodules) is read from the node's state.
+_MEMBER_COUNT: str = "member_count"
+_SUBMODULE_COUNT: str = "submodule_count"
 
 # ---------------------------------------------------------------------------
 # Container kinds — resolve_members returns [] for non-containers by definition,
@@ -211,21 +225,33 @@ def _mark_non_expandable(
         tree_node["children"] = []
 
 
-def _disclose_init_members(
+def _mark_max_nodes(tree_node: dict[str, Any], withheld: int, survey_mode: bool) -> None:
+    """Cut a container off whole for the node budget, counting what it withheld.
+
+    The count is named for the edge being walked (#599): member mode withholds
+    ``members`` (``member_count``), survey mode withholds ``submodules``
+    (``submodule_count``).  Either equals the matching ``inspect().edge_counts``.
+    """
+    tree_node["truncated"] = True
+    tree_node["truncation_reason"] = _REASON_MAX_NODES
+    tree_node[_SUBMODULE_COUNT if survey_mode else _MEMBER_COUNT] = withheld
+
+
+def _disclose_unlisted_members(
     tree_node: dict[str, Any], jedi_name: Any, analyzer: JediAnalyzer, survey_mode: bool
 ) -> None:
-    """Disclose a walked survey package's own ``__init__`` member count (#596).
+    """Disclose the members a walked survey package does not list (#596).
 
-    A survey lists only submodules, so the members a package's ``__init__``
-    defines would vanish silently.  ``init_member_count`` is present only when
-    > 0; recovery is ``expand(pkg, "members")``.  No-op in member mode, where
-    members ARE the children.
+    A survey's children are submodules, so the members a package's ``__init__``
+    defines would vanish silently.  ``member_count`` says how many are not in
+    this view — present only when > 0; recovery is ``expand(pkg, "members")``.
+    No-op in member mode, where members ARE the children.
     """
     if not survey_mode:
         return
-    init_members = len(resolve_members(jedi_name, analyzer).adjacents)
-    if init_members:
-        tree_node["init_member_count"] = init_members
+    unlisted = len(resolve_members(jedi_name, analyzer).adjacents)
+    if unlisted:
+        tree_node[_MEMBER_COUNT] = unlisted
 
 
 def _is_survey_root(jedi_name: Any, analyzer: JediAnalyzer) -> bool:
@@ -273,7 +299,7 @@ async def outline(
     tree is the package's child modules/subpackages (drill on demand); module
     members are not walked — a module that has members is ``truncated:
     "survey_leaf"``, a walked package discloses its own ``__init__`` members as
-    ``init_member_count`` (#596).  A module/class root, or a package root with no
+    ``member_count`` (#596).  A module/class root, or a package root with no
     submodules, keeps survey mode off and walks ``members``.
 
     **Default depth is 1 for every root kind (#474).**  With no ``max_depth``
@@ -382,9 +408,7 @@ async def outline(
             if not adjacents:
                 _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
             else:
-                tree_node["truncated"] = True
-                tree_node["truncation_reason"] = _REASON_MAX_NODES
-                tree_node["member_count"] = len(adjacents)
+                _mark_max_nodes(tree_node, len(adjacents), survey_mode)
             continue
 
         # External-scope cap: external containers at depth ≥ 1 are capped.
@@ -425,9 +449,7 @@ async def outline(
             continue
 
         if node_count + len(adjacents) > max_nodes:
-            tree_node["truncated"] = True
-            tree_node["truncation_reason"] = _REASON_MAX_NODES
-            tree_node["member_count"] = len(adjacents)
+            _mark_max_nodes(tree_node, len(adjacents), survey_mode)
             continue
 
         children: list[dict[str, Any]] = []
@@ -446,6 +468,6 @@ async def outline(
         children.sort(key=lambda t: (t["node"]["line_start"], t["node"]["handle"]))
 
         tree_node["children"] = children
-        _disclose_init_members(tree_node, jedi_name, analyzer, survey_mode)
+        _disclose_unlisted_members(tree_node, jedi_name, analyzer, survey_mode)
 
     return root_tree

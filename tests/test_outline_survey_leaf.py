@@ -8,8 +8,11 @@ members.  These tests pin the fixed shape:
 - a survey leaf WITH members → ``truncated: true, truncation_reason: "survey_leaf"``
   and ``children`` absent (recovery: ``outline(<that module>)``);
 - a survey leaf with NO members → ``children: []`` (a genuine leaf);
-- a walked package whose ``__init__`` defines members → ``init_member_count: N``
+- a walked package whose ``__init__`` defines members → ``member_count: N``
   (omitted when N == 0), so the submodules-only view never hides them silently;
+- every ``<edge>_count`` names its edge (#599): a survey-mode ``max_nodes``
+  truncation withholds SUBMODULES, so it carries ``submodule_count`` — and any
+  ``X_count`` equals ``inspect(h).edge_counts[X]``, on every node, in every mode;
 - a package root with no submodules → member mode (survey of nothing is useless,
   and ``survey_leaf`` pointing back at itself would be circular).
 """
@@ -21,8 +24,7 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.mcp.operations.edges import resolve_members
-from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
+from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
 from tests.conformance.response_linter import lint_response
 
@@ -51,10 +53,20 @@ def _assert_genuine_leaf(node: dict) -> None:
     assert "truncation_reason" not in node
 
 
-async def _member_count(handle: str, analyzer: JediAnalyzer) -> int:
-    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-    assert jedi_name is not None
-    return len(resolve_members(jedi_name, analyzer).adjacents)
+async def _edge_counts(handle: str, analyzer: JediAnalyzer) -> dict[str, int]:
+    node = await inspect(handle, analyzer)
+    assert node["found"] is True
+    return node["edge_counts"]
+
+
+# ``<edge>_count`` key in an outline node → the ``inspect().edge_counts`` key it mirrors.
+_COUNT_KEYS: dict[str, str] = {"member_count": "members", "submodule_count": "submodules"}
+
+
+def _nodes(tree: dict):
+    yield tree
+    for child in tree.get("children", []):
+        yield from _nodes(child)
 
 
 class TestSurveyLeafNodes:
@@ -139,39 +151,101 @@ class TestSurveyLeafNodes:
         assert "svpkg.full.full_fn" in {c["node"]["handle"] for c in tree["children"]}
 
 
-class TestInitMemberDisclosure:
+class TestUnlistedMemberDisclosure:
     @pytest.mark.asyncio
-    async def test_root_discloses_init_member_count(self, analyzer: JediAnalyzer) -> None:
+    async def test_root_discloses_member_count(self, analyzer: JediAnalyzer) -> None:
         tree = await outline("svpkg", analyzer)
-        expected = await _member_count("svpkg", analyzer)
+        expected = (await _edge_counts("svpkg", analyzer))["members"]
         assert expected > 0
-        assert tree["init_member_count"] == expected
+        assert tree["member_count"] == expected
         # The members themselves are still NOT listed (submodules-only view).
         assert "svpkg.init_fn" not in {c["node"]["handle"] for c in tree["children"]}
 
     @pytest.mark.asyncio
-    async def test_walked_subpackage_discloses_init_member_count(
-        self, analyzer: JediAnalyzer
-    ) -> None:
+    async def test_walked_subpackage_discloses_member_count(self, analyzer: JediAnalyzer) -> None:
         tree = await outline("svpkg", analyzer, max_depth=None)
         both = _child(tree, "svpkg.both")
-        assert both["init_member_count"] == await _member_count("svpkg.both", analyzer)
+        assert both["member_count"] == (await _edge_counts("svpkg.both", analyzer))["members"]
         assert {c["node"]["handle"] for c in both["children"]} == {"svpkg.both.leaf"}
 
     @pytest.mark.asyncio
-    async def test_init_member_count_absent_when_zero(self, analyzer: JediAnalyzer) -> None:
+    async def test_member_count_absent_when_zero(self, analyzer: JediAnalyzer) -> None:
         tree = await outline("svpkg.nested", analyzer)
-        assert "init_member_count" not in tree
+        assert "member_count" not in tree
         walked = await outline("svpkg", analyzer, max_depth=None)
-        assert "init_member_count" not in _child(walked, "svpkg.nested")
+        assert "member_count" not in _child(walked, "svpkg.nested")
 
     @pytest.mark.asyncio
-    async def test_init_member_count_absent_on_truncated_nodes(
+    async def test_no_count_on_depth_truncated_nodes(self, analyzer: JediAnalyzer) -> None:
+        # A max_depth cut node was not surveyed: it carries no count of any edge.
+        tree = await outline("svpkg", analyzer)
+        both = _child(tree, "svpkg.both")
+        assert both["truncation_reason"] == "max_depth"
+        assert not set(_COUNT_KEYS) & set(both)
+
+
+class TestSurveyMaxNodesCount:
+    """#599 — a survey-mode max_nodes cut withholds submodules and says so."""
+
+    @pytest.mark.asyncio
+    async def test_root_cut_carries_submodule_count(self, analyzer: JediAnalyzer) -> None:
+        tree = await outline("svpkg", analyzer, max_nodes=1)
+        counts = await _edge_counts("svpkg", analyzer)
+        assert counts["members"] != counts["submodules"], "fixture must tell them apart"
+        assert tree["truncated"] is True
+        assert tree["truncation_reason"] == "max_nodes"
+        assert tree["submodule_count"] == counts["submodules"]
+        assert "member_count" not in tree
+        assert "children" not in tree
+
+    @pytest.mark.asyncio
+    async def test_budget_full_subpackage_cut_carries_submodule_count(
         self, analyzer: JediAnalyzer
     ) -> None:
-        # A node that was not walked carries no init disclosure — it was not surveyed.
-        tree = await outline("svpkg", analyzer)
-        assert "init_member_count" not in _child(tree, "svpkg.both")
+        # Root + its 6 submodules fill a budget of 7, so the walk reaches svpkg.both
+        # with no room left: the budget-full peek path.
+        tree = await outline("svpkg", analyzer, max_nodes=7, max_depth=None)
+        both = _child(tree, "svpkg.both")
+        assert both["truncation_reason"] == "max_nodes"
+        assert both["submodule_count"] == (await _edge_counts("svpkg.both", analyzer))["submodules"]
+        assert "member_count" not in both
+
+    @pytest.mark.asyncio
+    async def test_member_mode_cut_still_carries_member_count(self, analyzer: JediAnalyzer) -> None:
+        # Member mode is unchanged: a module root cut by max_nodes withholds members.
+        tree = await outline("svpkg.initonly", analyzer, max_nodes=1)
+        assert tree["truncation_reason"] == "max_nodes"
+        assert tree["member_count"] == (await _edge_counts("svpkg.initonly", analyzer))["members"]
+        assert "submodule_count" not in tree
+
+
+class TestCountInvariant:
+    """Every ``X_count`` on every node equals ``inspect(h).edge_counts[X]`` (#599).
+
+    The linter is pure (no analyzer), so it can check only the SHAPE of counts;
+    this is the value check, swept over modes, depths and budgets.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "handle", ["svpkg", "svpkg.both", "svpkg.nested", "svpkg.initonly", "svpkg.full"]
+    )
+    @pytest.mark.parametrize("max_depth", [1, None])
+    @pytest.mark.parametrize("max_nodes", [1, 2, 4, 7, 9, 200])
+    async def test_every_count_matches_inspect(
+        self,
+        analyzer: JediAnalyzer,
+        handle: str,
+        max_depth: int | None,
+        max_nodes: int,
+    ) -> None:
+        tree = await outline(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes)
+        for node in _nodes(tree):
+            for key, edge in _COUNT_KEYS.items():
+                if key in node:
+                    h = node["node"]["handle"]
+                    expected = (await _edge_counts(h, analyzer))[edge]
+                    assert node[key] == expected, f"{h}.{key}={node[key]} != {edge}={expected}"
 
 
 class TestSubmodulelessPackageRoot:
@@ -180,7 +254,7 @@ class TestSubmodulelessPackageRoot:
         tree = await outline("svpkg.initonly", analyzer)
         handles = {c["node"]["handle"] for c in tree["children"]}
         assert "svpkg.initonly.initonly_fn" in handles
-        assert "init_member_count" not in tree  # member mode: members are listed
+        assert "member_count" not in tree  # member mode: members ARE the children
 
     @pytest.mark.asyncio
     async def test_empty_package_root_is_genuine_leaf(self, analyzer: JediAnalyzer) -> None:
@@ -191,8 +265,9 @@ class TestSubmodulelessPackageRoot:
 class TestConformance:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("max_depth", [1, 2, None])
+    @pytest.mark.parametrize("max_nodes", [1, 7, 9, 200])
     async def test_survey_responses_pass_the_linter(
-        self, analyzer: JediAnalyzer, max_depth: int | None
+        self, analyzer: JediAnalyzer, max_depth: int | None, max_nodes: int
     ) -> None:
-        tree = await outline("svpkg", analyzer, max_depth=max_depth)
+        tree = await outline("svpkg", analyzer, max_depth=max_depth, max_nodes=max_nodes)
         lint_response(tree, "outline")  # raises on any violation
