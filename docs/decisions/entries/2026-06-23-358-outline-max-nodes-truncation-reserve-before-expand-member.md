@@ -3,10 +3,10 @@ date: "2026-06-23"
 title: "outline `max_nodes` truncation: reserve-before-expand + `member_count` signpost (#358)"
 issues: [358]
 anchors: ["pyeye.mcp.operations.outline.outline", "tests.conformance.response_linter._check_outline_tree_node"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-435-one-truncation-reason-table-budget-cuts-count-what-they-withhold.md"]
 superseded_by: []
 ---
 

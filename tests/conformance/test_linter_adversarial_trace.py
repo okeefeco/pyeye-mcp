@@ -432,3 +432,27 @@ class TestT10UnresolvedImporters:
         sg["unresolved_importers"] = {"pkg.target": ["a\nb"]}
         with pytest.raises(ConformanceViolation, match="T.10 trace unresolved_importers entry"):
             lint_response(sg, "trace")
+
+
+class TestT11UnparseableFiles:
+    """T.11 (#729) — ``unparseable_files`` map, shaped like T.8."""
+
+    def test_absent_passes(self) -> None:
+        lint_response(_clone(), "trace")
+
+    def test_populated_map_passes(self) -> None:
+        sg = _clone()
+        sg["unparseable_files"] = {"pkg.Base": ["/proj/new_syntax.py"]}
+        lint_response(sg, "trace")
+
+    def test_must_be_dict(self) -> None:
+        sg = _clone()
+        sg["unparseable_files"] = ["/proj/new_syntax.py"]
+        with pytest.raises(ConformanceViolation, match="T.11 trace unparseable_files type"):
+            lint_response(sg, "trace")
+
+    def test_empty_list_value_rejected(self) -> None:
+        sg = _clone()
+        sg["unparseable_files"] = {"pkg.Base": []}
+        with pytest.raises(ConformanceViolation, match="T.11 trace unparseable_files value"):
+            lint_response(sg, "trace")

@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "A parse failure on the source's own file is unsupported or omitted, never measured-empty (#703)"
 issues: [703, 704, 729, 629]
 anchors: ["pyeye.mcp.operations.edges.UnparseableSource", "pyeye.mcp.operations.edges.parse_own_source", "pyeye.mcp.operations.edges.STATUS_UNPARSEABLE", "pyeye.mcp.operations.expand.expand_resolved", "pyeye.mcp.operations.outline.outline", "pyeye.mcp.operations.inspect._get_superclasses"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-729-project-wide-scans-disclose-the-files-they-couldn-t-parse.md"]
 superseded_by: []
 ---
 

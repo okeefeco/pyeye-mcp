@@ -19,6 +19,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
       "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
       "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
+      "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -57,6 +58,11 @@ would silently omit edges it could not resolve.
 ``unresolved_importers`` (#668) does the same for ``imported_by``: an importing
 file with no module name has no handle, so it can't be a node; it is listed per
 target node instead of being dropped.
+
+``unparseable_files`` (#729) does the same for the reverse scans ``subclasses``
+and ``imported_by``: a file in scope that the server's interpreter couldn't parse
+may hold a subclass or importer, so it is listed per node (the union across both
+edges), present only when one of them was traced.
 
 ``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
 ``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or
@@ -101,6 +107,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
+from pyeye.mcp.operations.completeness import MAX_DEPTH, MAX_NODES
 from pyeye.mcp.operations.edges import STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
 from pyeye.mcp.operations.stubs import build_stub
@@ -164,6 +171,7 @@ def _record_hop_losses(
     unresolved_call_sites: dict[str, int],
     unresolved_imports: dict[str, list[str]],
     unresolved_importers: dict[str, list[str]],
+    unparseable_files: dict[str, list[str]],
 ) -> None:
     """Carry a walked hop's unresolved call sites / imports onto the Subgraph maps.
 
@@ -177,6 +185,9 @@ def _record_hop_losses(
         unresolved_imports[handle] = hop["unresolved_imports"]
     if hop.get("unresolved_importers"):
         unresolved_importers[handle] = hop["unresolved_importers"]
+    if hop.get("unparseable_files"):  # #729: subclasses AND imported_by may both report
+        merged = set(unparseable_files.get(handle, ())) | set(hop["unparseable_files"])
+        unparseable_files[handle] = sorted(merged)
 
 
 def _partition_hop(
@@ -270,6 +281,7 @@ async def trace(
     unresolved_call_sites: dict[str, int] = {}
     unresolved_imports: dict[str, list[str]] = {}
     unresolved_importers: dict[str, list[str]] = {}  # #668
+    unparseable_files: dict[str, list[str]] = {}  # #729
     walked_edges: set[str] = set()
 
     # #488: a root that fails to resolve is recorded here, not silently dropped.
@@ -319,7 +331,12 @@ async def trace(
                 continue
             walked_edges.add(edge)
             _record_hop_losses(
-                hop, handle, unresolved_call_sites, unresolved_imports, unresolved_importers
+                hop,
+                handle,
+                unresolved_call_sites,
+                unresolved_imports,
+                unresolved_importers,
+                unparseable_files,
             )
             known, new = _partition_hop(hop["stubs"], nodes, stop_when)
 
@@ -328,10 +345,10 @@ async def trace(
             # depth frontier or the node budget, the hop records no edges at all,
             # so a walked hop is never silently partial.
             if new and not can_expand:
-                truncation_reasons.add("max_depth")
+                truncation_reasons.add(MAX_DEPTH)
                 continue
             if len(nodes) + len(new) > max_nodes:
-                truncation_reasons.add("max_nodes")
+                truncation_reasons.add(MAX_NODES)
                 continue
             for adj in known:
                 edges.append({"from": handle, "to": adj, "kind": edge})
@@ -364,6 +381,8 @@ async def trace(
         result["unresolved_imports"] = unresolved_imports
     if "imported_by" in walked_edges:
         result["unresolved_importers"] = unresolved_importers
+    if walked_edges & {"subclasses", "imported_by"}:  # #729
+        result["unparseable_files"] = unparseable_files
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,
     # and absent entirely when nothing was unsupported (no noise on clean traces).

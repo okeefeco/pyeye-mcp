@@ -661,9 +661,9 @@ class TestResolveImportedByNonModule:
     @pytest.mark.asyncio
     async def test_a_module_nobody_imports_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
         assert edge_applies("imported_by", anchor_for(_MODULE_FORMS_HANDLE, analyzer))
-        # Measured, none found, and none unnamed either (#668).
+        # Measured, none found, none unnamed (#668), and every file parsed (#729).
         assert await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer) == EdgeResult(
-            adjacents=[], unresolved_importers=[]
+            adjacents=[], unresolved_importers=[], unparseable_files=[]
         )
 
 
@@ -856,7 +856,7 @@ class TestResolveSubclassesNonClass:
         # signal, so expand.py's hardcoded module-only None branch stays correct.
         result = await _subclasses_for(_MAKE_WIDGET_HANDLE, analyzer)
         assert result is not None
-        assert result == EdgeResult(adjacents=[])
+        assert result == EdgeResult(adjacents=[], unparseable_files=[])  # #729: measured, clean
 
 
 class TestResolveSubclassesNeverReverseSearch:
