@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import threading
 from pathlib import Path
 
 import jedi
@@ -26,7 +27,13 @@ class ProjectManager:
                          If None, uses value from settings.
         """
         self.projects: dict[Path, jedi.Project] = {}
+        # One watcher per resolved root, shared by every project whose layout
+        # includes that root; ``_watch_users`` records who uses each (#617).
         self.watchers: dict[Path, CodebaseWatcher] = {}
+        self._watch_users: dict[Path, set[Path]] = {}
+        # Guards watchers/_watch_users: the watchdog thread reads them while
+        # analysis threads register and drop projects.
+        self._watch_lock = threading.RLock()
         self.caches: dict[Path, GranularCache] = {}
         self.analyzers: dict[Path, JediAnalyzer] = {}  # Analyzer instance cache
         self.access_order: list[Path] = []  # LRU tracking
@@ -94,13 +101,9 @@ class ProjectManager:
             if main_path not in self.caches:
                 self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
 
-            # Set up watcher if not exists
-            if main_path not in self.watchers:
-                self._setup_watcher(main_path)
-                # Watch dependencies too
-                for dep_path in additional_paths:
-                    if dep_path not in self.watchers:
-                        self._setup_watcher(dep_path)
+            self._watch(main_path, main_path)
+            for dep_path in additional_paths:
+                self._watch(dep_path, main_path)
 
             # Don't apply LRU eviction when using connection pool
             # Pool handles its own eviction
@@ -157,35 +160,16 @@ class ProjectManager:
         # Create granular cache with configurable TTL
         self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
 
-        # Set up watcher for main project
-        self._setup_watcher(main_path)
-
-        # Watch dependency paths too
+        self._watch(main_path, main_path)
         for dep_path in dep_paths:
-            self._setup_watcher(dep_path)
+            self._watch(dep_path, main_path)
 
     def _cleanup_project(self, project_path: Path) -> None:
         """Clean up a project's resources."""
         logger.info(f"Cleaning up project {project_path.as_posix()}")
 
-        # Stop watchers
-        if project_path in self.watchers:
-            self.watchers[project_path].stop()
-            del self.watchers[project_path]
-
-        # Stop dependency watchers
-        if project_path in self.dependencies:
-            for dep_path in self.dependencies[project_path]:
-                if dep_path in self.watchers:
-                    self.watchers[dep_path].stop()
-                    del self.watchers[dep_path]
-
-        # Stop standalone directory watchers
-        if project_path in self.standalone_dirs:
-            for standalone_path in self.standalone_dirs[project_path]:
-                if standalone_path in self.watchers:
-                    self.watchers[standalone_path].stop()
-                    del self.watchers[standalone_path]
+        # Stop the watchers no other project still uses
+        self._unwatch_project(project_path)
 
         # Clear cache
         if project_path in self.caches:
@@ -396,9 +380,12 @@ class ProjectManager:
                     f"Configured analyzer with {len(standalone_paths)} standalone directories"
                 )
 
-                # Set up watchers for standalone directories
-                for standalone_path in standalone_paths:
-                    self._setup_watcher(standalone_path)
+        # Every analyzer is watched, config or not (#617): its root plus every
+        # package, namespace and standalone root its layout reads from.
+        if path_key not in self.caches:
+            self.caches[path_key] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
+        for root in self._layout_roots(analyzer):
+            self._watch(root, path_key)
 
         # Store in cache and update LRU
         self.analyzers[path_key] = analyzer
@@ -435,33 +422,99 @@ class ProjectManager:
         with contextlib.suppress(ValueError):
             self.access_order.remove(path_key)
 
+    @staticmethod
+    def _layout_roots(analyzer: JediAnalyzer) -> list[Path]:
+        """Every directory *analyzer* reads code from, resolved and existing."""
+        roots = [analyzer.project_path, *analyzer.additional_paths, *analyzer.standalone_paths]
+        for ns_paths in analyzer.namespace_paths.values():
+            roots.extend(ns_paths)
+        seen: dict[Path, None] = {}
+        for root in roots:
+            resolved = Path(root).resolve()
+            if resolved.is_dir():
+                seen.setdefault(resolved, None)
+        return list(seen)
+
+    def _watch(self, root: Path, project: Path) -> None:
+        """Watch *root* on behalf of *project*, starting at most one watcher per root."""
+        root = Path(root).resolve()
+        with self._watch_lock:
+            self._watch_users.setdefault(root, set()).add(project)
+            if root in self.watchers:
+                return
+
+            def on_change(paths: list[str], root: Path = root) -> None:
+                self._on_files_changed(root, paths)
+
+            watcher = CodebaseWatcher(root.as_posix(), on_change)
+            try:
+                watcher.start()
+            except OSError as e:
+                # e.g. the OS inotify limit. Analysis still works; only freshness
+                # degrades, so warn and carry on. The next get_analyzer retries.
+                logger.warning(
+                    f"Could not watch {root.as_posix()} for changes ({e}); edits under "
+                    "it won't refresh pyeye's caches until the analyzer is rebuilt"
+                )
+                return
+            self.watchers[root] = watcher
+        logger.info(f"Started watching {root.as_posix()}")
+
+    def _unwatch_project(self, project: Path) -> None:
+        """Drop *project* as a user of every root, stopping watchers nobody else uses."""
+        stopped = []
+        with self._watch_lock:
+            for root in [r for r, users in self._watch_users.items() if project in users]:
+                users = self._watch_users[root]
+                users.discard(project)
+                if not users:
+                    del self._watch_users[root]
+                    watcher = self.watchers.pop(root, None)
+                    if watcher is not None:
+                        stopped.append(watcher)
+        # Outside the lock: stop() joins the observer thread, which may be inside
+        # _on_files_changed waiting for this lock.
+        for watcher in stopped:
+            watcher.stop()
+
     def _setup_watcher(self, path: Path) -> None:
-        """Set up a file watcher for the given path.
+        """Watch *path* as its own project (kept for callers that predate ``_watch``)."""
+        resolved = Path(path).resolve()
+        self._watch(resolved, resolved)
+
+    def _on_files_changed(self, root: Path, paths: list[str]) -> None:
+        """Invalidate every cache of every project that reads from *root* (#617).
+
+        For each such project: its ``GranularCache`` entries for each path, its
+        name index (``project_graph.invalidate`` keyed on that project only),
+        and its analyzer's ``scoped_cache`` (file lists and lookup results).
+        Each path's ``file_artifact_cache`` entries are dropped once. Projects
+        that don't read from *root* keep their caches.
 
         Args:
-            path: Path to watch for changes
+            root: The watched root the change happened under
+            paths: Every path changed in the debounced batch
         """
-        if path in self.watchers:
-            return  # Already watching
+        from pyeye import file_artifact_cache
+        from pyeye.analyzers import project_graph
 
-        def on_change(file_path: str) -> None:
-            logger.info(f"File changed in {path.as_posix()}: {Path(file_path).as_posix()}")
-            # Find all caches that might be affected
-            for project_path, cache in self.caches.items():
-                # Check if this path is the project or one of its dependencies
-                if project_path == path or (
-                    project_path in self.dependencies and path in self.dependencies[project_path]
-                ):
-                    changed_file = Path(file_path)
-                    invalidated = cache.invalidate_file(changed_file)
-                    logger.info(
-                        f"Smart invalidation for {project_path.as_posix()}: {invalidated} cache entries affected"
-                    )
-
-        watcher = CodebaseWatcher(path.as_posix(), on_change)
-        watcher.start()
-        self.watchers[path] = watcher
-        logger.info(f"Started watching {path.as_posix()}")
+        with self._watch_lock:
+            projects = sorted(self._watch_users.get(Path(root).resolve(), set()))
+        logger.info(
+            f"{len(paths)} change(s) under {Path(root).as_posix()}; "
+            f"invalidating {len(projects)} project(s)"
+        )
+        for path in paths:
+            file_artifact_cache.invalidate(path)
+        for project in projects:
+            cache = self.caches.get(project)
+            if cache is not None:
+                for path in paths:
+                    cache.invalidate_file(Path(path))
+            project_graph.invalidate(project.as_posix())
+            analyzer = self.analyzers.get(project)
+            if analyzer is not None:
+                analyzer.scoped_cache.invalidate_all()
 
     def get_pool_stats(self) -> dict | None:
         """Get connection pool statistics.
@@ -475,8 +528,18 @@ class ProjectManager:
 
     def cleanup_all(self) -> None:
         """Clean up all projects and evict the analyzer cache."""
-        for project_path in list(self.projects.keys()):
+        known = set(self.projects) | set(self.analyzers)
+        for users in self._watch_users.values():
+            known |= users
+        for project_path in sorted(known):
             self._cleanup_project(project_path)
+        # Anything still watched has no user left.
+        with self._watch_lock:
+            leftovers = list(self.watchers.values())
+            self.watchers.clear()
+            self._watch_users.clear()
+        for watcher in leftovers:
+            watcher.stop()
 
         # Clear any analyzer entries that had no corresponding jedi.Project
         # (e.g. get_analyzer was called without a prior get_project call).

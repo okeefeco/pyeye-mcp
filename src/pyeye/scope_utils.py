@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -317,6 +318,9 @@ class ScopedCache:
             "main": {},
             "all": {},
         }
+        # The file watcher clears this cache from its own thread while analysis
+        # reads and writes it (#617), so every access takes the lock.
+        self._lock = threading.RLock()
 
     def _normalize_scope(self, scope: Scope) -> str:
         """Normalize scope to a cache key.
@@ -343,30 +347,31 @@ class ScopedCache:
         Returns:
             Cached value or None if not found/expired
         """
-        scope_key = self._normalize_scope(scope)
+        with self._lock:
+            scope_key = self._normalize_scope(scope)
 
-        # Ensure cache exists for this scope
-        if scope_key not in self.caches:
-            metrics.record_cache_miss()
-            return None
-
-        # Check if key exists
-        if key not in self.caches[scope_key]:
-            metrics.record_cache_miss()
-            return None
-
-        # Check TTL
-        if scope_key in self.timestamps and key in self.timestamps[scope_key]:
-            age = time.time() - self.timestamps[scope_key][key]
-            if age > self.ttl:
-                # Expired
-                del self.caches[scope_key][key]
-                del self.timestamps[scope_key][key]
+            # Ensure cache exists for this scope
+            if scope_key not in self.caches:
                 metrics.record_cache_miss()
                 return None
 
-        metrics.record_cache_hit()
-        return self.caches[scope_key][key]
+            # Check if key exists
+            if key not in self.caches[scope_key]:
+                metrics.record_cache_miss()
+                return None
+
+            # Check TTL
+            if scope_key in self.timestamps and key in self.timestamps[scope_key]:
+                age = time.time() - self.timestamps[scope_key][key]
+                if age > self.ttl:
+                    # Expired
+                    del self.caches[scope_key][key]
+                    del self.timestamps[scope_key][key]
+                    metrics.record_cache_miss()
+                    return None
+
+            metrics.record_cache_hit()
+            return self.caches[scope_key][key]
 
     def set(self, key: str, value: Any, scope: Scope) -> None:
         """Set cache value for a specific scope.
@@ -376,15 +381,16 @@ class ScopedCache:
             value: Value to cache
             scope: Scope for this cache entry
         """
-        scope_key = self._normalize_scope(scope)
+        with self._lock:
+            scope_key = self._normalize_scope(scope)
 
-        # Ensure cache exists for this scope
-        if scope_key not in self.caches:
-            self.caches[scope_key] = {}
-            self.timestamps[scope_key] = {}
+            # Ensure cache exists for this scope
+            if scope_key not in self.caches:
+                self.caches[scope_key] = {}
+                self.timestamps[scope_key] = {}
 
-        self.caches[scope_key][key] = value
-        self.timestamps[scope_key][key] = time.time()
+            self.caches[scope_key][key] = value
+            self.timestamps[scope_key][key] = time.time()
 
     def invalidate_scope(self, scope: Scope) -> None:
         """Invalidate just one scope's cache.
@@ -392,21 +398,23 @@ class ScopedCache:
         Args:
             scope: Scope to invalidate
         """
-        scope_key = self._normalize_scope(scope)
+        with self._lock:
+            scope_key = self._normalize_scope(scope)
 
-        if scope_key in self.caches:
-            self.caches[scope_key] = {}
+            if scope_key in self.caches:
+                self.caches[scope_key] = {}
 
-        if scope_key in self.timestamps:
-            self.timestamps[scope_key] = {}
+            if scope_key in self.timestamps:
+                self.timestamps[scope_key] = {}
 
     def invalidate_all(self) -> None:
         """Invalidate all caches."""
-        for scope_key in list(self.caches.keys()):
-            self.caches[scope_key] = {}
+        with self._lock:
+            for scope_key in list(self.caches.keys()):
+                self.caches[scope_key] = {}
 
-        for scope_key in list(self.timestamps.keys()):
-            self.timestamps[scope_key] = {}
+            for scope_key in list(self.timestamps.keys()):
+                self.timestamps[scope_key] = {}
 
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics.
@@ -414,19 +422,20 @@ class ScopedCache:
         Returns:
             Dictionary of cache statistics
         """
-        stats: dict[str, Any] = {
-            "scope_count": len(self.caches),
-            "scopes": {},
-        }
-
-        for scope_key, cache in self.caches.items():
-            scope_stats: dict[str, Any] = {
-                "entry_count": len(cache),
-                "size_bytes": sum(len(str(v)) for v in cache.values()),
+        with self._lock:
+            stats: dict[str, Any] = {
+                "scope_count": len(self.caches),
+                "scopes": {},
             }
-            stats["scopes"][scope_key] = scope_stats
 
-        return stats
+            for scope_key, cache in self.caches.items():
+                scope_stats: dict[str, Any] = {
+                    "entry_count": len(cache),
+                    "size_bytes": sum(len(str(v)) for v in cache.values()),
+                }
+                stats["scopes"][scope_key] = scope_stats
+
+            return stats
 
 
 class LazyNamespaceLoader:

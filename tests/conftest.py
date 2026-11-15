@@ -10,6 +10,34 @@ import jedi
 import pytest
 
 
+class _InertObserver:
+    """A watchdog Observer that watches nothing.
+
+    Every ``ProjectManager.get_analyzer`` starts a file watcher (#617). Across the
+    suite that is thousands of observers that tests never stop, and each holds an
+    inotify instance (Linux allows 128 per user by default). Tests that need real
+    file events opt in with ``@pytest.mark.real_watcher``.
+    """
+
+    def schedule(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def join(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_real_file_watchers(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    if request.node.get_closest_marker("real_watcher") is None:
+        monkeypatch.setattr("pyeye.cache.Observer", _InertObserver)
+
+
 @pytest.fixture
 def temp_project_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for test projects."""

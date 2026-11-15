@@ -73,7 +73,8 @@ class TestCodebaseWatcher:
         time.sleep(settings.watcher_debounce + extra_wait)
 
         assert watcher.last_change > old_time
-        callback.assert_called_once_with(str(temp_project_dir / "test.py"))
+        # The callback receives the whole debounced batch (#617).
+        callback.assert_called_once_with([str(temp_project_dir / "test.py")])
 
     def test_on_modified_ignores_non_python(self, temp_project_dir):
         """Test that non-Python files are ignored."""
