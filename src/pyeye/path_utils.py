@@ -208,7 +208,7 @@ def absolute_path(path: str | Path) -> Path:
 #: Response keys whose string value is a file path, and keys holding lists of
 #: file paths (``tests/test_mcp_path_boundary.py`` sweeps the tools for these).
 _FILE_KEYS = frozenset({"file"})
-_FILE_LIST_KEYS = frozenset({"unresolved_importers"})
+_FILE_LIST_KEYS = frozenset({"unresolved_importers", "unparseable_files"})
 
 
 def respell_under(file: str, roots: Iterable[str | Path]) -> str:
