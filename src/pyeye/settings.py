@@ -56,6 +56,18 @@ class PerformanceSettings:
             max_val=1_000_000,
         )
 
+        # parso's in-memory parse cache (#713): an LRU entry cap, applied by
+        # pyeye._parso_cache at import. Eviction is safe (the recovery shim keeps
+        # answers identical), so this is a memory/latency lever only. Each
+        # resident parse tree is about 0.35-0.45 MB. Trees a cached Jedi Script
+        # still uses stay alive however small this is.
+        self.parso_cache_max_entries: int = self._get_int_env(
+            "PYEYE_PARSO_CACHE_MAX_ENTRIES",
+            600,
+            min_val=1,
+            max_val=1_000_000,
+        )
+
         # File watcher settings
         self.watcher_debounce: float = self._get_float_env(
             "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
@@ -208,6 +220,7 @@ class PerformanceSettings:
   Caching:
     cache_ttl: {self.cache_ttl}s
     artifact_cache_max_entries: {self.artifact_cache_max_entries}
+    parso_cache_max_entries: {self.parso_cache_max_entries}
 
   File Watching:
     watcher_debounce: {self.watcher_debounce}s

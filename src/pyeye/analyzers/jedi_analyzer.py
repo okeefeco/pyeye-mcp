@@ -22,7 +22,7 @@ from ..project_layout import (
     layout_key,
     module_name_for_file,
 )
-from ..resolver import Resolved, resolve_handle
+from ..resolver import Resolved, resolve_item
 from ..scope_utils import (
     ScopedCache,
     ScopeLayout,
@@ -1222,7 +1222,7 @@ class JediAnalyzer:
         the lifetime of a single ``find_subclasses`` call.  Never raises.
         """
         if identifier not in canonical_cache:
-            resolved = resolve_handle(identifier, self)
+            resolved = resolve_item(identifier, self)  # per base (#704)
             # A Resolved handle is always a valid dotted path (the resolver checks).
             canonical_cache[identifier] = (
                 Handle(resolved.handle) if isinstance(resolved, Resolved) else None
