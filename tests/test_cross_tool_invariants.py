@@ -167,28 +167,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: namespace-package `imports` stub says kind=namespace/scope=external;
     # inspect says module/project.
     **_round_trip("cross_tool", _ISSUE_623, ("stub_matches_inspect",), "xns"),
-    # #623 (root-package project): an enum member resolves to its CLASS in
-    # resolve, and inspect reports kind=class for it.
-    **_round_trip(
-        "lookup_project",
-        _ISSUE_623,
-        ("same_handle", "stub_matches_inspect"),
-        "lookup_project.enums.Status.ACTIVE",
-        "lookup_project.enums.Status.INACTIVE",
-        "lookup_project.enums.Status.PENDING",
-    ),
-    # #623 (root-package project): annotated class attributes emitted by
-    # `members` are found by neither inspect nor resolve.
-    **_round_trip(
-        "lookup_project",
-        _ISSUE_623,
-        _MISS,
-        "lookup_project.models.ServiceConfig.debug",
-        "lookup_project.models.ServiceConfig.host",
-        "lookup_project.models.ServiceConfig.port",
-        "lookup_project.models.ServiceConfig.tags",
-        "lookup_project.models.StatusTracker.current",
-    ),
     # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
     # #602/#623: stdlib and third-party modules/symbols emitted by `imports`.
     **_round_trip(
@@ -255,14 +233,25 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: resolve_at on `import logging` returns found `logging`; every other
     # tool rejects it.
     **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
+    # #625 (Windows only): under get_analyzer, an isolated uninstalled src/
+    # layout still yields `src.`-prefixed handles from resolve/resolve_at (and,
+    # for the package variable, expand/trace).  Linux/macOS agree.  Likely the
+    # src-root mapping's path handling on Windows (fixture copied to the temp
+    # dir on another drive).  Before the per-test copy this was masked by the
+    # bare->managed cache leak (#618), which made it look cross-platform.
+    **(
+        {
+            **_agree("src_layout", "function", "handle", _ISSUE_625, ("get_analyzer",)),
+            **_agree("src_layout", "package_var", "handle", _ISSUE_625, ("get_analyzer",)),
+        }
+        if sys.platform == "win32"
+        else {}
+    ),
     # #623/#625: under a BARE JediAnalyzer on a src/ layout, resolve/resolve_at
     # find (as `src.`...) what inspect/outline/expand/trace can't find at all.
     **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package_var", "found", _ISSUE_625, ("bare",)),
-    # #625: in a root-package project (root has `__init__.py`) resolve finds the
-    # root package itself; inspect/outline/expand/trace don't.
-    **_agree("root_package", "root_package", "found", _ISSUE_625, _BOTH_MODES),
     # == 4. trace vs expand =================================================
     # #621: trace expands `textwrap`, which expand refuses as unresolved.
     ("trace_expand", "xpkg.text", "imports", "textwrap", "expanded_but_refused"): _ISSUE_621,
