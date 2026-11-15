@@ -25,8 +25,9 @@ is then supported or unsupported, distinguished by the presence of
       "edge": str,
       "stubs": [Stub, ...],         # [] means MEASURED, none found
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
-      "unresolved_imports": [target, ...],  # imports ONLY (#494) — ABSENT otherwise
-      "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624) — ABSENT otherwise
+      "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
+      "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
+      "unresolved_importers": [file, ...] }  # imported_by ONLY (#668) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, or an unknown name)::
@@ -53,6 +54,10 @@ Design invariants
 - ``unresolved_imports`` is present ONLY for ``imports`` (#494): the resolver
   returns a list (``[]`` when every import resolved, the unresolvable targets
   otherwise); for every other edge it returns ``None`` and the key is omitted.
+- ``unresolved_importers`` is present ONLY for ``imported_by`` (#668): the POSIX
+  paths of files that import the target but have no module name, so no handle
+  and no stub (``my-script.py``, ``tools-dir/x.py``). ``[]`` when every
+  importer has one. They are real dependents: count them for fan-in.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
@@ -274,6 +279,11 @@ async def expand_resolved(
     # whose goto named no single class, by source text ([] when all resolved).
     if edge_result.unresolved_superclasses is not None:
         result["unresolved_superclasses"] = edge_result.unresolved_superclasses
+    # unresolved_importers (#668): the same mechanic for imported_by — an
+    # importing file with no module name has no handle, so it is listed here
+    # ([] when every importer has one) instead of silently missing.
+    if edge_result.unresolved_importers is not None:
+        result["unresolved_importers"] = edge_result.unresolved_importers
     # subclasses is direct-only (#422); a CLASS result carries a static pointer to
     # the trace route for the full closure.  Class-gated: a non-class subclasses
     # result is a measured-empty [], where the "use trace" hint would be noise.
