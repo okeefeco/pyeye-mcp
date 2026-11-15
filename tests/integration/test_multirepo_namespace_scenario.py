@@ -11,11 +11,12 @@ These tests pin expected VALUES (handle, kind, scope), not just agreement
 between tools. Configured namespaces and packages are scope ``project`` (#623
 decision 7).
 
-Without #623 slice 3, most of these fail: #653 (#623 slice 2) stopped
-inspect/outline/expand/trace from finding symbols in a namespace repo outside
-the project root. Cases still broken after slice 3 are strict xfails tagged
-with their issue, so each turns into a failure as soon as its fix lands, and
-the mark must then be deleted.
+Guards three fixes this scenario found or pinned: #653 (inspect/outline/
+expand/trace couldn't find symbols in a namespace repo outside the project
+root; fixed by #623 slice 3), #668 (namespace paths kept ``..``, so namespace
+files got invalid module names: imported_by dropped importers and a cross-repo
+name collision resolved silently to one candidate; fixed by normalising config
+paths, #676) and #669 (the subclasses edge scanned the main project only).
 """
 
 from __future__ import annotations
@@ -36,14 +37,6 @@ from pyeye.mcp.operations.trace import trace
 from pyeye.project_manager import ProjectManager
 
 SCENARIO = Path(__file__).parents[1] / "fixtures" / "scenarios" / "multirepo_namespace"
-
-_NS_PATHS = pytest.mark.xfail(
-    strict=True,
-    reason="#668: namespace paths keep '..', so namespace files get invalid module names",
-)
-_SUBCLASS_SCOPE = pytest.mark.xfail(
-    strict=True, reason="#669: the subclasses edge only scans the main project"
-)
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +135,6 @@ async def test_resolve_at_in_each_repo(
     assert (result.get("handle"), result.get("scope")) == (handle, "project"), result
 
 
-@_NS_PATHS
 async def test_cross_repo_name_collision_is_ambiguous(analyzer: JediAnalyzer) -> None:
     """``Shared`` is defined in two repos; resolve must not pick one silently."""
     result = await resolve("Shared", analyzer)
@@ -196,7 +188,6 @@ async def test_cross_repo_superclass_is_project(analyzer: JediAnalyzer) -> None:
     assert _scopes(result) == {"corp.core.models.Base": "project"}
 
 
-@_SUBCLASS_SCOPE
 async def test_cross_repo_subclass(analyzer: JediAnalyzer) -> None:
     result = await expand("corp.core.models.Base", "subclasses", analyzer)
     assert "corp.tools.widgets.Widget" in _handles(result)
@@ -211,7 +202,6 @@ async def test_calls_into_two_other_repos(analyzer: JediAnalyzer) -> None:
     )
 
 
-@_NS_PATHS
 async def test_imported_by_spans_repos(analyzer: JediAnalyzer) -> None:
     result = await expand("corp.core.models", "imported_by", analyzer)
     assert {"app.main", "corp.tools", "corp.tools.widgets", "corp.web.views"} <= set(
@@ -237,7 +227,6 @@ async def test_imports_of_namespace_symbols_are_project(analyzer: JediAnalyzer) 
     assert scopes["sys"] == "external"
 
 
-@_NS_PATHS
 async def test_aliased_and_lazy_imports(analyzer: JediAnalyzer) -> None:
     """``import corp.tools.sub.helper as helper_alias`` is a module import;
     the lazy ``from corp.tools.sub import helper`` inside a function is not

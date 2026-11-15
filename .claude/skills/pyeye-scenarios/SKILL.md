@@ -203,17 +203,17 @@ it exercises: `tests/fixtures/scenarios/multirepo_namespace/README.md`.
 | 2 | `inspect("corp.tools.widgets.Widget")` | `superclasses: ["corp.core.models.Base"]`, `edge_counts: {members: 2, superclasses: 1}` | cross-repo base |
 | 3 | `expand("corp", "submodules")` | `corp.core`, `corp.tools`, `corp.web`, all `project` | namespace union; configured namespaces and packages are `project` (#623 decision 7) |
 | 4 | `expand("corp.tools.widgets.Widget", "superclasses")` | `corp.core.models.Base` (`project`) | ✅ |
-| 5 | `expand("corp.core.models.Base", "subclasses")` | **`[]`** (should be `corp.tools.widgets.Widget`) | ❌ **#669**: the edge scans the main project only |
-| 6 | `expand("corp.core.models", "imported_by")` | `app.main`, `corp.tools`, `corp.tools.widgets` (**missing `corp.web.views`**) | ❌ **#668**: namespace paths keep `..`, so namespace files get invalid module names |
-| 7 | `resolve("Shared")` | **`corp.tools.widgets.Shared`, not ambiguous** (should be ambiguous with `corp.core.models.Shared`) | ❌ **#668**, a confident wrong answer |
+| 5 | `expand("corp.core.models.Base", "subclasses")` | `corp.tools.widgets.Widget` | ✅ **#669** (re-recorded on `main` after #676; was `[]`) |
+| 6 | `expand("corp.core.models", "imported_by")` | `app.main`, `corp.tools`, `corp.tools.widgets`, `corp.web.views` | ✅ **#668** (re-recorded after #676; `corp.web.views` was missing) |
+| 7 | `resolve("Shared")` | ambiguous: `corp.core.models.Shared`, `corp.tools.widgets.Shared` | ✅ **#668** (re-recorded after #676; was a silent single answer) |
 | 8 | `expand("corp.web.views.render", "callees")` | `corp.core.models.Base.describe`, `corp.core.models.make`, `corp.tools.sub.helper.shout`, `corp.tools.widgets.Widget`; `unresolved_call_sites: 0` | calls into two other repos |
 | 9 | `outline("corp")` | 3 children, each `truncated: max_depth` | namespace survey |
 | 10 | `expand("app.main", "imports")` | the 4 `corp.*` targets `project`, `sys` `external` | cross-repo edge scope |
 
-On `main` before #623 slice 3, rows 1–4 and 8 fail as well: `corp.core` and `corp.web`
-report `external`, and `inspect`/`outline`/`expand` can't find them (the #653
-regression). Rows 5–7 are the strict-xfail cases in the integration test: when #668/#669
-land, re-record them here.
+Before #623 slice 3, rows 1–4 and 8 failed too: `corp.core` and `corp.web` reported
+`external`, and `inspect`/`outline`/`expand` couldn't find them (the #653 regression).
+Rows 5–7 were re-recorded on build `2.0.1.dev44` (main after #675 and #676), and every
+row now passes; the integration test pins them all.
 
 ---
 
