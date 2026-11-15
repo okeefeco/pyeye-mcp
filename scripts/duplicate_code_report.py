@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report-only duplicate-code check over normalised AST tokens (#616).
+"""Duplicate-code ratchet over normalised AST tokens (#616, blocking since #636).
 
 A crude first pass toward #495. Each target file is flattened into a stream of
 AST tokens: the node type, plus attribute names (``.infer``, ``.full_name``)
@@ -12,13 +12,21 @@ Any run of at least ``--min-tokens`` identical tokens that appears at two places
 is reported as one clone region (``file:start-end <-> file:start-end``). Runs
 inside one statement list and copies spanning different files are both caught.
 
-It is NON-BLOCKING: it prints a report and exits 0, because today's code has
-known duplicates that the #629 Phase 2 consolidation will remove.
-``--fail-on-findings`` exists so a later decision to make it blocking is a
-one-flag change; nothing passes it today.
+It is a RATCHET, like the #614/#615 fitness tests. Each clone is keyed by its
+*site*: the two enclosing functions (``file::qualname``), so moving code up or
+down a file doesn't change it. :data:`BASELINE` lists the known sites, each with
+the issue expected to remove it. The comparison is exact both ways:
+
+* a site not in the baseline fails (a new copy: consolidate it instead);
+* a baselined site that no longer occurs fails too, until its entry is deleted.
+
+Modes:
+    (default)            ratchet against BASELINE; exit 1 on a new or stale site
+    --report-only        print the report, always exit 0
+    --fail-on-findings   exit 1 on ANY clone, baselined or not
 
 Usage:
-    duplicate_code_report.py [--min-tokens N] [paths ...]
+    duplicate_code_report.py [--min-tokens N] [--report-only | --fail-on-findings] [paths ...]
 
 With no paths it scans ``src/pyeye/mcp/operations`` and
 ``src/pyeye/canonicalization.py``.
@@ -39,6 +47,24 @@ DEFAULT_TARGETS = (
     "src/pyeye/canonicalization.py",
 )
 DEFAULT_MIN_TOKENS = 35
+
+#: Known clone sites -> the issue expected to remove them. Keys are the sorted
+#: pair of ``file::qualname`` for the innermost function/class enclosing each
+#: region (see :func:`site`). Shrinks to empty as #629 Phase 2 lands; delete an
+#: entry when its copy goes, or the ratchet fails.
+BASELINE: dict[tuple[str, str], str] = {
+    # The same skip-seen / build-full-name / _try_handle / append loop.
+    (
+        "src/pyeye/mcp/operations/edges.py::_class_members",
+        "src/pyeye/mcp/operations/edges.py::_module_members",
+    ): "#686",
+    # The per-edge kind gate and jedi_name getattr preamble, one copy per
+    # resolver; one edge-applicability table replaces them.
+    (
+        "src/pyeye/mcp/operations/edges.py::resolve_imported_by",
+        "src/pyeye/mcp/operations/edges.py::superclass_bases",
+    ): "#626",
+}
 
 _SKIP = (ast.expr_context, ast.Load, ast.Store, ast.Del)
 
@@ -190,10 +216,45 @@ def _drop_nested(clones: list[Clone]) -> list[Clone]:
     return kept
 
 
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def enclosing(file: str, line: int, root: Path = REPO_ROOT) -> str:
+    """Qualified name of the innermost function/class around *line* in *file*.
+
+    *file* is the display path :func:`collect` produced, relative to *root*.
+    ``"<module>"`` when the line is at module level.
+    """
+    tree = ast.parse((root / file).read_text(encoding="utf-8"), filename=file)
+    best = "<module>"
+
+    def visit(node: ast.AST, prefix: str) -> None:
+        nonlocal best
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _SCOPES):
+                qual = f"{prefix}{child.name}"
+                end = child.end_lineno or child.lineno
+                if child.lineno <= line <= end:
+                    best = qual
+                    visit(child, qual + ".")
+            else:
+                visit(child, prefix)
+
+    visit(tree, "")
+    return best
+
+
+def site(clone: Clone, root: Path = REPO_ROOT) -> tuple[str, str]:
+    """A clone's stable key: the sorted pair of ``file::qualname`` around each region."""
+    a = f"{clone.a_file}::{enclosing(clone.a_file, clone.a_start, root)}"
+    b = f"{clone.b_file}::{enclosing(clone.b_file, clone.b_start, root)}"
+    return (a, b) if a <= b else (b, a)
+
+
 def format_report(clones: list[Clone], files: int, min_tokens: int) -> str:
     """Render clones as a human-readable report."""
     lines = [
-        f"duplicate-code report (#616, report-only): {len(clones)} clone region(s) "
+        f"duplicate-code report (#616): {len(clones)} clone region(s) "
         f"of >= {min_tokens} AST tokens across {files} file(s)"
     ]
     for c in clones:
@@ -201,30 +262,50 @@ def format_report(clones: list[Clone], files: int, min_tokens: int) -> str:
             f"  {c.tokens:4d} tokens  {c.a_file}:{c.a_start}-{c.a_end}"
             f"  <->  {c.b_file}:{c.b_start}-{c.b_end}"
         )
-    if clones:
-        lines.append(
-            "  (non-blocking: known duplicates are consolidated under #629 Phase 2; "
-            "see docs/development/duplicate-code-check.md)"
-        )
     return "\n".join(lines)
 
 
+def ratchet(
+    found: set[tuple[str, str]], baseline: dict[tuple[str, str], str]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """``(new, stale)`` sites: found but not baselined, baselined but not found."""
+    return sorted(found - set(baseline)), sorted(set(baseline) - found)
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Entry point; returns 0 unless ``--fail-on-findings`` and clones exist."""
+    """Entry point: the ratchet by default (exit 1 on a new or stale site)."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--min-tokens", type=int, default=DEFAULT_MIN_TOKENS)
-    parser.add_argument(
+    parser.add_argument("--root", type=Path, default=REPO_ROOT, help=argparse.SUPPRESS)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--report-only", action="store_true", help="print the report; exit 0")
+    mode.add_argument(
         "--fail-on-findings",
         action="store_true",
-        help="exit 1 when any clone is found (NOT used today: the check is report-only)",
+        help="exit 1 on any clone, baselined or not",
     )
     args = parser.parse_args(argv)
-    paths = args.paths or [REPO_ROOT / t for t in DEFAULT_TARGETS]
-    streams = collect(paths)
+    paths = args.paths or [args.root / t for t in DEFAULT_TARGETS]
+    streams = collect(paths, root=args.root)
     clones = find_clones(streams, args.min_tokens)
     print(format_report(clones, len(streams), args.min_tokens))
-    return 1 if (clones and args.fail_on_findings) else 0
+    if args.report_only:
+        return 0
+    if args.fail_on_findings:
+        return 1 if clones else 0
+
+    new, stale = ratchet({site(c, args.root) for c in clones}, BASELINE)
+    for key in new:
+        print(f"  NEW duplicate (not in BASELINE): {key[0]}  <->  {key[1]}")
+    for key in stale:
+        print(f"  baselined duplicate no longer found ({BASELINE[key]}): delete its entry: {key}")
+    if new:
+        print(
+            "  Consolidate the copy instead of adding to BASELINE "
+            "(docs/development/duplicate-code-check.md)."
+        )
+    return 1 if (new or stale) else 0
 
 
 if __name__ == "__main__":

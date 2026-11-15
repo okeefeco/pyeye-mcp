@@ -31,21 +31,43 @@ drifted (the Jedi synthetic-import inference in `inspect`, `resolve` and
 `canonicalization`, for example) rename their locals. The AST check finds all
 three of those copies, needs no new dependency and runs in under a second.
 
-## It is report-only
+## It is a blocking ratchet
 
-The check runs as the `duplicate-code-report` pre-commit hook. That means at
-commit time, when a target file changes, and in CI's pre-commit job. It
-**always exits 0**:
+It runs as the `duplicate-code-report` pre-commit hook (at commit time when a
+target file changes, and in CI's pre-commit job) and as a pytest test
+(`tests/test_duplicate_code_report.py::test_repo_matches_the_baseline_exactly`),
+so CI enforces it whatever files a PR touches.
 
-- Today's code has known duplicates. The #629 Phase 2 consolidation issues
-  (#623–#627) will remove them. A blocking check would fail every PR until
-  they land.
-- The report is still printed (`verbose: true`), so new copies are visible in
-  review.
+Since #636 it is a **blocking ratchet**, with the same rules as the #614/#615
+fitness tests:
 
-`--fail-on-findings` makes the script exit 1 when it finds anything. Nothing
-passes that flag today. Making the check blocking, or replacing it with a
-baselined allow-list like the #614/#615 fitness tests, is a pending decision.
+- Each clone is keyed by its **site**: the sorted pair of `file::qualname` for
+  the innermost function or class around each region. Moving code up or down a
+  file doesn't change it; line numbers are never part of the key.
+- `BASELINE` in `scripts/duplicate_code_report.py` lists the known sites, each
+  with the issue expected to remove it.
+- A site that isn't in `BASELINE` **fails**: consolidate the copy rather than
+  adding an entry.
+- A baselined site that no longer occurs **also fails**, until its entry is
+  deleted. The baseline only shrinks.
+
+Modes:
+
+```bash
+uv run python scripts/duplicate_code_report.py                     # the ratchet (default, blocking)
+uv run python scripts/duplicate_code_report.py --report-only       # print, always exit 0
+uv run python scripts/duplicate_code_report.py --fail-on-findings  # exit 1 on ANY clone, baselined or not
+```
+
+## Baseline (#636, 2026-11-15)
+
+By the time the check became blocking, #623 had removed four of the five
+original regions. Two sites remain:
+
+| Site | What it is | Removed by |
+|------|-----------|------------|
+| `edges._class_members` / `edges._module_members` | the same skip-seen, `_try_handle`, append loop | #686 |
+| `edges.resolve_imported_by` / `edges.superclass_bases` | the per-edge kind gate and `jedi_name` preamble | #626 (one edge-applicability table) |
 
 ## Findings at introduction (2026-11-15, `main` @ `d615b3a`)
 

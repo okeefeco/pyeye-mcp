@@ -1,14 +1,16 @@
-"""Tests for the report-only duplicate-code check (#616).
+"""Tests for the duplicate-code ratchet (#616, made blocking in #636).
 
-Pins three things: renamed copies are caught (the reason for an AST check over
-pylint's line-based ``duplicate-code``), unrelated code stays quiet, and the
-check is NON-BLOCKING by default. Making it blocking is a pending user decision,
-so the pre-commit hook must not pass ``--fail-on-findings``.
+Pins: renamed copies are caught (the reason for an AST check over pylint's
+line-based ``duplicate-code``), unrelated code stays quiet, clone regions are
+keyed by their enclosing functions (not line numbers), and the baseline is an
+exact ratchet like the #614/#615 fitness tests: a new clone fails, and a
+baselined clone that has gone fails until its entry is deleted.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import textwrap
 from pathlib import Path
@@ -116,22 +118,114 @@ def test_nested_alignments_are_collapsed() -> None:
     assert dup._drop_nested([outer, inner, elsewhere]) == [outer, elsewhere]
 
 
-def test_cli_is_report_only_by_default(tmp_path: Path, capsys) -> None:
+def test_cli_report_only_never_fails(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(dup, "BASELINE", {})
     paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
-    argv = [str(p) for p in paths] + ["--min-tokens", "35"]
+    argv = [str(p) for p in paths] + ["--min-tokens", "35", "--root", str(tmp_path)]
+    assert dup.main([*argv, "--report-only"]) == 0
+    assert "1 clone region(s)" in capsys.readouterr().out
 
-    assert dup.main(argv) == 0
-    out = capsys.readouterr().out
-    assert "1 clone region(s)" in out
-    assert "non-blocking" in out
 
+def test_cli_fail_on_findings_ignores_the_baseline(tmp_path: Path, monkeypatch) -> None:
+    """Strictest mode: any clone fails, baselined or not."""
+    paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
+    argv = [str(p) for p in paths] + ["--min-tokens", "35", "--root", str(tmp_path)]
+    monkeypatch.setattr(dup, "BASELINE", {("copy.py::lookup", "original.py::find"): "#1"})
+    assert dup.main(argv) == 0  # baselined: the ratchet passes
     assert dup.main([*argv, "--fail-on-findings"]) == 1
 
 
-def test_cli_clean_tree_exits_zero_even_when_strict(tmp_path: Path, capsys) -> None:
+def test_cli_clean_tree_exits_zero_even_when_strict(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.setattr(dup, "BASELINE", {})
     paths = _write(tmp_path, cache=_UNRELATED)
-    assert dup.main([str(p) for p in paths] + ["--fail-on-findings"]) == 0
+    argv = [str(p) for p in paths] + ["--root", str(tmp_path)]
+    assert dup.main([*argv, "--fail-on-findings"]) == 0
     assert "0 clone region(s)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# The ratchet (#636)
+# ---------------------------------------------------------------------------
+
+_NESTED = textwrap.dedent("""
+    X = 1
+
+
+    class Outer:
+        def method(self):
+            def inner():
+                return 1
+
+            return inner()
+
+
+    def top():
+        return 2
+    """)
+
+
+def test_enclosing_qualname(tmp_path: Path) -> None:
+    (tmp_path / "m.py").write_text(_NESTED, encoding="utf-8")
+    lines = _NESTED.splitlines()
+    line_of = {text.strip(): n for n, text in enumerate(lines, start=1)}
+    assert dup.enclosing("m.py", line_of["X = 1"], tmp_path) == "<module>"
+    assert dup.enclosing("m.py", line_of["return inner()"], tmp_path) == "Outer.method"
+    assert dup.enclosing("m.py", line_of["return 1"], tmp_path) == "Outer.method.inner"
+    assert dup.enclosing("m.py", line_of["return 2"], tmp_path) == "top"
+
+
+def test_clone_site_is_keyed_by_function_names(tmp_path: Path) -> None:
+    paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
+    (clone,) = dup.find_clones(dup.collect(paths, root=tmp_path), min_tokens=35)
+    assert dup.site(clone, tmp_path) == ("copy.py::lookup", "original.py::find")
+
+
+def test_site_survives_moving_lines(tmp_path: Path) -> None:
+    """Adding lines above a copy changes its line numbers, not its site."""
+    paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
+    (before,) = dup.find_clones(dup.collect(paths, root=tmp_path), min_tokens=35)
+    site_before = dup.site(before, tmp_path)  # read against the file as it is now
+    paths = _write(tmp_path, original="\n\n\n# padding\n" + _ORIGINAL, copy=_RENAMED_COPY)
+    (after,) = dup.find_clones(dup.collect(paths, root=tmp_path), min_tokens=35)
+    assert (before.a_start, before.b_start) != (after.a_start, after.b_start)
+    assert dup.site(after, tmp_path) == site_before
+
+
+def test_ratchet_new_clone_fails(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(dup, "BASELINE", {})
+    paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
+    assert dup.main([str(p) for p in paths] + ["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "NEW duplicate" in out and "copy.py::lookup" in out
+
+
+def test_ratchet_stale_entry_fails(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(dup, "BASELINE", {("gone.py::a", "gone.py::b"): "#1"})
+    paths = _write(tmp_path, cache=_UNRELATED)
+    assert dup.main([str(p) for p in paths] + ["--root", str(tmp_path)]) == 1
+    assert "no longer found" in capsys.readouterr().out
+
+
+def test_ratchet_exact_match_passes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(dup, "BASELINE", {("copy.py::lookup", "original.py::find"): "#1"})
+    paths = _write(tmp_path, original=_ORIGINAL, copy=_RENAMED_COPY)
+    assert dup.main([str(p) for p in paths] + ["--root", str(tmp_path)]) == 0
+
+
+def test_repo_matches_the_baseline_exactly() -> None:
+    """The ratchet on the real tree, run by pytest so CI enforces it even when
+    pre-commit's file filter skips the hook."""
+    streams = dup.collect([_ROOT / t for t in dup.DEFAULT_TARGETS])
+    found = {dup.site(c) for c in dup.find_clones(streams)}
+    assert found == set(
+        dup.BASELINE
+    ), f"new: {sorted(found - set(dup.BASELINE))}; stale: {sorted(set(dup.BASELINE) - found)}"
+
+
+def test_every_baseline_entry_names_its_issue() -> None:
+    for key, issue in dup.BASELINE.items():
+        assert re.fullmatch(r"#\d+", issue), (key, issue)
+        assert key == tuple(sorted(key)), f"baseline key must be sorted: {key}"
 
 
 def test_default_targets_exist() -> None:
@@ -139,12 +233,12 @@ def test_default_targets_exist() -> None:
         assert (_ROOT / target).exists(), target
 
 
-def test_precommit_hook_is_non_blocking() -> None:
-    """The hook must report, never fail: blocking is a pending user decision (#616)."""
+def test_precommit_hook_is_blocking() -> None:
+    """The hook runs the ratchet (#636): no --report-only escape hatch."""
     config = yaml.safe_load((_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
     hooks = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
     hook = hooks["duplicate-code-report"]
     assert "scripts/duplicate_code_report.py" in hook["entry"]
-    assert "--fail-on-findings" not in hook["entry"]
-    assert "--fail-on-findings" not in hook.get("args", [])
-    assert hook.get("verbose") is True  # otherwise a passing hook's report is hidden
+    assert "--report-only" not in hook["entry"]
+    assert "--report-only" not in hook.get("args", [])
+    assert hook.get("verbose") is True  # the report stays visible when it passes
