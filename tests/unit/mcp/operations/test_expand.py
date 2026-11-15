@@ -197,18 +197,20 @@ class TestExpandCalleesSupported:
 
 
 class TestExpandEmptyIsSupported:
-    """A container with no members → supported ``stubs: []`` — NOT unsupported."""
+    """Measured-empty vs not-applicable: the #332 line, decided by #626's table.
+
+    ``members`` doesn't apply to a function, so that's ``not_applicable``. A
+    measured ``stubs: []`` is reserved for an edge that applies and found none
+    (see ``TestExpandImportedByModuleNoImportersSupported``).
+    """
 
     @pytest.mark.asyncio
-    async def test_function_members_empty_supported(self, analyzer: JediAnalyzer) -> None:
-        # A FUNCTION has no members → measured-empty, NOT unsupported.
+    async def test_function_members_is_not_applicable(self, analyzer: JediAnalyzer) -> None:
         result = await expand(_MAKE_WIDGET_HANDLE, "members", analyzer)
-        assert result["stubs"] == [], "a function genuinely has no members → measured []"
-        # The load-bearing #332 distinction: empty is supported, not unsupported.
-        assert "unsupported" not in result
-        assert "reason" not in result
-        assert result["edge"] == "members"
-        assert "unresolved_call_sites" not in result
+        assert result["unsupported"] is True
+        assert result["reason"] == "not_applicable"
+        assert "function" in result["detail"]
+        assert "stubs" not in result
 
 
 class TestExpandUnresolvableSourceNotFound:
@@ -245,15 +247,12 @@ class TestExpandUnsupported:
     """Unsupported edges return the unsupported branch with the mapped reason."""
 
     @pytest.mark.asyncio
-    async def test_not_yet_implemented_via_none_resolver(self, analyzer: JediAnalyzer) -> None:
-        # ``enclosing_scope`` is now implemented (#370) — the ``not_yet_implemented``
-        # category is empty for real edge names.  The ``not_yet_implemented`` reason
-        # can still be triggered by a resolver that returns ``None`` for a wrong-kind
-        # handle (e.g. ``imported_by`` on a non-module).  We test that path here so
-        # the not_yet_implemented branch in ``expand`` remains covered.
+    async def test_wrong_kind_is_not_applicable(self, analyzer: JediAnalyzer) -> None:
+        # #626: a wrong kind is ``not_applicable`` (it used to be misreported as
+        # ``not_yet_implemented`` via the resolver's ``None``).
         result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
         assert result["unsupported"] is True
-        assert result["reason"] == "not_yet_implemented"
+        assert result["reason"] == "not_applicable"
         assert result["edge"] == "imported_by"
         assert result["source"] == _WIDGET_HANDLE
         assert isinstance(result["detail"], str) and result["detail"]
@@ -337,7 +336,6 @@ class TestExpandBranchesMutuallyExclusive:
         [
             (_WIDGET_HANDLE, "members"),
             (_ORCHESTRATE_HANDLE, "callees"),
-            (_MAKE_WIDGET_HANDLE, "members"),
         ],
     )
     async def test_supported_has_no_unsupported_markers(
@@ -409,7 +407,7 @@ class TestExpandImportedBySupported:
 
 
 class TestExpandImportedByNonModuleUnsupported:
-    """A NON-MODULE handle → unsupported ``not_yet_implemented`` (NOT empty).
+    """A NON-MODULE handle → unsupported ``not_applicable`` (NOT empty, #626).
 
     The resolver returns ``None`` for a non-module handle (a class/function CAN
     be imported, so claiming ``stubs: []`` would be the #332 "measured zero"
@@ -421,9 +419,9 @@ class TestExpandImportedByNonModuleUnsupported:
     @pytest.mark.asyncio
     async def test_class_imported_by_is_unsupported(self, analyzer: JediAnalyzer) -> None:
         result = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
-        # Unsupported branch — wrong kind for this edge.
+        # Unsupported branch — wrong kind for this edge (#626).
         assert result["unsupported"] is True
-        assert result["reason"] == "not_yet_implemented"
+        assert result["reason"] == "not_applicable"
         assert result["edge"] == "imported_by"
         # Mutually exclusive: an unsupported result NEVER carries stubs.
         assert "stubs" not in result
@@ -477,7 +475,7 @@ class TestExpandImportedByModuleNoImportersSupported:
 
 
 class TestExpandImportsNonModuleUnsupported:
-    """A NON-MODULE handle → unsupported ``not_yet_implemented`` (NOT empty).
+    """A NON-MODULE handle → unsupported ``not_applicable`` (NOT empty, #626).
 
     The resolver (``resolve_imports``) returns ``None`` for a non-module handle
     (a class/function has no "top-level imports" concept, so returning
@@ -494,9 +492,9 @@ class TestExpandImportsNonModuleUnsupported:
     @pytest.mark.asyncio
     async def test_class_imports_is_unsupported(self, analyzer: JediAnalyzer) -> None:
         result = await expand(_WIDGET_HANDLE, "imports", analyzer)
-        # Unsupported branch — wrong kind for this edge.
+        # Unsupported branch — wrong kind for this edge (#626).
         assert result["unsupported"] is True
-        assert result["reason"] == "not_yet_implemented"
+        assert result["reason"] == "not_applicable"
         assert result["edge"] == "imports"
         # Mutually exclusive: an unsupported result NEVER carries stubs.
         assert "stubs" not in result
@@ -654,16 +652,11 @@ class TestExpandSubclassesClassNoSubclassesSupported:
 
 
 class TestExpandSubclassesNonClassMeasuredEmpty:
-    """A NON-CLASS handle → SUPPORTED ``stubs: []`` — NOT the unsupported branch.
+    """A NON-CLASS handle → unsupported ``not_applicable`` (#626).
 
-    This is the DEFINING behavior of the slice (decision 1): only a class CAN be
-    subclassed, so ``[]`` for a function/variable/module is true BY DEFINITION —
-    exactly the ``members``/``callees`` measured-empty route, NOT the
-    ``imported_by`` ``None``/``not_yet_implemented`` route.  ``resolve_subclasses``
-    returns ``EdgeResult([])`` (never ``None``) for the wrong kind, so ``expand``
-    lands on the supported branch and needs NO change.  The explicit "no
-    ``unsupported``, no ``reason``" assertions are what prove the resolver did not
-    regress to the ``None`` path.
+    Before #626, ``subclasses`` on a function answered a measured ``stubs: []``
+    while ``imported_by`` on a class answered unsupported: two wrong-kind
+    designs. The applicability table makes every wrong kind ``not_applicable``.
     """
 
     @pytest.mark.asyncio
@@ -672,40 +665,23 @@ class TestExpandSubclassesNonClassMeasuredEmpty:
         [_MAKE_WIDGET_HANDLE, _DEFAULT_NAME_HANDLE, _MODULE_HANDLE],
         ids=["function", "variable", "module"],
     )
-    async def test_non_class_is_supported_measured_empty(
-        self, analyzer: JediAnalyzer, handle: str
-    ) -> None:
+    async def test_non_class_is_not_applicable(self, analyzer: JediAnalyzer, handle: str) -> None:
         result = await expand(handle, "subclasses", analyzer)
-        # Measured-empty: stubs present and empty.
-        assert result["stubs"] == [], f"non-class {handle!r} → measured [] subclasses"
+        assert result["unsupported"] is True
+        assert result["reason"] == "not_applicable"
         assert result["edge"] == "subclasses"
-        # The crux: this is the SUPPORTED branch, explicitly NOT the unsupported
-        # branch (which is what the imported_by None path would have produced).
-        assert (
-            "unsupported" not in result
-        ), f"non-class subclasses must NOT be unsupported: {result}"
-        assert "reason" not in result, f"non-class subclasses must NOT carry a reason: {result}"
-        # subclasses never reports unresolved_call_sites (callees-only).
-        assert "unresolved_call_sites" not in result
-        # The trace pointer is class-only — a non-class cannot be subclassed, so
-        # the "use trace for the closure" hint would be misleading noise here.
-        assert (
-            "transitive_hint" not in result
-        ), f"non-class subclasses must NOT carry the trace pointer: {result}"
+        assert "stubs" not in result
+        # The trace pointer belongs to a measured class result only.
+        assert "transitive_hint" not in result
 
     @pytest.mark.asyncio
-    async def test_non_class_distinct_from_imported_by_non_module(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        # Contrast with imported_by: a non-module imported_by IS unsupported
-        # (None path), but a non-class subclasses is SUPPORTED measured-empty.
-        # This pins that the two wrong-kind designs are genuinely different.
+    async def test_every_wrong_kind_answers_the_same_way(self, analyzer: JediAnalyzer) -> None:
         subclasses_wrong_kind = await expand(_MAKE_WIDGET_HANDLE, "subclasses", analyzer)
         imported_by_wrong_kind = await expand(_WIDGET_HANDLE, "imported_by", analyzer)
-        assert "unsupported" not in subclasses_wrong_kind
-        assert "stubs" in subclasses_wrong_kind
-        assert imported_by_wrong_kind["unsupported"] is True
-        assert "stubs" not in imported_by_wrong_kind
+        for result in (subclasses_wrong_kind, imported_by_wrong_kind):
+            assert result["unsupported"] is True
+            assert result["reason"] == "not_applicable"
+            assert "stubs" not in result
 
 
 class TestExpandSubclassesEnumeration:

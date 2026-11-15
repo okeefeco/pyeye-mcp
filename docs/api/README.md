@@ -45,11 +45,19 @@ directories for analysis, alongside the current project.
 | `namespaces` | `dict[str, list[str]]` | `None` | Namespace name → repo paths that contribute to it |
 | `standalone_dirs` | `list[str]` | `None` | Directories of standalone Python scripts (non-package files). Every `.py` file under them is analysed |
 | `save` | `bool` | `True` | Write the updated configuration to `.pyeye.json` |
+| `project_path` | `str` | `"."` | Project root to configure; its `.pyeye.json` is the one read and written |
 
 Calls are **additive**: `packages` and `standalone_dirs` are appended to what is
 already configured, and `namespaces` are merged by name. With `save=True`, the
 file is written only when at least one of `packages`, `namespaces`, or
 `standalone_dirs` is given.
+
+Changes take effect immediately, with no restart: the next `resolve`, `inspect`
+or other call on the project sees the added packages, and the project's active
+framework plugins get the new paths. One exception: plugins are detected only at
+startup, so a framework used *only* in a newly added package (for example, Flask
+appears in no file of the main project) isn't activated until the server
+restarts ([#659](https://github.com/okeefeco/pyeye-mcp/issues/659)).
 
 > **Removed in 2.0:** `recursive`, `file_pattern` and `exclude_patterns`. They
 > were saved to `.pyeye.json` but never took effect
