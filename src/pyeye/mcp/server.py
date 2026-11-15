@@ -411,6 +411,10 @@ def configure_packages(
             Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
         project_path: Project root to configure (default: current directory)
+
+    The call errors (an MCP tool error, not a response) only when it can't run:
+    an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+    or an unreadable file.
     """
     from pathlib import Path
 
@@ -525,8 +529,9 @@ async def resolve(
           with reason "unresolved", "file_not_found" or "no_symbol_at_position".
           The identifier is echoed verbatim; it is never put in "handle".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
@@ -565,8 +570,9 @@ async def resolve_at(
         "detail": str}, echoing the arguments as given, with reason
         "file_not_found", "no_symbol_at_position" or "unresolved".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -605,6 +611,9 @@ async def inspect(
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no node fields.  Call resolve() on the name to get a canonical handle.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -758,7 +767,9 @@ async def expand(
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
-        A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         ``stubs: []`` always means "measured, none found" — it is never returned
         for an unresolvable handle.
     """
@@ -840,7 +851,9 @@ async def trace(
             common ``callees`` case).
 
     Returns:
-        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable root contributes no node but is listed in the always-present
         ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
         ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
@@ -966,7 +979,9 @@ async def outline(
 
     Returns:
         ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
-        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable handle yields
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no placeholder tree.  Children within each parent are in source order

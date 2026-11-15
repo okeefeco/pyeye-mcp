@@ -147,6 +147,49 @@ def test_tool_errors_is_outermost_on_core_tools() -> None:
         assert getattr(fn, WRAPPED_ATTR, False), f"{name}: tool_errors is not the outermost wrapper"
 
 
+#: The core tools whose descriptions an agent reads for the error contract.
+CORE_TOOLS = (
+    "resolve",
+    "resolve_at",
+    "inspect",
+    "outline",
+    "expand",
+    "trace",
+    "configure_packages",
+)
+
+#: The two-channel rule as every core tool description states it (#626 slice C).
+ERROR_CHANNEL_SENTENCE = (
+    "The call errors (an MCP tool error, not a response) only when it can't run: "
+    "an invalid argument, a project_path that doesn't exist, an unusable config, "
+    "or an unreadable file."
+)
+
+
+@pytest.mark.parametrize("name", CORE_TOOLS)
+def test_core_tool_descriptions_state_the_error_channel(name: str) -> None:
+    """Every core tool description names all of CALLER_ERRORS' cases, in one wording,
+    so an agent knows a tool error means "fix the call", never "not found"."""
+    description = server.mcp._tool_manager._tools[name].description or ""
+    flat = " ".join(description.replace("`", "").split())
+    assert ERROR_CHANNEL_SENTENCE in flat, name
+    if name != "configure_packages":  # not a lookup
+        assert "A lookup miss never raises." in flat, name
+
+
+def test_error_channel_sentence_covers_every_caller_error() -> None:
+    """The documented cases track CALLER_ERRORS: one phrase per error class."""
+    phrases = {
+        ValidationError: "an invalid argument",
+        ProjectNotFoundError: "a project_path that doesn't exist",
+        ConfigurationError: "an unusable config",
+        FileAccessError: "an unreadable file",
+    }
+    assert set(phrases) == set(CALLER_ERRORS)
+    for phrase in phrases.values():
+        assert phrase in ERROR_CHANNEL_SENTENCE
+
+
 async def test_plugin_tools_are_wrapped_outermost() -> None:
     from mcp.server.mcpserver import MCPServer
 
