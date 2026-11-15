@@ -1,6 +1,6 @@
 # Decision Log
 
-Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
+Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
 ## 2026-11-08 — worktree-hook declares its environment and requires uv, instead of running on whatever `python3` exists (#608)
 
