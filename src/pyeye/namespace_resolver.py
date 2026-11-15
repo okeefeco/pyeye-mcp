@@ -3,6 +3,8 @@
 import logging
 from pathlib import Path
 
+from .path_utils import normalize_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ class NamespaceResolver:
         """
         resolved_paths = []
         for path in paths:
-            p = Path(path).resolve()
+            p = normalize_path(path)
             if p.exists():
                 resolved_paths.append(p)
                 logger.info(f"Registered {namespace} at {p}")
