@@ -186,6 +186,11 @@ editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 > result from a failed search. If you remember them, they are gone — a confident wrong
 > answer is worse than an honest "not available."
 
+Why the line falls here: pyeye answers structural facts from the AST, semantic questions
+with bounded Jedi inference, and leaves the reverse queries Jedi gets wrong to a
+deterministic backend. The contract behind that split, and how a name becomes a canonical
+handle, is in [Resolution and Determinism](https://github.com/okeefeco/pyeye-mcp/blob/main/docs/source/architecture/resolution.rst).
+
 ### The reliable path: delegate to your LSP
 
 A real reference index is almost certainly already in your toolbox — a language-server

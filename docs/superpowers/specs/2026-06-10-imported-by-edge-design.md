@@ -3,6 +3,8 @@
 **Date:** 2026-06-10
 **Issue:** #345
 **Status:** design (pre-implementation)
+**Contract:** edges follow the resolution tiers and the static-edge determinism invariant in
+[`docs/source/architecture/resolution.rst`](../../source/architecture/resolution.rst) (#449).
 **Branch:** `feat/345-imported-by`
 
 ## 1. Context & goal
