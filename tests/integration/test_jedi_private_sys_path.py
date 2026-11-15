@@ -20,6 +20,7 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.resolve import resolve, resolve_at
+from pyeye.path_utils import paths_equal
 
 _JEDI_DIR = Path(jedi.__file__).resolve().parent
 
@@ -110,7 +111,7 @@ async def test_src_layout_module_named_functions_resolves_to_the_project(tmp_pat
             "src/functions.py": "def helper():\n    return 1\n",
         },
     )
-    assert (tmp_path / "src").as_posix() in analyzer.project.added_sys_path
+    assert any(paths_equal(p, tmp_path / "src") for p in analyzer.project.added_sys_path)
     resolved = await resolve("functions", analyzer)
     assert resolved["found"] is True, resolved
     assert resolved["scope"] == "project", resolved

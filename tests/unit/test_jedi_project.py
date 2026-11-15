@@ -11,7 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import jedi
+import pytest
 
+from pyeye import _jedi_project
 from pyeye._jedi_project import is_jedi_private_path, make_project
 
 _JEDI_DIR = Path(jedi.__file__).resolve().parent
@@ -71,3 +73,21 @@ def test_configured_package_is_not_shadowed_by_jedis_directory(tmp_path: Path) -
     script = jedi.Script(path=root / "app.py", project=project)
     (target,) = script.goto(1, 9, follow_imports=True)
     assert Path(target.module_path).resolve() == (extra / "functions.py").resolve()
+
+
+def test_unreadable_environment_keeps_jedis_default_base_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Analysis never fails over the filter: no explicit sys_path, Jedi's default."""
+
+    def boom() -> None:
+        raise RuntimeError("no environment")
+
+    monkeypatch.setattr(_jedi_project, "get_cached_default_environment", boom)
+    project = make_project(tmp_path, added_sys_path=["/x"])
+    assert project._sys_path is None
+    assert project.added_sys_path == ["/x"]
+
+
+def test_unresolvable_entry_is_not_private() -> None:
+    assert not is_jedi_private_path("bad\0path")
