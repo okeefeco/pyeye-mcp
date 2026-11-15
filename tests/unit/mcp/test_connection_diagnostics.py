@@ -1,13 +1,27 @@
 """Tests for connection diagnostics module."""
 
 import signal
-import time
+from types import SimpleNamespace
 
+import pytest
+
+from pyeye.mcp import connection_diagnostics
 from pyeye.mcp.connection_diagnostics import (
     ConnectionDiagnostics,
     get_diagnostics,
     setup_signal_handlers,
 )
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """A controllable clock for the module's ``time.time()`` (#486: no real sleeps).
+
+    Advance it by changing ``clock[0]``.
+    """
+    now = [1_000_000.0]
+    monkeypatch.setattr(connection_diagnostics, "time", SimpleNamespace(time=lambda: now[0]))
+    return now
 
 
 class TestConnectionDiagnostics:
@@ -22,23 +36,22 @@ class TestConnectionDiagnostics:
         assert diag.connection_events[0]["event"] == "startup"
         assert diag.connection_events[0]["details"] == "Test startup"
 
-    def test_mark_activity(self) -> None:
+    def test_mark_activity(self, clock: list[float]) -> None:
         """Test activity marking."""
         diag = ConnectionDiagnostics()
 
         initial_time = diag._last_activity
-        time.sleep(0.1)
+        clock[0] += 0.1
 
         diag.mark_activity()
-        assert diag._last_activity > initial_time
+        assert diag._last_activity == initial_time + 0.1
 
-    def test_get_idle_seconds(self) -> None:
+    def test_get_idle_seconds(self, clock: list[float]) -> None:
         """Test idle time calculation."""
         diag = ConnectionDiagnostics()
 
-        time.sleep(0.1)
-        idle = diag.get_idle_seconds()
-        assert idle >= 0.1
+        clock[0] += 0.1
+        assert diag.get_idle_seconds() == pytest.approx(0.1)
 
     def test_get_summary(self) -> None:
         """Test diagnostic summary."""
