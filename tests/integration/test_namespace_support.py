@@ -8,6 +8,7 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.project_manager import ProjectManager
+from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
 
 
 @pytest.fixture
@@ -433,13 +434,17 @@ class TestPerformance:
 
         analyzer = JediAnalyzer(str(large_dir))
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         files = await analyzer.get_project_files(scope="main")
-        elapsed = time.time() - start_time
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         assert len(files) == 100
-        # Should complete reasonably quickly (under 1 second for 100 files)
-        assert elapsed < 1.0
+        # Should complete reasonably quickly (#486: framework tiers, not a bare assert)
+        assert_performance_threshold(
+            elapsed_ms,
+            PerformanceThresholds(base=1000.0, linux_ci=2000.0, macos_ci=4000.0, windows_ci=4000.0),
+            "Listing 100 project files",
+        )
 
     async def test_multiple_namespace_performance(self, temp_project):
         """Test performance with multiple namespaces."""
@@ -461,9 +466,13 @@ class TestPerformance:
         analyzer = JediAnalyzer(str(temp_project["main_project"]))
         analyzer.set_namespace_paths(namespaces)
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         _ = await analyzer.get_project_files(scope="all")
-        elapsed = time.time() - start_time
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         # Should handle multiple namespaces efficiently
-        assert elapsed < 2.0
+        assert_performance_threshold(
+            elapsed_ms,
+            PerformanceThresholds(base=2000.0, linux_ci=4000.0, macos_ci=8000.0, windows_ci=8000.0),
+            "Listing files across 5 namespaces",
+        )
