@@ -1,104 +1,47 @@
 Caching Strategy
 ================
 
-The caching system is a critical component that enables high-performance code analysis
-by intelligently caching results and invalidating them when source code changes.
-The system uses multiple layers of caching with sophisticated invalidation strategies.
+pyeye caches parsed files and per-project indexes so repeated questions stay
+fast, and drops them when the source changes. (The ``GranularCache``,
+``ProjectCache``, ``DependencyTracker`` and connection-pool layers described in
+earlier versions of this page were never wired in and were removed in #628.)
 
 Cache Architecture
 ------------------
 
-Multi-Level Caching
-~~~~~~~~~~~~~~~~~~~
+**Analyzer cache**
+  ``ProjectManager`` keeps one ``JediAnalyzer`` per project root, LRU-bounded by
+  ``PYEYE_MAX_PROJECTS`` (default 10).
 
-**GranularCache (L1)**
-  File-level caching with dependency tracking. Stores analysis results with
-  metadata about which files contributed to each result.
+**Scoped cache**
+  Each analyzer's ``ScopedCache`` keeps scope file lists and lookup results,
+  separately per scope (``main``, ``all``, ``namespace:<name>``, ...). Entries
+  live ``PYEYE_CACHE_TTL`` seconds (default 300).
 
-**ProjectCache (L2)**
-  Project-level caching for expensive operations like full project indexing.
-  Uses LRU eviction with configurable size limits.
+**Parsed-file cache**
+  ``file_artifact_cache`` keeps parsed ASTs and Jedi scripts process-wide, in an
+  LRU of ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES`` entries (default 2000). This is the
+  main memory lever.
 
-**Connection Pool Cache (L3)**
-  Caches Jedi Project instances to avoid expensive re-initialization.
-  Maintains connection pools with automatic cleanup of stale connections.
+**Name index and TypeRef cache**
+  The whole-project name index (``project_graph``) and the TypeRef cache are
+  process-wide and keyed on the project's effective layout, so a project with a
+  different package configuration never reads another layout's entries.
 
-Cache Keys and Scoping
-~~~~~~~~~~~~~~~~~~~~~
+Invalidation
+------------
 
-Cache keys are hierarchical and include:
+**File changes**: one watcher per watched root (the project, its packages,
+namespaces and standalone directories). A debounced batch of changes drops each
+changed file's parsed artifacts, and, for every project that reads from that
+root, its name index, TypeRef cache and scoped cache. Projects that don't read
+from the root keep their caches.
 
-* **Project Path**: Identifies which project the cache entry belongs to
-* **Operation Type**: Type of analysis (find_symbol, find_references, etc.)
-* **Parameters**: Normalized parameters (symbol name, file path, etc.)
-* **Scope**: Analysis scope (main, all, specific namespace)
+**Configuration changes**: ``configure_packages`` drops the project's cached
+analyzer and its process-wide caches, so the next request rebuilds them.
 
-Example cache key structure:
-
-.. code-block:: text
-
-   /path/to/project:find_symbol:MyClass:main:1234567890
-
-Cache Entry Format
-~~~~~~~~~~~~~~~~~~
-
-Each cache entry contains:
-
-.. code-block:: python
-
-   {
-       "result": [...],  # Analysis results
-       "timestamp": 1234567890,  # Creation timestamp
-       "dependencies": [  # Files that contributed to this result
-           "/path/to/file1.py",
-           "/path/to/file2.py"
-       ],
-       "scope": "main",  # Analysis scope
-       "ttl": 300,  # Time-to-live in seconds
-       "metadata": {  # Additional metadata
-           "version": "0.1.0",
-           "analyzer": "jedi"
-       }
-   }
-
-Invalidation Strategies
-----------------------
-
-File-Based Invalidation
-~~~~~~~~~~~~~~~~~~~~~~
-
-**File Modification**: When a file changes, all cache entries that depend on
-that file are invalidated immediately.
-
-**Dependency Tracking**: The system tracks which files contribute to each
-cached result, enabling precise invalidation.
-
-**Batch Invalidation**: Multiple file changes trigger batch invalidation
-to improve performance during large refactoring operations.
-
-Smart Invalidation
-~~~~~~~~~~~~~~~~~
-
-**Symbol-Level**: Changes to specific symbols only invalidate related cache entries
-rather than the entire project cache.
-
-**Scope-Aware**: Cache invalidation respects analysis scopes - changes in one
-namespace don't invalidate cache entries for other namespaces.
-
-**Dependency Graph**: Uses import dependency graphs to propagate invalidation
-through related modules.
-
-Time-Based Invalidation
-~~~~~~~~~~~~~~~~~~~~~~
-
-**TTL (Time-To-Live)**: Default 5-minute TTL for all cache entries with
-configurable per-operation overrides.
-
-**Adaptive TTL**: Frequently accessed entries get longer TTL, rarely accessed
-entries expire faster.
-
-**Background Refresh**: Popular entries are refreshed in background before
-expiration to maintain low latency.
+**Time**: scoped-cache entries expire after ``PYEYE_CACHE_TTL`` seconds even
+without a file change.
 
 File System Watching
 --------------------
@@ -111,9 +54,9 @@ The system uses the ``watchdog`` library for efficient file system monitoring:
 .. code-block:: python
 
    class CodebaseWatcher:
-       def __init__(self, project_path: Path, cache: GranularCache):
+       def __init__(self, project_path: str, on_change_callback=None):
            self.observer = Observer()
-           self.cache = cache
+           self.on_change_callback = on_change_callback
 
        def start(self):
            self.observer.schedule(

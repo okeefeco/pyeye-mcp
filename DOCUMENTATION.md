@@ -582,7 +582,7 @@ the README's [Performance Settings](README.md#performance-settings). Set them on
 the MCP client's server entry (for example `claude mcp add … -e NAME=value …`),
 because the client is what starts the server.
 
-- `PYEYE_CACHE_TTL`: Cache TTL in seconds
+- `PYEYE_CACHE_TTL`: Seconds a cached scope file list or lookup result lives
 - `PYEYE_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
 - `PYEYE_MAX_PROJECTS`: Maximum cached projects (default: 10)
 

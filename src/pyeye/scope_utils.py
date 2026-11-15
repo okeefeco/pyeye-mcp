@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -142,8 +143,22 @@ class SmartScopeResolver:
         return resolved
 
 
+def _warn_deprecated_class(name: str) -> None:
+    """Warn that the scope utility *name* is deprecated (#628)."""
+    warnings.warn(
+        f"pyeye.scope_utils.{name} is deprecated: nothing in pyeye uses it (#628). "
+        "It will be removed in v3.0.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 class ScopeValidator:
-    """Validate and discover available scopes."""
+    """Validate and discover available scopes.
+
+    .. deprecated:: 2.x
+        Nothing in pyeye uses it (#628); it will be removed in v3.0.
+    """
 
     def __init__(
         self,
@@ -158,6 +173,7 @@ class ScopeValidator:
             additional_paths: Additional package paths
             scope_aliases: User-defined scope aliases
         """
+        _warn_deprecated_class("ScopeValidator")
         self.namespace_paths = namespace_paths
         self.additional_paths = additional_paths
         self.scope_aliases = scope_aliases or {}
@@ -230,7 +246,11 @@ class ScopeValidator:
 
 
 class ScopeDebugger:
-    """Help users understand scope resolution."""
+    """Help users understand scope resolution.
+
+    .. deprecated:: 2.x
+        Nothing in pyeye uses it (#628); it will be removed in v3.0.
+    """
 
     def __init__(self, resolver_func: Any) -> None:
         """Initialize the scope debugger.
@@ -238,6 +258,7 @@ class ScopeDebugger:
         Args:
             resolver_func: Function that resolves scope to paths
         """
+        _warn_deprecated_class("ScopeDebugger")
         self._resolve_scope_to_paths = resolver_func
 
     async def explain_scope(self, scope: Scope) -> str:
@@ -384,20 +405,6 @@ class ScopedCache:
         self.timestamps.setdefault(scope_key, {})[key] = time.time()
         self.caches.setdefault(scope_key, {})[key] = value
 
-    def invalidate_scope(self, scope: Scope) -> None:
-        """Invalidate just one scope's cache.
-
-        Args:
-            scope: Scope to invalidate
-        """
-        scope_key = self._normalize_scope(scope)
-
-        if scope_key in self.caches:
-            self.caches[scope_key] = {}
-
-        if scope_key in self.timestamps:
-            self.timestamps[scope_key] = {}
-
     def invalidate_all(self) -> None:
         """Invalidate all caches."""
         for scope_key in list(self.caches.keys()):
@@ -406,32 +413,17 @@ class ScopedCache:
         for scope_key in list(self.timestamps.keys()):
             self.timestamps[scope_key] = {}
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get cache statistics.
-
-        Returns:
-            Dictionary of cache statistics
-        """
-        stats: dict[str, Any] = {
-            "scope_count": len(self.caches),
-            "scopes": {},
-        }
-
-        for scope_key, cache in self.caches.items():
-            scope_stats: dict[str, Any] = {
-                "entry_count": len(cache),
-                "size_bytes": sum(len(str(v)) for v in cache.values()),
-            }
-            stats["scopes"][scope_key] = scope_stats
-
-        return stats
-
 
 class LazyNamespaceLoader:
-    """Load namespace paths only when needed."""
+    """Load namespace paths only when needed.
+
+    .. deprecated:: 2.x
+        Nothing in pyeye uses it (#628); it will be removed in v3.0.
+    """
 
     def __init__(self) -> None:
         """Initialize the lazy namespace loader."""
+        _warn_deprecated_class("LazyNamespaceLoader")
         self._loaded_namespaces: dict[str, list[Path]] = {}
         self._loading_locks: dict[str, asyncio.Lock] = {}
 

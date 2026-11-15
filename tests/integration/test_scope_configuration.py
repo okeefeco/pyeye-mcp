@@ -7,6 +7,7 @@ import pytest
 
 from pyeye.config import ProjectConfig
 from pyeye.scope_utils import (
+    LazyNamespaceLoader,
     ScopeDebugger,
     ScopeValidator,
     SmartScopeResolver,
@@ -405,3 +406,24 @@ class TestConfigurationExamples:
             if "performance" in config:
                 assert "cache_ttl" in config["performance"]
                 assert "max_concurrent_searches" in config["performance"]
+
+
+class TestDeprecatedScopeUtilities:
+    """#628: unused scope utilities are deprecated (v2.x), not removed."""
+
+    @pytest.mark.parametrize(
+        ("name", "factory"),
+        [
+            ("ScopeValidator", lambda: ScopeValidator({}, [], {})),
+            ("ScopeDebugger", lambda: ScopeDebugger(lambda _scope: [])),
+            ("LazyNamespaceLoader", lambda: LazyNamespaceLoader()),
+        ],
+    )
+    def test_construction_warns(self, name, factory):
+        with pytest.warns(DeprecationWarning, match=rf"scope_utils\.{name} is deprecated.*v3\.0"):
+            factory()
+
+    def test_warning_points_at_the_caller(self):
+        with pytest.warns(DeprecationWarning) as record:
+            ScopeValidator({}, [], {})
+        assert Path(record[0].filename).name == "test_scope_configuration.py"

@@ -69,6 +69,9 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
 
    Validate scopes work as expected:
 
+   > **Deprecated:** `ScopeValidator` is unused by pyeye and will be removed in v3.0 (#628);
+   > constructing it emits a `DeprecationWarning`.
+
    ```python
    from pyeye.scope_utils import ScopeValidator
 
@@ -194,7 +197,7 @@ routes = await analyzer.find_routes(scope="backend")
 
 ### Environment Variables
 
-- `PYEYE_CACHE_TTL`: Cache TTL in seconds (default: 300)
+- `PYEYE_CACHE_TTL`: Seconds a cached scope file list or lookup result lives (default: 300)
 
 Default scopes for the framework plugin tools are set in the config file
 (`scope_defaults`), not through the environment. The full list of environment variables is in the README's
@@ -222,10 +225,10 @@ async def find_subclasses(
 ```python
 from pyeye.scope_utils import (
     SmartScopeResolver,    # Smart defaults
-    ScopeValidator,        # Validate scopes
-    ScopeDebugger,        # Debug scope resolution
+    ScopeValidator,        # Validate scopes (deprecated, removed in v3.0)
+    ScopeDebugger,        # Debug scope resolution (deprecated, removed in v3.0)
     ScopedCache,          # Scoped caching
-    LazyNamespaceLoader,  # Lazy loading
+    LazyNamespaceLoader,  # Lazy loading (deprecated, removed in v3.0)
     parallel_search       # Parallel file search
 )
 ```

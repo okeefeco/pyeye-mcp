@@ -436,7 +436,7 @@ def configure_packages(
 
     if len(all_paths) > 1:
         # Configure with all paths
-        manager.get_project(all_paths[0], all_paths[1:])
+        manager.register_project(all_paths[0], all_paths[1:])
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():

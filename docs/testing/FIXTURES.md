@@ -136,7 +136,7 @@ def mock_analyzer():
 def mock_project_manager():
     """Create mock project manager."""
     manager = Mock()
-    manager.get_project = AsyncMock()
+    manager.register_project = Mock()
     manager.cache = Mock()
     manager.namespace_resolver = Mock()
     return manager

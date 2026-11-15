@@ -70,13 +70,10 @@ class TestScopedCachePerformance:
         assert cache.get("key", "all") == "all_value"
         assert cache.get("key", "namespace:test") == "namespace_value"
 
-        # Invalidate one scope
-        cache.invalidate_scope("main")
-
-        # Check only that scope was invalidated
-        assert cache.get("key", "main") is None
-        assert cache.get("key", "all") == "all_value"
-        assert cache.get("key", "namespace:test") == "namespace_value"
+        # invalidate_all (the file watcher's call) clears every scope
+        cache.invalidate_all()
+        for scope in ("main", "all", "namespace:test"):
+            assert cache.get("key", scope) is None
 
     async def test_cache_ttl_performance(self):
         """Test cache TTL expiration."""
@@ -348,15 +345,10 @@ class TestPerformanceBenchmarks:
             for i in range(1000):
                 cache.set(f"key_{i}", f"value_{i}" * 100, scope)
 
-        # Get cache stats
-        stats = cache.get_stats()
-
-        # Should have 4 scopes
-        assert stats["scope_count"] == 4
-
-        # Each scope should have 1000 entries
-        for scope_stats in stats["scopes"].values():
-            assert scope_stats["entry_count"] == 1000
+        # Should have 4 scopes of 1000 entries each
+        assert len(cache.caches) == 4
+        for entries in cache.caches.values():
+            assert len(entries) == 1000
 
     async def test_parallel_search_scalability(self, tmp_path):
         """Test parallel search scales well with many paths."""

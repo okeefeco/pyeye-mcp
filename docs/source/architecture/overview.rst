@@ -37,9 +37,10 @@ Analysis Layer
 Caching Layer
 ~~~~~~~~~~~~~
 
-**GranularCache**
-  Intelligent caching system with file-level invalidation and dependency tracking.
-  Provides 5-minute TTL with smart invalidation based on file modifications.
+**Scoped and process-wide caches**
+  Each analyzer's ``ScopedCache`` keeps scope file lists and lookup results for
+  ``PYEYE_CACHE_TTL`` seconds (default 300); parsed files, name indexes and type
+  references are cached process-wide, keyed on the project layout.
 
 **CodebaseWatcher**
   File system monitoring using the watchdog library to automatically invalidate
@@ -98,7 +99,6 @@ Scalability
 
 * **Project Limit**: Maximum 10 active projects with LRU eviction
 * **Cache Size**: Configurable cache size with memory-aware eviction
-* **Connection Pooling**: Reuses Jedi Project instances to reduce startup overhead
 
 Response Times
 ~~~~~~~~~~~~~~
