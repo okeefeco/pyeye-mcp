@@ -478,7 +478,12 @@ async def resolve(
         ResolveResult dict — one of:
         - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
-        - Not found: {"found": False, "reason": str}
+        - Not found: {"found": False, "identifier": str, "reason": str, "detail": str}
+          with reason "unresolved", "file_not_found" or "no_symbol_at_position".
+          The identifier is echoed verbatim; it is never put in "handle".
+
+        A lookup miss never raises. The call errors (an MCP tool error, not a
+        response) only for invalid arguments or a project_path that doesn't exist.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
@@ -511,7 +516,13 @@ async def resolve_at(
         project_path: Project root path (default: current directory)
 
     Returns:
-        ResolveResult dict (see resolve() for shape).
+        ResolveResult dict, the same success/ambiguous shapes as resolve(). Not found:
+        {"found": False, "file": str, "line": int, "column": int, "reason": str,
+        "detail": str}, echoing the arguments as given, with reason
+        "file_not_found", "no_symbol_at_position" or "unresolved".
+
+        A lookup miss never raises. The call errors (an MCP tool error, not a
+        response) only for invalid arguments or a project_path that doesn't exist.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -685,8 +696,9 @@ async def expand(
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
-        Never raises.  ``stubs: []`` always means "measured, none found" — it is
-        never returned for an unresolvable handle.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        ``stubs: []`` always means "measured, none found" — it is never returned
+        for an unresolvable handle.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
@@ -764,8 +776,8 @@ async def trace(
             common ``callees`` case).
 
     Returns:
-        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
-        unresolvable root contributes no node but is listed in the always-present
+        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        An unresolvable root contributes no node but is listed in the always-present
         ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
         ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
         "root did not resolve" (handle listed).  When ``callees`` is traced,
@@ -886,8 +898,8 @@ async def outline(
 
     Returns:
         ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
-        [OutlineTree, ...]}`` (``found`` on the root only).  Never raises; an
-        unresolvable handle yields
+        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        An unresolvable handle yields
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no placeholder tree.  Children within each parent are in source order
         (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget
