@@ -96,6 +96,7 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from tests.utils.resolver_helpers import anchor_for
 
 # The ``inspect`` function is re-exported from ``pyeye.mcp.operations`` (see
 # operations/__init__.py), which shadows the submodule of the same name on the
@@ -1437,97 +1438,6 @@ class TestInspectHelperUnits:
         assert col == expected_col
 
 
-class TestFindJediNameForHandleFallbacks:
-    """Tests for the uncovered branches in _find_jedi_name_for_handle."""
-
-    def test_bare_name_with_no_module_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """A single-component handle that is not a module file returns None (line 547)."""
-        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-
-        # "nonexistent" is one component — len(parts) < 2 returns None
-        result = _find_jedi_name_for_handle("nonexistent_bare_name_xyz", analyzer)
-        assert result is None
-
-    def test_project_search_match_found_in_case3(self, analyzer: JediAnalyzer) -> None:
-        """Case 3: project.search returns a result with a matching full_name (lines 568-569).
-
-        This covers the ``if r.full_name == handle: return r`` branch that is
-        skipped when project.search returns an empty list.
-        """
-        from unittest.mock import MagicMock, patch
-
-        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-
-        # Build a fake Jedi Name-like object that matches the handle
-        handle = "mypackage._core.widgets.Widget"
-        fake_name = MagicMock()
-        fake_name.full_name = handle
-
-        # Patch find_module_file to always return None (skip Cases 1 & 2)
-        # Patch project.search to return our fake name
-        with (
-            patch.object(inspect_ops, "find_module_file", return_value=None),
-            patch.object(analyzer.project, "search", return_value=iter([fake_name])),
-        ):
-            result = _find_jedi_name_for_handle(handle, analyzer)
-
-        # The fake name should be returned (Case 3 match)
-        assert result is fake_name
-
-    def test_synthetic_import_fallback_for_external_symbol(self, analyzer: JediAnalyzer) -> None:
-        """Synthetic-import fallback resolves pathlib.Path when earlier cases fail.
-
-        Forces Cases 1, 2, and 3 to fail, then verifies that the synthetic-import
-        block (lines 576-590) resolves the external symbol correctly.
-        This is the load-bearing path for stdlib resolution and covers Goal 2.
-        """
-        from unittest.mock import patch
-
-        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-
-        # Canonical (definition-site) handle; varies by Python version (#529).
-        handle = _PATH_CLASS_HANDLE
-
-        # Force Cases 1 & 2 (find_module_file) to return None
-        # Force Case 3 (project.search) to return an empty iterator
-        with (
-            patch.object(inspect_ops, "find_module_file", return_value=None),
-            patch.object(analyzer.project, "search", return_value=iter([])),
-        ):
-            result = _find_jedi_name_for_handle(handle, analyzer)
-
-        # Synthetic-import fallback should resolve pathlib.Path
-        assert result is not None, (
-            "Synthetic-import fallback must resolve 'pathlib.Path'; got None. "
-            "This path is load-bearing for stdlib external resolution."
-        )
-        assert (
-            result.full_name == handle
-        ), f"Resolved name must have full_name='pathlib.Path'; got {result.full_name!r}"
-
-    def test_synthetic_import_fallback_returns_none_for_bogus_handle(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """Synthetic-import fallback returns None when the handle doesn't exist.
-
-        Verifies the function returns None (not raises) when no code path resolves
-        the handle — covering the final ``return None`` after all fallbacks fail.
-        """
-        from unittest.mock import patch
-
-        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-
-        handle = "totally.bogus.DoesNotExistAnywhere9999"
-
-        with (
-            patch.object(inspect_ops, "find_module_file", return_value=None),
-            patch.object(analyzer.project, "search", return_value=iter([])),
-        ):
-            result = _find_jedi_name_for_handle(handle, analyzer)
-
-        assert result is None
-
-
 # ---------------------------------------------------------------------------
 # TestInspectSpanLocation — column_end and line_end correctness
 # ---------------------------------------------------------------------------
@@ -1599,29 +1509,6 @@ class TestInspectSpanLocation:
                     f"column_end must be >= column_start for handle={handle!r}; "
                     f"got column_start={loc['column_start']}, column_end={loc['column_end']}"
                 )
-
-    def test_synthetic_import_exception_handler_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """When jedi.Script raises inside the synthetic-import fallback, returns None.
-
-        Exercises the ``except Exception: pass`` handler at the end of the
-        synthetic-import block (lines 587-588).
-        """
-        from unittest.mock import patch
-
-        from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-
-        handle = "pathlib.Path"
-
-        with (
-            patch.object(inspect_ops, "find_module_file", return_value=None),
-            patch.object(analyzer.project, "search", return_value=iter([])),
-            # Force jedi.Script constructor to raise inside the synthetic-import try block
-            patch("jedi.Script", side_effect=RuntimeError("simulated jedi failure")),
-        ):
-            result = _find_jedi_name_for_handle(handle, analyzer)
-
-        # Exception was caught; function returns None gracefully
-        assert result is None
 
 
 class TestInspectNotFound:
@@ -2046,7 +1933,7 @@ class TestInspectSuperclassWorkReuse:
         """_get_superclasses reads the source AST via file_artifact_cache.get_ast."""
         from unittest.mock import patch
 
-        jedi_name = inspect_ops._find_jedi_name_for_handle(_PREMIUM_HANDLE, analyzer)
+        jedi_name = anchor_for(_PREMIUM_HANDLE, analyzer)
         assert jedi_name is not None
 
         with patch.object(
@@ -2064,7 +1951,7 @@ class TestInspectSuperclassWorkReuse:
         from unittest.mock import patch
 
         # Widget.default is a @classmethod — exercises a non-trivial flag result.
-        jedi_name = inspect_ops._find_jedi_name_for_handle(_DEFAULT_HANDLE, analyzer)
+        jedi_name = anchor_for(_DEFAULT_HANDLE, analyzer)
         assert jedi_name is not None
         file_path = jedi_name.module_path
         line = jedi_name.line
