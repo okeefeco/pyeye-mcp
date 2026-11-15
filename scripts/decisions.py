@@ -267,12 +267,15 @@ def render(meta: dict[str, Any], body: str) -> str:
     return "\n".join(lines) + "\n\n" + body.rstrip("\n") + "\n"
 
 
-def migrate(log_file: Path = LOG_FILE, directory: Path = ENTRIES_DIR) -> list[str]:
+def migrate(
+    log_file: Path = LOG_FILE, directory: Path = ENTRIES_DIR, *, update: bool = False
+) -> list[str]:
     """Split every entry still in *log_file* into its own file (#679).
 
     Re-runnable and idempotent: an entry whose file already exists with the same
-    body is skipped; one whose existing body differs is an error, and nothing is
-    changed. Each written body is verified on disk before *log_file* is reset to
+    body is skipped. One whose existing body differs is an error and nothing is
+    changed, unless *update* is set: then the log's body replaces the file's
+    (front matter kept), for a merge that brings in an edit to an existing entry. Each written body is verified on disk before *log_file* is reset to
     :data:`STATIC_HEADER`. Amend/supersede links aren't guessed: entries whose
     text mentions amending or superseding are reported for the author to link.
 
@@ -284,15 +287,20 @@ def migrate(log_file: Path = LOG_FILE, directory: Path = ENTRIES_DIR) -> list[st
         raise EntryError("; ".join(errors))
     by_key = {(e.date, e.title): e for e in existing}
     plan: list[tuple[str, dict[str, Any], str]] = []
+    updates: list[tuple[Entry, str]] = []
     notes: list[str] = []
     for date, title, body in found:
         have = by_key.get((date, title))
         if have is not None:
             if have.body.rstrip("\n") != body.rstrip("\n"):
-                raise EntryError(
-                    f"{have.name}: already exists with a different body than the "
-                    f"DECISIONS.md entry '{date} — {title}'; reconcile by hand"
-                )
+                if not update:
+                    raise EntryError(
+                        f"{have.name}: already exists with a different body than the "
+                        f"DECISIONS.md entry '{date} — {title}'; check the difference, then "
+                        "rerun with --update to take the DECISIONS.md text"
+                    )
+                updates.append((have, body))
+                continue
             notes.append(f"unchanged: {have.name}")
             continue
         name, meta = entry_from_log(date, title, body)
@@ -300,6 +308,12 @@ def migrate(log_file: Path = LOG_FILE, directory: Path = ENTRIES_DIR) -> list[st
             raise EntryError(f"{name}: name collision; rename one entry's slug")
         plan.append((name, meta, body))
     directory.mkdir(parents=True, exist_ok=True)
+    for have, body in updates:
+        (directory / have.name).write_text(render(have.meta, body), encoding="utf-8")
+        written = parse(have.name, (directory / have.name).read_text(encoding="utf-8"))
+        if written.body.rstrip("\n") != body.rstrip("\n"):
+            raise EntryError(f"{have.name}: body changed on the round trip")
+        notes.append(f"updated body: {have.name}")
     for name, meta, body in plan:
         (directory / name).write_text(render(meta, body), encoding="utf-8")
         written = parse(name, (directory / name).read_text(encoding="utf-8"))
@@ -365,13 +379,20 @@ def main(argv: list[str] | None = None) -> int:
     index.add_argument("--active", action="store_true", help="hide superseded entries")
     index.add_argument("--status", choices=STATUSES, help="only entries with this status")
     sub.add_parser("check", help="validate every entry (run in CI)")
-    sub.add_parser("migrate", help="split entries still in DECISIONS.md into files")
+    migrate_parser = sub.add_parser(
+        "migrate", help="split entries still in DECISIONS.md into files"
+    )
+    migrate_parser.add_argument(
+        "--update",
+        action="store_true",
+        help="replace an existing entry's body when the DECISIONS.md text differs",
+    )
     parser.add_argument("--log", type=Path, default=LOG_FILE, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
     if args.command == "migrate":
         try:
-            for note in migrate(args.log, args.dir):
+            for note in migrate(args.log, args.dir, update=args.update):
                 print(note)
         except EntryError as exc:
             print(f"decisions: {exc}", file=sys.stderr)

@@ -290,3 +290,22 @@ def test_migrate_with_nothing_to_do(tmp_path: Path) -> None:
     log = tmp_path / "DECISIONS.md"
     log.write_text(decisions.STATIC_HEADER, encoding="utf-8")
     assert decisions.migrate(log, entries)[-1] == "0 entries in DECISIONS.md, 0 split out"
+
+
+def test_migrate_update_takes_the_log_body_and_keeps_front_matter(tmp_path: Path) -> None:
+    entries = tmp_path / "entries"
+    log = tmp_path / "DECISIONS.md"
+    log.write_text(_LOG_ENTRY_2, encoding="utf-8")
+    decisions.migrate(log, entries)
+    path = entries / "2026-03-01-8-first-rule.md"
+    path.write_text(path.read_text().replace('"status": "active"', '"status": "active"'))
+    edited = _LOG_ENTRY_2.replace("**Friction:** a", "**Friction:** amended later")
+    log.write_text(edited, encoding="utf-8")
+
+    notes = decisions.migrate(log, entries, update=True)
+
+    assert "updated body: 2026-03-01-8-first-rule.md" in notes
+    entry = decisions.parse(path.name, path.read_text())
+    assert entry.body == edited.rstrip("\n") + "\n"
+    assert entry.meta["issues"] == [8]
+    assert log.read_text() == decisions.STATIC_HEADER

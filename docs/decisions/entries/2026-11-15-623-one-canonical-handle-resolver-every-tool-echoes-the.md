@@ -44,12 +44,12 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
 - `outline` root;
 - `expand` source;
 - `trace` roots;
-- `resolve` dotted names, and bare names with no name-index hit (an exact top-level module);
+- `resolve` dotted names, and every bare-name candidate (`resolve_name`, see "Bare name: an exact top-level module wins");
 - `resolve_at` (the position's definition is canonicalized through the resolver).
 
 Scope: every `Resolved` and every edge stub (`scope_for`), and every `classify_scope` caller (the widened `SCOPE` boundary).
 
-Not yet moved (later #623 slices): the bare-name policy with index hits, where an exact top-level module wins (slice 4); trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
+Not yet moved (later #623 slices): trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
 **Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/integration/test_resolve_on_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py tests/test_cross_tool_invariants.py` passes:
 
 - each strategy resolves its case;
