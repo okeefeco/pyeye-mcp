@@ -706,6 +706,18 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 # ---------------------------------------------------------------------------
 
 
+def _project_search_scope(analyzer: JediAnalyzer) -> list[str]:
+    """The search scope that matches ``project`` stubs: main + packages + namespaces (#669).
+
+    Configured additional packages and namespace repos are ``project`` scope
+    (#623), and the ``superclasses`` edge resolves into them, so the
+    ``subclasses`` edge must search them too.  Standalone script directories are
+    deliberately left out: they aren't configured project code.
+    """
+    namespaces = sorted(getattr(analyzer, "namespace_paths", {}) or {})
+    return ["main", "packages", *(f"namespace:{name}" for name in namespaces)]
+
+
 async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the project classes that subclass a class as canonical handles.
 
@@ -791,7 +803,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # whole closure onto depth 1).
     result = await analyzer.find_subclasses(
         handle,
-        scope="main",
+        scope=_project_search_scope(analyzer),
         include_indirect=False,
         show_hierarchy=False,
     )
