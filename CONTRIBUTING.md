@@ -75,8 +75,9 @@ Please follow these steps for your contribution:
 5. **Ensure tests pass** - Run the full test suite
 6. **Update documentation** - If you've changed APIs, update the relevant documentation
 7. **Add a changelog fragment** - For a user-facing change, add `changes/<issue>.<category>.md` with one or more `-` bullets (for example `changes/619.fixed.md`) instead of editing `CHANGELOG.md`. See [`changes/README.md`](changes/README.md) for the categories. Fragments are collected into `CHANGELOG.md` when a release is prepared.
-8. **Submit the pull request** - Link it to the issue using "Fixes #issue-number"
-9. **Address review feedback** - Maintainers will review your PR and may request changes
+8. **Record a design decision, if you made one** - A contract-significant decision gets its own file in `docs/decisions/entries/` (see [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) for the format). `python scripts/decisions.py index` lists existing decisions and `python scripts/decisions.py check` validates them.
+9. **Submit the pull request** - Link it to the issue using "Fixes #issue-number"
+10. **Address review feedback** - Maintainers will review your PR and may request changes
 
 ## Development Process
 

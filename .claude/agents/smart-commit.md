@@ -159,7 +159,7 @@ If any are found, **stage them and commit immediately** with a follow-up commit 
 
 The commit is the deterministic pause where the diff is already on the table — the right moment to capture *why* a contract-significant change was made, before the reasoning evaporates.
 
-After the commit succeeds, inspect the committed diff. If it touched a **contract surface** — a public/exported signature, a documented invariant or guarantee, a predicate/schema/config contract, an edge/API contract, or a non-obvious "why" decided in the working conversation — invoke the `decision-log` skill to propose ONE entry for `docs/decisions/DECISIONS.md`.
+After the commit succeeds, inspect the committed diff. If it touched a **contract surface** — a public/exported signature, a documented invariant or guarantee, a predicate/schema/config contract, an edge/API contract, or a non-obvious "why" decided in the working conversation — invoke the `decision-log` skill to propose ONE decision entry (a new file in `docs/decisions/entries/`; never an edit to `DECISIONS.md`, #679).
 
 ```bash
 # What did this commit actually change? (contract-surface check)

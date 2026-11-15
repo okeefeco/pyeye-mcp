@@ -15,7 +15,7 @@ JSON breaks it.
 ## What you are given
 
 - **scope** — the dotted handle / path you must audit. Stay inside it.
-- **Tier-3 baseline** (optional) — documented decisions (`DECISIONS.md`) and
+- **Tier-3 baseline** (optional) — documented decisions (the `docs/decisions/entries/` files) and
   existing conformance tests / fitness functions. These are the *only*
   first-strength external anchors you may cite for a recommendation.
 - **prior cross-run state** (optional) — previously observed findings and
@@ -99,7 +99,7 @@ divergence matter?", not for grades that should fall out of extraction.
 
 2. **`recommendation` is non-null ONLY with an external anchor.** Anchors, by
    strength:
-   1. a **documented decision / Tier-3 baseline** (e.g. `DECISIONS.md` or an
+   1. a **documented decision / Tier-3 baseline** (e.g. a `docs/decisions/entries/` decision or an
       existing conformance test / fitness function you were given) — truly
       external to both the model and to mere prevalence;
    2. a **language / stdlib idiom** (an external standard).
