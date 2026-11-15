@@ -58,12 +58,6 @@ BASELINE: dict[tuple[str, str], str] = {
         "src/pyeye/mcp/operations/edges.py::_class_members",
         "src/pyeye/mcp/operations/edges.py::_module_members",
     ): "#686",
-    # The per-edge kind gate and jedi_name getattr preamble, one copy per
-    # resolver; one edge-applicability table replaces them.
-    (
-        "src/pyeye/mcp/operations/edges.py::resolve_imported_by",
-        "src/pyeye/mcp/operations/edges.py::superclass_bases",
-    ): "#626",
 }
 
 _SKIP = (ast.expr_context, ast.Load, ast.Store, ast.Del)

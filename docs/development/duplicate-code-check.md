@@ -62,12 +62,12 @@ uv run python scripts/duplicate_code_report.py --fail-on-findings  # exit 1 on A
 ## Baseline (#636, 2026-11-15)
 
 By the time the check became blocking, #623 had removed four of the five
-original regions. Two sites remain:
+original regions. Two sites remained; #674 (#626) then removed the
+`edges.resolve_imported_by` / `edges.superclass_bases` copy. One site remains:
 
 | Site | What it is | Removed by |
 |------|-----------|------------|
 | `edges._class_members` / `edges._module_members` | the same skip-seen, `_try_handle`, append loop | #686 |
-| `edges.resolve_imported_by` / `edges.superclass_bases` | the per-edge kind gate and `jedi_name` preamble | #626 (one edge-applicability table) |
 
 ## Findings at introduction (2026-11-15, `main` @ `d615b3a`)
 
