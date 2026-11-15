@@ -576,7 +576,11 @@ async def expand(
       - ``imported_by``  — module → the project modules that import it (module
         Stubs), computed by static AST import-graph reversal (no reverse symbol
         search).  Covers importers anywhere in the project including tests and
-        standalone scripts.  Non-module handles return the unsupported branch
+        standalone scripts, and imports anywhere in a file: guarded, and inside
+        a function or class body too (a lazy import is still a dependency).
+        So it is NOT the exact inverse of ``imports``: if ``imports(M)`` shows
+        module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
+        importer appears only here.  Non-module handles return the unsupported branch
         with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
         not yet implemented).  Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
@@ -603,7 +607,10 @@ async def expand(
         Jedi from the class definition (no reverse search).  A non-class handle
         returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).
       - ``imports``  — module → the symbols/modules it imports (Stubs), computed
-        by static AST + forward ``goto``.  ``stubs: []`` is measured-none.  A
+        by static AST + forward ``goto``.  Counts the imports that bind a
+        module-scope name (guarded ones included; imports inside a function or
+        class body are not), and reports each imported symbol at its canonical
+        definition site.  ``stubs: []`` is measured-none.  A
         non-module handle returns the unsupported branch with
         ``reason: "not_yet_implemented"`` (mirrors ``imported_by``).
       - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope
