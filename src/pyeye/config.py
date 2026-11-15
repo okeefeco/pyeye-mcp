@@ -390,17 +390,17 @@ class ProjectConfig:
         """
         paths = []
         try:
+            # The one rule shared with namespaces (#668): ``~`` expanded,
+            # relative to the project, ``..`` collapsed.
+            package = self._normalise_config_path(package)
             if "*" in package:
                 from glob import glob
 
-                expanded = glob(os.path.expanduser(package))
+                expanded = glob(package)
                 for exp_path in expanded:
                     validated = PathValidator.validate_path(exp_path)
                     paths.append(validated.as_posix())
             else:
-                # Resolve relative to project directory
-                if not os.path.isabs(package):
-                    package = os.path.join(str(self.project_path), package)
                 validated = PathValidator.validate_path(package)
                 if validated.exists():
                     paths.append(validated.as_posix())
@@ -422,10 +422,11 @@ class ProjectConfig:
         for _namespace, ns_paths in namespaces.items():
             for ns_path in ns_paths:
                 try:
+                    ns_path = self._normalise_config_path(ns_path)
                     if "*" in ns_path:
                         from glob import glob
 
-                        expanded = glob(os.path.expanduser(ns_path))
+                        expanded = glob(ns_path)
                         for exp_path in expanded:
                             validated = PathValidator.validate_path(exp_path)
                             paths.append(validated.as_posix())
@@ -488,7 +489,32 @@ class ProjectConfig:
             Dictionary mapping namespace to paths
         """
         namespaces = self.config.get("namespaces", {})
-        return dict(namespaces) if namespaces else {}
+        if not namespaces:
+            return {}
+        # #668/#669: this is the one source every consumer reads (ProjectManager,
+        # plugins, configure_packages), so paths are normalised HERE, the same
+        # way package paths are: relative to the project, ``~`` expanded, ``..``
+        # collapsed.  A raw "../repo" was resolved differently by each consumer
+        # (or against the server's CWD), and "app/../repo" defeated the
+        # file<->module mapper.
+        return {
+            ns: [self._normalise_config_path(p) for p in paths] for ns, paths in namespaces.items()
+        }
+
+    def _normalise_config_path(self, entry: str) -> str:
+        """Return *entry* as an absolute, normalised POSIX path.
+
+        Relative entries are taken relative to the project directory, as
+        package paths are; ``~`` is expanded and ``..`` collapsed.  Glob
+        patterns are returned with only that anchoring applied; callers that
+        need the matches expand them.
+        """
+        path = Path(os.path.expanduser(entry))
+        if not path.is_absolute():
+            path = self.project_path / path
+        if "*" in entry:
+            return path.as_posix()
+        return path.resolve().as_posix()
 
     def get_scope_defaults(self) -> dict[str, Any]:
         """Get configured scope defaults.

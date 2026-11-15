@@ -317,11 +317,7 @@ class ProjectManager:
             for p in paths:
                 resolved = Path(p)
                 if not resolved.is_absolute():
-                    # Normalise "../repo" (#669): an unresolved "app/../repo"
-                    # root can't be matched against resolved file paths, so the
-                    # file↔module mapper named every file in the repo by its
-                    # path ("...repo.corp.x") instead of its module ("corp.x").
-                    resolved = (path_key / resolved).resolve()
+                    resolved = path_key / resolved
                 resolved_paths.append(str(resolved))
             namespace_config[ns] = resolved_paths
             # Also register with namespace_resolver for scope-based file searching
