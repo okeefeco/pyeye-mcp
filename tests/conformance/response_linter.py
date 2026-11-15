@@ -118,7 +118,8 @@ Note: Check A layering (no source content) is applied to the whole tree by
 lists.  No second traversal is needed in Check O — the existing walk reaches
 ``node`` Stubs and ``children`` items at any depth automatically.
 
-Check N — found discriminator (operation ∈ inspect / outline / expand, #545)
+Check N — found discriminator (operation ∈ inspect / outline / expand /
+resolve / resolve_at, #545, #615)
 ---------------------------------------------------------------------------
 N.1 ``found`` is REQUIRED at the top level and is exactly ``True`` or ``False``
     (a plain bool, not truthy).  Absence is rejected: a consumer must be able to
@@ -131,6 +132,11 @@ N.2 ``found: False`` ⇒ the response is EXACTLY the not-found shape
     structural floor (B / E / O) is skipped for this branch.
 N.3 ``found`` appears only on the ROOT of an outline response, never on a
     nested ``children`` tree (it is a response-level fact, not per-node).
+N.4 Ratchet (#615): ``resolve`` / ``resolve_at`` still return the legacy
+    ``{found: False, reason}`` shape.  Each ``(operation, reason)`` pair is
+    allow-listed in ``_LEGACY_NOT_FOUND_SHAPES`` against #626, which settles the
+    shared shape for all five primitives.  Only that exact two-key shape with a
+    listed pair is exempt; anything else is checked against N.2.
 
 Usage
 -----
@@ -1597,7 +1603,9 @@ _OUTLINE_COUNT_KEYS: tuple[str, ...] = ("member_count", "submodule_count")
 # ---------------------------------------------------------------------------
 
 # N.* — operations whose every response carries the ``found`` discriminator.
-_FOUND_DISCRIMINATED_OPERATIONS: frozenset[str] = frozenset({"inspect", "outline", "expand"})
+_FOUND_DISCRIMINATED_OPERATIONS: frozenset[str] = frozenset(
+    {"inspect", "outline", "expand", "resolve", "resolve_at"}
+)
 
 # N.2 — Valid reason values for a not-found response.  Deliberately hardcoded
 # (not imported from the implementation) so the linter stays an independent
@@ -1610,6 +1618,22 @@ _NOT_FOUND_KEYS_BY_OPERATION: dict[str, frozenset[str]] = {
     "inspect": _NOT_FOUND_KEYS,
     "outline": _NOT_FOUND_KEYS,
     "expand": _NOT_FOUND_KEYS | {"edge"},
+    "resolve": _NOT_FOUND_KEYS,
+    "resolve_at": _NOT_FOUND_KEYS,
+}
+
+# N.4 — Ratchet (#615): legacy ``{found: False, reason}`` not-found responses
+# still emitted today, keyed ``(operation, reason)`` → the #629 child issue that
+# removes them.  ``tests/test_decision_invariants_fitness.py`` fails when an
+# entry is no longer produced, so fixing one forces deleting it here.
+_LEGACY_NOT_FOUND_KEYS: frozenset[str] = frozenset({"found", "reason"})
+_LEGACY_NOT_FOUND_SHAPES: dict[tuple[str, str], str] = {
+    ("resolve", "unresolved"): "#626",
+    ("resolve", "file_not_found"): "#626",
+    ("resolve", "no_symbol_at_position"): "#626",
+    ("resolve_at", "unresolved"): "#626",
+    ("resolve_at", "file_not_found"): "#626",
+    ("resolve_at", "no_symbol_at_position"): "#626",
 }
 
 
@@ -1633,7 +1657,7 @@ def _check_found_discriminator(
     if "found" not in response:
         violations.append(
             f"[N.1 found required] {operation!r} response is missing 'found'. "
-            "Every inspect/outline/expand response carries found: true or "
+            "Every inspect/outline/expand/resolve/resolve_at response carries found: true or "
             "found: false so a consumer branches on a value, not key presence (#545)."
         )
         return False
@@ -1647,6 +1671,13 @@ def _check_found_discriminator(
             f"got {_truncate(found)} (type={type(found).__name__!r})."
         )
         return False
+
+    if (
+        set(response) == _LEGACY_NOT_FOUND_KEYS
+        and isinstance(response["reason"], str)
+        and (operation, response["reason"]) in _LEGACY_NOT_FOUND_SHAPES
+    ):
+        return True  # N.4 — allow-listed legacy shape (#615 ratchet, owned by #626).
 
     expected_keys = _NOT_FOUND_KEYS_BY_OPERATION[operation]
     actual_keys = set(response)
@@ -1700,7 +1731,8 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
             - ``trace``    gets T.1–T.4 Subgraph structural-floor
             - ``outline``  gets O.1–O.4 OutlineTree structural-floor (recursive)
             - ``stub``     gets S.1–S.2 structural-floor
-            - ``inspect`` / ``outline`` / ``expand`` also get N.1–N.2 (the
+            - ``inspect`` / ``outline`` / ``expand`` / ``resolve`` /
+              ``resolve_at`` also get N.1–N.2 (the
               ``found`` discriminator); a ``found: false`` response skips the
               operation's structural floor
             - others don't get operation-specific checks
