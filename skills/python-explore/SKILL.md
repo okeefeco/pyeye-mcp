@@ -77,6 +77,14 @@ Notes that matter:
   its dotted handle: `resolve("jaraco.functools")`, or `pyeye.mcp.operations.inspect` in
   pyeye's own repo. Only two top-level packages sharing a name across project roots stay
   ambiguous.
+- **A bare method or class-attribute name is a fallback.** Bare names are looked up
+  among modules and top-level definitions first; only if none match does `resolve` look
+  at methods and class-body attributes. One match → that member (`resolve("load_settings")`
+  → `pkg.config.Loader.load_settings`); several → `ambiguous` with every candidate. Because
+  it's a fallback, a top-level `helper` answers `resolve("helper")` and a same-named
+  `Class.helper` is **not** listed. Use `Class.helper`'s dotted handle for it. Dunder names
+  (`__eq__`, `__repr__`) are never matched this way; they return `unresolved` with a hint
+  to use the class's dotted handle or `expand(<class>, "members")`.
 - **Not found:** check `found` on every `resolve`/`resolve_at`/`inspect`/`outline`/`expand`
   result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
   node, tree, or stubs, and `detail` naming the next step:
