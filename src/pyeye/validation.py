@@ -230,7 +230,6 @@ def validate_mcp_inputs(func: Any) -> Any:
     ValidationError for invalid inputs rather than returning error dicts.
     Properly handles both sync and async functions.
     """
-    import asyncio
     import functools
     import inspect
 
@@ -331,7 +330,7 @@ def validate_mcp_inputs(func: Any) -> Any:
     sig = inspect.signature(func)
 
     # Check if the function is async
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):  # not asyncio.*: deprecated in 3.14 (#763)
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

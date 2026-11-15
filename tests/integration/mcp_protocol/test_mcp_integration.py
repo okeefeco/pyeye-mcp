@@ -24,7 +24,7 @@ class TestAsyncDecorators:
             return f"Hello {name}"
 
         # Function should still be async after decoration
-        assert asyncio.iscoroutinefunction(test_async_func)
+        assert inspect.iscoroutinefunction(test_async_func)
 
         # Should be able to await the result
         result = await test_async_func("World")
@@ -40,7 +40,7 @@ class TestAsyncDecorators:
             return "Success"
 
         # Function should still be async after decoration
-        assert asyncio.iscoroutinefunction(test_async_func)
+        assert inspect.iscoroutinefunction(test_async_func)
 
         # Should be able to await the result
         result = await test_async_func()
@@ -61,7 +61,7 @@ class TestAsyncDecorators:
             return f"Chained {name}"
 
         # Function should still be async after multiple decorations
-        assert asyncio.iscoroutinefunction(test_chained)
+        assert inspect.iscoroutinefunction(test_chained)
 
         # Should be able to await the result
         result = await test_chained("Test")
@@ -76,7 +76,7 @@ class TestAsyncDecorators:
             return f"Sync {name}"
 
         # Function should NOT be async
-        assert not asyncio.iscoroutinefunction(test_sync)
+        assert not inspect.iscoroutinefunction(test_sync)
 
         # Should work without await
         result = test_sync("Works")
@@ -101,7 +101,7 @@ class TestMCPToolIntegration:
         }
 
         # The decorated function should still be async
-        assert asyncio.iscoroutinefunction(resolve)
+        assert inspect.iscoroutinefunction(resolve)
 
         # Call the function
         result = await resolve("TestClass", project_path=".")
@@ -128,7 +128,7 @@ class TestMCPToolIntegration:
         }
 
         # The decorated function should still be async
-        assert asyncio.iscoroutinefunction(resolve_at)
+        assert inspect.iscoroutinefunction(resolve_at)
 
         # Call the function
         result = await resolve_at("test.py", 10, 5, project_path=".")
@@ -156,7 +156,7 @@ class TestMCPToolIntegration:
         tool_func = simulated_tool
 
         # Check if it's async (FastMCP does this)
-        if asyncio.iscoroutinefunction(tool_func):
+        if inspect.iscoroutinefunction(tool_func):
             # If async, create a coroutine and await it
             coroutine = tool_func("test_input")
             assert inspect.iscoroutine(coroutine)
@@ -181,7 +181,7 @@ class TestMCPToolIntegration:
             raise ValueError(f"Test error for {name}")
 
         # Function should still be async
-        assert asyncio.iscoroutinefunction(failing_tool)
+        assert inspect.iscoroutinefunction(failing_tool)
 
         # Should properly propagate the error
         with pytest.raises(ValueError, match="Test error for bad_input"):
