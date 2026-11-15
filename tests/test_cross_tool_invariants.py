@@ -247,11 +247,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         if sys.platform == "win32"
         else {}
     ),
-    # #623/#625: under a BARE JediAnalyzer on a src/ layout, resolve/resolve_at
-    # find (as `src.`...) what inspect/outline/expand/trace can't find at all.
-    **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
-    **_agree("src_layout", "package", "found", _ISSUE_625, ("bare",)),
-    **_agree("src_layout", "package_var", "found", _ISSUE_625, ("bare",)),
     # == 4. trace vs expand =================================================
     # #621: trace expands `textwrap`, which expand refuses as unresolved.
     ("trace_expand", "xpkg.text", "imports", "textwrap", "expanded_but_refused"): _ISSUE_621,
