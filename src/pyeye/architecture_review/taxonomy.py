@@ -141,3 +141,35 @@ AXIS_DESCRIPTIONS: dict[str, str] = {
     ),
     "cross_cutting": "Cross-cutting access: logging, config, path handling.",
 }
+
+# ---------------------------------------------------------------------------
+# Facets — the closed per-axis vocabulary that keys finding identity (#498)
+# ---------------------------------------------------------------------------
+
+# What a finding observes ON its axis: a closed vocabulary per seed axis. A
+# finding's identity is ``(axis, facet, sorted handles)`` (see
+# ``state.observation_key``), so two findings that differ only in their free-text
+# ``claim`` wording are the same observation, while two distinct observations at
+# the same location (same axis and handles) stay apart by facet.
+#
+# This replaces keying on the ``claim`` string, which LLM phrasing perturbs on
+# every run (#498, the third instance of the #492 rule: never rest a guarantee on
+# a volatile input). The vocabulary is PROVISIONAL, to be calibrated on real runs
+# (spec §15); ``auditor.md`` must list exactly these values (conformance test).
+#
+# ``FACET_OTHER`` is the auditor's escape hatch for an observation no facet fits.
+# A finding with facet ``other``, no facet, an unlisted facet, or an open (non-
+# seed) axis is UNKEYED: it is never promoted by the reproduction gate, and merge
+# and non-issue keying fall back to the exact normalised claim (which can
+# under-merge, never over-merge).
+AXIS_FACETS: dict[str, tuple[str, ...]] = {
+    "layering": ("import_direction", "layer_skip", "import_cycle"),
+    "module_boundaries": ("placement", "module_split", "public_surface"),
+    "dependency_acquisition": ("injection", "global_singleton", "import_time_construction"),
+    "error_handling": ("raise_vs_sentinel", "exception_types", "catch_site"),
+    "validation_placement": ("boundary_vs_core", "duplicated_check", "missing_check"),
+    "naming_api_shape": ("name_pattern", "sync_async", "return_shape"),
+    "cross_cutting": ("logging", "config_access", "path_handling"),
+}
+
+FACET_OTHER: str = "other"

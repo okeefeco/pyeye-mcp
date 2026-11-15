@@ -22,6 +22,13 @@ Design
     parameter; this module performs no pyeye / MCP / file I/O itself.  This
     makes the gate deterministically testable with mocked dispatch functions.
 
+**Unkeyed candidates are never promoted (#498).**
+    A candidate whose identity can't be keyed (no valid ``facet``, see
+    :func:`~pyeye.architecture_review.state.observation_key`) is downgraded to
+    ``"ambiguous"`` without any re-dispatch, and a re-run finding counts as a
+    reproduction only when it is keyed too. The gate never answers "equivalent"
+    without a valid key.
+
 **Candidates only (cost control).**
     Only findings with ``grade == "deterministic_single"`` are re-dispatched.
     ``mechanical_fact``, ``ambiguous``, and ``no_signal`` findings pass through
@@ -33,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from pyeye.architecture_review.state import findings_equivalent
+from pyeye.architecture_review.state import findings_equivalent, observation_key
 
 # ---------------------------------------------------------------------------
 # Module constants
@@ -64,7 +71,9 @@ def apply_reproduction_gate(
     re-dispatches the auditor ``runs`` times over that candidate's scope.  The
     candidate keeps its ``deterministic_single`` grade only if an equivalent
     finding (per *equivalent*) appears in *every* re-run.  If any run lacks an
-    equivalent, the grade is rewritten to ``"ambiguous"``.
+    equivalent, the grade is rewritten to ``"ambiguous"``.  An unkeyed candidate
+    (#498) is rewritten to ``"ambiguous"`` without re-dispatch, and only keyed
+    re-run findings can reproduce a candidate.
 
     Non-candidate findings (``grade`` in ``{"ambiguous", "mechanical_fact",
     "no_signal"}``) are passed through unchanged without any call to
@@ -87,7 +96,7 @@ def apply_reproduction_gate(
             re-run finding matches the candidate.  Defaults to
             :func:`~pyeye.architecture_review.state.findings_equivalent` — the
             same predicate :func:`~pyeye.architecture_review.state.merge_findings`
-            uses, keyed on handle-set + grade + normalised claim.
+            uses, keyed on axis + facet + handle-set + grade (#498).
 
     Returns:
         A new list of findings, same order and length as *findings*, with
@@ -108,13 +117,21 @@ def apply_reproduction_gate(
             result.append(finding)
             continue
 
+        if observation_key(finding) is None:
+            # Unkeyed (#498): identity can't be determined, so never promote.
+            result.append({**finding, "grade": _DOWNGRADE_GRADE})
+            continue
+
         # Candidate: re-dispatch N times and check for equivalence in every run.
         # Short-circuit on the first non-reproducing run — §10 is cost-controlled
         # and the orchestrator wires in a real, expensive auditor dispatch here.
         stable = True
         for i in range(runs):
             run_findings = redispatch_fn(finding, i)
-            if not any(equivalent(finding, other) for other in run_findings):
+            if not any(
+                observation_key(other) is not None and equivalent(finding, other)
+                for other in run_findings
+            ):
                 stable = False
                 break
 

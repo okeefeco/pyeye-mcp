@@ -291,6 +291,11 @@ an empty answer is *zero content items*, and nothing says which scope was search
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.
 
+Each result record carries a `handle` when it names a symbol: pass that to `inspect`,
+`outline`, `expand` or `trace`, rather than re-resolving the record's `name`, which can
+be ambiguous. A record with `unresolved` instead has no handle; say so rather than
+guessing one.
+
 ## Workflow
 
 ```dot

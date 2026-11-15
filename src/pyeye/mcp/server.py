@@ -46,6 +46,7 @@ except ImportError:
         return "default_session"
 
 
+from ..plugins import handles as plugin_handles
 from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
@@ -126,8 +127,9 @@ def initialize_plugins(project_path: str = ".") -> None:
         - Django: Checks for Django imports and settings.py
         - Flask: Scans for Flask app creation patterns
     """
-    global _plugins
-    _plugins = []
+    # Clear in place: PLUGINS aliases this list, and rebinding it left PLUGINS
+    # pointing at the old one (#627).
+    _plugins.clear()
 
     # Load configuration for namespace support
     config = ProjectConfig(project_path)
@@ -233,6 +235,11 @@ def _plugin_tool(
         result = func(*bound.args, **bound.kwargs)
         if _isawaitable(result):
             result = await result
+        # Canonical handles, scope and absolute locations on every record (#627),
+        # before the envelope, so the bare list and `results` carry the same.
+        result = plugin_handles.enrich(
+            tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
+        )
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])

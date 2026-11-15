@@ -14,6 +14,12 @@ Design invariants
   ``sorted(handles) + structural_fact`` — NOT on source-file content —
   so cosmetic edits (whitespace, comments, renaming unrelated symbols) do not
   re-surface dismissed findings.
+- **Finding identity rests on a closed vocabulary, not prose (#498).**
+  :func:`observation_key` is ``(axis, facet, sorted handles)``; both the
+  equivalence predicate and the non-issue key are built on it, so they cannot
+  drift apart. The free-text ``claim`` is human-facing only, except for an
+  UNKEYED finding (no valid facet), where the exact normalised claim is the
+  documented, volatile fallback.
 - **Round-trip identity.** ``load_state(save_state(p, s)); load_state(p) == s``
   for any dict produced by this module.
 
@@ -49,6 +55,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pyeye.architecture_review.taxonomy import AXIS_FACETS, FACET_OTHER, SEED_AXES
+
 # ---------------------------------------------------------------------------
 # Module constants
 # ---------------------------------------------------------------------------
@@ -67,6 +75,9 @@ CoverageEntry = dict[str, str]
 
 # NonIssue: {"handles": list[str], "structural_fact": str, "key": str}
 NonIssue = dict[str, Any]
+
+# ObservationKey: (axis, facet, sorted handles) — a finding's stable identity (#498).
+ObservationKey = tuple[str, str, tuple[str, ...]]
 
 # ---------------------------------------------------------------------------
 # Empty-state factory
@@ -126,6 +137,65 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Finding identity (#498)
+# ---------------------------------------------------------------------------
+
+
+def observation_key(finding: dict[str, Any]) -> ObservationKey | None:
+    """Return a finding's stable identity, ``(axis, facet, sorted handles)``.
+
+    The one key function behind :func:`findings_equivalent` and
+    :func:`build_non_issue`. It never reads the free-text ``claim``, so an
+    auditor rephrasing the same observation across runs keeps the same key,
+    while two distinct observations at one location (same axis and handles)
+    differ by ``facet``. The axis is part of the key as the facet's namespace:
+    duplicates across axes (spec §15 axis overlap) stay separate by design.
+
+    This function is **pure**.
+
+    Args:
+        finding: A finding dict.
+
+    Returns:
+        The key, or ``None`` when the finding is UNKEYED: its axis is not a seed
+        axis, or its ``facet`` is missing, ``"other"``, or not in that axis's
+        :data:`~pyeye.architecture_review.taxonomy.AXIS_FACETS` vocabulary. An
+        unkeyed finding's identity can't be determined, so callers must never
+        treat it as equivalent on the key.
+    """
+    axis = finding.get("axis")
+    facet = finding.get("facet")
+    if axis not in AXIS_FACETS or facet == FACET_OTHER or facet not in AXIS_FACETS[axis]:
+        return None
+    return (axis, facet, tuple(sorted(finding.get("handles") or [])))
+
+
+def finding_problems(finding: dict[str, Any]) -> list[str]:
+    """Return why the orchestrator should reject *finding*, or ``[]`` (#498).
+
+    A seed-axis finding must carry a ``facet`` from its axis's vocabulary, or
+    ``"other"`` when none fits. Rejecting the rest keeps unkeyed findings rare.
+    An open (non-seed) axis has no vocabulary, so its facet is not checked.
+
+    Args:
+        finding: A finding dict as the auditor emitted it.
+
+    Returns:
+        Human-readable problems; empty when the finding is acceptable.
+    """
+    axis = finding.get("axis")
+    if axis not in SEED_AXES:
+        return []
+    facet = finding.get("facet")
+    allowed = (*AXIS_FACETS[axis], FACET_OTHER)
+    if facet is None:
+        return [f"seed-axis finding on {axis!r} has no facet; expected one of {list(allowed)}"]
+    if facet not in allowed:
+        return [f"facet {facet!r} is not in the {axis!r} vocabulary {list(allowed)}"]
+    return []
+
+
+# ---------------------------------------------------------------------------
 # Non-issue key
 # ---------------------------------------------------------------------------
 
@@ -177,20 +247,26 @@ def build_non_issue(finding: dict[str, Any]) -> NonIssue:
     """Build a confirmed-non-issue cache entry from a dismissed finding.
 
     Returns a NonIssue dict ``{"handles": [...], "structural_fact": str, "key": str}``
-    where ``structural_fact`` is the finding's neutral divergence statement (its ``claim``)
-    — the Tier-1 relationship the human adjudicated — and ``key`` is
-    ``non_issue_key(handles, structural_fact)``. Structural, not content: cosmetic
-    source edits that leave the finding's handles + claim intact keep the same key
-    (still suppressed); a genuine structural re-divergence changes the claim/handles
-    → new key (re-surfaces). See spec §14.
+    with ``key = non_issue_key(handles, structural_fact)``. ``structural_fact``
+    is the adjudicated observation:
+
+    - **Keyed finding (#498):** ``"facet:<axis>/<facet>"``, from
+      :func:`observation_key`. The dismissal survives the auditor rewording its
+      claim and a grade change, and re-surfaces when the handles or the facet
+      change.
+    - **Unkeyed finding** (no valid facet): the finding's ``claim``, the
+      documented fallback. It re-surfaces whenever the claim is reworded
+      (volatile, but it never suppresses a different observation).
+
+    Structural, not content: cosmetic source edits keep the same key. See spec §14.
 
     This function is **pure** — it reads no files and calls no external APIs.
     The input finding is not mutated.
 
     Args:
         finding: A finding dict with at least ``"handles"`` (list of canonical
-            handle strings) and ``"claim"`` (the neutral divergence statement)
-            fields.  Other fields (``axis``, ``grade``, ``evidence``,
+            handle strings), and ``"axis"`` + ``"facet"`` (keyed) or ``"claim"``
+            (unkeyed fallback).  Other fields (``grade``, ``evidence``,
             ``recommendation``) are ignored.
 
     Returns:
@@ -199,7 +275,10 @@ def build_non_issue(finding: dict[str, Any]) -> NonIssue:
         :func:`save_state`.
     """
     handles: list[str] = finding["handles"]
-    structural_fact: str = finding["claim"]
+    key_parts = observation_key(finding)
+    structural_fact: str = (
+        f"facet:{key_parts[0]}/{key_parts[1]}" if key_parts is not None else finding["claim"]
+    )
     key: str = non_issue_key(handles, structural_fact)
     return {
         "handles": handles,
@@ -261,35 +340,42 @@ def _normalise_claim(claim: str) -> str:
 def findings_equivalent(a: dict[str, Any], b: dict[str, Any]) -> bool:
     """Return ``True`` iff findings *a* and *b* are considered equivalent.
 
-    Two findings are equivalent when they share:
+    Spec §10 (#498): two findings are equivalent when they have the same
+    :func:`observation_key` — axis, facet and handle *set* (order-independent)
+    — **and** the same ``grade``. The free-text ``claim`` is ignored, so a
+    reworded claim is the same finding, and two observations at one location
+    with different facets (or axes) are not.
 
-    - Identical **cluster membership**: the *set* of ``handles`` values is the
-      same (order-independent).
-    - The same **grade** string.
-    - The same **norm-claim semantics**: the ``claim`` strings normalise to the
-      same value under :func:`_normalise_claim` (strip + collapse whitespace +
-      casefold).
+    **Unkeyed fallback.** When either finding is unkeyed (no valid facet), the
+    identity can't be determined from the key, so this falls back to the
+    pre-#498 rule, plus the axis: same axis, same handle set, same grade, and
+    the same claim under :func:`_normalise_claim` (strip + collapse whitespace +
+    casefold). That
+    comparison is volatile (it under-merges reworded findings) but never
+    over-merges. The reproduction gate never promotes an unkeyed finding, so
+    the fallback only affects merging.
 
-    Fields other than ``handles``, ``grade``, and ``claim`` (e.g. ``axis``,
-    ``evidence``, ``recommendation``) are intentionally excluded from the
-    equivalence check per the spec.
-
-    This predicate is **pure** and is exposed as a public name so that later
-    tasks (e.g. Task 2.2) can import and reuse it without re-implementing the
-    same normalisation logic.
+    This predicate is **pure** and shared by the gate and
+    :func:`merge_findings`, so "the same finding" is defined once.
 
     Args:
-        a: A finding dict with ``"handles"``, ``"grade"``, and ``"claim"`` keys.
+        a: A finding dict with ``"handles"``, ``"grade"``, ``"axis"``,
+            ``"facet"`` and ``"claim"`` keys.
         b: Another finding dict.
 
     Returns:
         ``True`` iff the two findings are equivalent.
     """
+    if a.get("grade") != b.get("grade"):
+        return False
+    key_a, key_b = observation_key(a), observation_key(b)
+    if key_a is not None and key_b is not None:
+        return key_a == key_b
+    if a.get("axis") != b.get("axis"):
+        return False
     handles_a: set[str] = set(a.get("handles") or [])
     handles_b: set[str] = set(b.get("handles") or [])
     if handles_a != handles_b:
-        return False
-    if a.get("grade") != b.get("grade"):
         return False
     claim_a = _normalise_claim(a.get("claim") or "")
     claim_b = _normalise_claim(b.get("claim") or "")

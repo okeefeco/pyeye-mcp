@@ -23,19 +23,43 @@ from pyeye.architecture_review.state import findings_equivalent
 
 
 def _ds(handles: list[str], claim: str = "Claim X") -> dict[str, Any]:
-    return {"handles": handles, "grade": "deterministic_single", "claim": claim, "axis": "layering"}
+    return {
+        "handles": handles,
+        "grade": "deterministic_single",
+        "claim": claim,
+        "axis": "layering",
+        "facet": "import_direction",
+    }
 
 
 def _amb(handles: list[str], claim: str = "Claim A") -> dict[str, Any]:
-    return {"handles": handles, "grade": "ambiguous", "claim": claim, "axis": "layering"}
+    return {
+        "handles": handles,
+        "grade": "ambiguous",
+        "claim": claim,
+        "axis": "layering",
+        "facet": "import_direction",
+    }
 
 
 def _mf(handles: list[str], claim: str = "Claim M") -> dict[str, Any]:
-    return {"handles": handles, "grade": "mechanical_fact", "claim": claim, "axis": "layering"}
+    return {
+        "handles": handles,
+        "grade": "mechanical_fact",
+        "claim": claim,
+        "axis": "layering",
+        "facet": "import_direction",
+    }
 
 
 def _ns(handles: list[str], claim: str = "Claim N") -> dict[str, Any]:
-    return {"handles": handles, "grade": "no_signal", "claim": claim, "axis": "layering"}
+    return {
+        "handles": handles,
+        "grade": "no_signal",
+        "claim": claim,
+        "axis": "layering",
+        "facet": "import_direction",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -387,28 +411,53 @@ class TestEquivalenceIsRealPredicate:
 
         assert result[0]["grade"] == "ambiguous"
 
-    def test_case_insensitive_claim_is_equivalent(self) -> None:
-        """Claim normalisation (case-fold + whitespace collapse) is inherited from findings_equivalent."""
-        f1: dict[str, Any] = {
-            "handles": ["a.b"],
-            "grade": "deterministic_single",
-            "claim": "Some Claim",
-        }
-        # Lowercase claim — findings_equivalent says these are equivalent
-        f2: dict[str, Any] = {
-            "handles": ["a.b"],
-            "grade": "deterministic_single",
-            "claim": "some claim",
-        }
+    def test_reworded_claim_is_equivalent_when_keyed(self) -> None:
+        """#498: identity is axis + facet + handles + grade; the claim wording is ignored."""
+        f1 = _ds(["a.b"], "All handlers are named handle_*")
+        f2 = _ds(["a.b"], "Every handler function uses the handle_ prefix")
 
-        # Sanity: state.findings_equivalent agrees
         assert findings_equivalent(f1, f2)
 
-        def redispatch(_finding: dict[str, Any], _i: int) -> list[dict[str, Any]]:
-            return [f2]  # Re-run returns differently-cased claim
-
-        result = apply_reproduction_gate([f1], redispatch, runs=2)
+        result = apply_reproduction_gate([f1], lambda _f, _i: [f2], runs=2)
         assert result[0]["grade"] == "deterministic_single"
+
+    def test_unkeyed_candidate_is_never_promoted_and_not_redispatched(self) -> None:
+        """#498: no valid facet -> identity unknown -> downgraded, no re-dispatch cost."""
+        unkeyed = {"handles": ["a.b"], "grade": "deterministic_single", "claim": "Some Claim"}
+        spy = MagicMock(return_value=[dict(unkeyed)])
+
+        result = apply_reproduction_gate([unkeyed], spy, runs=3)
+
+        assert result[0]["grade"] == "ambiguous"
+        spy.assert_not_called()
+
+    @pytest.mark.parametrize("facet", [None, "other", "not_a_facet"])
+    def test_unkeyed_facets_are_never_promoted(self, facet: str | None) -> None:
+        candidate = {**_ds(["a.b"]), "facet": facet}
+        result = apply_reproduction_gate([candidate], lambda _f, _i: [candidate], runs=2)
+        assert result[0]["grade"] == "ambiguous"
+
+    def test_open_axis_is_never_promoted(self) -> None:
+        candidate = {**_ds(["a.b"]), "axis": "testing_style", "facet": "import_direction"}
+        result = apply_reproduction_gate([candidate], lambda _f, _i: [candidate], runs=2)
+        assert result[0]["grade"] == "ambiguous"
+
+    def test_unkeyed_rerun_finding_does_not_reproduce_a_keyed_candidate(self) -> None:
+        """A re-run finding without a valid key never counts as a reproduction."""
+        candidate = _ds(["a.b"], "Same claim")
+        unkeyed_rerun = {k: v for k, v in candidate.items() if k != "facet"}
+
+        result = apply_reproduction_gate([candidate], lambda _f, _i: [unkeyed_rerun], runs=1)
+
+        assert result[0]["grade"] == "ambiguous"
+
+    def test_different_facet_does_not_reproduce(self) -> None:
+        candidate = _ds(["a.b"], "Same claim")
+        other_facet = {**candidate, "facet": "layer_skip"}
+
+        result = apply_reproduction_gate([candidate], lambda _f, _i: [other_facet], runs=1)
+
+        assert result[0]["grade"] == "ambiguous"
 
     def test_custom_equivalent_overrides_default(self) -> None:
         """Caller can inject a stricter equivalence; gate uses it, not the default."""

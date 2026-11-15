@@ -61,6 +61,11 @@ def get_end_line(jedi_name: Any) -> int:
         node = tree_name.parent
         while node is not None:
             if getattr(node, "type", None) in _DEFINITION_TYPES:
+                # Only the def/class this name DEFINES spans a block.  A local
+                # or class-body attribute merely sits inside one, and ends on
+                # its own line (#693).
+                if getattr(node, "name", None) is not tree_name:
+                    break
                 end_pos = getattr(node, "end_pos", None)
                 if end_pos is not None:
                     return int(end_pos[0])

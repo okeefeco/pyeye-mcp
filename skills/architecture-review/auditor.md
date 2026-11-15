@@ -72,6 +72,30 @@ For each axis: extract the relevant facts, cluster the observed conventions, tag
 each cluster with its prevalence (how many sites do which), and detect deviations
 (outliers + internal contradictions). Then grade.
 
+## Facets — what a finding observes on its axis
+
+Every finding on a seed axis names **one facet** from that axis's closed list
+below (use the key verbatim in the `facet` field). The facet, the axis and the
+handle set are the finding's **identity**: the reproduction gate, cross-run
+merging and dismissed non-issues all key on them, never on your `claim` wording.
+So two findings about the same handles on the same axis that observe different
+things **must** use different facets, and the same observation must use the same
+facet every run.
+
+| `axis` key | allowed `facet` values |
+|---|---|
+| `layering` | `import_direction`, `layer_skip`, `import_cycle` |
+| `module_boundaries` | `placement`, `module_split`, `public_surface` |
+| `dependency_acquisition` | `injection`, `global_singleton`, `import_time_construction` |
+| `error_handling` | `raise_vs_sentinel`, `exception_types`, `catch_site` |
+| `validation_placement` | `boundary_vs_core`, `duplicated_check`, `missing_check` |
+| `naming_api_shape` | `name_pattern`, `sync_async`, `return_shape` |
+| `cross_cutting` | `logging`, `config_access`, `path_handling` |
+
+If no listed facet fits, use `"other"`. A finding with facet `other` (or on an
+open axis you found) is never promoted to a confident grade, so prefer a listed
+facet whenever one honestly fits. The list is provisional and will grow.
+
 ## The four grades (use exactly one of these strings in `grade`)
 
 - `mechanical_fact` — extracted & deterministic; stated, no confirmation needed.
@@ -131,6 +155,7 @@ Emit a JSON array of objects with **exactly** these keys:
 ```json
 {
   "axis": "error_handling",
+  "facet": "raise_vs_sentinel",
   "claim": "neutral statement of the divergence/observation",
   "grade": "ambiguous",
   "handles": ["pkg.mod.func", "pkg.other.func"],
@@ -140,6 +165,9 @@ Emit a JSON array of objects with **exactly** these keys:
 ```
 
 - `axis` (str): one of the seven seed keys above, or an open axis you found.
+- `facet` (str): for a seed axis, one value from that axis's facet list, or
+  `"other"`. Required on every seed-axis finding. For an open axis, a short
+  snake_case label of your own.
 - `claim` (str): the divergence/observation, phrased **neutrally** (describe;
   never prescribe).
 - `grade` (str): exactly one of `mechanical_fact`, `deterministic_single`,
