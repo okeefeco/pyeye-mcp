@@ -17,6 +17,7 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
+from ..path_utils import relative_within
 from ..project_layout import (
     detect_src_layout,
     file_for_module,
@@ -139,17 +140,22 @@ class JediAnalyzer:
             resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
+                in_project: list[Path] = []
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    if pkg != resolved_project and pkg.exists():
-                        added_sys_path.append(pkg.as_posix())
-                        logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if added_sys_path:
-                    self.source_roots = [
-                        Path(p)
-                        for p in added_sys_path
-                        if self._is_subpath(Path(p), resolved_project)
-                    ]
+                    if pkg == resolved_project or not pkg.exists():
+                        continue
+                    # A root inside the project keeps project_path's spelling, as
+                    # in the no-config branch below: files are enumerated under
+                    # that spelling, and location.file must keep it (#603, #714).
+                    rel = relative_within(pkg, self.project_path)
+                    if rel is not None:
+                        pkg = self.project_path / rel
+                        in_project.append(pkg)
+                    added_sys_path.append(pkg.as_posix())
+                    logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
+                if in_project:
+                    self.source_roots = in_project
             else:
                 # No config: apply the same src-layout rule ProjectConfig's
                 # auto-discovery uses, so an analyzer built without config names

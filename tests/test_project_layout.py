@@ -337,7 +337,9 @@ def test_unnormalised_namespace_root_beside_a_root_package(tmp_path: Path) -> No
     assert module_name_for_file(layout, unnormalised / "corp" / "web" / "views.py") == (
         "corp.web.views"
     )
-    assert module_name_for_file(layout, views) is None  # not under any root as spelled
+    # The same file spelled normalised is the same module: roots and files are
+    # compared resolved too (#714), and the root package still doesn't claim it.
+    assert module_name_for_file(layout, views) == "corp.web.views"
 
 
 @pytest.mark.parametrize(
