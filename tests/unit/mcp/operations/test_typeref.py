@@ -17,10 +17,10 @@ from pathlib import Path
 
 import pytest
 
+from pyeye._ast_targets import attr_target_position as _attribute_target_position
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.typeref import (
     _annotation_source,
-    _attribute_target_position,
     _cache_key,
     _collect_union_alternatives,
     _degraded_head_kind,

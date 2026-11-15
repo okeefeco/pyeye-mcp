@@ -44,10 +44,13 @@ LAYER_RULES: dict[str, frozenset[str]] = {
     "kinds": frozenset({"pyeye.mcp"}),
     "project_layout": frozenset({"pyeye.mcp", "jedi"}),
     "_module_scope": frozenset({"pyeye.mcp", "jedi"}),
+    # #624: the one goto-disambiguation policy; it receives Jedi objects but
+    # needs neither jedi nor pyeye.mcp itself.
+    "_goto": frozenset({"pyeye.mcp", "jedi"}),
 }
 
 #: Modules that exist today; guards against a path bug quietly emptying the sweep.
-ALWAYS_PRESENT = frozenset({"canonicalization", "scope", "kinds", "_module_scope"})
+ALWAYS_PRESENT = frozenset({"canonicalization", "scope", "kinds", "_module_scope", "_goto"})
 
 #: ``(module, banned package)`` → the issue that removes the violation.
 LAYER_ALLOWLIST: dict[tuple[str, str], str] = {}
