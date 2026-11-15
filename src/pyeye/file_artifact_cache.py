@@ -240,7 +240,10 @@ class FileArtifactCache:
             # Read source inline for the Script constructor; do NOT cache it.
             source = Path(path).read_text(encoding="utf-8")
 
-            script = jedi.Script(code=source, path=Path(path), project=project)
+            # Jedi gets the resolved path, the form it compares with its
+            # (resolved) project root and sys.path; a symlinked spelling makes
+            # it name the module ``__main__`` (#714).
+            script = jedi.Script(code=source, path=Path(resolved), project=project)
             self._script_store[key] = script
             self._enforce_ast_cap()
 

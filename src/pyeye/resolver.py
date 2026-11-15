@@ -19,13 +19,22 @@ Strategy order (the first hit wins):
    re-export alias (``package.Thing`` for ``package._impl.Thing``) is matched
    by name and followed to its definition, whose ``full_name`` becomes the
    canonical handle. There is no fallback to shallower modules after a miss.
-5. **Guarded inference**, last and only for handles outside the project
+5. **Private stdlib definition** (#544), for a stdlib class or function
+   outside the project: the real ``.py`` chain is followed statically to a
+   definition in a private stdlib module, named by its public re-exporting
+   module (:mod:`pyeye._stdlib_static`), so ``collections.abc.Mapping`` is the
+   class in ``_collections_abc.py``, not typeshed's reversed re-export of
+   ``typing.Mapping``.
+
+A handle in a platform-selected module (``os.path``, #329) is located at the
+``sys.platform`` branch that selects its implementation, the same on every OS.
+6. **Guarded inference**, last and only for handles outside the project
    boundary (#506): infer ``module.leaf`` through a synthetic import and accept
    a result only if its name equals the leaf. Inference can land on a
    different object (``typing.TYPE_CHECKING`` infers to ``bool``); refusing it
    is an honest miss rather than a wrong answer.
 
-Steps 3 and 5 read one :func:`_synthetic_import`, the one place a
+Steps 3 and 6 read one :func:`_synthetic_import`, the one place a
 ``jedi.Script(code=...)`` is built (``tests/test_decision_invariants_fitness.py``).
 
 This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
@@ -42,12 +51,14 @@ from pyeye import file_artifact_cache
 from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_sentinel import ModuleSentinel
+from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
     find_namespace_package_dirs,
+    module_name_for_file,
     project_roots,
 )
 from pyeye.scope import classify_scope
@@ -112,6 +123,7 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
     kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
@@ -138,6 +150,13 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
        re-resolved through :func:`resolve_handle` so every candidate is
        canonical; duplicates (an alias and its definition) collapse.  One
        left is the answer; several are ambiguous.
+    4. **Members, as a fallback** (#508): only when rules 1-3 find nothing,
+       every method or class-body attribute named *bare*, canonicalised and
+       decided the same way.  Because it is a fallback, a top-level ``helper``
+       answers ``resolve("helper")`` and a same-named ``Class.helper`` is not
+       listed.  Dunder names (``__init__``) are never members here: every class
+       defines them, so they stay not-found, with a hint to expand the class's
+       members.
 
     Never raises.
     """
@@ -153,23 +172,47 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
         return exact
 
     try:
-        matches = await analyzer.find_symbol(bare)
+        matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
     except Exception as exc:  # never raise: an index failure is an honest miss
         logger.debug("resolve_name(%r): find_symbol failed: %s", bare, exc)
         matches = []
+    found = _canonical_candidates(matches, analyzer)
+    if not found:  # 4: members, only as a fallback (#508)
+        try:
+            members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
+        except Exception as exc:  # never raise
+            logger.debug("resolve_name(%r): member lookup failed: %s", bare, exc)
+            members = []
+        found = _canonical_candidates(members, analyzer)
+    if not found:
+        return NotFound(reason="unresolved", detail=_miss_detail(bare))
+    if len(found) == 1:
+        return next(iter(found.values()))
+    return Ambiguous(candidates=_ordered(list(found.values())))
+
+
+def _canonical_candidates(
+    full_names: list[str | None], analyzer: JediAnalyzer
+) -> dict[str, Resolved]:
+    """Re-resolve each name through :func:`resolve_handle`; aliases collapse."""
     found: dict[str, Resolved] = {}
-    for match in matches:
-        full_name = match.get("full_name")
+    for full_name in full_names:
         if not full_name:
             continue
         candidate = resolve_handle(full_name, analyzer)
         if isinstance(candidate, Resolved):
             found.setdefault(candidate.handle, candidate)
-    if not found:
-        return NotFound(reason="unresolved", detail=f"No definition named {bare!r}.")
-    if len(found) == 1:
-        return next(iter(found.values()))
-    return Ambiguous(candidates=_ordered(list(found.values())))
+    return found
+
+
+def _miss_detail(bare: str) -> str:
+    if bare.startswith("__") and bare.endswith("__"):
+        return (
+            f"{bare!r} is a special method that most classes define, so a bare name "
+            "can't pick one. Use the class's dotted handle (pkg.mod.Class."
+            f'{bare}), or expand(<class>, "members") to list a class\'s members.'
+        )
+    return f"No definition named {bare!r}."
 
 
 def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:
@@ -300,7 +343,8 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             # nothing in this scope (#567).
             if name.full_name == path and not is_attribute_target(name):
                 anchor = _anchor_on_definition(name, path)
-                return _canonical_of(anchor, path), anchor
+                placed = _canonical_of(anchor, path, analyzer)
+                return (placed, anchor) if placed is not None else None
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
     return None
 
@@ -334,7 +378,9 @@ def _follow_alias(
         target = _goto_definition(name)
         if target is None or not target.full_name or not _is_dotted_path(target.full_name):
             continue
-        canonical_head = target.full_name
+        canonical_head = _canonical_of(target, target.full_name, analyzer)
+        if canonical_head is None:
+            continue  # a project file the mapper can't place (#714)
         if len(rest) == 1:
             return canonical_head, target
         if canonical_head == f"{module_dotted}.{head}":
@@ -344,10 +390,15 @@ def _follow_alias(
 
 
 def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
-    """Steps 3 and 5 for a handle outside the project, from one synthetic import.
+    """Steps 3, 5 and 6 for a handle outside the project.
 
+    5. **Private stdlib definition** (#544), checked first because it needs no
+       Jedi inference: the real ``.py`` chain is followed statically
+       (:func:`pyeye._stdlib_static.stdlib_definition`) to a definition in a
+       private stdlib module; it is named by the public re-exporting module and
+       anchored on Jedi's definition ``Name`` at that file and line.
     3. **External module**: an inferred module whose ``full_name`` is *path*.
-    5. **External definition**, first rule that applies:
+    6. **External definition**, from one synthetic import; first rule that applies:
 
        a. *Definition at the requested site*: ``goto`` (through the one picker,
           :func:`pyeye._goto.goto_target`) lands on a definition whose
@@ -356,27 +407,53 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
           ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
           ``bool``.  A target at a DIFFERENT path is refused here, so a
           re-export never becomes canonical through this step
-          (``collections.abc.Mapping`` → ``typing.Mapping``, #544).
+          (typeshed's ``collections.abc.Mapping`` → ``typing.Mapping``, #544;
+          step 5 places the stdlib ABCs before this runs).
        b. *Guarded inference*: an inferred definition whose name equals the
           leaf; its ``full_name`` is the canonical handle (a re-export under the
           same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
     """
+    private = stdlib_definition(path)
+    if private is not None:  # a private stdlib definition, public handle (#544)
+        anchor = _anchor_at_stdlib_definition(private, analyzer)
+        if anchor is not None:
+            return private.handle, anchor
     inferred, target = _synthetic_import(path, analyzer)
     for name in inferred:  # 3
         if name.type == "module" and name.full_name == path:
             return path, name
     if "." not in path:
         return None
-    if (  # 5a
+    if (  # 6a
         target is not None
         and target.full_name == path
         and getattr(target, "module_path", None) is not None
     ):
         return path, target
     leaf = path.rsplit(".", 1)[-1]
-    for name in inferred:  # 5b
+    for name in inferred:  # 6b
         if name.name == leaf and name.full_name and _is_dotted_path(name.full_name):
             return name.full_name, name
+    return None
+
+
+def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer) -> Any | None:
+    """The Jedi definition ``Name`` at *found*'s file and line, or ``None``.
+
+    Anchoring on Jedi's own definition keeps ``kind``, ``signature`` and
+    ``location`` coming from the same place they do for every other symbol;
+    only the handle is the public one.
+    """
+    try:
+        names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
+            all_scopes=True, definitions=True, references=False
+        )
+    except Exception as exc:
+        logger.debug("resolver: names for %s failed: %s", found.file, exc)
+        return None
+    for name in names:
+        if name.name == found.name and name.line == found.line:
+            return name
     return None
 
 
@@ -445,9 +522,44 @@ def _anchor_on_definition(name: Any, handle: str) -> Any:
     return name
 
 
-def _canonical_of(anchor: Any, fallback: str) -> str:
+#: Jedi's module name for a file it can't place on its own roots (#714).
+_JEDI_UNPLACED_MODULE = "__main__"
+
+
+def handle_for_anchor(anchor: Any, full_name: str, analyzer: JediAnalyzer) -> str | None:
+    """The canonical handle for *anchor*, named *full_name* by Jedi, or ``None`` (#714).
+
+    The one project-anchor rule, shared by the resolver and every edge handle
+    (``edges._handle_for_name``). A definition in a file the one file -> module
+    mapper can name takes its module part from the mapper, with Jedi's qualname
+    after it. Jedi's own module guess is wrong when the file's spelling differs
+    from its roots (``src.pkg.mod.X``, or ``__main__.X`` for a file it can't
+    place at all). Elsewhere (stdlib, site-packages) *full_name* stands. A
+    ``__main__.*`` name is never a handle: such a definition is ``None``, which
+    callers report as not found or skip.
+    """
+    module_path = getattr(anchor, "module_path", None)
+    module = module_name_for_file(analyzer, Path(module_path)) if module_path else None
+    if module is not None:
+        if normalise_kind_from_name(anchor) == "module":
+            return module
+        jedi_module = getattr(anchor, "module_name", None) or ""
+        if full_name.startswith(f"{module}."):
+            return full_name
+        if jedi_module and full_name.startswith(f"{jedi_module}."):
+            return f"{module}.{full_name[len(jedi_module) + 1 :]}"
+        return None
+    if full_name == _JEDI_UNPLACED_MODULE or full_name.startswith(f"{_JEDI_UNPLACED_MODULE}."):
+        return None
+    return full_name
+
+
+def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
+    """:func:`handle_for_anchor` of *anchor*'s ``full_name``, or of *fallback* if it has none."""
     full_name = getattr(anchor, "full_name", None)
-    return full_name if full_name and _is_dotted_path(full_name) else fallback
+    if not (full_name and _is_dotted_path(full_name)):
+        full_name = fallback
+    return handle_for_anchor(anchor, full_name, analyzer)
 
 
 # ---------------------------------------------------------------------------

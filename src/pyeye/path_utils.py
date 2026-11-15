@@ -165,6 +165,33 @@ def ensure_posix_path(path_str: str) -> str:
     return Path(path_str).as_posix()
 
 
+def relative_within(path: str | Path, parent: str | Path) -> Path | None:
+    """*path* relative to *parent* if it lies inside it, else ``None`` (#714).
+
+    Tries the two paths as spelled first, then their resolved forms, so a file
+    reached through a symlinked or differently-spelled root (macOS
+    ``/var`` -> ``/private/var``, a Windows 8.3 short name) still counts as
+    inside. Callers keep their own spelling for display (#603); only the
+    comparison resolves.
+
+    A lexical result containing ``..`` (``root/../other/x.py``) is never
+    "inside" (#668). The resolved comparison then decides.
+    """
+    candidate, root = Path(path), Path(parent)
+    try:
+        rel = candidate.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        if ".." not in rel.parts:
+            return rel
+    try:
+        rel = normalize_path(candidate).relative_to(normalize_path(root))
+    except (ValueError, OSError):
+        return None
+    return rel if ".." not in rel.parts else None
+
+
 def paths_equal(path1: str | Path, path2: str | Path) -> bool:
     """Check if two paths refer to the same location.
 

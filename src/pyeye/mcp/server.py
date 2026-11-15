@@ -65,6 +65,7 @@ from .operations.resolve import (
     resolve_at as _resolve_at_impl,
 )
 from .operations.trace import trace as _trace_impl
+from .tool_errors import tool_errors
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -232,14 +233,20 @@ def _plugin_tool(
             # Plugins resolve only main/all/packages/namespace:/package:, so an
             # alias (from config or the caller) would otherwise search nothing.
             bound.arguments["scope"] = resolver.resolve_aliases(requested)
-        result = func(*bound.args, **bound.kwargs)
-        if _isawaitable(result):
-            result = await result
-        # Canonical handles, scope and absolute locations on every record (#627),
-        # before the envelope, so the bare list and `results` carry the same.
-        result = plugin_handles.enrich(
-            tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
-        )
+        if tool_name in _MODEL_LOOKUP_TOOLS:
+            # Select the model in one place, with the shared shapes (#627 slice B).
+            result = await _lookup_model(
+                tool_name, plugin, bound.arguments["model_name"], bound.arguments["scope"]
+            )
+        else:
+            result = func(*bound.args, **bound.kwargs)
+            if _isawaitable(result):
+                result = await result
+            # Canonical handles, scope and absolute locations on every record (#627),
+            # before the envelope, so the bare list and `results` carry the same.
+            result = plugin_handles.enrich(
+                tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
+            )
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
@@ -271,6 +278,69 @@ def _plugin_tool(
     wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
     return wrapper
+
+
+#: Plugin tools that look a model up by ``model_name`` (#627 slice B).
+_MODEL_LOOKUP_TOOLS: frozenset[str] = frozenset({"get_model_schema", "trace_model_inheritance"})
+_SCOPE_ORDER = {"project": 0, "external": 1}
+
+
+async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any) -> dict[str, Any]:
+    """Answer a model lookup: not found, ambiguous, or the one model (#627 slice B).
+
+    The shapes are the primitives' own:
+
+    - no match: the shared not-found shape (``not_found_for``), echoing
+      ``model_name``;
+    - several models of that name: resolve's ambiguous shape,
+      ``{found: True, ambiguous: True, candidates}``, each candidate a
+      ``{handle, kind, scope, location}`` sorted like resolve's;
+    - one model: the plugin's answer for it, enriched (#627), plus ``found: True``.
+
+    A dotted ``model_name`` is a handle. It is canonicalised by
+    ``resolve_handle`` (so a re-export alias works) and matched against each
+    model's handle, which is how a caller picks an ambiguous candidate. Nothing
+    here builds a handle.
+    """
+    from ..resolver import Resolved, resolve_handle
+    from .operations.not_found import not_found_for
+
+    analyzer = get_analyzer(plugin.project_path.as_posix())
+    models = await plugin.find_models(scope)
+    plugin_handles.enrich("find_pydantic_models", models, lambda: analyzer)
+
+    if "." in model_name:
+        resolved = resolve_handle(model_name, analyzer)
+        target = resolved.handle if isinstance(resolved, Resolved) else None
+        matches = [m for m in models if target is not None and m.get("handle") == target]
+    else:
+        matches = [m for m in models if m.get("name") == model_name]
+
+    if not matches:
+        return not_found_for(tool_name, {"model_name": model_name})
+
+    if len(matches) > 1:
+        candidates = [
+            {"handle": m["handle"], "kind": "class", "scope": m["scope"], "location": m["location"]}
+            for m in matches
+            if "handle" in m
+        ]
+        candidates.sort(
+            key=lambda c: (
+                _SCOPE_ORDER.get(c["scope"], 99),
+                c["location"]["file"],
+                c["location"].get("line_start", 0),
+            )
+        )
+        return {"found": True, "ambiguous": True, "candidates": candidates}
+
+    model = matches[0]
+    if tool_name == "get_model_schema":
+        answer = plugin.schema_for(model)
+    else:
+        answer = plugin.inheritance_for(model["name"], model, models)
+    plugin_handles.enrich(tool_name, answer, lambda: analyzer)
+    return {"found": True, **answer}
 
 
 def register_plugin_tools(
@@ -310,7 +380,7 @@ def register_plugin_tools(
             # Plugin tools build jedi.Scripts and share the analyzers' caches,
             # so they run on the Jedi worker like the core tools (#650).
             server.tool(name=tool_name)(
-                on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver))
+                tool_errors(on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver)))
             )
             registered.append(tool_name)
     return registered
@@ -389,6 +459,7 @@ def filter_fields(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
 @track_mcp_operation("configure_packages")
@@ -409,6 +480,10 @@ def configure_packages(
             Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
         project_path: Project root to configure (default: current directory)
+
+    The call errors (an MCP tool error, not a response) only when it can't run:
+    an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+    or an unreadable file.
     """
     from pathlib import Path
 
@@ -491,6 +566,7 @@ def configure_packages(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve")
 @track_mcp_operation("resolve")
@@ -507,7 +583,10 @@ async def resolve(
 
     Args:
         identifier: The identifier to resolve. Forms supported:
-            - Bare name: "Config"
+            - Bare name: "Config". Modules and top-level definitions first;
+              a method or class attribute ("load_settings") only if none
+              match, so a top-level name hides same-named methods. Dunders
+              ("__eq__") are never matched by bare name.
             - FQN: "a.b.c.Config"
             - Re-exported: "package.Config" (collapses to definition site)
             - File:line: "src/foo.py:42"
@@ -522,8 +601,9 @@ async def resolve(
           with reason "unresolved", "file_not_found" or "no_symbol_at_position".
           The identifier is echoed verbatim; it is never put in "handle".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
@@ -533,6 +613,7 @@ async def resolve(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve_at")
 @track_mcp_operation("resolve_at")
@@ -561,8 +642,9 @@ async def resolve_at(
         "detail": str}, echoing the arguments as given, with reason
         "file_not_found", "no_symbol_at_position" or "unresolved".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -570,6 +652,7 @@ async def resolve_at(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("inspect")
 @track_mcp_operation("inspect")
@@ -600,6 +683,9 @@ async def inspect(
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no node fields.  Call resolve() on the name to get a canonical handle.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -607,6 +693,7 @@ async def inspect(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("expand")
 @track_mcp_operation("expand")
@@ -752,7 +839,9 @@ async def expand(
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
-        A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         ``stubs: []`` always means "measured, none found" — it is never returned
         for an unresolvable handle.
     """
@@ -762,6 +851,7 @@ async def expand(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("trace")
 @track_mcp_operation("trace")
@@ -833,7 +923,9 @@ async def trace(
             common ``callees`` case).
 
     Returns:
-        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable root contributes no node but is listed in the always-present
         ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
         ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
@@ -857,6 +949,7 @@ async def trace(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("outline")
 @track_mcp_operation("outline")
@@ -958,7 +1051,9 @@ async def outline(
 
     Returns:
         ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
-        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable handle yields
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no placeholder tree.  Children within each parent are in source order

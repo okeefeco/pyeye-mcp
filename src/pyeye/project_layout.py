@@ -62,7 +62,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
-from .path_utils import dedupe_paths
+from .path_utils import dedupe_paths, relative_within
 
 
 class RootsBoundary(StrEnum):
@@ -169,21 +169,6 @@ def _root_is_package(analyzer: Any) -> bool:
     return (Path(analyzer.project_path) / "__init__.py").exists()
 
 
-def _is_under(path: Path, parent: Path) -> bool:
-    """Whether *path* lies inside *parent*, as spelled.
-
-    ``relative_to`` is lexical, so ``root/../other/x.py`` would count as inside
-    ``root`` (with a relative path that starts with ``..``). That is how a
-    root-package project used to claim an unnormalised sibling repo's files
-    (#668), so such a path is not "under".
-    """
-    try:
-        rel = path.relative_to(parent)
-    except ValueError:
-        return False
-    return ".." not in rel.parts
-
-
 def _dotted(rel: Path, file: Path) -> str | None:
     """Module name for *file* given its path *rel* relative to a sys.path root.
 
@@ -212,8 +197,9 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
     4. a file under a namespace repo root, prefixed with the namespace name
        unless the repo-relative path already spells it.
 
-    *file* is compared as given: pass a path in the same form (absolute,
-    resolved or not) as the analyzer's roots.
+    *file* may be spelled differently from the analyzer's roots (resolved or
+    not, through a symlink): roots and file are compared as given and then
+    resolved (:func:`pyeye.path_utils.relative_within`, #714).
 
     Returns ``None`` when the file is under none of them, is not a ``.py``
     file, is an ``__init__.py`` directly at a root, or has a path part that
@@ -225,22 +211,27 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
         return None
     project = Path(analyzer.project_path)
 
-    if _root_is_package(analyzer) and _is_under(file, project):
-        return _dotted(file.relative_to(project.parent), file)
+    if _root_is_package(analyzer) and relative_within(file, project) is not None:
+        rel = relative_within(file, project.parent)
+        if rel is not None:
+            return _dotted(rel, file)
 
     for add_path in getattr(analyzer, "additional_paths", []):
-        if _is_under(file, add_path):
-            return _dotted(file.relative_to(add_path), file)
+        rel = relative_within(file, add_path)
+        if rel is not None:
+            return _dotted(rel, file)
 
     for root in project_roots(analyzer, RootsBoundary.MODULE_LOOKUP):
-        if _is_under(file, root):
-            return _dotted(file.relative_to(root), file)
+        rel = relative_within(file, root)
+        if rel is not None:
+            return _dotted(rel, file)
 
     for ns_name, ns_paths in getattr(analyzer, "namespace_paths", {}).items():
         for ns_path in ns_paths:
-            if not _is_under(file, ns_path):
+            rel = relative_within(file, ns_path)
+            if rel is None:
                 continue
-            name = _dotted(file.relative_to(ns_path), file)
+            name = _dotted(rel, file)
             if name is None:
                 return None
             parts = name.split(".")

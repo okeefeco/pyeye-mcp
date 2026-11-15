@@ -15,6 +15,7 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
+from ..path_utils import normalize_path, relative_within
 from ..project_layout import (
     detect_src_layout,
     layout_key,
@@ -177,17 +178,22 @@ class JediAnalyzer:
             resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
+                in_project: list[Path] = []
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    if pkg != resolved_project and pkg.exists():
-                        added_sys_path.append(pkg.as_posix())
-                        logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if added_sys_path:
-                    self.source_roots = [
-                        Path(p)
-                        for p in added_sys_path
-                        if self._is_subpath(Path(p), resolved_project)
-                    ]
+                    if pkg == resolved_project or not pkg.exists():
+                        continue
+                    # A root inside the project keeps project_path's spelling, as
+                    # in the no-config branch below: files are enumerated under
+                    # that spelling, and location.file must keep it (#603, #714).
+                    rel = relative_within(pkg, self.project_path)
+                    if rel is not None:
+                        pkg = self.project_path / rel
+                        in_project.append(pkg)
+                    added_sys_path.append(pkg.as_posix())
+                    logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
+                if in_project:
+                    self.source_roots = in_project
             else:
                 # No config: apply the same src-layout rule ProjectConfig's
                 # auto-discovery uses, so an analyzer built without config names
@@ -218,8 +224,15 @@ class JediAnalyzer:
 
             # Store the FINAL merged list (src-layout + namespace roots) as the
             # public attribute, typed as Path, in the same sys.path-precedence
-            # order that is handed to jedi.Project (#423).
-            self.added_sys_path = [Path(p) for p in added_sys_path]
+            # order that is handed to jedi.Project (#423).  Jedi gets RESOLVED
+            # paths: it resolves the module paths it compares them with, so a
+            # symlinked or short-name spelling would never match (#714).  The
+            # caller's spelling stays in project_path / source_roots, for
+            # display and for the file <-> module mapper.
+            jedi_sys_path = list(
+                dict.fromkeys(normalize_path(p).as_posix() for p in added_sys_path)
+            )
+            self.added_sys_path = [Path(p) for p in jedi_sys_path]
 
             # When the project_path IS a Python package (has __init__.py),
             # Jedi must be rooted at the PARENT so that the package name is
@@ -230,10 +243,10 @@ class JediAnalyzer:
                 jedi_root = jedi_root.parent
                 self._jedi_root_is_parent = True
 
-            if added_sys_path:
+            if jedi_sys_path:
                 self.project = jedi.Project(
                     path=jedi_root.as_posix(),
-                    added_sys_path=_jedi_sys_path(added_sys_path),
+                    added_sys_path=_jedi_sys_path(jedi_sys_path),
                 )
             else:
                 self.project = jedi.Project(path=jedi_root.as_posix())
@@ -318,8 +331,23 @@ class JediAnalyzer:
 
     # LIVE (not deprecated): the AST name-index search (#457) behind ``find_symbol``
     # and ``_resolve_simple_type`` — i.e. behind ``resolve``. Do not remove.
+    async def find_member_definitions(self, name: str) -> list[Any]:
+        """Every method or class-body attribute named *name*, project-wide (#508).
+
+        The fallback behind ``resolve_name`` rule 4: these definitions are never
+        bare-name *indexed* (#457), so ``find_symbol`` can't see them.  Dunder
+        names are never returned.  Same index build, caching and scope
+        filtering as :meth:`_search_all_scopes`.
+        """
+        return await self._search_all_scopes(name, members=True)
+
     async def _search_all_scopes(
-        self, name: str, scope: Scope | None = None, fuzzy: bool = False
+        self,
+        name: str,
+        scope: Scope | None = None,
+        fuzzy: bool = False,
+        *,
+        members: bool = False,
     ) -> list[Any]:
         """Find every project definition of *name* across the requested scope.
 
@@ -342,6 +370,8 @@ class JediAnalyzer:
                    Defaults to "all".
             fuzzy: When True, match any indexed name *containing* ``name``
                    (substring), mirroring the old search; else exact name.
+            members: Search the member index (methods and class attributes,
+                #508) instead of the name index.
 
         Returns:
             ``DefinitionSentinel`` objects for every matching definition,
@@ -359,7 +389,7 @@ class JediAnalyzer:
         all_files = await self.get_project_files(pattern="*.py", scope="all")
         file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         index = await asyncio.to_thread(
-            project_graph.get_name_index,
+            project_graph.get_member_index if members else project_graph.get_name_index,
             self.project_path.as_posix(),
             all_files,
             file_to_module,
