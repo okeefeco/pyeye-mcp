@@ -14,20 +14,32 @@ via :func:`_normalize` so build and eviction can never key it differently) and
 built **whole-project** (the
 union of all scope paths); scope narrowing happens at lookup time in the caller,
 never at build time (baking scope into a project-keyed cache poisons it). Cache
-mechanism is plain invalidate-and-rebuild (no generation counter): a file change
-or project eviction clears the project's entry and the next lookup rebuilds.
+mechanism is plain invalidate-and-rebuild: a file change or project eviction
+clears the project's entry and the next lookup rebuilds. A per-project
+:func:`generation` snapshot stops a build that raced an invalidation from being
+cached (#617).
 
-Phase B (#397) will add ``get_class_graph`` / ``get_import_graph`` to this same
-store and build pass; that work ships separately.
+Phase B (#397) adds the **resolved class graph** (:func:`get_class_graph`), which
+backs the ``subclasses`` edge: every class's facts plus its children bucketed
+under each base's definition site. It shares the name index's lifecycle
+(:func:`invalidate`, :func:`generation`, layout keying), but its build resolves
+bases with Jedi ``goto`` where the AST can't commit, so the analyzer supplies the
+build and runs it on its own (Jedi worker) thread. It is keyed on scope as well,
+because which modules' import tables are in the build decides which bases
+resolve. The import graph for ``imported_by`` follows separately.
 
-Thread-safety: a single module lock guards the cache dict and provides
-single-flight builds, so concurrent first-callers (e.g. via
-``asyncio.to_thread``) build the index once rather than racing.
+Thread-safety: a single module lock guards the cache dicts and provides
+single-flight name-index builds, so concurrent first-callers (e.g. via
+``asyncio.to_thread``) build the index once rather than racing. A class-graph
+build is single-flight under its own per-key lock, so a long build never blocks
+other projects' lookups.
 """
 
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from pyeye import file_artifact_cache
@@ -45,6 +57,10 @@ _lock = threading.Lock()
 #: packages and namespaces, so analyzers with different layouts on one root
 #: must not share an index. Invalidating a root drops every layout under it.
 _name_indices: dict[str, dict[str, NameIndex]] = {}
+#: Same keys as ``_name_indices``: methods and class-body attributes by simple
+#: name (#508).  Built in the same pass and dropped together, so the two never
+#: disagree about which files they cover.
+_member_indices: dict[str, dict[str, NameIndex]] = {}
 
 #: A project's invalidation count, plus a store-wide epoch bumped by a full clear.
 #: ``get_name_index`` stores a build only if neither moved since the caller read
@@ -53,6 +69,48 @@ _name_indices: dict[str, dict[str, NameIndex]] = {}
 Generation = tuple[int, int]
 _generations: dict[str, int] = {}
 _epoch = 0
+
+
+@dataclass(frozen=True)
+class ClassFact:
+    """Where one project class is defined: the facts a ``subclasses`` stub needs."""
+
+    name: str
+    file: Path
+    line: int
+    end_line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class ClassGraph:
+    """A project's resolved class graph for one layout and scope (#397).
+
+    Only strings and ints, never AST nodes or Jedi/parso objects, so a cached
+    graph pins neither the AST LRU nor parso's parse cache (#713). Treat every
+    field as read-only: the graph is shared by every query in its generation.
+
+    Attributes:
+        classes: Every class's dotted name -> its :class:`ClassFact`.
+        children_by_key: A base's definition-site key -> the classes that
+            directly subclass it.
+        import_tables: Per-module AST import tables, used to key a query target
+            the same way bases were keyed (:func:`base_resolution.resolve_base`).
+        module_defines: Per-module top-level definitions, for the same.
+        star_sources: Per-module ``import *`` sources, for the same.
+    """
+
+    classes: dict[str, ClassFact]
+    children_by_key: dict[str, frozenset[str]]
+    import_tables: dict[str, dict[str, str]]
+    module_defines: dict[str, dict[str, str]]
+    star_sources: dict[str, list[str]]
+
+
+#: root -> (layout key, scope key) -> class graph.
+_class_graphs: dict[str, dict[tuple[str, str], ClassGraph]] = {}
+#: (root, layout key, scope key) -> the lock that makes that graph's build single-flight.
+_class_graph_locks: dict[tuple[str, str, str], threading.Lock] = {}
 
 
 def _normalize(project_key: str) -> str:
@@ -109,6 +167,28 @@ def _should_index(
     return definition.type == "class" and kindmap.get(parent_full) == "class"
 
 
+def _is_bare_name_member(
+    definition: DefinitionSentinel,
+    kindmap: dict[str, str],
+    module_name: str | None,
+) -> bool:
+    """Whether *definition* is a method or class-body attribute for rule 4 (#508).
+
+    These are what :func:`_should_index` leaves out of the name index although
+    they are addressable (``Class.method``): definitions directly in a class
+    body.  Nested classes are already indexed; function locals are never
+    offered.  Dunder names (``__init__``, ``__eq__``) are excluded: every class
+    defines them, so a bare dunder never names one thing.
+    """
+    if _should_index(definition, kindmap, module_name):
+        return False
+    name = definition.name
+    if name.startswith("__") and name.endswith("__"):
+        return False
+    parent_full = definition.full_name.rsplit(".", 1)[0]
+    return kindmap.get(parent_full) == "class"
+
+
 def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None]) -> NameIndex:
     """Build a name->definitions index from *py_files* (pure, uncached).
 
@@ -126,7 +206,15 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
     Returns:
         The freshly built :data:`NameIndex`.
     """
+    return _build_indices(py_files, file_to_module)[0]
+
+
+def _build_indices(
+    py_files: list[Path], file_to_module: dict[Path, str | None]
+) -> tuple[NameIndex, NameIndex]:
+    """Build the name index and the member index (#508) in one pass."""
     index: NameIndex = {}
+    members: NameIndex = {}
     for path in py_files:
         try:
             tree = file_artifact_cache.get_ast(path)
@@ -152,8 +240,10 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
         for definition in defs:
             if _should_index(definition, kindmap, module_name):
                 index.setdefault(definition.name, []).append(definition)
+            elif _is_bare_name_member(definition, kindmap, module_name):
+                members.setdefault(definition.name, []).append(definition)
 
-    for definitions in index.values():
+    for definitions in (*index.values(), *members.values()):
         definitions.sort(
             key=lambda d: (
                 d.module_path.as_posix() if d.module_path else "",
@@ -161,7 +251,7 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
                 d.column,
             )
         )
-    return index
+    return index, members
 
 
 def generation(project_key: str) -> Generation:
@@ -204,18 +294,102 @@ def get_name_index(
     Returns:
         The cached :data:`NameIndex` for *project_key*.
     """
+    return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[0]
+
+
+def get_member_index(
+    project_key: str,
+    py_files: list[Path],
+    file_to_module: dict[Path, str | None],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+) -> NameIndex:
+    """Return the cached member index (#508): methods and class attributes by name.
+
+    Same arguments, caching and invalidation as :func:`get_name_index`; both
+    are built in one pass.  Dunder names are not in it.
+    """
+    return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[1]
+
+
+def _get_indices(
+    project_key: str,
+    py_files: list[Path],
+    file_to_module: dict[Path, str | None],
+    generation: Generation | None,
+    layout_key: str,
+) -> tuple[NameIndex, NameIndex]:
     key = _normalize(project_key)
-    cached = _name_indices.get(key, {}).get(layout_key)
+    cached = _cached(key, layout_key)
     if cached is not None:
         return cached
     with _lock:
-        cached = _name_indices.get(key, {}).get(layout_key)  # double-checked under lock
+        cached = _cached(key, layout_key)  # double-checked under lock
         if cached is not None:
             return cached
-        index = build_name_index(py_files, file_to_module)
+        index, members = _build_indices(py_files, file_to_module)
         if generation is None or generation == (_epoch, _generations.get(key, 0)):
             _name_indices.setdefault(key, {})[layout_key] = index
-        return index
+            _member_indices.setdefault(key, {})[layout_key] = members
+        return index, members
+
+
+def _cached(key: str, layout_key: str) -> tuple[NameIndex, NameIndex] | None:
+    index = _name_indices.get(key, {}).get(layout_key)
+    members = _member_indices.get(key, {}).get(layout_key)
+    if index is None or members is None:
+        return None
+    return index, members
+
+
+def get_class_graph(
+    project_key: str,
+    build: Callable[[], ClassGraph],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+    scope_key: str = "",
+) -> ClassGraph:
+    """Return the cached class graph, building it with *build* on first use (#397).
+
+    One build per project, layout and scope per generation; every later call
+    returns the same object until :func:`invalidate` drops it. A dropped graph
+    is rebuilt, never reported empty. Builds are single-flight per key, under
+    a lock of their own rather than the store lock, so a long build (Jedi
+    ``goto`` fallbacks across a large project) doesn't block other lookups.
+
+    *build* runs on the calling thread: it may call Jedi, which must stay on the
+    Jedi worker.
+
+    Args:
+        project_key: The project root, in any spelling (see :func:`_normalize`).
+        build: Builds the graph from the project's current files.
+        generation: The :func:`generation` taken before *build*'s files were
+            listed. If the project was invalidated since, the graph is returned
+            but not cached, because it may predate the change (#617).
+        layout_key: The analyzer's :func:`pyeye.project_layout.layout_key` (#618).
+        scope_key: The search scope the graph was built over.
+
+    Returns:
+        The class graph for that project, layout and scope.
+    """
+    key = _normalize(project_key)
+    sub = (layout_key, scope_key)
+    cached = _class_graphs.get(key, {}).get(sub)
+    if cached is not None:
+        return cached
+    with _lock:
+        build_lock = _class_graph_locks.setdefault((key, *sub), threading.Lock())
+    with build_lock:
+        cached = _class_graphs.get(key, {}).get(sub)  # built while we waited
+        if cached is not None:
+            return cached
+        graph = build()
+        with _lock:
+            if generation is None or generation == (_epoch, _generations.get(key, 0)):
+                _class_graphs.setdefault(key, {})[sub] = graph
+        return graph
 
 
 def invalidate(project_key: str | None = None) -> None:
@@ -223,7 +397,8 @@ def invalidate(project_key: str | None = None) -> None:
 
     Wired into the file-change watcher path and project eviction. Whole-index
     invalidation is intentional: rebuilds are parse-bound and cheap relative to
-    the correctness cost of a stale or partial index.
+    the correctness cost of a stale or partial index. It drops the name and
+    member indices and every class graph (#397) of the project.
 
     Args:
         project_key: The project to drop; ``None`` clears all projects.
@@ -232,8 +407,12 @@ def invalidate(project_key: str | None = None) -> None:
     with _lock:
         if project_key is None:
             _name_indices.clear()
+            _member_indices.clear()
+            _class_graphs.clear()
             _epoch += 1
         else:
             key = _normalize(project_key)
             _name_indices.pop(key, None)
+            _member_indices.pop(key, None)
+            _class_graphs.pop(key, None)
             _generations[key] = _generations.get(key, 0) + 1

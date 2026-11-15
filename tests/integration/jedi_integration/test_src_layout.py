@@ -395,10 +395,6 @@ where = ["src"]
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#714: resolve invents __main__.<name> when the root is a symlink",
-    )
     @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
     async def test_symbol_is_addressable_through_a_symlinked_root(
         self, real_src_project: Path, tmp_path: Path, symbol: str
