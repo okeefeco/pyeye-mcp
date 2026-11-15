@@ -83,15 +83,21 @@ gh pr checks --watch
 
 ### "Merge and cleanup" / "Merge PR and clean up" / "Finish this PR"
 
-1. **Merge with raw commands** (capture exit codes; verify state):
+1. **Merge with raw commands** (capture exit codes; verify state). `main` requires the merge queue (#649), so `gh pr merge` QUEUES the PR; it doesn't merge it:
 
    ```bash
-   gh pr merge <PR-NUMBER> --squash   # squash is the only enabled method (#607); the remote branch auto-deletes
-   [ $? -eq 0 ] || { echo "ERROR: merge failed"; exit 1; }
+   gh pr merge <PR-NUMBER> --squash   # adds to the merge queue, or enables auto-merge if checks are still running
+   [ $? -eq 0 ] || { echo "ERROR: could not queue"; exit 1; }
 
-   # Auto-close of linked issues is async — verify:
+   # The merge is asynchronous: the queue re-runs the required checks on the PR
+   # rebased onto main, then squash-merges. It is done only when state is MERGED:
    gh pr view <PR-NUMBER> --json state,mergedAt,mergeCommit
    ```
+
+   - NEVER run `gh pr update-branch` or merge `main` into a PR just to make it mergeable: the queue tests each PR on top of the latest `main` itself. Merge `main` in only to resolve a real conflict.
+   - If the queue removes the PR (failed check or timeout), fix it and run `gh pr merge --squash` again. NEVER bypass the queue with `--admin` without explicit user permission.
+   - Don't pass `--subject`/`--body`: the squash subject comes from the PR title (see `05-workflow-issues.md` → Merge Strategy).
+   - Everything downstream (verification, cleanup, the squash-merged branch deletion rule) keys on the PR reaching `MERGED`, never on the queue command's exit code.
 
 2. **Clean up** after confirming the merge landed and there are no uncommitted changes (`git -C <worktree> status --short`): `git worktree remove <worktree-path>`, then handle the local branch per "Deleting a squash-merged branch" below. NEVER `--force` without explicit permission.
 
