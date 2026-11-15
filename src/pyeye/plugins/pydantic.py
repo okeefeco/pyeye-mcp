@@ -118,6 +118,9 @@ class PydanticPlugin(AnalyzerPlugin):
             if model["name"] == model_name:
                 schema = {
                     "model": model_name,
+                    # Where the model is defined, so the result can carry a handle (#627).
+                    "file": model["file"],
+                    "line": model["line"],
                     "fields": model["fields"],
                     "required": [],
                     "optional": [],
@@ -267,6 +270,9 @@ class PydanticPlugin(AnalyzerPlugin):
         for model in models:
             if model["name"] == model_name:
                 hierarchy["parents"] = model["base_classes"]
+                # Where the model is defined, so the result can carry a handle (#627).
+                hierarchy["file"] = model["file"]
+                hierarchy["line"] = model["line"]
                 hierarchy["fields_inherited"] = []
                 hierarchy["fields_own"] = model["fields"]
 

@@ -25,6 +25,17 @@ Every tool on this page also takes these two optional parameters, even where a t
 
   The default bare result is unchanged. AI agents should always pass `envelope=true` (#594).
 
+## Common result fields
+
+Every result record of every tool on this page also carries (#627):
+
+- `location`: `{file, line}`. `file` is the absolute path. `line` is present when the record is a position in a file.
+- `scope`: `"project"` or `"external"`.
+- `handle`: for a record that names a symbol, the canonical handle from pyeye's resolver. Pass it to `inspect`, `outline`, `expand` or `trace`.
+- `unresolved`: `{reason, detail}` instead of `handle`, when the symbol can't be placed (for example, a route defined inside a factory function). There is never a guessed handle.
+
+A record with neither `handle` nor `unresolved` doesn't name a symbol, for example a template file or a config access.
+
 ## Table of Contents
 
 1. [find_flask_routes](#find_flask_routes)

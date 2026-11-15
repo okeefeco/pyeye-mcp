@@ -54,10 +54,21 @@ class AnalyzerPlugin(ABC):
             logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
             return None
 
-    def _parse_source(self, path: Path, content: str) -> ast.Module | None:
-        """Parse user source, or warn and return ``None`` if it is not valid Python."""
+    def _parse_source(self, path: Path, content: str) -> ast.Module | None:  # noqa: ARG002
+        """Parse user source, or warn and return ``None`` if it is not valid Python.
+
+        Goes through the shared ``file_artifact_cache`` (#627), so plugins reuse the
+        trees the primitives and handle enrichment parse, instead of re-parsing.
+        *content* is kept in the signature for callers that read it to pre-filter.
+        Callers must not mutate the returned tree: it is shared.
+        """
+        from .. import file_artifact_cache
+
         try:
-            return ast.parse(content, filename=path.as_posix())
+            return file_artifact_cache.get_ast(path)
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
+            return None
         except (SyntaxError, ValueError, RecursionError) as e:
             logger.warning(f"Plugin {self.name()}: error parsing {path.as_posix()}: {e}")
             return None
