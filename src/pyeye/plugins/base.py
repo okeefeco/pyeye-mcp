@@ -55,7 +55,13 @@ class AnalyzerPlugin(ABC):
             return None
 
     def _parse_source(self, path: Path, content: str) -> ast.Module | None:
-        """Parse user source, or warn and return ``None`` if it is not valid Python."""
+        """Parse user source, or warn and return ``None`` if it is not valid Python.
+
+        Parses *content* directly rather than through the shared
+        ``file_artifact_cache``: routing every plugin walk through that LRU
+        exposed an eviction-dependent miss in external re-export resolution
+        (#684), so plugins stay off it until that is fixed.
+        """
         try:
             return ast.parse(content, filename=path.as_posix())
         except (SyntaxError, ValueError, RecursionError) as e:

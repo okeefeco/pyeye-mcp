@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
 from pyeye._goto import goto_target
+from pyeye._jedi_names import is_attribute_target
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
@@ -295,7 +296,9 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             logger.debug("resolver: names for %s failed: %s", mod_file, exc)
             return None
         for name in names:
-            if name.full_name == path:
+            # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
+            # nothing in this scope (#567).
+            if name.full_name == path and not is_attribute_target(name):
                 anchor = _anchor_on_definition(name, path)
                 return _canonical_of(anchor, path), anchor
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
@@ -326,7 +329,7 @@ def _follow_alias(
         return None
     head = rest[0]
     for name in names:
-        if name.name != head or not _is_module_level(name):
+        if name.name != head or not _is_module_level(name) or is_attribute_target(name):
             continue
         target = _goto_definition(name)
         if target is None or not target.full_name or not _is_dotted_path(target.full_name):

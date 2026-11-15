@@ -713,8 +713,8 @@ async def _subclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
 class TestResolveSubclassesClass:
     """``subclasses`` = the project classes that DIRECTLY subclass a base (#422).
 
-    The resolver reuses ``find_subclasses(scope="main", include_indirect=False)``,
-    so the result is the DIRECT (depth-1) subclasses only — one hop, symmetric
+    The resolver reuses ``find_subclasses(scope="main")``, which is direct-only
+    (#628), so the result is the DIRECT (depth-1) subclasses only — one hop, symmetric
     with ``superclasses``; the full closure is served by ``trace``. The dedicated
     fixture pins a known topology:
 
@@ -741,7 +741,7 @@ class TestResolveSubclassesClass:
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
         # Dog(Mammal) is a grandchild of Animal — since #422 the edge is a single
-        # hop (include_indirect=False), so the grandchild must NOT appear. The
+        # hop (find_subclasses is direct-only), so the grandchild must NOT appear. The
         # transitive closure is reached via trace(follow=["subclasses"]).
         handles = {
             str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles

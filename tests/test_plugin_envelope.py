@@ -121,10 +121,28 @@ def _all_tool_names() -> list[str]:
 ALL_TOOLS = _all_tool_names()
 
 
+#: Per-record keys #627 adds to every plugin result (handles, scope, location).
+#: The pins below strip them, so they still prove the pre-#594 output is unchanged.
+_ADDED_BY_627 = frozenset({"location", "scope", "handle", "unresolved"})
+
+
+def _strip_627(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_627(v) for k, v in value.items() if k not in _ADDED_BY_627}
+    if isinstance(value, list):
+        return [_strip_627(v) for v in value]
+    return value
+
+
 def _dump(result: Any) -> Any:
+    content = []
+    for c in result.content:
+        item = c.model_dump()
+        item["text"] = _strip_627(json.loads(item["text"]))
+        content.append(item)
     return (
-        [c.model_dump() for c in result.content],
-        getattr(result, "structured_content", None),
+        content,
+        _strip_627(getattr(result, "structured_content", None)),
         result.is_error,
     )
 
@@ -201,7 +219,7 @@ class TestEnvelopeShape:
 
         assert list(payload) == ["scope", "searched", "unsearched_scopes", "results"]
         expected = await method(**EXTRA_ARGS.get(tool, {}), scope="main")
-        assert payload["results"] == json.loads(json.dumps(expected))
+        assert _strip_627(payload["results"]) == json.loads(json.dumps(expected))
 
     async def test_empty_results_are_present_not_absent(self, tmp_path: Path) -> None:
         # A subdirectory, so ProjectConfig's sibling auto-discovery sees no other

@@ -139,7 +139,7 @@ TEST_CONSTANT = "value"
 
             # Test successful response
             try:
-                results = await analyzer.find_symbol("TestClass", include_import_paths=True)
+                results = await analyzer.find_symbol("TestClass")
                 # Should be JSON serializable
                 json_str = json.dumps(results)
                 assert isinstance(json_str, str)

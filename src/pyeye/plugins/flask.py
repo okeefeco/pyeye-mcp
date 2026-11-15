@@ -378,7 +378,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
         """
-        configs = []
+        configs: list[dict[str, Any]] = []
 
         # Look for config files
         config_patterns = ["config.py", "settings.py", "*/config.py", "*/settings.py"]
@@ -403,7 +403,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                 configs.append(
                                     {
                                         "file": py_file.as_posix(),
-                                        "line": str(getattr(node, "lineno", 0)),
+                                        "line": node.lineno,
                                         "type": "config_access",
                                     }
                                 )
