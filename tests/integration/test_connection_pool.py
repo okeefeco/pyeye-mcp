@@ -2,11 +2,26 @@
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import jedi
+import pytest
 
+from pyeye import connection_pool
 from pyeye.connection_pool import PooledConnection, ProjectConnectionPool
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """A controllable clock for the module's ``time.time()`` (#486: no real sleeps).
+
+    Starts at the real time, because ``PooledConnection``'s field defaults
+    captured the real ``time.time`` at import. Advance it via ``clock[0]``.
+    """
+    now = [time.time()]
+    monkeypatch.setattr(connection_pool, "time", SimpleNamespace(time=lambda: now[0]))
+    return now
 
 
 class TestPooledConnection:
@@ -26,7 +41,7 @@ class TestPooledConnection:
         assert connection.created_at > 0
         assert connection.last_accessed > 0
 
-    def test_touch(self, tmp_path):
+    def test_touch(self, tmp_path, clock):
         """Test updating access time and count."""
         project = MagicMock(spec=jedi.Project)
         connection = PooledConnection(project=project, project_path=tmp_path)
@@ -34,7 +49,7 @@ class TestPooledConnection:
         initial_time = connection.last_accessed
         initial_count = connection.access_count
 
-        time.sleep(0.01)  # Small delay to ensure time difference
+        clock[0] += 1.0
         connection.touch()
 
         assert connection.last_accessed > initial_time
@@ -201,7 +216,7 @@ class TestProjectConnectionPool:
         assert path3 in cache_keys  # Just added
 
     @patch("pyeye.connection_pool.jedi.Project")
-    def test_clear_stale(self, mock_project_class, tmp_path):
+    def test_clear_stale(self, mock_project_class, tmp_path, clock):
         """Test removing stale connections."""
         mock_project = MagicMock()
         mock_project_class.return_value = mock_project
@@ -218,11 +233,11 @@ class TestProjectConnectionPool:
         pool.get_connection(path2)
 
         # Access path2 to update its last_accessed time
-        time.sleep(0.5)
+        clock[0] += 0.5
         pool.get_connection(path2)
 
-        # Wait for path1 to become stale
-        time.sleep(0.6)
+        # path1 is now 1.1s idle (stale at ttl=1); path2 only 0.6s
+        clock[0] += 0.6
 
         # Clear stale connections
         removed = pool.clear_stale()

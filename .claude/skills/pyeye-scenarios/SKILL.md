@@ -23,6 +23,7 @@ path. The catalog is the **axis of variation**:
 |----------|-------|----------|-----------|
 | `django` | single tree | depth, scale, canonical-handle collapse, `imported_by`/`superclasses`, static-surface ceiling, honest-limit refusal | clone (heavy — use `--reference`) |
 | `namespace-jaraco` | 3 repos, PEP 420 namespace | namespace stitching via `.pyeye.json`, cross-repo `resolve`/`trace`, #444 cold-start | clone 3 small repos |
+| `multirepo-namespace` | 3 repos + main project, PEP 420 namespace, **in-repo** | namespaces outside the project root (src/ layout, flat, via `packages`), root-is-package project, cross-repo subclass/calls/re-export/alias/`TYPE_CHECKING`/lazy import, name collision | **local copy, no clone** (#667) |
 | `zope` *(planned)* | 2 repos, PEP 420 namespace | deep inheritance + dense cross-import graphs | — |
 | `google-cloud` *(planned)* | monorepo, many dists | scale + 3-segment namespaces | — |
 
@@ -174,6 +175,45 @@ scenario doubles as the regression guard for all three fixes.
 > unknown/empty. Same probes, different build: that divergence is the
 > regression-vs-environment **signal**, not a bug. Always re-record against the build under
 > test and note which build (see the `pyeye-verify` classification).
+
+---
+
+## Scenario: `multirepo-namespace` (local, #667)
+
+A synthetic multi-repo workspace that lives **in this repo**, so it needs no network and
+runs in CI (`tests/test_cross_tool_invariants.py` corpus `multirepo_namespace`, plus
+`tests/integration/test_multirepo_namespace_scenario.py`, which pins the expected handles
+and scope). Use it here for an offline [[pyeye-verify]] pass. Layout and the relationships
+it exercises: `tests/fixtures/scenarios/multirepo_namespace/README.md`.
+
+### Manifest
+
+| Field | Value |
+|-------|-------|
+| source | `tests/fixtures/scenarios/multirepo_namespace/` (in-repo; nothing to pin, the commit under test is the pin) |
+| provision | copy, never use in place: `cp -r tests/fixtures/scenarios/multirepo_namespace "$TARGET/"` |
+| `project_path` | `<TARGET>/multirepo_namespace/app` |
+| `.pyeye.json` | already in `app/`: `namespaces.corp = ["../corp-core/src", "../corp-web"]`, `packages = ["../corp-tools"]` |
+
+### Probe suite + recorded baseline *(captured 2026-11-15, build `2.0.1.dev34+g9c00bbe2f` = #623 slice 3 @ `9c00bbe`)*
+
+| # | Probe | Expected (baseline) | Demonstrates / tracking |
+|---|-------|---------------------|-------------------------|
+| 1 | `resolve("corp.tools.Base")` | `corp.core.models.Base`, `class`, `project` | re-export collapses across repos |
+| 2 | `inspect("corp.tools.widgets.Widget")` | `superclasses: ["corp.core.models.Base"]`, `edge_counts: {members: 2, superclasses: 1}` | cross-repo base |
+| 3 | `expand("corp", "submodules")` | `corp.core`, `corp.tools`, `corp.web`, all `project` | namespace union; configured namespaces and packages are `project` (#623 decision 7) |
+| 4 | `expand("corp.tools.widgets.Widget", "superclasses")` | `corp.core.models.Base` (`project`) | ✅ |
+| 5 | `expand("corp.core.models.Base", "subclasses")` | `corp.tools.widgets.Widget` | ✅ **#669** (re-recorded on `main` after #676; was `[]`) |
+| 6 | `expand("corp.core.models", "imported_by")` | `app.main`, `corp.tools`, `corp.tools.widgets`, `corp.web.views` | ✅ **#668** (re-recorded after #676; `corp.web.views` was missing) |
+| 7 | `resolve("Shared")` | ambiguous: `corp.core.models.Shared`, `corp.tools.widgets.Shared` | ✅ **#668** (re-recorded after #676; was a silent single answer) |
+| 8 | `expand("corp.web.views.render", "callees")` | `corp.core.models.Base.describe`, `corp.core.models.make`, `corp.tools.sub.helper.shout`, `corp.tools.widgets.Widget`; `unresolved_call_sites: 0` | calls into two other repos |
+| 9 | `outline("corp")` | 3 children, each `truncated: max_depth` | namespace survey |
+| 10 | `expand("app.main", "imports")` | the 4 `corp.*` targets `project`, `sys` `external` | cross-repo edge scope |
+
+Before #623 slice 3, rows 1–4 and 8 failed too: `corp.core` and `corp.web` reported
+`external`, and `inspect`/`outline`/`expand` couldn't find them (the #653 regression).
+Rows 5–7 were re-recorded on build `2.0.1.dev44` (main after #675 and #676), and every
+row now passes; the integration test pins them all.
 
 ---
 
