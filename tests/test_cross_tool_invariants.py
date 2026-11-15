@@ -91,7 +91,7 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # == 1. round trip ======================================================
     # #602/#623: stdlib/external modules and typing specials emitted by
     # `imports` are dead ends for inspect and resolve.
-    **_round_trip("cross_tool", _ISSUE_602, _MISS, "logging"),
+    **_round_trip("cross_tool", _ISSUE_602, _MISS, "logging", "textwrap"),
     **_round_trip("determinism_subclasses", _ISSUE_602, _MISS, "typing.TYPE_CHECKING"),
     **_round_trip("lookup_project", _ISSUE_602, _MISS, "__future__.annotations", "enum"),
     **_round_trip(
@@ -138,7 +138,14 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "survey.svpkg.init_fn.initonly",
         "survey.svpkg.init_fn.nested",
     ),
-    **_round_trip("cross_tool", _ISSUE_626, _MISS, "xpkg.__all__.consumer", "xpkg.__all__.core"),
+    **_round_trip(
+        "cross_tool",
+        _ISSUE_626,
+        _MISS,
+        "xpkg.__all__.consumer",
+        "xpkg.__all__.core",
+        "xpkg.__all__.text",
+    ),
     **_round_trip(
         "resolve_project",
         _ISSUE_626,
@@ -261,8 +268,8 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # root package itself; inspect/outline/expand/trace don't.
     **_agree("root_package", "root_package", "found", _ISSUE_625, _BOTH_MODES),
     # == 4. trace vs expand =================================================
-    # #621: trace expands `logging`, which expand refuses as unresolved.
-    ("trace_expand", "xpkg.core", "imports", "logging", "expanded_but_refused"): _ISSUE_621,
+    # #621: trace expands `textwrap`, which expand refuses as unresolved.
+    ("trace_expand", "xpkg.text", "imports", "textwrap", "expanded_but_refused"): _ISSUE_621,
     # #621: expand says imports/imported_by is unsupported for a class or
     # function; trace reports it as measured-empty (unsupported_edges=[]).
     **{
@@ -643,10 +650,17 @@ async def test_tools_agree_on_handle(corpus: str, mode: str) -> None:
 
 #: (root, edge) pairs traced.  Covers project and stdlib imports, a namespace
 #: package, class hierarchies, callees, and wrong-kind edges on each kind.
+#:
+#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: trace walks
+#: ``logging`` -> ``io``/``weakref`` (interior nodes expand refuses, #621) and
+#: their ``imports`` hops recurse ~1500 frames deep in Jedi, which overflows the
+#: C stack and kills the process on Windows / CPython 3.11.  ``xpkg.text``
+#: (``import textwrap``) exercises the same interior-node gap shallowly.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (
         "xpkg.core",
+        "xpkg.text",
         "xpkg.consumer",
         "xns",
         "xpkg.core.Widget",
@@ -654,6 +668,7 @@ _TRACE_CASES = tuple(
         "xpkg.core.make_widget",
     )
     for edge in EDGE_RESOLVERS
+    if (root, edge) != ("xpkg.core", "imports")
 )
 
 
