@@ -34,9 +34,12 @@ CI instead of quietly bringing #684 back.
 
 from __future__ import annotations
 
+import importlib.abc
+import importlib.util
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from importlib.machinery import ModuleSpec
 from types import ModuleType
 from typing import Any
 
@@ -60,16 +63,51 @@ _MARK = "_pyeye_713"
 
 
 def apply_parso_cache_policy(max_entries: int) -> None:
-    """Install recovery and the LRU bound of *max_entries* entries. Idempotent.
+    """Install the LRU bound of *max_entries* entries, and recovery. Idempotent.
 
     Called once from ``pyeye/__init__.py``, before any pyeye module uses Jedi.
     Everything it patches is module-global, so the Jedi worker thread (#650)
     is covered. Calling it again only changes the cap.
+
+    Importing pyeye must not import Jedi: the #623 layering keeps modules such
+    as ``pyeye.project_layout`` Jedi-free at import time. So recovery is
+    installed now only if Jedi is already imported. Otherwise a one-shot import
+    hook installs it the moment ``import jedi`` finishes, before anything can
+    use Jedi. ``import jedi`` loads every module recovery patches.
     """
     # parso's own mtime-aged GC must never run: the LRU replaces it.
     parso.cache._CACHED_SIZE_TRIGGER = sys.maxsize
-    _install_recovery()
     _install_lru(max_entries)
+    if "jedi" in sys.modules:
+        _install_recovery()
+    elif not any(isinstance(finder, _RecoverAfterJediImport) for finder in sys.meta_path):
+        sys.meta_path.insert(0, _RecoverAfterJediImport())
+
+
+class _RecoverAfterJediImport(importlib.abc.MetaPathFinder):
+    """Install recovery right after the top-level ``jedi`` package executes. One-shot."""
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None,  # noqa: ARG002 (MetaPathFinder signature)
+        target: ModuleType | None = None,  # noqa: ARG002
+    ) -> ModuleSpec | None:
+        if fullname != "jedi":
+            return None
+        sys.meta_path.remove(self)  # one-shot, and lets the real finders run below
+        spec = importlib.util.find_spec("jedi")
+        if spec is None or spec.loader is None:
+            return spec
+        loader = spec.loader
+        exec_module = loader.exec_module
+
+        def exec_then_recover(module: ModuleType) -> None:
+            exec_module(module)
+            _install_recovery()
+
+        loader.exec_module = exec_then_recover  # type: ignore[method-assign]
+        return spec
 
 
 def _install_recovery() -> None:

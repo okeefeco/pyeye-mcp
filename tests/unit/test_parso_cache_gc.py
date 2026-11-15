@@ -163,6 +163,50 @@ class TestPinnedInternals:
         assert not _parso_cache._is_marked(parso.cache._set_cache_item.__wrapped__)
 
 
+_ORDER_PROBE = """
+import importlib, sys
+{first}
+from pyeye import _parso_cache as pc
+assert "jedi" in sys.modules
+mods = [pc._FILTER_MODULE, *pc._CODE_LINES_MODULES]
+names = ["get_parso_cache_node"] + ["get_cached_code_lines"] * len(pc._CODE_LINES_MODULES)
+assert all(pc._is_marked(getattr(importlib.import_module(m), n)) for m, n in zip(mods, names))
+assert not any(type(f).__name__ == "_RecoverAfterJediImport" for f in sys.meta_path)
+print("ok")
+"""
+
+
+class TestInstallOrder:
+    """Recovery is in place whichever of pyeye and Jedi is imported first."""
+
+    @pytest.mark.parametrize(
+        "first",
+        ["import pyeye\nimport jedi", "import jedi\nimport pyeye"],
+        ids=["pyeye-first", "jedi-first"],
+    )
+    def test_recovery_installed(self, first: str) -> None:
+        import subprocess  # nosec B404 - runs this repo's own interpreter on a fixed snippet
+
+        out = subprocess.run(  # nosec B603
+            [sys.executable, "-c", _ORDER_PROBE.format(first=first)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert out.returncode == 0 and out.stdout.strip() == "ok", out.stderr
+
+    def test_importing_pyeye_does_not_import_jedi(self) -> None:
+        import subprocess  # nosec B404 - runs this repo's own interpreter on a fixed snippet
+
+        out = subprocess.run(  # nosec B603
+            [sys.executable, "-c", "import sys, pyeye; print('jedi' in sys.modules)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert out.stdout.strip() == "False", out.stderr
+
+
 class TestRecovery:
     def test_a_missing_entry_gives_the_filter_none(self) -> None:
         filters = importlib.import_module(_parso_cache._FILTER_MODULE)

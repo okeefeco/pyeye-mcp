@@ -27,7 +27,9 @@ superseded_by: []
   - It stamps `last_used` with the **parse time**, not the file mtime (the #684 bug). parso already refreshes `last_used` on a hit.
   - Over `PYEYE_PARSO_CACHE_MAX_ENTRIES` (default 600), it evicts least-recently-used entries down to 90% of the cap.
   - `_CACHED_SIZE_TRIGGER` stays `sys.maxsize`, so parso's own GC never runs.
-- **One place, as in #706:** `apply_parso_cache_policy`, called from `pyeye/__init__.py` before any Jedi use. It's idempotent: wrappers are marked and never double-wrapped.
+- **One place, as in #706:** `apply_parso_cache_policy`, called from `pyeye/__init__.py`. It's idempotent: wrappers are marked and never double-wrapped.
+  - The LRU is installed at once.
+  - **Importing pyeye must not import Jedi** (#623's layering keeps modules such as `pyeye.project_layout` Jedi-free at import time). So recovery is installed at once only if Jedi is already imported. Otherwise a one-shot `sys.meta_path` finder (`_RecoverAfterJediImport`) installs it as soon as `import jedi` finishes, before anything can use Jedi. `import jedi` loads every module recovery patches.
 - **Measured:**
   - Under a policy where every insert evicts every entry, the full suite passes with recovery (3,649 passed); without it, #706's 5 resolution files fail 110 tests.
   - #706's 13 resolution tests pass under a forced bound of ONE entry, and all 10 of those fail when recovery is disabled.
