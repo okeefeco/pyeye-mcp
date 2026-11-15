@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -299,6 +298,9 @@ class ScopeDebugger:
         }
 
 
+_MISSING = object()
+
+
 class ScopedCache:
     """Cache that maintains separate caches per scope."""
 
@@ -318,9 +320,6 @@ class ScopedCache:
             "main": {},
             "all": {},
         }
-        # The file watcher clears this cache from its own thread while analysis
-        # reads and writes it (#617), so every access takes the lock.
-        self._lock = threading.RLock()
 
     def _normalize_scope(self, scope: Scope) -> str:
         """Normalize scope to a cache key.
@@ -347,31 +346,31 @@ class ScopedCache:
         Returns:
             Cached value or None if not found/expired
         """
-        with self._lock:
-            scope_key = self._normalize_scope(scope)
+        scope_key = self._normalize_scope(scope)
 
-            # Ensure cache exists for this scope
-            if scope_key not in self.caches:
-                metrics.record_cache_miss()
-                return None
+        # Thread safety without a lock (#617): the file watcher clears this cache
+        # from its own thread. Invalidation swaps in fresh dicts rather than
+        # mutating them, and every read below is one atomic dict.get on a dict
+        # reference taken once, so a concurrent clear can't raise KeyError.
+        entries = self.caches.get(scope_key)
+        value = entries.get(key, _MISSING) if entries is not None else _MISSING
+        if value is _MISSING:
+            metrics.record_cache_miss()
+            return None
 
-            # Check if key exists
-            if key not in self.caches[scope_key]:
-                metrics.record_cache_miss()
-                return None
+        # Check TTL
+        stamps = self.timestamps.get(scope_key)
+        stamp = stamps.get(key) if stamps is not None else None
+        if stamp is not None and time.time() - stamp > self.ttl:
+            # Expired
+            entries.pop(key, None)  # type: ignore[union-attr]
+            if stamps is not None:
+                stamps.pop(key, None)
+            metrics.record_cache_miss()
+            return None
 
-            # Check TTL
-            if scope_key in self.timestamps and key in self.timestamps[scope_key]:
-                age = time.time() - self.timestamps[scope_key][key]
-                if age > self.ttl:
-                    # Expired
-                    del self.caches[scope_key][key]
-                    del self.timestamps[scope_key][key]
-                    metrics.record_cache_miss()
-                    return None
-
-            metrics.record_cache_hit()
-            return self.caches[scope_key][key]
+        metrics.record_cache_hit()
+        return value
 
     def set(self, key: str, value: Any, scope: Scope) -> None:
         """Set cache value for a specific scope.
@@ -381,16 +380,13 @@ class ScopedCache:
             value: Value to cache
             scope: Scope for this cache entry
         """
-        with self._lock:
-            scope_key = self._normalize_scope(scope)
+        scope_key = self._normalize_scope(scope)
 
-            # Ensure cache exists for this scope
-            if scope_key not in self.caches:
-                self.caches[scope_key] = {}
-                self.timestamps[scope_key] = {}
-
-            self.caches[scope_key][key] = value
-            self.timestamps[scope_key][key] = time.time()
+        # setdefault, not check-then-index: a concurrent invalidation may swap
+        # the dicts in between (#617). A write that lands in a just-replaced dict
+        # is simply lost, which is a cache miss, never an error.
+        self.timestamps.setdefault(scope_key, {})[key] = time.time()
+        self.caches.setdefault(scope_key, {})[key] = value
 
     def invalidate_scope(self, scope: Scope) -> None:
         """Invalidate just one scope's cache.
@@ -398,23 +394,21 @@ class ScopedCache:
         Args:
             scope: Scope to invalidate
         """
-        with self._lock:
-            scope_key = self._normalize_scope(scope)
+        scope_key = self._normalize_scope(scope)
 
-            if scope_key in self.caches:
-                self.caches[scope_key] = {}
+        if scope_key in self.caches:
+            self.caches[scope_key] = {}
 
-            if scope_key in self.timestamps:
-                self.timestamps[scope_key] = {}
+        if scope_key in self.timestamps:
+            self.timestamps[scope_key] = {}
 
     def invalidate_all(self) -> None:
         """Invalidate all caches."""
-        with self._lock:
-            for scope_key in list(self.caches.keys()):
-                self.caches[scope_key] = {}
+        for scope_key in list(self.caches.keys()):
+            self.caches[scope_key] = {}
 
-            for scope_key in list(self.timestamps.keys()):
-                self.timestamps[scope_key] = {}
+        for scope_key in list(self.timestamps.keys()):
+            self.timestamps[scope_key] = {}
 
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics.
@@ -422,20 +416,19 @@ class ScopedCache:
         Returns:
             Dictionary of cache statistics
         """
-        with self._lock:
-            stats: dict[str, Any] = {
-                "scope_count": len(self.caches),
-                "scopes": {},
+        stats: dict[str, Any] = {
+            "scope_count": len(self.caches),
+            "scopes": {},
+        }
+
+        for scope_key, cache in self.caches.items():
+            scope_stats: dict[str, Any] = {
+                "entry_count": len(cache),
+                "size_bytes": sum(len(str(v)) for v in cache.values()),
             }
+            stats["scopes"][scope_key] = scope_stats
 
-            for scope_key, cache in self.caches.items():
-                scope_stats: dict[str, Any] = {
-                    "entry_count": len(cache),
-                    "size_bytes": sum(len(str(v)) for v in cache.values()),
-                }
-                stats["scopes"][scope_key] = scope_stats
-
-            return stats
+        return stats
 
 
 class LazyNamespaceLoader:
