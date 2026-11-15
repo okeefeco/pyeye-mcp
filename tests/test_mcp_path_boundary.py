@@ -14,8 +14,11 @@ corpora: ``file`` / ``config_file`` strings, the ``packages`` and
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +26,7 @@ import pytest
 
 from pyeye.mcp import server
 from pyeye.mcp.operations.edges import EDGE_RESOLVERS
+from pyeye.path_utils import relative_within
 from tests.test_cross_tool_invariants import _EXTRA_SEEDS, _SWEEP_CORPORA, _module_seeds
 from tests.test_plugin_envelope import (
     ALL_TOOLS,
@@ -47,7 +51,28 @@ _CORPORA: dict[str, tuple[Path, str]] = {
 
 #: Seeds per corpus (the first few modules plus the configured extras); enough
 #: to reach every response shape without sweeping whole trees.
-_SEEDS_PER_CORPUS = 6
+_SEEDS_PER_CORPUS = 3
+
+#: Per-PR runs cover the corpora that catch #714-class bugs: a flat layout (the
+#: members edge's ``__main__`` stubs), a configured ``src/`` layout, and a
+#: namespace repo reached by a relative ``../`` config. The rest run when
+#: ``PYEYE_EXHAUSTIVE_PATHS=1``, which CI's push-to-main job sets.
+_EXHAUSTIVE_ENV = "PYEYE_EXHAUSTIVE_PATHS"
+_PER_PR_CORPORA = frozenset({"cross_tool", "src_layout", "xns_repo"})
+
+
+def _corpus_params(names: Iterable[str]) -> list[Any]:
+    exhaustive = os.environ.get(_EXHAUSTIVE_ENV) == "1"
+    return [
+        pytest.param(
+            name,
+            marks=pytest.mark.skipif(
+                name not in _PER_PR_CORPORA and not exhaustive,
+                reason=f"exhaustive path run; set {_EXHAUSTIVE_ENV}=1",
+            ),
+        )
+        for name in sorted(names)
+    ]
 
 
 def _path_problems(value: Any, where: str) -> list[str]:
@@ -120,18 +145,63 @@ def test_walker_ignores_non_path_keys() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(params=sorted(_CORPORA))
-def corpus_root(request, tmp_path: Path) -> tuple[str, Path]:
+#: Known violations of the in-project spelling rule: (corpus, opened-as) -> issue.
+#: Exact both ways, like the #614 allow-lists: a violation not listed fails, and
+#: a listed one that no longer occurs fails too, so the entry gets deleted.
+#: Jedi reports module paths resolved, so under a symlinked root most
+#: location.file values are the real path, not the caller's (#717 finding).
+KNOWN_SPELLING_GAPS: dict[tuple[str, str], str] = {
+    (corpus, "symlink"): "#717" for corpus in _CORPORA
+}
+
+
+@pytest.fixture(params=_corpus_params(_CORPORA))
+def corpus_copy(request, tmp_path: Path) -> tuple[str, Path, str]:
     source, rel = _CORPORA[request.param]
-    copy = tmp_path / source.name
+    copy = tmp_path / "real" / source.name
     shutil.copytree(source, copy)
-    return request.param, (copy / rel)
+    return request.param, copy, rel
+
+
+def _in_project(file: str, project_root: Path) -> bool:
+    return relative_within(file, project_root) is not None
+
+
+def _spelled_under(file: str, root: Path) -> bool:
+    """Whether *file* is spelled under *root*, as given (the caller's spelling)."""
+    return Path(file).as_posix().startswith(root.as_posix().rstrip("/") + "/")
+
+
+def _in_project_files(obj: Any) -> list[str]:
+    out: list[str] = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "file" and isinstance(value, str):
+                out.append(value)
+            else:
+                out += _in_project_files(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            out += _in_project_files(item)
+    return out
 
 
 @pytest.mark.asyncio
-async def test_core_tool_responses_obey_the_path_contract(corpus_root: tuple[str, Path]) -> None:
-    corpus, root = corpus_root
-    project = root.as_posix()
+@pytest.mark.parametrize("opened_as", ["plain", "symlink"])
+async def test_core_tool_responses_obey_the_path_contract(
+    corpus_copy: tuple[str, Path, str], opened_as: str, tmp_path: Path
+) -> None:
+    corpus, copy, rel = corpus_copy
+    if opened_as == "symlink":
+        if sys.platform == "win32":
+            pytest.skip("creating symlinks needs privileges on Windows")
+        link = tmp_path / "link"
+        link.symlink_to(copy.parent, target_is_directory=True)
+        root = link / copy.name / rel
+    else:
+        root = copy / rel
+    project = os.path.abspath(root)
+    caller_root = Path(project)
     seeds = _module_seeds(root)[:_SEEDS_PER_CORPUS] + _EXTRA_SEEDS.get(corpus, [])
     responses: list[tuple[str, Any]] = [
         ("configure_packages", await server.configure_packages(project_path=project))
@@ -145,9 +215,15 @@ async def test_core_tool_responses_obey_the_path_contract(corpus_root: tuple[str
             responses.append(
                 (f"expand({seed}, {edge})", await server.expand(seed, edge, project_path=project))
             )
-        responses.append(
-            (f"trace({seed})", await server.trace(seed, list(EDGE_RESOLVERS), project_path=project))
-        )
+        if seed == seeds[0]:  # one trace per corpus reaches every Subgraph shape
+            responses.append(
+                (
+                    f"trace({seed})",
+                    await server.trace(
+                        seed, list(EDGE_RESOLVERS), project_path=project, max_depth=2
+                    ),
+                )
+            )
         location = node.get("location") or {}
         if location.get("file"):
             responses.append(
@@ -164,6 +240,21 @@ async def test_core_tool_responses_obey_the_path_contract(corpus_root: tuple[str
     assert any(walk_has_paths(r) for _, r in responses), f"{corpus}: no path was returned at all"
     problems = [f"{name}: {p}" for name, r in responses for p in walk(r)]
     assert not problems, "\n".join(problems[:40])
+
+    # #603 / #717: a file inside the project is spelled under the caller's root.
+    misspelled = [
+        f"{name}: {f}"
+        for name, r in responses
+        for f in _in_project_files(r)
+        if _in_project(f, caller_root) and not _spelled_under(f, caller_root)
+    ]
+    key = (corpus, opened_as)
+    if key in KNOWN_SPELLING_GAPS:
+        assert (
+            misspelled
+        ), f"{key} no longer misspells in-project paths: delete it from KNOWN_SPELLING_GAPS"
+    else:
+        assert not misspelled, "\n".join(misspelled[:20])
 
 
 def walk_has_paths(obj: Any) -> bool:

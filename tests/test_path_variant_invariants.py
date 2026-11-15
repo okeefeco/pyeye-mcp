@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,28 @@ _ROOTS: dict[str, Path] = {
     "src_layout": _FIXTURES / "added_sys_path_project",
 }
 _VARIANT_CORPORA = tuple(_ROOTS)
+
+#: Per-PR runs cover the corpora that catch #714-class bugs: a flat layout (the
+#: members edge's ``__main__`` stubs), a configured ``src/`` layout, and a
+#: namespace repo reached by a relative ``../`` config. The rest run when
+#: ``PYEYE_EXHAUSTIVE_PATHS=1``, which CI's push-to-main job sets.
+_EXHAUSTIVE_ENV = "PYEYE_EXHAUSTIVE_PATHS"
+_PER_PR_CORPORA = frozenset({"cross_tool", "src_layout", "xns_repo"})
+
+
+def _corpus_params(names: Iterable[str]) -> list[Any]:
+    exhaustive = os.environ.get(_EXHAUSTIVE_ENV) == "1"
+    return [
+        pytest.param(
+            name,
+            marks=pytest.mark.skipif(
+                name not in _PER_PR_CORPORA and not exhaustive,
+                reason=f"exhaustive path run; set {_EXHAUSTIVE_ENV}=1",
+            ),
+        )
+        for name in sorted(names)
+    ]
+
 
 _VARIANTS = ("symlink", "dotdot", "relative", "drive_case")
 
@@ -208,7 +231,7 @@ def _differences(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("variant", _VARIANTS)
-@pytest.mark.parametrize("corpus", _VARIANT_CORPORA)
+@pytest.mark.parametrize("corpus", _corpus_params(_VARIANT_CORPORA))
 async def test_a_path_variant_gives_identical_answers(
     corpus: str, variant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
