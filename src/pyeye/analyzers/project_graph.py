@@ -47,6 +47,7 @@ from typing import cast
 from pyeye import file_artifact_cache
 from pyeye._module_sentinel import DefinitionSentinel
 from pyeye.analyzers.base_resolution import extract_definitions
+from pyeye.path_utils import path_to_key
 
 #: A name-index: simple name -> all definition sites of that name in the project.
 NameIndex = dict[str, list[DefinitionSentinel]]
@@ -63,6 +64,12 @@ _name_indices: dict[str, dict[str, NameIndex]] = {}
 #: name (#508).  Built in the same pass and dropped together, so the two never
 #: disagree about which files they cover.
 _member_indices: dict[str, dict[str, NameIndex]] = {}
+#: Same keys again: the files the index build couldn't parse, POSIX-sorted (#729).
+#: A definition there is invisible to bare-name ``resolve``, so a miss says so.
+_index_unparseable: dict[str, dict[str, tuple[str, ...]]] = {}
+
+#: What one index build produces: names, members, unparseable files.
+_Indices = tuple[NameIndex, NameIndex, tuple[str, ...]]
 
 #: A project's invalidation count, plus a store-wide epoch bumped by a full clear.
 #: ``get_name_index`` stores a build only if neither moved since the caller read
@@ -107,6 +114,9 @@ class ClassGraph:
     import_tables: dict[str, dict[str, str]]
     module_defines: dict[str, dict[str, str]]
     star_sources: dict[str, list[str]]
+    #: Files in scope the server's interpreter couldn't parse, POSIX-sorted (#729).
+    #: A subclass defined there is unknown, never silently absent.
+    unparseable: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -128,6 +138,9 @@ class ImportGraph:
     """
 
     importers: dict[str, tuple[tuple[str | None, Path], ...]]
+    #: Files in scope the server's interpreter couldn't parse, POSIX-sorted (#729).
+    #: An importer there is unknown, never silently absent.
+    unparseable: tuple[str, ...] = ()
 
 
 #: The cached graphs: root -> (graph kind, layout key, scope key) -> graph.
@@ -232,16 +245,18 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
     return _build_indices(py_files, file_to_module)[0]
 
 
-def _build_indices(
-    py_files: list[Path], file_to_module: dict[Path, str | None]
-) -> tuple[NameIndex, NameIndex]:
-    """Build the name index and the member index (#508) in one pass."""
+def _build_indices(py_files: list[Path], file_to_module: dict[Path, str | None]) -> _Indices:
+    """Build the name index, the member index (#508) and the unparseable list (#729) in one pass."""
     index: NameIndex = {}
     members: NameIndex = {}
+    unparseable: list[str] = []
     for path in py_files:
         try:
             tree = file_artifact_cache.get_ast(path)
-        except (OSError, SyntaxError, ValueError):
+        except SyntaxError:
+            unparseable.append(path_to_key(path))  # disclosed, never silently dropped
+            continue
+        except (OSError, ValueError):
             continue
         module_name = file_to_module.get(path)
         # One module entry per file; for an __init__.py this is the regular
@@ -274,7 +289,7 @@ def _build_indices(
                 d.column,
             )
         )
-    return index, members
+    return index, members, tuple(sorted(unparseable))
 
 
 def generation(project_key: str) -> Generation:
@@ -336,13 +351,29 @@ def get_member_index(
     return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[1]
 
 
+def get_index_unparseable(
+    project_key: str,
+    py_files: list[Path],
+    file_to_module: dict[Path, str | None],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+) -> tuple[str, ...]:
+    """The files the index build couldn't parse, POSIX-sorted (#729).
+
+    Same arguments, caching and invalidation as :func:`get_name_index`; built
+    in the same pass.
+    """
+    return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[2]
+
+
 def _get_indices(
     project_key: str,
     py_files: list[Path],
     file_to_module: dict[Path, str | None],
     generation: Generation | None,
     layout_key: str,
-) -> tuple[NameIndex, NameIndex]:
+) -> _Indices:
     key = _normalize(project_key)
     cached = _cached(key, layout_key)
     if cached is not None:
@@ -351,19 +382,21 @@ def _get_indices(
         cached = _cached(key, layout_key)  # double-checked under lock
         if cached is not None:
             return cached
-        index, members = _build_indices(py_files, file_to_module)
+        built = _build_indices(py_files, file_to_module)
         if generation is None or generation == (_epoch, _generations.get(key, 0)):
-            _name_indices.setdefault(key, {})[layout_key] = index
-            _member_indices.setdefault(key, {})[layout_key] = members
-        return index, members
+            _name_indices.setdefault(key, {})[layout_key] = built[0]
+            _member_indices.setdefault(key, {})[layout_key] = built[1]
+            _index_unparseable.setdefault(key, {})[layout_key] = built[2]
+        return built
 
 
-def _cached(key: str, layout_key: str) -> tuple[NameIndex, NameIndex] | None:
+def _cached(key: str, layout_key: str) -> _Indices | None:
     index = _name_indices.get(key, {}).get(layout_key)
     members = _member_indices.get(key, {}).get(layout_key)
-    if index is None or members is None:
+    unparseable = _index_unparseable.get(key, {}).get(layout_key)
+    if index is None or members is None or unparseable is None:
         return None
-    return index, members
+    return index, members, unparseable
 
 
 def _get_graph(
@@ -464,11 +497,13 @@ def invalidate(project_key: str | None = None) -> None:
         if project_key is None:
             _name_indices.clear()
             _member_indices.clear()
+            _index_unparseable.clear()
             _graphs.clear()
             _epoch += 1
         else:
             key = _normalize(project_key)
             _name_indices.pop(key, None)
             _member_indices.pop(key, None)
+            _index_unparseable.pop(key, None)
             _graphs.pop(key, None)
             _generations[key] = _generations.get(key, 0) + 1

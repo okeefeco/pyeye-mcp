@@ -966,3 +966,50 @@ class TestE6UnresolvedImporters:
         bad["unresolved_importers"] = [entry]
         with pytest.raises(ConformanceViolation, match="E.7 unresolved_importers entry"):
             lint_response(bad, "expand")
+
+
+# ---------------------------------------------------------------------------
+# E.8 — unparseable_files placement (#729)
+# ---------------------------------------------------------------------------
+
+
+def _with_unparseable(edge: str, files: object) -> dict:
+    return {
+        "found": True,
+        "source": "pkg.Base",
+        "edge": edge,
+        "stubs": [],
+        "unparseable_files": files,
+    }
+
+
+class TestE8UnparseableFiles:
+    """E.8 (#729) — ``unparseable_files`` is subclasses / imported_by only, and well-typed."""
+
+    @pytest.mark.parametrize("edge", ["subclasses", "imported_by"])
+    def test_on_reverse_scan_edges_passes(self, edge: str) -> None:
+        lint_response(_with_unparseable(edge, ["/proj/new_syntax.py"]), "expand")
+        lint_response(_with_unparseable(edge, []), "expand")
+
+    def test_on_other_edge_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_IMPORTS)
+        bad["unparseable_files"] = ["/proj/new_syntax.py"]
+        with pytest.raises(ConformanceViolation, match="E.8 unparseable_files placement"):
+            lint_response(bad, "expand")
+
+    def test_on_unsupported_branch_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
+        bad["unparseable_files"] = ["/proj/new_syntax.py"]
+        with pytest.raises(ConformanceViolation, match="E.8 unparseable_files placement"):
+            lint_response(bad, "expand")
+
+    def test_must_be_list(self) -> None:
+        bad = _with_unparseable("subclasses", "/proj/new_syntax.py")
+        with pytest.raises(ConformanceViolation, match="E.8 unparseable_files type"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("entry", ["", "  ", 3, "a\nb"])
+    def test_entries_are_non_empty_single_line_str(self, entry: object) -> None:
+        bad = _with_unparseable("imported_by", [entry])
+        with pytest.raises(ConformanceViolation, match="E.8 unparseable_files entry"):
+            lint_response(bad, "expand")
