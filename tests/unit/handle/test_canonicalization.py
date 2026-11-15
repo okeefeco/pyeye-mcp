@@ -206,14 +206,21 @@ class TestExceptionGuards:
     """Validate that the outer exception-catching wrappers swallow errors silently."""
 
     @pytest.mark.asyncio
-    async def test_collect_re_exports_swallows_internal_error(self, analyzer: JediAnalyzer) -> None:
-        """If _collect_re_exports_impl raises, collect_re_exports returns []."""
-        with patch(
-            "pyeye.canonicalization._collect_re_exports_impl",
-            side_effect=RuntimeError("unexpected internal error"),
+    async def test_collect_re_exports_propagates_internal_error(
+        self, analyzer: JediAnalyzer
+    ) -> None:
+        """An internal failure propagates (#704): ``[]`` would claim "measured, none".
+
+        ``inspect`` catches it and leaves ``re_exports`` absent (unknown).
+        """
+        with (
+            patch(
+                "pyeye.canonicalization._collect_re_exports_impl",
+                side_effect=RuntimeError("unexpected internal error"),
+            ),
+            pytest.raises(RuntimeError, match="unexpected internal error"),
         ):
-            result = await collect_re_exports(Handle("package._impl.config.Config"), analyzer)
-        assert result == []
+            await collect_re_exports(Handle("package._impl.config.Config"), analyzer)
 
 
 # ---------------------------------------------------------------------------
@@ -306,16 +313,20 @@ class TestCollectReExportsImplEdgeCases:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_scan_handles_jedi_error_gracefully(self, analyzer: JediAnalyzer) -> None:
-        """_scan_package_for_handle absorbs Jedi errors and continues scanning."""
-        with patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi error")):
-            result = await _scan_package_for_handle(
+    async def test_scan_propagates_a_jedi_error(self, analyzer: JediAnalyzer) -> None:
+        """A file the scan can't read propagates (#704) rather than being skipped.
+
+        Skipping it would return a re-export list that claims to be complete.
+        """
+        with (
+            patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi error")),
+            pytest.raises(RuntimeError, match="jedi error"),
+        ):
+            await _scan_package_for_handle(
                 "package._impl.config.Config",
                 _FIXTURE / "package",
                 analyzer,
             )
-        # Should return empty list (no results due to error) rather than raising
-        assert isinstance(result, list)
 
     @pytest.mark.asyncio
     async def test_scan_handles_rglob_error_gracefully(self, analyzer: JediAnalyzer) -> None:
