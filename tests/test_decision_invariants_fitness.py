@@ -247,6 +247,31 @@ def _builds_project_roots(unit: ast.AST) -> bool:
     return "project_path" in attrs and "source_roots" in attrs
 
 
+def _classifies_package_path(unit: ast.AST) -> bool:
+    """Decides package-ness from a path: ``.name == "__init__.py"`` plus a
+    ``.suffix == ".py"`` or ``.is_dir()`` test.
+
+    Checking only ``.name == "__init__.py"`` (e.g. "is this importer a package
+    ``__init__``?") is not a package predicate; the second test is what turns
+    it into one.
+    """
+    names_init = other = False
+    for node in ast.walk(unit):
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Attribute):
+            values = [c.value for c in node.comparators if isinstance(c, ast.Constant)]
+            if node.left.attr == "name" and "__init__.py" in values:
+                names_init = True
+            if node.left.attr == "suffix" and ".py" in values:
+                other = True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "is_dir"
+        ):
+            other = True
+    return names_init and other
+
+
 def _patches_project_search(unit: ast.AST) -> bool:
     """A test that stubs ``<x>.project.search`` (``patch.object(..., "search")``)."""
     for node in ast.walk(unit):
@@ -333,6 +358,15 @@ PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {
     ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_modules"): "#628",
 }
 
+# 5. Package-ness is decided from a ``module_path`` in ONE predicate:
+#    ``project_layout.package_kind`` (#625).  ``None`` is "unknown"; each caller
+#    states what unknown means for it.
+PACKAGE_PREDICATE_SANCTIONED: Site | None = ("project_layout.py", "package_kind")
+PACKAGE_PREDICATE_ALLOWLIST: dict[Site, str] = {
+    # Legacy method unreachable from any MCP tool.
+    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
+}
+
 _EPIC_CHILDREN = frozenset({"#623", "#624", "#625", "#626", "#628", "#630"})
 _ALL_ALLOWLISTS: dict[str, dict[Site, str]] = {
     "synthetic-import": SYNTHETIC_IMPORT_ALLOWLIST,
@@ -340,6 +374,7 @@ _ALL_ALLOWLISTS: dict[str, dict[Site, str]] = {
     "project.search pinning tests": PROJECT_SEARCH_PINNING_TESTS_ALLOWLIST,
     "module-scope walk": MODULE_SCOPE_WALK_ALLOWLIST,
     "project roots": PROJECT_ROOTS_ALLOWLIST,
+    "package predicate": PACKAGE_PREDICATE_ALLOWLIST,
 }
 
 
@@ -399,6 +434,16 @@ def test_project_roots_come_from_one_helper() -> None:
         PROJECT_ROOTS_SANCTIONED,
         PROJECT_ROOTS_ALLOWLIST,
         "one project-roots helper",
+    )
+
+
+def test_package_predicate_lives_in_one_function() -> None:
+    """Package-ness is decided from a path in one predicate (#625)."""
+    _assert_ratchet(
+        _scan(SRC_ROOT, _classifies_package_path),
+        PACKAGE_PREDICATE_SANCTIONED,
+        PACKAGE_PREDICATE_ALLOWLIST,
+        "one package predicate",
     )
 
 
@@ -482,6 +527,20 @@ def test_project_roots_detector() -> None:
         "def only_project(a):\n    return a.project_path\n"
     )
     assert _fires(_builds_project_roots, source) == {"roots", "via_getattr"}
+
+
+def test_package_predicate_detector() -> None:
+    source = (
+        "def by_suffix(p):\n"
+        "    return p.name == '__init__.py' or p.suffix != '.py'\n"
+        "def by_dir(p):\n"
+        "    return p.name == '__init__.py' or p.is_dir()\n"
+        "def importer_is_package(f):\n"
+        "    return f.name == '__init__.py'\n"
+        "def only_dir(p):\n"
+        "    return p.is_dir()\n"
+    )
+    assert _fires(_classifies_package_path, source) == {"by_suffix", "by_dir"}
 
 
 def test_patches_project_search_detector() -> None:
