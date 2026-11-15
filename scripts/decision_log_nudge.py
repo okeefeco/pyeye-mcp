@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Post-commit nudge: flag commits that touch a contract surface.
 
-Prototype for the decision-log handoff gap (see docs/decisions/DECISIONS.md):
+Prototype for the decision-log handoff gap (see the decision log in docs/decisions/entries/):
 the decision-log trigger is meant to fire at the commit checkpoint, but relies
 on the agent remembering to surface it. This makes the signal *deterministic* —
 git runs it on every commit, it inspects the just-committed diff, and prints a
