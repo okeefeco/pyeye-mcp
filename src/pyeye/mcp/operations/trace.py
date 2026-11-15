@@ -144,6 +144,52 @@ def _stops_at(handle: str, scope: str, stop_when: dict[str, Any] | None) -> bool
     return False
 
 
+def _note_unsupported(
+    hop: dict[str, Any], edge: str, unsupported_edges: list[dict[str, str]]
+) -> None:
+    """Record an unsupported hop's ``{edge, reason, detail}`` once (de-duplicated)."""
+    entry = {"edge": edge, "reason": hop["reason"], "detail": hop["detail"]}
+    if entry not in unsupported_edges:
+        unsupported_edges.append(entry)
+
+
+def _record_hop_losses(
+    hop: dict[str, Any],
+    handle: str,
+    unresolved_call_sites: dict[str, int],
+    unresolved_imports: dict[str, list[str]],
+) -> None:
+    """Carry a walked hop's unresolved call sites / imports onto the Subgraph maps.
+
+    A node is popped (and each of its hops runs) exactly once, so each source
+    node is recorded a single time.  Only non-zero counts and non-empty lists are
+    kept: ``0`` / ``[]`` means "complete here", which the absent key already says.
+    """
+    if hop.get("unresolved_call_sites"):
+        unresolved_call_sites[handle] = hop["unresolved_call_sites"]
+    if hop.get("unresolved_imports"):
+        unresolved_imports[handle] = hop["unresolved_imports"]
+
+
+def _partition_hop(
+    stubs: list[dict[str, Any]], nodes: dict[str, Any], stop_when: dict[str, Any] | None
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Split a hop's stubs into (handles already in the closure, new stubs).
+
+    Boundary adjacents pruned by ``stop_when`` are in neither list: they are
+    never added, edged, expanded, or counted — and are NOT truncation.
+    """
+    known: list[str] = []
+    new: list[dict[str, Any]] = []
+    for stub in stubs:
+        adj = stub["handle"]
+        if adj in nodes:
+            known.append(adj)
+        elif not _stops_at(adj, stub["scope"], stop_when):
+            new.append(stub)
+    return known, new
+
+
 async def trace(
     start: str | list[str],
     follow: list[str],
@@ -256,31 +302,11 @@ async def trace(
             if hop.get("unsupported"):
                 # #621: wrong kind for this node — expand's own reason/detail,
                 # reported once per distinct (edge, reason, detail).
-                entry = {"edge": edge, "reason": hop["reason"], "detail": hop["detail"]}
-                if entry not in unsupported_edges:
-                    unsupported_edges.append(entry)
+                _note_unsupported(hop, edge, unsupported_edges)
                 continue
             walked_edges.add(edge)
-            if hop.get("unresolved_call_sites"):
-                # A node is popped (and its callees hop runs) exactly once, so this
-                # records each source node's count a single time. Only > 0 is kept:
-                # 0 means "callees complete here", which the absent key already says.
-                unresolved_call_sites[handle] = hop["unresolved_call_sites"]
-            if hop.get("unresolved_imports"):
-                # Same once-per-node guarantee; only non-empty lists are recorded.
-                unresolved_imports[handle] = hop["unresolved_imports"]
-
-            # Partition the hop: adjacents already in the closure (cycle edges),
-            # boundary adjacents pruned by ``stop_when`` (never added, edged,
-            # expanded, or counted — NOT truncation), and new adjacents.
-            known: list[str] = []
-            new: list[dict[str, Any]] = []
-            for stub in hop["stubs"]:
-                adj = stub["handle"]
-                if adj in nodes:
-                    known.append(adj)
-                elif not _stops_at(adj, stub["scope"], stop_when):
-                    new.append(stub)
+            _record_hop_losses(hop, handle, unresolved_call_sites, unresolved_imports)
+            known, new = _partition_hop(hop["stubs"], nodes, stop_when)
 
             # #621 item 2 — a hop is recorded ALL-OR-NOTHING (reserve before
             # expand, the #358 outline rule): if any new adjacent is cut, by the
