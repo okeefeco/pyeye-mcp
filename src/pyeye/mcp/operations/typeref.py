@@ -90,7 +90,7 @@ from pyeye._goto import binding_target, goto_target
 from pyeye._stdlib_static import is_stdlib
 from pyeye.handle import Handle
 from pyeye.project_layout import module_name_for_file
-from pyeye.resolver import Resolved, resolve_handle
+from pyeye.resolver import Resolved, resolve_item
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -498,7 +498,7 @@ def _stdlib_binding_handle(
     path = getattr(binding, "full_name", None) if binding is not None else None
     if not path or not is_stdlib(path):
         return None
-    resolved = resolve_handle(path, analyzer)
+    resolved = resolve_item(path, analyzer)  # per typeref: absent handle on failure (#704)
     if not isinstance(resolved, Resolved) or resolved.scope != "external":
         return None
     return Handle(resolved.handle)
@@ -536,7 +536,7 @@ async def _resolve_head_in_scope(
         paths.append(f"builtins.{name_str}")
     paths.append(name_str)
     for path in paths:
-        resolved = resolve_handle(path, analyzer)
+        resolved = resolve_item(path, analyzer)  # per typeref: absent handle on failure (#704)
         if isinstance(resolved, Resolved):
             return Handle(resolved.handle)  # always a valid dotted path
     return None

@@ -77,7 +77,7 @@ from pyeye._stdlib_static import is_stdlib, public_handle
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
-from pyeye.resolver import Resolved, handle_for_anchor, resolve_handle
+from pyeye.resolver import Resolved, handle_for_anchor, resolve_item
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -399,6 +399,20 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
 
 
+def _own_source(jedi_name: Any) -> Path | None:
+    """The source file an edge reads for *jedi_name*, or ``None`` when it has none.
+
+    A PEP 420 namespace package is anchored on its DIRECTORY (#444): it has no
+    module body, so it has no members, imports or callees of its own. That is
+    a measured empty, decided here explicitly, not by catching the
+    ``IsADirectoryError`` a read would raise (#704 made that a crash).
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is None or Path(module_path).is_dir():
+        return None
+    return Path(module_path)
+
+
 def _handle_for_name(
     name: Any, analyzer: JediAnalyzer, full_name: str | None = None
 ) -> Handle | None:
@@ -467,17 +481,16 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     Returns:
         A list of ``(canonical Handle, Jedi Name)`` pairs for direct members.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return []
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-    except Exception:
-        return []
+    # Jedi recovers from syntax errors, so a failure here is internal: it
+    # propagates, never a measured empty (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    names = script.get_names(all_scopes=True, definitions=True, references=False)
 
     selected = (
         (name, full_name)
@@ -528,24 +541,20 @@ def _module_members(
         without re-resolving.  Dedup is by handle string, keeping the first
         ``Name``.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return []
 
     # A module whose own file doesn't parse has unknown members, not none:
     # raised, never swallowed into [] (#703).  Parse first, so Jedi's error
-    # recovery can't produce a partial list for a file Python rejects.
-    try:
-        tree = parse_own_source(file_path)
-        # Step 1: enumerate top-level definitions the same way the legacy counter
-        # does — this guarantees parity with inspect._count_module_members for
-        # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=False, definitions=True, references=False)
-    except UnparseableSource:
-        raise
-    except Exception:  # non-parse failures: unchanged here, see #704
-        return []
+    # recovery can't produce a partial list for a file Python rejects. Any other
+    # failure is internal and propagates, never a measured empty (#704).
+    tree = parse_own_source(file_path)
+    # Step 1: enumerate top-level definitions the same way the legacy counter
+    # does — this guarantees parity with inspect._count_module_members for
+    # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    names = script.get_names(all_scopes=False, definitions=True, references=False)
 
     # Step 2: the names bound by module-scope import statements (guarded ones
     # included — see _iter_module_scope_imports, #360) come from *tree*.
@@ -685,7 +694,7 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """
     # Callers check edge_applies("callees", …) first (#626): functions and
     # methods (Jedi also reports @property getters as functions).
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
         return EdgeResult(adjacents=[], unresolved_call_sites=0)
@@ -694,10 +703,8 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     if func_node is None:
         return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except Exception:
-        return EdgeResult(adjacents=[], unresolved_call_sites=0)
+    # A failure here is internal: it propagates, never a measured empty (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
@@ -788,7 +795,7 @@ def _stdlib_import_target(
     """
     if node.level or not node.module or not is_stdlib(node.module):
         return None
-    resolved = resolve_handle(f"{node.module}.{name}", analyzer)
+    resolved = resolve_item(f"{node.module}.{name}", analyzer)  # per import (#704)
     if not isinstance(resolved, Resolved) or resolved.scope != "external":
         return None
     handle = _try_handle(resolved.handle)
@@ -821,7 +828,7 @@ def _canonical_import_targets(
     for handle, name in adjacents:
         module_path = getattr(name, "module_path", None)
         if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
-            resolved = resolve_handle(str(handle), analyzer)
+            resolved = resolve_item(str(handle), analyzer)  # per import (#704)
             if isinstance(resolved, Resolved) and resolved.handle != str(handle):
                 handle, name = Handle(resolved.handle), resolved.anchor
         key = str(handle)
@@ -1129,17 +1136,13 @@ def superclass_bases(
     # applicability table rather than a re-derived kind (#626).
     if not edge_applies("superclasses", jedi_name):
         return None
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
         return None
-    try:
-        tree = parse_own_source(file_path)  # unparseable: raised, not "no bases" (#703)
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except UnparseableSource:
-        raise
-    except Exception:  # non-parse failures: unchanged here, see #704
-        return None
+    tree = parse_own_source(file_path)  # unparseable: raised, not "no bases" (#703)
+    # Any other failure is internal and propagates (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     class_node = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line),
@@ -1252,17 +1255,13 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return EdgeResult(adjacents=[])
 
-    try:
-        tree = parse_own_source(file_path)  # unparseable: raised, not "imports nothing" (#703)
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except UnparseableSource:
-        raise
-    except Exception:  # non-parse failures: unchanged here, see #704
-        return EdgeResult(adjacents=[])
+    tree = parse_own_source(file_path)  # unparseable: raised, not "imports nothing" (#703)
+    # Any other failure is internal and propagates (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
@@ -1385,7 +1384,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     # Retrieve the parent Jedi Name via the Jedi API (not dotted-name arithmetic).
     try:
         parent = jedi_name.parent()
-    except Exception:
+    except AttributeError:  # a ModuleSentinel: a module has no enclosing scope
         return EdgeResult(adjacents=[])
 
     if parent is None:
