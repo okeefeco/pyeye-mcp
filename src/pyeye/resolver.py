@@ -19,13 +19,22 @@ Strategy order (the first hit wins):
    re-export alias (``package.Thing`` for ``package._impl.Thing``) is matched
    by name and followed to its definition, whose ``full_name`` becomes the
    canonical handle. There is no fallback to shallower modules after a miss.
-5. **Guarded inference**, last and only for handles outside the project
+5. **Private stdlib definition** (#544), for a stdlib class or function
+   outside the project: the real ``.py`` chain is followed statically to a
+   definition in a private stdlib module, named by its public re-exporting
+   module (:mod:`pyeye._stdlib_static`), so ``collections.abc.Mapping`` is the
+   class in ``_collections_abc.py``, not typeshed's reversed re-export of
+   ``typing.Mapping``.
+
+A handle in a platform-selected module (``os.path``, #329) is located at the
+``sys.platform`` branch that selects its implementation, the same on every OS.
+6. **Guarded inference**, last and only for handles outside the project
    boundary (#506): infer ``module.leaf`` through a synthetic import and accept
    a result only if its name equals the leaf. Inference can land on a
    different object (``typing.TYPE_CHECKING`` infers to ``bool``); refusing it
    is an honest miss rather than a wrong answer.
 
-Steps 3 and 5 read one :func:`_synthetic_import`, the one place a
+Steps 3 and 6 read one :func:`_synthetic_import`, the one place a
 ``jedi.Script(code=...)`` is built (``tests/test_decision_invariants_fitness.py``).
 
 This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
@@ -42,6 +51,7 @@ from pyeye import file_artifact_cache
 from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_sentinel import ModuleSentinel
+from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
 from pyeye.project_layout import (
@@ -113,6 +123,7 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
     kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
@@ -348,10 +359,15 @@ def _follow_alias(
 
 
 def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
-    """Steps 3 and 5 for a handle outside the project, from one synthetic import.
+    """Steps 3, 5 and 6 for a handle outside the project.
 
+    5. **Private stdlib definition** (#544), checked first because it needs no
+       Jedi inference: the real ``.py`` chain is followed statically
+       (:func:`pyeye._stdlib_static.stdlib_definition`) to a definition in a
+       private stdlib module; it is named by the public re-exporting module and
+       anchored on Jedi's definition ``Name`` at that file and line.
     3. **External module**: an inferred module whose ``full_name`` is *path*.
-    5. **External definition**, first rule that applies:
+    6. **External definition**, from one synthetic import; first rule that applies:
 
        a. *Definition at the requested site*: ``goto`` (through the one picker,
           :func:`pyeye._goto.goto_target`) lands on a definition whose
@@ -360,27 +376,53 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
           ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
           ``bool``.  A target at a DIFFERENT path is refused here, so a
           re-export never becomes canonical through this step
-          (``collections.abc.Mapping`` → ``typing.Mapping``, #544).
+          (typeshed's ``collections.abc.Mapping`` → ``typing.Mapping``, #544;
+          step 5 places the stdlib ABCs before this runs).
        b. *Guarded inference*: an inferred definition whose name equals the
           leaf; its ``full_name`` is the canonical handle (a re-export under the
           same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
     """
+    private = stdlib_definition(path)
+    if private is not None:  # a private stdlib definition, public handle (#544)
+        anchor = _anchor_at_stdlib_definition(private, analyzer)
+        if anchor is not None:
+            return private.handle, anchor
     inferred, target = _synthetic_import(path, analyzer)
     for name in inferred:  # 3
         if name.type == "module" and name.full_name == path:
             return path, name
     if "." not in path:
         return None
-    if (  # 5a
+    if (  # 6a
         target is not None
         and target.full_name == path
         and getattr(target, "module_path", None) is not None
     ):
         return path, target
     leaf = path.rsplit(".", 1)[-1]
-    for name in inferred:  # 5b
+    for name in inferred:  # 6b
         if name.name == leaf and name.full_name and _is_dotted_path(name.full_name):
             return name.full_name, name
+    return None
+
+
+def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer) -> Any | None:
+    """The Jedi definition ``Name`` at *found*'s file and line, or ``None``.
+
+    Anchoring on Jedi's own definition keeps ``kind``, ``signature`` and
+    ``location`` coming from the same place they do for every other symbol;
+    only the handle is the public one.
+    """
+    try:
+        names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
+            all_scopes=True, definitions=True, references=False
+        )
+    except Exception as exc:
+        logger.debug("resolver: names for %s failed: %s", found.file, exc)
+        return None
+    for name in names:
+        if name.name == found.name and name.line == found.line:
+            return name
     return None
 
 

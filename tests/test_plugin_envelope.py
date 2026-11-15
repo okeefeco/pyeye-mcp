@@ -121,9 +121,10 @@ def _all_tool_names() -> list[str]:
 ALL_TOOLS = _all_tool_names()
 
 
-#: Per-record keys #627 adds to every plugin result (handles, scope, location).
-#: The pins below strip them, so they still prove the pre-#594 output is unchanged.
-_ADDED_BY_627 = frozenset({"location", "scope", "handle", "unresolved"})
+#: Keys #627 adds: per-record handles, scope and location (slice A), and the
+#: model lookups' ``found`` discriminator (slice B). The pins below strip them, so
+#: they still prove the pre-#594 output is otherwise unchanged.
+_ADDED_BY_627 = frozenset({"location", "scope", "handle", "unresolved", "found"})
 
 
 def _strip_627(value: Any) -> Any:

@@ -8,6 +8,7 @@ end and a class-body attribute its class's end.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import jedi
@@ -81,13 +82,34 @@ def names(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
 def test_definition_spans_its_block(
     names: dict[str, object], full_name: str, last_body_line: int
 ) -> None:
-    """Unchanged by #693.
+    """A def/class ends on its block's last line, not the line after it (#709)."""
+    assert get_end_line(names[full_name]) == last_body_line
 
-    TODO(#709): parso's ``end_pos`` for a block ending in a newline is the start
-    of the NEXT line, so today's value is one past the block's last line.  #709
-    corrects it; this pins today's value so #693 provably leaves it alone.
-    """
-    assert get_end_line(names[full_name]) == last_body_line + 1
+
+def test_definition_matches_ast_end_lineno(names: dict[str, object]) -> None:
+    """Jedi-derived spans agree with the AST (``ClassSentinel`` uses ``end_lineno``)."""
+    tree = ast.parse(_SOURCE)
+    ast_ends = {
+        node.name: node.end_lineno
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    checked = 0
+    for full_name, name in names.items():
+        if not full_name or getattr(name, "type", None) not in ("function", "class"):
+            continue
+        assert get_end_line(name) == ast_ends[full_name.rsplit(".", 1)[-1]], full_name
+        checked += 1
+    assert checked == len(ast_ends)
+
+
+def test_definition_at_end_of_file_without_trailing_newline(tmp_path: Path) -> None:
+    """parso's end is ON the last line here; it must not be shortened by one."""
+    path = tmp_path / "eof.py"
+    path.write_text("def last():\n    return 1", encoding="utf-8")
+    script = jedi.Script(path=path, project=jedi.Project(str(tmp_path)))
+    (name,) = [n for n in script.get_names() if n.name == "last"]
+    assert get_end_line(name) == 2
 
 
 @pytest.mark.parametrize(
