@@ -63,6 +63,10 @@ E.6 ``unresolved_superclasses`` (#624) placement — only allowed on the support
 E.7 ``unresolved_importers`` (#668) placement — only allowed on the supported
     branch when ``edge == "imported_by"``; a list of non-empty single-line strs
     (the POSIX paths of importing files that have no module name).
+E.8 ``unparseable_files`` (#729) placement — only allowed on the supported
+    branch when ``edge`` is ``"subclasses"`` or ``"imported_by"``; a list of
+    non-empty single-line strs (the POSIX paths of files the server couldn't
+    parse).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -97,6 +101,9 @@ T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced)
     and non-empty lists of non-empty single-line target strs.  Optional.
 T.10 ``unresolved_importers`` (#668), when present (only if ``imported_by`` was
     traced), is a dict ``{handle: [file, ...]}`` shaped like T.8.  Optional.
+T.11 ``unparseable_files`` (#729), when present (only if ``subclasses`` or
+    ``imported_by`` was traced), is a dict ``{handle: [file, ...]}`` shaped like
+    T.8.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -1104,34 +1111,42 @@ def _check_expand_structural_floor(
         # E.5–E.7 — unresolved_imports (#494) / _superclasses (#624) / _importers (#668): if
         # present, must be on their edge's supported branch and be a list of
         # non-empty single-line strings.
-        for rule, key, edge_name in _EDGE_LOSS_LISTS:
+        for rule, key, edge_names in _EDGE_LOSS_LISTS:
             if key in response:
-                _check_edge_loss_list(response[key], rule, key, edge_name, edge_val, violations)
+                _check_edge_loss_list(response[key], rule, key, edge_names, edge_val, violations)
 
 
-#: Per-edge "couldn't name / couldn't resolve" lists on an ExpandResult:
-#: (rule, key, the one edge it may appear on).
-_EDGE_LOSS_LISTS = (
-    ("E.5", "unresolved_imports", "imports"),  # #494
-    ("E.6", "unresolved_superclasses", "superclasses"),  # #624
-    ("E.7", "unresolved_importers", "imported_by"),  # #668
+#: Per-edge "couldn't name / couldn't resolve / couldn't read" lists on an
+#: ExpandResult: (rule, key, the edges it may appear on).
+_EDGE_LOSS_LISTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("E.5", "unresolved_imports", ("imports",)),  # #494
+    ("E.6", "unresolved_superclasses", ("superclasses",)),  # #624
+    ("E.7", "unresolved_importers", ("imported_by",)),  # #668
+    ("E.8", "unparseable_files", ("subclasses", "imported_by")),  # #729
 )
 #: The same losses carried onto a trace Subgraph, keyed by node: (rule, key).
 _TRACE_LOSS_MAPS = (
     ("T.8", "unresolved_imports"),  # #494
     ("T.10", "unresolved_importers"),  # #668
+    ("T.11", "unparseable_files"),  # #729
 )
 
 
 def _check_edge_loss_list(
-    value: Any, rule: str, key: str, edge_name: str, edge_val: Any, violations: list[str]
+    value: Any,
+    rule: str,
+    key: str,
+    edge_names: tuple[str, ...],
+    edge_val: Any,
+    violations: list[str],
 ) -> None:
-    """E.5–E.7 — a supported-branch loss list: right edge, list of single-line strs."""
-    if not (isinstance(edge_val, str) and edge_val == edge_name):
+    """E.5–E.8 — a supported-branch loss list: right edge, list of single-line strs."""
+    if not (isinstance(edge_val, str) and edge_val in edge_names):
+        allowed = " or ".join(f"'{name}'" for name in edge_names)
         violations.append(
             f"[{rule} {key} placement] '{key}' is present but edge={edge_val!r} "
-            f"(not '{edge_name}'). It is only valid on the supported branch when "
-            f"edge == '{edge_name}'."
+            f"(not {allowed}). It is only valid on the supported branch when "
+            f"edge is {allowed}."
         )
         return
     if not isinstance(value, list):
@@ -1152,7 +1167,7 @@ def _check_edge_loss_list(
 
 
 def _check_trace_loss_map(value: Any, rule: str, key: str, violations: list[str]) -> None:
-    """T.8 / T.10 — ``{handle: [str, ...]}`` with non-empty lists (zero-loss nodes omitted)."""
+    """T.8 / T.10 / T.11 — ``{handle: [str, ...]}`` with non-empty lists (zero-loss nodes omitted)."""
     if not isinstance(value, dict):
         violations.append(
             f"[{rule} trace {key} type] '{key}' must be a dict {{handle: [str, ...]}}; "
@@ -2001,7 +2016,16 @@ def _check_found_discriminator(
 # K.1 — The documented kind vocabulary (``docs/api-redesign.md``).  Deliberately
 # hardcoded, not imported from ``pyeye.kinds``, like ``_NOT_FOUND_ECHO_BY_OPERATION``.
 _VALID_KINDS: frozenset[str] = frozenset(
-    {"class", "function", "method", "module", "variable", "attribute", "property"}
+    {
+        "class",
+        "function",
+        "method",
+        "module",
+        "variable",
+        "attribute",
+        "property",
+        "enum_member",  # #695
+    }
 )
 
 # K.1 — The keys that mark a dict as a handle-bearing answer or Stub.

@@ -27,7 +27,8 @@ is then supported or unsupported, distinguished by the presence of
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
       "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
       "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
-      "unresolved_importers": [file, ...] }  # imported_by ONLY (#668) — ABSENT otherwise
+      "unresolved_importers": [file, ...],   # imported_by ONLY (#668) — ABSENT otherwise
+      "unparseable_files": [file, ...] }     # subclasses / imported_by ONLY (#729) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, an unknown name, or ``not_applicable``: an implemented edge that
@@ -59,6 +60,10 @@ Design invariants
   paths of files that import the target but have no module name, so no handle
   and no stub (``my-script.py``, ``tools-dir/x.py``). ``[]`` when every
   importer has one. They are real dependents: count them for fan-in.
+- ``unparseable_files`` is present ONLY for the reverse scans ``subclasses`` and
+  ``imported_by`` (#729): the POSIX paths of files in scope that the server's
+  interpreter couldn't parse (e.g. newer syntax), so a subclass or importer
+  defined there is unknown, not absent.  ``[]`` when every file parsed.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
@@ -318,6 +323,11 @@ async def expand_resolved(
     # ([] when every importer has one) instead of silently missing.
     if edge_result.unresolved_importers is not None:
         result["unresolved_importers"] = edge_result.unresolved_importers
+    # unparseable_files (#729): the reverse scans subclasses / imported_by list
+    # the files the server couldn't parse ([] when all parsed), so an adjacent
+    # defined there is unknown, not absent.  Absent on every other edge.
+    if edge_result.unparseable_files is not None:
+        result["unparseable_files"] = edge_result.unparseable_files
     # subclasses is direct-only (#422); its (class-only, #626) result carries a
     # static pointer to the trace route for the full closure.
     if edge == "subclasses":

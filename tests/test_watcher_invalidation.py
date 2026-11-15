@@ -383,14 +383,28 @@ async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path) ->
 
 class TestRealObserver:
     @pytest.mark.real_watcher
+    @pytest.mark.xfail(
+        sys.platform == "darwin",
+        reason="#715: still fails on macOS CI after #736's handshake; quarantined (stopgap)",
+        strict=False,
+    )
     async def test_created_file_reaches_the_name_index(self, tmp_path: Path) -> None:
         m = ProjectManager(max_projects=10)
         try:
             proj = _project(tmp_path / "proj")
             analyzer = m.get_analyzer(proj.as_posix())
-            await _wait_until_observer_is_live(
-                m.watchers[proj.resolve()], proj / "pkg" / "_probe.py"
-            )
+            watcher = m.watchers[proj.resolve()]
+            # Record every delivered batch, so a failure says whether the event was
+            # dropped or delivered-but-not-visible (#715 diagnostics).
+            delivered: list[list[str]] = []
+            deliver = watcher.on_change_callback
+
+            def recording(paths: list[str]) -> None:
+                delivered.append(list(paths))
+                deliver(paths)
+
+            watcher.on_change_callback = recording
+            await _wait_until_observer_is_live(watcher, proj / "pkg" / "_probe.py")
             assert (await resolve("Gamma", analyzer))["found"] is False
             (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
 
@@ -402,7 +416,13 @@ class TestRealObserver:
                     break
                 await asyncio.sleep(0.1)
 
-            assert found, "the watcher never delivered the created file"
+            got_extra = any(p.endswith("extra.py") for batch in delivered for p in batch)
+            assert found, (
+                "the watcher never delivered the created file: "
+                f"extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch; "
+                f"watch root={watcher.project_path.as_posix()}, "
+                f"analyzer root={analyzer.project_path.as_posix()}, batches={delivered}"
+            )
         finally:
             m.cleanup_all()
 

@@ -124,6 +124,11 @@ class EdgeResult:
             files that import the target but have no module name, so no handle
             (``my-script.py``, ``tools-dir/x.py``).  Listed, never dropped.
             ``None`` for every other edge.
+        unparseable_files: For the reverse scans ``subclasses`` and
+            ``imported_by`` (#729), the POSIX paths of files in scope the
+            server's interpreter couldn't parse, so an adjacent defined there is
+            unknown, not absent.  ``[]`` when every file parsed; ``None`` for
+            every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
@@ -131,6 +136,7 @@ class EdgeResult:
     unresolved_imports: list[str] | None = None
     unresolved_superclasses: list[str] | None = None
     unresolved_importers: list[str] | None = None
+    unparseable_files: list[str] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -930,7 +936,7 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
     module_path = getattr(jedi_name, "full_name", None)
     target_file = getattr(jedi_name, "module_path", None)
     if not module_path or target_file is None:
-        return EdgeResult(adjacents=[], unresolved_importers=[])
+        return EdgeResult(adjacents=[], unresolved_importers=[], unparseable_files=[])
 
     found = await analyzer.find_importers(module_path, Path(target_file), scope="all")
 
@@ -948,7 +954,12 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
         adjacents.append((h, name))
 
     # #668: an importer without a handle is listed, never silently dropped.
-    return EdgeResult(adjacents=adjacents, unresolved_importers=sorted(unnamed))
+    # #729: neither is a file the scan couldn't parse.
+    return EdgeResult(
+        adjacents=adjacents,
+        unresolved_importers=sorted(unnamed),
+        unparseable_files=list(found.unparseable),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1034,7 +1045,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     """
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
-        return EdgeResult(adjacents=[])
+        return EdgeResult(adjacents=[], unparseable_files=[])
 
     # Project-internal DIRECT subclasses only (#422), project-scoped.  ``expand``
     # walks ONE edge to the IMMEDIATE neighbours, so ``subclasses`` returns the
@@ -1088,7 +1099,10 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # resolve_imported_by relies on find_importers' already-sorted output.
     adjacents.sort(key=lambda pair: str(pair[0]))
 
-    return EdgeResult(adjacents=adjacents)
+    # #729: a file the scan couldn't parse is disclosed, never silently dropped.
+    return EdgeResult(
+        adjacents=adjacents, unparseable_files=list(result.get("unparseable_files", []))
+    )
 
 
 # ---------------------------------------------------------------------------

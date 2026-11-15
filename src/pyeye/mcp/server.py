@@ -339,7 +339,7 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
     if tool_name == "get_model_schema":
         answer = plugin.schema_for(model)
     else:
-        answer = plugin.inheritance_for(model["name"], model, models)
+        answer = await plugin.inheritance_for(model["name"], model, models, scope)
     plugin_handles.enrich(tool_name, answer, lambda: analyzer)
     return {"found": True, **answer}
 
@@ -541,7 +541,7 @@ def configure_packages(
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
-        manager.namespace_resolver.register_namespace(namespace, ns_paths)
+        manager.namespace_resolver.register_namespace(namespace, ns_paths, project=root)
 
     # Invalidate cached analyzers for all paths so the next get_analyzer call
     # rebuilds with the updated package paths, namespaces, and standalone
@@ -702,7 +702,9 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
-        - attribute/property/variable: type?, default? (simple literals only)
+        - attribute/property/variable/enum_member: type?, default? (simple literals only).
+          A class-body binding is ``attribute``; a member of an ``enum.Enum``
+          subclass is ``enum_member`` (its ``default`` is the member's value).
 
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
@@ -758,7 +760,8 @@ async def expand(
         module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
         importer appears only here.  A file that imports it but has no module
         name (``my-script.py``, ``tools-dir/x.py``) can't be a stub; it is listed
-        in ``unresolved_importers`` (#668), never dropped.  Non-module handles
+        in ``unresolved_importers`` (#668), never dropped; a file the server's
+        Python can't parse is listed in ``unparseable_files`` (#729).  Non-module handles
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
         Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
@@ -834,6 +837,7 @@ async def expand(
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
+          "unparseable_files": [file, ...],  # subclasses / imported_by ONLY (#729); [] when all parsed
           "ceiling": str }               # #417 — the scope the list is complete over
 
     ``ceiling`` names the edge's static-surface ceiling (#417), absent only for
@@ -945,6 +949,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
           "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
           "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 
