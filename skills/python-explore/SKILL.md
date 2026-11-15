@@ -64,6 +64,11 @@ code, `Read` the `file:line` it points you at.
 
 Notes that matter:
 
+- **`kind`** is one of `class`, `function`, `method`, `module`, `variable`, `attribute`,
+  `property`, `enum_member`. A name bound in a class body is `attribute` (module- and
+  function-level names are `variable`); a member of an `enum.Enum` subclass is
+  `enum_member`. Where pyeye can't tell statically that a binding is a member, it says
+  `attribute`, never `enum_member`.
 - `resolve` already includes a `location` pointer, so it answers "where is this defined?"
   on its own — you do **not** need a follow-up `inspect` just for location. Use `inspect`
   when you want signature/docstring/`edge_counts`.

@@ -1901,7 +1901,16 @@ def _check_found_discriminator(
 # K.1 — The documented kind vocabulary (``docs/api-redesign.md``).  Deliberately
 # hardcoded, not imported from ``pyeye.kinds``, like ``_NOT_FOUND_ECHO_BY_OPERATION``.
 _VALID_KINDS: frozenset[str] = frozenset(
-    {"class", "function", "method", "module", "variable", "attribute", "property"}
+    {
+        "class",
+        "function",
+        "method",
+        "module",
+        "variable",
+        "attribute",
+        "property",
+        "enum_member",  # #695
+    }
 )
 
 # K.1 — The keys that mark a dict as a handle-bearing answer or Stub.

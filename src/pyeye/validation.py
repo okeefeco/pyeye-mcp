@@ -5,7 +5,7 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from .exceptions import ValidationError
-from .path_utils import ensure_posix_path
+from .path_utils import absolute_path, ensure_posix_path
 
 
 class PathValidator:
@@ -118,6 +118,12 @@ class PathValidator:
                     f"Accessing potentially sensitive path: {path_str_normalized}"
                 )
 
+        # The checks above ran on the resolved form. Hand back the caller's
+        # spelling, made absolute: a symlinked project_path must stay as the
+        # agent gave it, or every location comes back under the real path and
+        # can't be matched to the agent's own paths (#603, #717).
+        if resolved_path.is_absolute():
+            return absolute_path(path_str)
         return resolved_path
 
 

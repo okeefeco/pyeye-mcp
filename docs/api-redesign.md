@@ -170,7 +170,7 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 | Field | Type | Description |
 |-------|------|-------------|
 | `handle` | `str` | Canonical dotted-name handle |
-| `kind` | `str` | One of: `class`, `function`, `method`, `module`, `variable`, `attribute`, `property` |
+| `kind` | `str` | One of: `class`, `function`, `method`, `module`, `variable`, `attribute`, `property`, `enum_member`. A class-body binding is `attribute`; a member of an `enum.Enum` subclass is `enum_member` (#695) |
 | `scope` | `str` | `"project"` or `"external"` |
 | `location` | `dict` | Pointer to the definition (see below) |
 | `docstring` | `str \| null` | First paragraph of docstring |
