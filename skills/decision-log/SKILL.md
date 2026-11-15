@@ -58,10 +58,23 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 **Friction:** <the frustration that drove the change — what broke / didn't work / was unsafe>
 **Decision:** <what was decided and chosen; the rejected alternative if non-obvious>
 **Anchor:** <stable refs only — canonical symbol name(s) + #issue/PR or commit-pinned permalink>
+**Applies-to:** <recommended — EVERY site the rule governs, not just the ones this change touched; or how to enumerate them>
 **Verify:** <gold | partial | unverifiable — see below>
 ```
 
 Keep each field to a line or two. A 6-line entry that gets written beats a 40-line ADR that doesn't.
+
+## Applies-to (recommended, not required)
+
+`Anchor` names what this change *touched*. `Applies-to` names every site the rule *governs*. The gap between the two is where decisions drift: a rule applied only where the friction showed up, while sibling copies keep the old behaviour (#616; the 2026-11-15 duplication audit found #454, #457, #545 and #360 each applied to only some of their sites).
+
+- **Include it** whenever the rule governs more than one site, such as "every primitive", "all five walkers", "every edge in `EDGE_RESOLVERS`" or "no `project.search` call anywhere in `src/`".
+- **List the sites by stable reference** (symbol names, a registry, a module set), never `file:line`. If they are better found by a query than a list, give the query, e.g. `every function that builds a jedi.Script(code=...)`.
+- **Name the sites the change did NOT touch.** Writing an `Applies-to` broader than `Anchor` is the point. Say plainly which sites still diverge and link their issue, rather than implying full coverage.
+- **Omit it** when the rule genuinely has one site. Don't write `Applies-to: n/a`.
+- It is **optional**. Don't refuse, block or rewrite an entry because it lacks one, and don't backfill old entries just to add it. Add it when an entry is being written or a later change touches that entry's rule.
+
+**Prefer a Verify that sweeps the `Applies-to` sites over one that samples a single case.** A gold Verify that checks one handle, one primitive or one call site passes while the other sites drift. Prefer one that enumerates the sites, such as a parametrised test over every primitive, an AST scan of `src/` or a loop over a registry. When only a sample is checkable, label it `partial` and name the unswept sites as the residue.
 
 ## Honesty Discipline (what makes this more than prose)
 
@@ -69,6 +82,7 @@ The `Verify` line is the bridge to the trust layer. It MUST be one of three hone
 
 - **Gold (mechanically checkable):** a concrete assertion something can run — a test, a pyeye query, a grep, an import-linter contract. Precise enough to execute.
   `Verify: trace(<project handle>, ["callees"], stop_when={scope:"project"}) returns zero nodes with scope=="external".`
+  A sweeping gold Verify covers every `Applies-to` site: `Verify: an AST scan of src/pyeye finds no project.search( call.` beats `Verify: inspect("pkg.X") does not call project.search.`
 - **Partial:** the checkable portion as a gold assertion, plus the residue explicitly marked unverifiable.
   `Verify: PARTIAL — "module A imports B; B does not import A" via import-linter forbidden contract. "Must not mutate the registry" needs human/AST review.`
 - **Unverifiable:** `Verify: unverifiable — <reason>.` Still record the intent; just be honest the checker can't confirm it.
@@ -84,7 +98,7 @@ The `Verify` line is the bridge to the trust layer. It MUST be one of three hone
 ```text
 # Decision Log
 
-Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
+Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 ```
 
 ## Workflow
@@ -136,7 +150,8 @@ Never invent a passing check. An honest `unverifiable` is correct; a fabricated 
 - Drafting the entry before the user confirmed.
 - Proposing on a pure bugfix / rename / format / dep-bump.
 - Writing `Verify: looks correct` or any assertion nothing can run.
-- Using a bare `file:line` as the `Anchor`.
+- Using a bare `file:line` as the `Anchor` or in `Applies-to`.
+- Writing a single-case gold `Verify` for a rule that governs several sites, without labelling the unswept sites as residue.
 - Proposing a second time after the user already declined.
 - Inventing a date or a passing check.
 

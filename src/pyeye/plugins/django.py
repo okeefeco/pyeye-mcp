@@ -1,10 +1,10 @@
 """Django framework plugin for code intelligence."""
 
+import ast
 import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..async_utils import read_file_async
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -28,21 +28,15 @@ class DjangoPlugin(AnalyzerPlugin):
         for req_file in requirements_files:
             req_path = self.project_path / req_file
             if req_path.exists():
-                try:
-                    content = req_path.read_text().lower()
-                    if "django" in content:
-                        return True
-                except Exception:
-                    pass
+                content = self._read_text_or_skip(req_path)
+                if content is not None and "django" in content.lower():
+                    return True
 
         # Check for Django imports in Python files
         for py_file in self.project_path.glob("*.py"):
-            try:
-                content = py_file.read_text()
-                if "from django" in content or "import django" in content:
-                    return True
-            except Exception:
-                pass
+            content = self._read_text_or_skip(py_file)
+            if content is not None and ("from django" in content or "import django" in content):
+                return True
 
         return False
 
@@ -71,13 +65,12 @@ class DjangoPlugin(AnalyzerPlugin):
         # Look for models.py files
         models_files = await self.get_project_files("models.py", scope)
         for models_file in models_files:
-            try:
-                content = await read_file_async(models_file)
-                if "from django.db import models" in content or "Model" in content:
-                    # Simple heuristic - could be enhanced with AST parsing
-                    import ast
-
-                    tree = ast.parse(content)
+            content = await self._read_source(models_file)
+            if content is not None and (
+                "from django.db import models" in content or "Model" in content
+            ):
+                tree = self._parse_source(models_file, content)
+                if tree is not None:
 
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef):
@@ -94,9 +87,6 @@ class DjangoPlugin(AnalyzerPlugin):
                                             "type": "django_model",
                                         }
                                     )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {models_file.as_posix()}: {e}")
 
         return models
 
@@ -115,12 +105,10 @@ class DjangoPlugin(AnalyzerPlugin):
         # Look for views.py files
         views_files = await self.get_project_files("views.py", scope)
         for views_file in views_files:
-            try:
-                content = await read_file_async(views_file)
-                if "from django" in content:
-                    import ast
-
-                    tree = ast.parse(content)
+            content = await self._read_source(views_file)
+            if content is not None and "from django" in content:
+                tree = self._parse_source(views_file, content)
+                if tree is not None:
 
                     for node in ast.walk(tree):
                         # Find function-based views
@@ -148,9 +136,6 @@ class DjangoPlugin(AnalyzerPlugin):
                                             "type": "class_view",
                                         }
                                     )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {views_file.as_posix()}: {e}")
 
         return views
 
