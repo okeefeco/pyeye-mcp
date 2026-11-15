@@ -224,14 +224,20 @@ def _plugin_tool(
             # Plugins resolve only main/all/packages/namespace:/package:, so an
             # alias (from config or the caller) would otherwise search nothing.
             bound.arguments["scope"] = resolver.resolve_aliases(requested)
-        result = func(*bound.args, **bound.kwargs)
-        if _isawaitable(result):
-            result = await result
-        # Canonical handles, scope and absolute locations on every record (#627),
-        # before the envelope, so the bare list and `results` carry the same.
-        result = plugin_handles.enrich(
-            tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
-        )
+        if tool_name in _MODEL_LOOKUP_TOOLS:
+            # Select the model in one place, with the shared shapes (#627 slice B).
+            result = await _lookup_model(
+                tool_name, plugin, bound.arguments["model_name"], bound.arguments["scope"]
+            )
+        else:
+            result = func(*bound.args, **bound.kwargs)
+            if _isawaitable(result):
+                result = await result
+            # Canonical handles, scope and absolute locations on every record (#627),
+            # before the envelope, so the bare list and `results` carry the same.
+            result = plugin_handles.enrich(
+                tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
+            )
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
@@ -263,6 +269,69 @@ def _plugin_tool(
     wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
     return wrapper
+
+
+#: Plugin tools that look a model up by ``model_name`` (#627 slice B).
+_MODEL_LOOKUP_TOOLS: frozenset[str] = frozenset({"get_model_schema", "trace_model_inheritance"})
+_SCOPE_ORDER = {"project": 0, "external": 1}
+
+
+async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any) -> dict[str, Any]:
+    """Answer a model lookup: not found, ambiguous, or the one model (#627 slice B).
+
+    The shapes are the primitives' own:
+
+    - no match: the shared not-found shape (``not_found_for``), echoing
+      ``model_name``;
+    - several models of that name: resolve's ambiguous shape,
+      ``{found: True, ambiguous: True, candidates}``, each candidate a
+      ``{handle, kind, scope, location}`` sorted like resolve's;
+    - one model: the plugin's answer for it, enriched (#627), plus ``found: True``.
+
+    A dotted ``model_name`` is a handle. It is canonicalised by
+    ``resolve_handle`` (so a re-export alias works) and matched against each
+    model's handle, which is how a caller picks an ambiguous candidate. Nothing
+    here builds a handle.
+    """
+    from ..resolver import Resolved, resolve_handle
+    from .operations.not_found import not_found_for
+
+    analyzer = get_analyzer(plugin.project_path.as_posix())
+    models = await plugin.find_models(scope)
+    plugin_handles.enrich("find_pydantic_models", models, lambda: analyzer)
+
+    if "." in model_name:
+        resolved = resolve_handle(model_name, analyzer)
+        target = resolved.handle if isinstance(resolved, Resolved) else None
+        matches = [m for m in models if target is not None and m.get("handle") == target]
+    else:
+        matches = [m for m in models if m.get("name") == model_name]
+
+    if not matches:
+        return not_found_for(tool_name, {"model_name": model_name})
+
+    if len(matches) > 1:
+        candidates = [
+            {"handle": m["handle"], "kind": "class", "scope": m["scope"], "location": m["location"]}
+            for m in matches
+            if "handle" in m
+        ]
+        candidates.sort(
+            key=lambda c: (
+                _SCOPE_ORDER.get(c["scope"], 99),
+                c["location"]["file"],
+                c["location"].get("line_start", 0),
+            )
+        )
+        return {"found": True, "ambiguous": True, "candidates": candidates}
+
+    model = matches[0]
+    if tool_name == "get_model_schema":
+        answer = plugin.schema_for(model)
+    else:
+        answer = plugin.inheritance_for(model["name"], model, models)
+    plugin_handles.enrich(tool_name, answer, lambda: analyzer)
+    return {"found": True, **answer}
 
 
 def register_plugin_tools(

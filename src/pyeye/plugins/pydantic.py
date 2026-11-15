@@ -116,29 +116,38 @@ class PydanticPlugin(AnalyzerPlugin):
 
         for model in models:
             if model["name"] == model_name:
-                schema = {
-                    "model": model_name,
-                    # Where the model is defined, so the result can carry a handle (#627).
-                    "file": model["file"],
-                    "line": model["line"],
-                    "fields": model["fields"],
-                    "required": [],
-                    "optional": [],
-                    "validators": model["validators"],
-                    "computed_fields": [],
-                    "config": model["config"],
-                }
-
-                # Categorize fields
-                for field in model["fields"]:
-                    if field.get("required", True):
-                        schema["required"].append(field)
-                    else:
-                        schema["optional"].append(field)
-
-                return schema
+                return self.schema_for(model)
 
         return None
+
+    @staticmethod
+    def schema_for(model: dict[str, Any]) -> dict[str, Any]:
+        """Build the schema answer for one ``find_models`` record.
+
+        Selecting *which* model (by name or handle, and reporting a miss or an
+        ambiguity) is the MCP layer's job (#627); this only shapes the answer.
+        """
+        schema: dict[str, Any] = {
+            "model": model["name"],
+            # Where the model is defined, so the result can carry a handle (#627).
+            "file": model["file"],
+            "line": model["line"],
+            "fields": model["fields"],
+            "required": [],
+            "optional": [],
+            "validators": model["validators"],
+            "computed_fields": [],
+            "config": model["config"],
+        }
+
+        # Categorize fields
+        for field in model["fields"]:
+            if field.get("required", True):
+                schema["required"].append(field)
+            else:
+                schema["optional"].append(field)
+
+        return schema
 
     async def find_validators(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Pydantic validators in the project.
@@ -258,7 +267,19 @@ class PydanticPlugin(AnalyzerPlugin):
                 - "namespace:name": Specific namespace
         """
         models = await self.find_models(scope)
+        target = next((m for m in models if m["name"] == model_name), None)
+        return self.inheritance_for(model_name, target, models)
 
+    @staticmethod
+    def inheritance_for(
+        model_name: str, target: dict[str, Any] | None, models: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Build the inheritance answer for *target* (a ``find_models`` record).
+
+        Children are matched by base-class **name**, as before; with two models of
+        the same name, a child of either is listed under both (resolving bases is
+        #664's subclasses-edge work).
+        """
         hierarchy: dict[str, Any] = {
             "model": model_name,
             "parents": [],
@@ -266,17 +287,16 @@ class PydanticPlugin(AnalyzerPlugin):
             "mro": [],  # Method Resolution Order
         }
 
-        # Find the target model and its parents
-        for model in models:
-            if model["name"] == model_name:
-                hierarchy["parents"] = model["base_classes"]
-                # Where the model is defined, so the result can carry a handle (#627).
-                hierarchy["file"] = model["file"]
-                hierarchy["line"] = model["line"]
-                hierarchy["fields_inherited"] = []
-                hierarchy["fields_own"] = model["fields"]
+        if target is not None:
+            hierarchy["parents"] = target["base_classes"]
+            # Where the model is defined, so the result can carry a handle (#627).
+            hierarchy["file"] = target["file"]
+            hierarchy["line"] = target["line"]
+            hierarchy["fields_inherited"] = []
+            hierarchy["fields_own"] = target["fields"]
 
-            # Check if this model inherits from our target
+        # Check which models inherit from our target
+        for model in models:
             if model_name in model["base_classes"]:
                 hierarchy["children"].append(
                     {

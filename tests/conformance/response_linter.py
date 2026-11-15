@@ -123,7 +123,8 @@ lists.  No second traversal is needed in Check O — the existing walk reaches
 ``node`` Stubs and ``children`` items at any depth automatically.
 
 Check N — found discriminator (operation ∈ inspect / outline / expand /
-resolve / resolve_at, #545, #615)
+resolve / resolve_at, and the plugin lookups get_model_schema /
+trace_model_inheritance; #545, #615, #627)
 ---------------------------------------------------------------------------
 N.1 ``found`` is REQUIRED at the top level and is exactly ``True`` or ``False``
     (a plain bool, not truthy).  Absence is rejected: a consumer must be able to
@@ -141,6 +142,11 @@ N.2 ``found: False`` ⇒ the response is EXACTLY the not-found shape
                                              ``no_symbol_at_position``
     resolve_at  ``file``, ``line``,          the same three as resolve
                 ``column``
+    get_model_  ``model_name``               ``unresolved``
+    schema
+    trace_mod-  ``model_name``               ``unresolved``
+    el_inher-
+    itance
     ==========  ===========================  =====================================
 
     String echoes and ``detail`` are non-empty single-line str; ``line`` and
@@ -1664,7 +1670,16 @@ _OUTLINE_COUNT_KEYS: tuple[str, ...] = ("member_count", "submodule_count")
 
 # N.* — operations whose every response carries the ``found`` discriminator.
 _FOUND_DISCRIMINATED_OPERATIONS: frozenset[str] = frozenset(
-    {"inspect", "outline", "expand", "resolve", "resolve_at"}
+    {
+        "inspect",
+        "outline",
+        "expand",
+        "resolve",
+        "resolve_at",
+        # Plugin model lookups (#627).
+        "get_model_schema",
+        "trace_model_inheritance",
+    }
 )
 
 # N.2 — Per operation: the lookup-argument echo keys and the closed reason set
@@ -1681,6 +1696,8 @@ _NOT_FOUND_ECHO_BY_OPERATION: dict[str, tuple[frozenset[str], frozenset[str]]] =
     "expand": (frozenset({"handle", "edge"}), _HANDLE_REASONS),
     "resolve": (frozenset({"identifier"}), _POSITION_REASONS),
     "resolve_at": (frozenset({"file", "line", "column"}), _POSITION_REASONS),
+    "get_model_schema": (frozenset({"model_name"}), _HANDLE_REASONS),
+    "trace_model_inheritance": (frozenset({"model_name"}), _HANDLE_REASONS),
 }
 #: Echo keys whose value is a plain int; every other echo key is a str.
 _INT_ECHO_KEYS: frozenset[str] = frozenset({"line", "column"})

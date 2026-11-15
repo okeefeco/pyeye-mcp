@@ -1,7 +1,8 @@
 """The one not-found response shape, for every primitive (#545, #626).
 
 When a lookup misses, ``inspect`` / ``outline`` / ``expand`` / ``resolve`` /
-``resolve_at`` all return::
+``resolve_at``, and the plugin lookups ``get_model_schema`` /
+``trace_model_inheritance`` (#627), all return::
 
     { "found":  False,
       <lookup-argument echo>,   # per operation, under its own parameter names
@@ -23,6 +24,10 @@ resolve        ``identifier``            ``unresolved``, ``file_not_found``,
                                          ``no_symbol_at_position``
 resolve_at     ``file``, ``line``,       ``file_not_found``, ``no_symbol_at_position``,
                ``column``                ``unresolved``
+get_model_     ``model_name``            ``unresolved``
+schema
+trace_model_   ``model_name``            ``unresolved``
+inheritance
 =============  ========================  ===================================================
 
 ``trace`` has no top-level not-found: it reports unresolved roots in its
@@ -62,6 +67,9 @@ NOT_FOUND_SPEC: dict[str, NotFoundSpec] = {
     "expand": NotFoundSpec(("handle", "edge"), frozenset({NOT_FOUND_REASON})),
     "resolve": NotFoundSpec(("identifier",), _POSITION_REASONS),
     "resolve_at": NotFoundSpec(("file", "line", "column"), _POSITION_REASONS),
+    # Plugin model lookups (#627): a model name or handle that matches no model.
+    "get_model_schema": NotFoundSpec(("model_name",), frozenset({NOT_FOUND_REASON})),
+    "trace_model_inheritance": NotFoundSpec(("model_name",), frozenset({NOT_FOUND_REASON})),
 }
 
 
@@ -103,6 +111,13 @@ def _default_detail(operation: str, echo: Mapping[str, Any], reason: str) -> str
             f"{identifier!r} did not resolve to a symbol. Check the spelling, or "
             f"call resolve({_leaf(identifier)!r}) with the bare name to search the "
             "whole project."
+        )
+    if "model_name" in echo:
+        model_name = str(echo["model_name"])
+        return (
+            f"No Pydantic model matches {model_name!r}. Call find_pydantic_models to "
+            "list the models in scope, or pass a model's handle, or widen scope "
+            '(e.g. scope="all").'
         )
     handle = str(echo["handle"])
     return (
