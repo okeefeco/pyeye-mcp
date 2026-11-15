@@ -7,7 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
+from pyeye import project_manager as project_manager_module
 from pyeye.plugins.pydantic import PydanticPlugin
+from pyeye.project_manager import ProjectManager
+
+
+@pytest.fixture(autouse=True)
+def isolated_manager(monkeypatch: pytest.MonkeyPatch):
+    """A fresh ProjectManager per test: models are found through the project's
+    analyzer (#664), and the shared manager leaks namespaces across projects (#748)."""
+    m = ProjectManager(max_projects=10)
+    monkeypatch.setattr(project_manager_module, "_project_manager", m)
+    yield m
+    m.cleanup_all()
 
 
 @pytest.fixture
