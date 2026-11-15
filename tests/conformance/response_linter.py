@@ -765,6 +765,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "unknown_edge",
         # #626: an implemented edge that doesn't apply to the source's kind.
         "not_applicable",
+        # #703: the source's own file can't be parsed by the server's Python.
+        "unparseable",
     }
 )
 
@@ -782,7 +784,7 @@ _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"}
 # mode does not walk (#596).  Trace emits neither as a per-node reason, so the two
 # enums are kept apart.
 _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
-    {"max_depth", "max_nodes", "external", "survey_leaf"}
+    {"max_depth", "max_nodes", "external", "survey_leaf", "unparseable"}  # #703
 )
 
 # ---------------------------------------------------------------------------

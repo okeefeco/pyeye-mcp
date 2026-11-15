@@ -783,6 +783,10 @@ async def expand(
         members → class, module; callees → function, method; imports,
         imported_by, submodules → module; subclasses, superclasses → class;
         enclosing_scope → every kind except module.
+      - A source whose own file can't be parsed by the server's Python (e.g.
+        code using newer syntax) returns the unsupported branch with
+        ``reason: "unparseable"`` (#703), never ``stubs: []``: its edges were
+        not measured.  ``detail`` names the file and line; Read the file.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union.  ``found`` is always present.
@@ -816,7 +820,7 @@ async def expand(
           "unsupported": True,
           "reason":  str,               # deferred_reference_backend |
                                         # not_yet_implemented | unknown_edge |
-                                        # not_applicable
+                                        # not_applicable | unparseable
           "detail":  str,               # human-readable explanation
           "report_issues": str }        # #458 — URL to report this limitation
 
@@ -1020,6 +1024,9 @@ async def outline(
     - ``"survey_leaf"`` — package survey mode only (below): a module that HAS
       members, which a survey does not walk.  Recover with ``outline`` on that
       module's handle.  No ``member_count`` (one would cost a walk per leaf).
+    - ``"unparseable"`` — the node's own file can't be parsed by the server's
+      Python (e.g. newer syntax), so its members were not measured (#703).
+      Never ``children: []``.  Recover by reading the file.
 
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).

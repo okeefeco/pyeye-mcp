@@ -53,6 +53,7 @@ from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
+    UnparseableSource,
     _enumerate_submodule_paths,
     edge_applies,
     resolve_members,
@@ -416,7 +417,7 @@ async def _extract_attribute_info(
     return type_typeref, default_str
 
 
-def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
+def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str] | None:
     """Return a class's direct superclasses for the ``superclasses`` field.
 
     Reads the ``superclasses`` edge's own walk, :func:`superclass_bases`
@@ -431,9 +432,15 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
         analyzer: Active analyzer for file-level Jedi access.
 
     Returns:
-        A list of dotted-name strings (or raw base text) for direct superclasses.
+        A list of dotted-name strings (or raw base text) for direct superclasses,
+        or ``None`` when the class's own file can't be parsed (#703).
     """
-    bases = superclass_bases(jedi_name, analyzer) or []
+    try:
+        bases = superclass_bases(jedi_name, analyzer) or []
+    except UnparseableSource:
+        # #703: the class's file doesn't parse, so its bases are unknown. The
+        # field is omitted (not measured), never a measured ``[]``.
+        return None
     return [str(pair[0]) if pair is not None else text for text, pair in bases]
 
 
@@ -913,14 +920,16 @@ def _build_class_fields(
             when omitted.
 
     Returns:
-        A dict with ``superclasses: list[str]`` and optionally ``signature: str``.
+        A dict with ``superclasses: list[str]`` (omitted when the class's file
+        can't be parsed, #703) and optionally ``signature: str``.
     """
     fields: dict[str, Any] = {}
 
     # Superclasses
     if superclasses is None:
         superclasses = _get_superclasses(jedi_name, analyzer)
-    fields["superclasses"] = superclasses
+    if superclasses is not None:  # None: the file doesn't parse; omitted (#703)
+        fields["superclasses"] = superclasses
 
     # Class signature — from Jedi's get_signatures() which uses __init__
     sig = _build_signature(jedi_name)
