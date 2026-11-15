@@ -64,6 +64,7 @@ from .operations.resolve import (
     resolve_at as _resolve_at_impl,
 )
 from .operations.trace import trace as _trace_impl
+from .tool_errors import tool_errors
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -303,7 +304,7 @@ def register_plugin_tools(
             # Plugin tools build jedi.Scripts and share the analyzers' caches,
             # so they run on the Jedi worker like the core tools (#650).
             server.tool(name=tool_name)(
-                on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver))
+                tool_errors(on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver)))
             )
             registered.append(tool_name)
     return registered
@@ -382,6 +383,7 @@ def filter_fields(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
 @track_mcp_operation("configure_packages")
@@ -478,6 +480,7 @@ def configure_packages(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve")
 @track_mcp_operation("resolve")
@@ -520,6 +523,7 @@ async def resolve(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve_at")
 @track_mcp_operation("resolve_at")
@@ -557,6 +561,7 @@ async def resolve_at(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("inspect")
 @track_mcp_operation("inspect")
@@ -594,6 +599,7 @@ async def inspect(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("expand")
 @track_mcp_operation("expand")
@@ -746,6 +752,7 @@ async def expand(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("trace")
 @track_mcp_operation("trace")
@@ -841,6 +848,7 @@ async def trace(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("outline")
 @track_mcp_operation("outline")
