@@ -244,7 +244,10 @@ class TestTraceDeferredEdgeInFollow:
     async def test_all_supported_follow_reports_empty_unsupported(
         self, analyzer: JediAnalyzer
     ) -> None:
-        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        # superclasses applies to every node a class walk reaches (all classes),
+        # so nothing is unsupported.  (A ``members`` walk would list members as
+        # not_applicable for the class's attributes and methods, #626.)
+        result = await trace(_WIDGET_HANDLE, ["superclasses"], analyzer, max_depth=1)
         assert result["unsupported_edges"] == []
 
 
@@ -267,7 +270,7 @@ class TestTraceReportIssuesPointer:
 
     @pytest.mark.asyncio
     async def test_all_supported_follow_has_no_report_issues(self, analyzer: JediAnalyzer) -> None:
-        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=1)
+        result = await trace(_WIDGET_HANDLE, ["superclasses"], analyzer, max_depth=1)
         assert result["unsupported_edges"] == []
         assert "report_issues" not in result
 
@@ -544,14 +547,16 @@ class TestTraceMultiHopAndMultiEdge:
         # Both edge types are present and correctly labelled (not deduped across kinds).
         assert "members" in kinds
         assert "imported_by" in kinds
-        # #621: the module's members (classes, functions, variables) are
-        # wrong-kind for imported_by.  That is reported with expand's own
-        # kind-specific detail, never silently walked as measured-empty;
-        # members is supported everywhere, so it is never listed.
-        assert result["unsupported_edges"], "wrong-kind imported_by hops must be reported"
+        # #621/#626: the module's members (classes, functions, variables) are
+        # wrong-kind for imported_by, and its functions and variables are
+        # wrong-kind for members.  Each is reported with expand's own
+        # ``not_applicable`` reason and kind-specific detail, never silently
+        # walked as measured-empty.
+        reported = {entry["edge"] for entry in result["unsupported_edges"]}
+        assert "imported_by" in reported, "wrong-kind imported_by hops must be reported"
         for entry in result["unsupported_edges"]:
-            assert entry["edge"] == "imported_by"
-            assert entry["reason"] == "not_yet_implemented"
+            assert entry["edge"] in {"imported_by", "members"}
+            assert entry["reason"] == "not_applicable"
             assert "does not apply to a" in entry["detail"]
         for edge in result["edges"]:
             assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"

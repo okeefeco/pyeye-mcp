@@ -941,7 +941,10 @@ class TestTraceEndToEnd:
         # The start is a node and its members produced edges.
         assert "mypackage._core.widgets.Widget" in result["nodes"]
         assert any(e["kind"] == "members" for e in result["edges"])
-        assert result["unsupported_edges"] == []
+        # Widget's attributes and methods are not containers, so ``members``
+        # doesn't apply to them: listed as not_applicable, never walked (#626).
+        for entry in result["unsupported_edges"]:
+            assert (entry["edge"], entry["reason"]) == ("members", "not_applicable")
 
     @pytest.mark.asyncio
     async def test_deferred_edge_in_follow_surfaced_over_wire(self) -> None:
