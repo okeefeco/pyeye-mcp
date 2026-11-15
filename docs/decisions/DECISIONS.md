@@ -31,6 +31,34 @@ Not yet consolidated:
 - the mapper round-trips both ways on flat, src, root-package and additional-package layouts;
 - the root-package and additional-package regressions hold through `expand(imported_by)`, `resolve(<file>)`, `find_module_file` and the re-export scan.
 
+## 2026-11-15 — The #622 read/parse contract covers every plugin, plus detection and file discovery (#637)
+
+**Friction:** After #632 the Pydantic and Django AST tools, `AnalyzerPlugin.get_project_files` and every plugin's `detect()` still had broad `except Exception` blocks. An internal error read as "nothing found" (`[]`) or "not this framework" (`False`). Pydantic logged it only at debug. A file-discovery failure emptied **every** plugin tool.
+**Decision:** This amends the #622 entry below; it is the same rule, not a new one. Its Applies-to now covers every plugin, and its out-of-scope clause is resolved.
+
+- **One copy:** the read/parse helpers move onto `AnalyzerPlugin` (`_read_text_or_skip`, `_read_source`, `_parse_source`). Flask's private copies are deleted.
+- **AST tools:** an unreadable or unparseable file is warned about (no longer debug) and skipped; any other error propagates.
+- **Detection:** `detect()` raises on anything but an unreadable file. `initialize_plugins` keeps its per-plugin boundary, because plugins are optional and one bug must not stop the server. It now logs the failure with `logger.exception` (ERROR plus traceback) instead of a one-line warning. Rejected: letting detection errors abort startup (one plugin bug would take down every core tool).
+- **File discovery:** `get_project_files` no longer catches anything per search path, so a discovery error reaches the tool caller as an MCP error. A missing configured path is not an error; it yields no files, because `rglob` of a missing directory is empty. Rejected: returning a reported error inside the result, because plugin tools return bare lists and changing that shape belongs to #594/#627.
+**Anchor:** `pyeye.plugins.base.AnalyzerPlugin._read_text_or_skip` / `_read_source` / `_parse_source` / `get_project_files`; `pyeye.mcp.server.initialize_plugins`; `tests/unit/plugins/test_plugin_error_contract.py`; #637, #622.
+**Applies-to:** every `AnalyzerPlugin` file read and AST walk:
+- Pydantic `find_models`, `find_validators`, `find_model_config`, `find_computed_fields`. `get_model_schema`, `find_field_validators` and `trace_model_inheritance` delegate to these.
+- Django `find_models`, `find_views`.
+- The 8 Flask tools listed in the #622 entry.
+- `detect()` of all three plugins, and Flask `get_framework_components`.
+- `AnalyzerPlugin.get_project_files`.
+
+Not covered: `JediAnalyzer` (not a plugin). Django `find_urls`/`find_templates`/`find_migrations` and `get_framework_components` only glob, with no read or except.
+**Verify:** gold — `uv run pytest tests/unit/plugins/test_plugin_error_contract.py tests/unit/plugins/test_plugin_removed_ast_nodes.py` passes. Both files sweep the sites, parametrized per tool or plugin:
+
+- A broken `ast.walk` raises from every Pydantic and Django AST tool. A fixture guard checks that each tool finds results on the fixture, so a pass can't come from an empty result.
+- Syntax-error and undecodable files are skipped with a WARNING naming the file.
+- A broken `rglob_async` raises from a tool.
+- For each plugin's `detect()`: an internal error raises, and an unreadable file is skipped with a warning.
+- `initialize_plugins` logs a failed `detect()` at ERROR with `exc_info`.
+- Flask `get_framework_components` skips unreadable files and raises on other errors.
+- No plugin subclass redefines `_read_source`/`_parse_source`.
+
 ## 2026-11-15 — Flask plugin AST tools skip only unreadable or unparseable files; walk errors propagate (#622)
 
 **Friction:** Python 3.14 removed `ast.Str` and `ast.Num`, which the Flask plugin referenced inside per-file `except Exception` blocks. On 3.14 each reference would raise `AttributeError`, the file would be skipped, and every Flask tool would return `[]`, a silent false "nothing found" rather than a failure. An AST-API change and genuinely broken user code were treated the same.
@@ -43,6 +71,26 @@ Not yet consolidated:
 - Syntax-error and undecodable files are still skipped while the other files are found.
 - `test_analysis_errors_propagate_instead_of_returning_empty` is parametrized over all 8 Applies-to tools: an error raised during the walk reaches the caller.
 - `test_no_removed_ast_nodes_referenced_in_src` finds no `ast.Str`/`Num`/`Bytes`/`NameConstant`/`Ellipsis` anywhere in `src/`.
+
+## 2026-11-15 — v2.x release classification: contract-conforming corrections are `Fixed`, not breaking; a major is reserved for removals and renames (#629)
+
+**Friction:** The #629 drift audit found many responses that break the documented v2 contract: unresolvable stdlib handles, an echoed alias instead of the canonical handle, `kind: "namespace"`, measured `[]` for edges that don't apply, "never raises" tools that raise, and a documented `PYEYE_CACHE_TTL` that does nothing. Fixing them changes visible output. If each such change is called breaking, the epic forces a v3 weeks after v2.0, for clients that are mostly agents guided by the python-explore skill shipped in the same plugin, which upgrade in lockstep. `changelog.py prepare` refuses a minor bump when notes contain `### BREAKING CHANGES`, so one mislabelled entry would force a major by accident.
+**Decision:**
+
+- A change that makes output match the documented contract (spec, tool docstrings, absence-vs-zero, DECISIONS) is `### Fixed` (patch), even when clients see different answers. v2.0's own removals (#505) set this precedent: confidently wrong answers are bugs.
+- A new response field is `### Added` (minor).
+- Only removing or renaming a field, tool, argument or documented setting is `### BREAKING CHANGES` (major). Those changes are deferred and batched; the deprecation warning ships in 2.x first.
+
+Applied to the #629 children:
+
+- #626: wrong-kind becomes `unsupported`, raising becomes `found: false`, and `handle`/`detail` are added to resolve's not-found response. Fixed/Added.
+- #627: plugin results keep `name`/`file`/`line` and gain `handle`/`scope`/absolute path. Added.
+- #628: `PYEYE_CACHE_TTL` is wired to the live cache (Fixed). The four settings that are read but unused (#592) get a deprecation warning now and are removed only in a real major.
+- #594 is to be re-checked for an additive form before it keeps its `!`.
+
+Rejected: a v3 for the epic, which is churn with no protected client; holding every visible change for a major, which would ship known-wrong answers for longer.
+**Anchor:** `scripts/changelog.py` (`_BREAKING`, `prepare` under-bump check); `docs/RELEASE.md` "Semantic Versioning"; epic #629 and children #623, #626, #627, #628; #594; #505.
+**Verify:** PARTIAL — gold: while the next release is 2.x, `awk '/^## \[Unreleased\]/{f=1;next} /^## /{f=0} f' CHANGELOG.md | grep -c '^### BREAKING CHANGES'` prints 0, and `python scripts/changelog.py prepare 2.<x>.<y>` does not refuse. Unverifiable without human review: whether a given entry is truly contract-conforming (that needs reading the documented contract), and whether a removal was mislabelled `Fixed` to dodge the major.
 
 ## 2026-11-08 — worktree-hook declares its environment and requires uv, instead of running on whatever `python3` exists (#608)
 

@@ -1,5 +1,6 @@
 """Base plugin class for extending analyzer capabilities."""
 
+import ast
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -24,6 +25,37 @@ class AnalyzerPlugin(ABC):
         self.project_path = Path(project_path)
         self.additional_paths: list[Path] = []
         self.namespace_paths: dict[str, list[Path]] = {}
+
+    # Read/parse contract shared by every plugin (#622, #637): unreadable files and
+    # unparseable user source are warned about and skipped; anything else, such as an
+    # error raised while walking a parsed tree, propagates so that an internal failure
+    # can never read as "nothing found".
+
+    def _read_text_or_skip(self, path: Path) -> str | None:
+        """Read a file synchronously, or warn and return ``None`` if it cannot be read as text."""
+        try:
+            return path.read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
+            return None
+
+    async def _read_source(self, path: Path) -> str | None:
+        """Read a project file, or warn and return ``None`` if it cannot be read as text."""
+        from ..async_utils import read_file_async
+
+        try:
+            return await read_file_async(path)
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
+            return None
+
+    def _parse_source(self, path: Path, content: str) -> ast.Module | None:
+        """Parse user source, or warn and return ``None`` if it is not valid Python."""
+        try:
+            return ast.parse(content, filename=path.as_posix())
+        except (SyntaxError, ValueError, RecursionError) as e:
+            logger.warning(f"Plugin {self.name()}: error parsing {path.as_posix()}: {e}")
+            return None
 
     @abstractmethod
     def name(self) -> str:
@@ -122,41 +154,38 @@ class AnalyzerPlugin(ABC):
 
         all_files = []
         for path in search_paths:
-            try:
-                files = await rglob_async(pattern, path)
+            files = await rglob_async(pattern, path)
 
-                # If searching "main" scope only, exclude files in namespace subdirectories
-                if "main" in scopes and path == self.project_path:
-                    # Get all namespace paths that are subdirectories of main project
-                    namespace_subdirs = []
-                    for ns_paths in self.namespace_paths.values():
-                        for ns_path in ns_paths:
-                            try:
-                                # Check if namespace path is under main project
-                                ns_path.relative_to(self.project_path)
-                                namespace_subdirs.append(ns_path)
-                            except ValueError:
-                                # Not a subdirectory, ignore
-                                pass
+            # If searching "main" scope only, exclude files in namespace subdirectories
+            if "main" in scopes and path == self.project_path:
+                # Get all namespace paths that are subdirectories of main project
+                namespace_subdirs = []
+                for ns_paths in self.namespace_paths.values():
+                    for ns_path in ns_paths:
+                        try:
+                            # Check if namespace path is under main project
+                            ns_path.relative_to(self.project_path)
+                            namespace_subdirs.append(ns_path)
+                        except ValueError:
+                            # Not a subdirectory, ignore
+                            pass
 
-                    # Filter out files in namespace subdirectories
-                    filtered_files = []
-                    for f in files:
-                        is_in_namespace = False
-                        for ns_dir in namespace_subdirs:
-                            try:
-                                f.relative_to(ns_dir)
-                                is_in_namespace = True
-                                break
-                            except ValueError:
-                                pass
-                        if not is_in_namespace:
-                            filtered_files.append(f)
-                    files = filtered_files
+                # Filter out files in namespace subdirectories
+                filtered_files = []
+                for f in files:
+                    is_in_namespace = False
+                    for ns_dir in namespace_subdirs:
+                        try:
+                            f.relative_to(ns_dir)
+                            is_in_namespace = True
+                            break
+                        except ValueError:
+                            pass
+                    if not is_in_namespace:
+                        filtered_files.append(f)
+                files = filtered_files
 
-                all_files.extend(files)
-            except Exception as e:
-                logger.warning(f"Plugin {self.name()}: Error searching {path.as_posix()}: {e}")
+            all_files.extend(files)
 
         # Remove duplicates while preserving order
         seen = set()

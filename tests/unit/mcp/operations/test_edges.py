@@ -48,6 +48,7 @@ import pytest
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.handle import Handle
+from pyeye.kinds import normalise_kind
 from pyeye.mcp.operations.edges import (
     EdgeResult,
     edge_status,
@@ -59,7 +60,6 @@ from pyeye.mcp.operations.edges import (
     resolve_superclasses,
 )
 from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
-from pyeye.mcp.operations.resolve import _normalise_kind
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -473,7 +473,7 @@ class TestResolveCalleesMethodSource:
     """Spec §5.2 "function/method": a METHOD source also produces callees.
 
     Jedi reports methods (instance, class, static) with ``type="function"``,
-    so ``_normalise_kind`` returns ``"function"`` for them.  The ``"function"``
+    so ``normalise_kind`` returns ``"function"`` for them.  The ``"function"``
     gate in ``resolve_callees`` therefore intentionally INCLUDES methods — they
     are NOT excluded.  This class provides the regression test that was missing.
 
@@ -1685,7 +1685,7 @@ class TestResolveEnclosingScopeModule:
         from pyeye.mcp.operations.edges import resolve_enclosing_scope
 
         # Build a ModuleSentinel for the module handle — the resolver gates on
-        # _normalise_kind, which returns "module" for a sentinel.
+        # normalise_kind, which returns "module" for a sentinel.
         fixture_file = _NESTED_FIXTURE / "pkg" / "mod.py"
         sentinel = ModuleSentinel(fixture_file, _NESTED_MODULE_HANDLE, nested_analyzer)
         result = resolve_enclosing_scope(sentinel, nested_analyzer)
@@ -1810,7 +1810,7 @@ class TestImportEdgeRoundTrip:
                 # symbol handles (``from mod import Class``); reverse imported_by
                 # is module-level, so restrict to forward targets that are
                 # themselves project modules.
-                if _normalise_kind(getattr(m_name, "type", None)) != "module":
+                if normalise_kind(getattr(m_name, "type", None)) != "module":
                     continue
                 m_path = getattr(m_name, "module_path", None)
                 if m_path is None:

@@ -144,9 +144,11 @@ def initialize_plugins(project_path: str = ".") -> None:
                 _plugins.append(plugin)
                 logger.info(f"Activated {plugin.name()} plugin with namespace support")
 
-        except Exception as e:
-            logger.warning(f"Failed to load plugin {plugin_class.__name__}: {e}")
-            # Don't raise - plugins are optional
+        except Exception:
+            # Plugins are optional, so one failing to load must not stop the server.
+            # It is still a bug, not "framework absent": since #637 detect() raises on
+            # anything but an unreadable file, so report it with its traceback.
+            logger.exception(f"Failed to load plugin {plugin_class.__name__}")
 
     # Plugin tools called without ``scope`` resolve it through scope_defaults
     # (#559). Report configured keys that can't apply instead of ignoring them.
