@@ -41,7 +41,9 @@ from __future__ import annotations
 
 import ast
 import logging
-from collections import deque
+import threading
+from collections import OrderedDict, deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -50,8 +52,10 @@ from pyeye._module_scope import build_import_table
 from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
 from pyeye.import_analyzer import resolve_relative_import
+from pyeye.path_utils import path_to_key
 from pyeye.project_layout import (
     file_for_module,
+    layout_key,
     module_name_for_file,
 )
 
@@ -79,11 +83,89 @@ async def collect_re_exports(handle: Handle, analyzer: JediAnalyzer) -> list[Han
         Returns an empty list when no re-exports are found.
 
     Raises:
-        Exception: An internal failure while scanning (#704). It propagates so
-            the caller can leave ``re_exports`` absent (unknown); an empty list
-            would claim "measured, none".
+        Exception: An internal failure while scanning (#704), or
+            :class:`UnparseableReExportScan` when a file in the package couldn't
+            be parsed. Either propagates so the caller can leave ``re_exports``
+            absent (unknown); an empty list would claim "measured, none". The
+            ``re_exports`` edge (#393) uses :func:`re_export_scan` instead, which
+            lists such files and keeps the rest.
     """
-    return await _collect_re_exports_impl(handle, analyzer)
+    scan = await re_export_scan(handle, analyzer)
+    if scan.unparseable_files:
+        raise UnparseableReExportScan(scan.unparseable_files)
+    return [Handle(p) for p in scan.paths]
+
+
+class UnparseableReExportScan(Exception):
+    """Some files in the package couldn't be parsed, so the re-export list is incomplete."""
+
+    def __init__(self, files: tuple[str, ...]) -> None:
+        """Record the files (POSIX paths) that failed to parse."""
+        super().__init__(f"re-export scan could not parse {len(files)} file(s): {list(files)}")
+        self.files = files
+
+
+@dataclass(frozen=True)
+class ReExportScan:
+    """One symbol's public re-export paths, and the files the scan couldn't parse."""
+
+    #: Public dotted paths that bind the symbol (#712), sorted; not the handle itself.
+    paths: tuple[str, ...]
+    #: POSIX paths (``path_to_key``) of files that failed to parse, sorted (#729 shape).
+    unparseable_files: tuple[str, ...]
+
+
+# The shared re-export cache (#393): inspect's re_exports field and the
+# re_exports edge read the same scan. Keyed on the project, its effective
+# layout (#618: module names depend on it) and the handle. The watcher drops a
+# project's entries (ProjectManager._on_files_changed), as configure_packages
+# does. Locked like the TypeRef cache: the watcher thread invalidates while
+# analysis reads, and the lock is never held across an await.
+_ReExportKey = tuple[str, str, str]
+_RE_EXPORT_CACHE_MAX = 4096
+_re_export_cache: OrderedDict[_ReExportKey, ReExportScan] = OrderedDict()
+_re_export_lock = threading.Lock()
+
+
+def _re_export_key(handle: Handle, analyzer: JediAnalyzer) -> _ReExportKey:
+    return (path_to_key(analyzer.project_path), layout_key(analyzer), str(handle))
+
+
+async def re_export_scan(handle: Handle, analyzer: JediAnalyzer) -> ReExportScan:
+    """The (cached) re-export scan for *handle*: public paths plus unparseable files.
+
+    A file that fails to parse is listed and skipped, so the paths found in the
+    other files are still returned. Any other failure propagates and is not
+    cached (#704).
+    """
+    key = _re_export_key(handle, analyzer)
+    with _re_export_lock:
+        cached = _re_export_cache.get(key)
+        if cached is not None:
+            _re_export_cache.move_to_end(key)
+            return cached
+    unparseable: list[str] = []
+    paths = await _collect_re_exports_impl(handle, analyzer, unparseable)
+    scan = ReExportScan(
+        paths=tuple(sorted(str(p) for p in paths)),
+        unparseable_files=tuple(sorted(set(unparseable))),
+    )
+    with _re_export_lock:
+        _re_export_cache[key] = scan
+        while len(_re_export_cache) > _RE_EXPORT_CACHE_MAX:
+            _re_export_cache.popitem(last=False)
+    return scan
+
+
+def invalidate_re_exports(root: Path | str | None = None) -> None:
+    """Drop the cached re-export scans of the project at *root*, or all of them."""
+    with _re_export_lock:
+        if root is None:
+            _re_export_cache.clear()
+            return
+        key = path_to_key(root)
+        for cached in [k for k in _re_export_cache if k[0] == key]:
+            del _re_export_cache[cached]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +183,9 @@ def find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
     return file_for_module(analyzer, module_dotted)
 
 
-async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> list[Handle]:
+async def _collect_re_exports_impl(
+    handle: Handle, analyzer: JediAnalyzer, unparseable: list[str] | None = None
+) -> list[Handle]:
     """Core collection logic — may raise; callers catch.
 
     Uses a BFS scan of all Python files in the package tree.
@@ -159,7 +243,9 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
     # from .a import X -> pkg.X), so filtering the walk would lose it.
     while queue:
         current_target = queue.popleft()
-        new_handles = await _scan_package_for_handle(current_target, package_root, analyzer)
+        new_handles = await _scan_package_for_handle(
+            current_target, package_root, analyzer, unparseable
+        )
         for h, public in new_handles:
             if h not in visited:
                 visited.add(h)
@@ -176,7 +262,10 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
 
 
 async def _scan_package_for_handle(
-    target_full_name: str, package_root: Path, analyzer: JediAnalyzer
+    target_full_name: str,
+    package_root: Path,
+    analyzer: JediAnalyzer,
+    unparseable: list[str] | None = None,
 ) -> list[tuple[str, bool]]:
     """Scan all Python files under *package_root* for names with ``full_name == target_full_name``.
 
@@ -213,7 +302,15 @@ async def _scan_package_for_handle(
         # Jedi's full_name followed only ABSOLUTE imports: a package __init__'s
         # ``from .core import X`` came back as ``pkg.X`` and was never matched
         # (#712).
-        tree = file_artifact_cache.get_ast(py_file)
+        try:
+            tree = file_artifact_cache.get_ast(py_file)
+        except SyntaxError:
+            # Only a parse failure is "unparseable" (#703/#729). With a list,
+            # record it and keep scanning; without one it propagates (#704).
+            if unparseable is None:
+                raise
+            unparseable.append(path_to_key(py_file))
+            continue
         is_package = py_file.name == "__init__.py"
         table = build_import_table(tree, mod_path, resolve_relative_import, is_package)
 

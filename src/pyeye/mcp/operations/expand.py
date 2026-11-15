@@ -275,8 +275,13 @@ async def expand_resolved(
             "report_issues": meta.issues_url(),
         }
 
+    extras = edge_result.stub_extras or {}
     stubs = [
-        build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
+        {
+            **build_stub(name, str(adj_handle), analyzer),
+            **extras.get(str(adj_handle), {}),
+        }
+        for adj_handle, name in edge_result.adjacents
     ]
 
     result: dict[str, Any] = {"found": True, "source": source, "edge": edge, "stubs": stubs}

@@ -15,6 +15,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from ..analyzers.jedi_analyzer import JediAnalyzer
+from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
@@ -573,6 +574,7 @@ def configure_packages(
     # TypeRef cache, which is keyed on the root alone (#620).
     project_graph.invalidate(root.as_posix())
     typeref.invalidate_project(root)
+    invalidate_re_exports(root)
 
     # Plugins are configured once at startup; give this project's plugins the new
     # paths. Re-detection (a new package bringing a new framework) still needs a
@@ -776,6 +778,15 @@ async def expand(
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
         Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
+      - ``re_exports``  — symbol → the public MODULES that re-export it (#393).
+        Each stub is the re-exporting module; its ``bindings`` lists the public
+        dotted paths it provides (``["pkg.Foo"]``). Public means a package
+        ``__init__``, a name in ``__all__``, or a public module importing from
+        a ``_private`` one (#712); plain internal imports are ``imported_by``'s.
+        Package files the server's Python can't parse are listed in
+        ``unparseable_files``, and the rest are still reported.  Module handles
+        return ``not_applicable``.  Not in ``inspect``'s ``edge_counts``;
+        ``inspect``'s ``re_exports`` field is deprecated in its favour.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
         (no reverse symbol search).  Returns the DIRECT (depth-1) subclasses only
@@ -848,7 +859,7 @@ async def expand(
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
-          "unparseable_files": [file, ...],  # subclasses / imported_by ONLY (#729); [] when all parsed
+          "unparseable_files": [file, ...],  # subclasses / imported_by / re_exports ONLY (#729); [] when all parsed
           "ceiling": str }               # #417 — the scope the list is complete over
 
     ``ceiling`` names the edge's static-surface ceiling (#417), absent only for
@@ -861,6 +872,7 @@ async def expand(
       - ``static_imports``: import statements written in source; importlib / __import__ with a computed name is not included.
       - ``static_calls``: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
       - ``on_disk_modules``: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
+      - ``package_reexports``: import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included.
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -955,7 +967,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
-          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by/re_exports walked
           "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
           "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 
