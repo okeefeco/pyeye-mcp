@@ -38,6 +38,19 @@ def _no_real_file_watchers(request: pytest.FixtureRequest, monkeypatch: pytest.M
         monkeypatch.setattr("pyeye.cache.Observer", _InertObserver)
 
 
+@pytest.fixture(autouse=True)
+def _reset_jedi_worker() -> Generator[None, None, None]:
+    """Stop the Jedi worker thread after each test (#650), so none leaks.
+
+    Wrapped MCP tools start it lazily; the next test that needs it starts a
+    fresh one. Stopping an unstarted worker is a no-op.
+    """
+    yield
+    from pyeye.mcp.jedi_worker import shutdown
+
+    shutdown()
+
+
 @pytest.fixture
 def temp_project_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for test projects."""
