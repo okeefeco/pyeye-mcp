@@ -339,7 +339,7 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
     if tool_name == "get_model_schema":
         answer = plugin.schema_for(model)
     else:
-        answer = plugin.inheritance_for(model["name"], model, models)
+        answer = await plugin.inheritance_for(model["name"], model, models, scope)
     plugin_handles.enrich(tool_name, answer, lambda: analyzer)
     return {"found": True, **answer}
 
