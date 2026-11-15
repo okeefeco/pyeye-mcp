@@ -8,6 +8,7 @@ collision-winner determinism). These tests pin the public attribute to a
 stable ``list[Path]`` that equals the same paths handed to ``jedi.Project``.
 """
 
+import os
 from pathlib import Path
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -48,7 +49,7 @@ class TestAddedSysPathAttribute:
         """The stored attribute equals the list handed to ``jedi.Project``.
 
         No second computation path: the attribute is the same set of paths,
-        in the same order, just typed as ``Path`` instead of posix ``str``.
+        in the same order, just typed as ``Path`` instead of native ``str``.
         """
         from unittest.mock import Mock, patch
 
@@ -58,10 +59,21 @@ class TestAddedSysPathAttribute:
             analyzer = JediAnalyzer(str(_FIXTURE), config=config)
 
         passed = mock_project.call_args.kwargs["added_sys_path"]
-        attr_posix = [p.as_posix() for p in analyzer.added_sys_path]
-        assert attr_posix == list(passed)
+        # Jedi gets OS-native strings (it matches them textually against
+        # native module paths, #625); the attribute holds the same paths.
+        assert [Path(p) for p in passed] == analyzer.added_sys_path
+        assert list(passed) == [os.fspath(p) for p in analyzer.added_sys_path]
 
-    def test_added_sys_path_empty_without_config(self) -> None:
-        """Without config (no src/namespace roots) the attribute is empty."""
-        analyzer = JediAnalyzer(str(_FIXTURE), config=None)
-        assert analyzer.added_sys_path == []
+    def test_added_sys_path_without_config_matches_config(self) -> None:
+        """Without config, the src/ root is still detected (#625 slice 3).
+
+        Analyzers built with and without config share one src-layout rule, so
+        both hand Jedi the same roots. A project with no src layout and no
+        config still gets ``[]`` (``tests/test_bare_src_layout.py``).
+        """
+        bare = JediAnalyzer(str(_FIXTURE), config=None)
+        configured = JediAnalyzer(str(_FIXTURE), config=ProjectConfig(str(_FIXTURE)))
+        # Same root. The bare analyzer keeps project_path's unresolved spelling
+        # (#603), the configured one the config's resolved form.
+        assert [p.resolve() for p in bare.added_sys_path] == configured.added_sys_path
+        assert bare.added_sys_path == [Path(os.path.abspath(_FIXTURE)) / "src"]

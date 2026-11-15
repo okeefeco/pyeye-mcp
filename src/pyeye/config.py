@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import CONFIG_DIR, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
+from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -311,16 +312,10 @@ class ProjectConfig:
         Returns:
             True if src/ layout was found and added, False otherwise
         """
-        src_dir = self.project_path / "src"
-        if src_dir.exists() and src_dir.is_dir():
-            # Check if src/ contains Python packages
-            has_packages = any(
-                (item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()
-            )
-            if has_packages:
-                self.config.setdefault("packages", []).append("src")
-                logger.info("Auto-detected source layout: src/")
-                return True
+        if detect_src_layout(self.project_path) is not None:
+            self.config.setdefault("packages", []).append("src")
+            logger.info("Auto-detected source layout: src/")
+            return True
         return False
 
     def _discover_sibling_packages(self) -> list[str]:

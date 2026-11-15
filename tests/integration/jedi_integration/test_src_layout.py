@@ -16,6 +16,11 @@ from pyeye.mcp.operations.outline import outline as outline_impl
 from pyeye.mcp.operations.resolve import resolve as resolve_impl
 
 
+def _posix(paths: list[str] | None) -> list[str] | None:
+    """The sys_path strings handed to Jedi, in posix form for comparison."""
+    return None if paths is None else [Path(p).as_posix() for p in paths]
+
+
 class TestSrcLayoutSupport:
     """Test that src-layout projects work correctly with JediAnalyzer."""
 
@@ -104,7 +109,9 @@ where = ["src"]
             call_kwargs = mock_project.call_args.kwargs
             assert "added_sys_path" in call_kwargs, "Should pass added_sys_path to Jedi"
 
-            added_paths = call_kwargs["added_sys_path"]
+            # Jedi gets OS-native strings (#625); compare in posix form.
+
+            added_paths = _posix(call_kwargs["added_sys_path"])
             assert added_paths is not None, "added_sys_path should not be None"
 
             # Check that src directory is in added paths
@@ -145,7 +152,8 @@ where = ["src"]
             JediAnalyzer(str(src_layout_project), config=config)
 
             call_kwargs = mock_project.call_args.kwargs
-            added_paths = call_kwargs.get("added_sys_path", []) or []
+            # Jedi gets OS-native strings (#625); compare in posix form.
+            added_paths = _posix(call_kwargs.get("added_sys_path", []) or [])
 
             # src should be included (it's a subpath)
             src_path = (src_layout_project / "src").resolve().as_posix()
@@ -212,7 +220,8 @@ class TestSrcLayoutAutoDiscovery:
             JediAnalyzer(str(auto_discover_src_project), config=config)
 
             call_kwargs = mock_project.call_args.kwargs
-            added_paths = call_kwargs.get("added_sys_path")
+            # Jedi gets OS-native strings (#625); compare in posix form.
+            added_paths = _posix(call_kwargs.get("added_sys_path"))
 
             assert added_paths is not None, "added_sys_path should not be None"
 
@@ -272,7 +281,8 @@ sources = ["src"]
             JediAnalyzer(str(poetry_src_project), config=config)
 
             call_kwargs = mock_project.call_args.kwargs
-            added_paths = call_kwargs.get("added_sys_path")
+            # Jedi gets OS-native strings (#625); compare in posix form.
+            added_paths = _posix(call_kwargs.get("added_sys_path"))
 
             assert added_paths is not None
             src_path = (poetry_src_project / "src").resolve().as_posix()
@@ -288,7 +298,8 @@ sources = ["src"]
             JediAnalyzer(str(hatch_src_project), config=config)
 
             call_kwargs = mock_project.call_args.kwargs
-            added_paths = call_kwargs.get("added_sys_path")
+            # Jedi gets OS-native strings (#625); compare in posix form.
+            added_paths = _posix(call_kwargs.get("added_sys_path"))
 
             assert added_paths is not None
             src_path = (hatch_src_project / "src").resolve().as_posix()
