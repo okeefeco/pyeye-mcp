@@ -54,6 +54,7 @@ from ..scope_utils import SmartScopeResolver
 from ..settings import settings
 from ..validation import validate_mcp_inputs
 from . import meta
+from .jedi_worker import on_jedi_worker
 from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
 from .operations.outline import outline as _outline_impl
@@ -248,7 +249,9 @@ def register_plugin_tools(
                 )
             if resolver is not None:
                 tool_func = _with_scope_default(tool_name, tool_func, resolver)
-            server.tool(name=tool_name)(tool_func)
+            # Plugin tools build jedi.Scripts and share the analyzers' caches,
+            # so they run on the Jedi worker like the core tools (#650).
+            server.tool(name=tool_name)(on_jedi_worker(tool_func))
             registered.append(tool_name)
     return registered
 
@@ -329,6 +332,7 @@ def filter_fields(
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
 @track_mcp_operation("configure_packages")
+@on_jedi_worker
 def configure_packages(
     packages: list[str] | None = None,
     namespaces: dict[str, list[str]] | None = None,
@@ -405,6 +409,7 @@ def configure_packages(
 @validate_mcp_inputs
 @metrics.measure("resolve")
 @track_mcp_operation("resolve")
+@on_jedi_worker
 async def resolve(
     identifier: str,
     project_path: str = ".",
@@ -441,6 +446,7 @@ async def resolve(
 @validate_mcp_inputs
 @metrics.measure("resolve_at")
 @track_mcp_operation("resolve_at")
+@on_jedi_worker
 async def resolve_at(
     file: str,
     line: int,
@@ -471,6 +477,7 @@ async def resolve_at(
 @validate_mcp_inputs
 @metrics.measure("inspect")
 @track_mcp_operation("inspect")
+@on_jedi_worker
 async def inspect(
     handle: str,
     project_path: str = ".",
@@ -507,6 +514,7 @@ async def inspect(
 @validate_mcp_inputs
 @metrics.measure("expand")
 @track_mcp_operation("expand")
+@on_jedi_worker
 async def expand(
     handle: str,
     edge: str,
@@ -637,6 +645,7 @@ async def expand(
 @validate_mcp_inputs
 @metrics.measure("trace")
 @track_mcp_operation("trace")
+@on_jedi_worker
 async def trace(
     start: str | list[str],
     follow: list[str],
@@ -721,6 +730,7 @@ async def trace(
 @validate_mcp_inputs
 @metrics.measure("outline")
 @track_mcp_operation("outline")
+@on_jedi_worker
 async def outline(
     handle: str,
     project_path: str = ".",
