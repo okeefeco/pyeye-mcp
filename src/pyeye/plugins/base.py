@@ -3,7 +3,7 @@
 import ast
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
 Scope = str | list[str]
+
+
+def _normalized(paths: Iterable[Path]) -> set[Path]:
+    """Absolute, user-expanded, symlink-resolved paths, so equal locations compare equal."""
+    return {Path(p).expanduser().resolve() for p in paths}
 
 
 class AnalyzerPlugin(ABC):
@@ -206,6 +211,10 @@ class AnalyzerPlugin(ABC):
         Returns:
             Set of filesystem paths to search
         """
+        return self._scope_paths(scope)
+
+    def _scope_paths(self, scope: Scope, warn: bool = True) -> set[Path]:
+        """Synchronous core of :meth:`_resolve_scope_to_paths`."""
         paths = set()
 
         # Normalize to list for uniform processing
@@ -234,22 +243,78 @@ class AnalyzerPlugin(ABC):
                 if ns_name in self.namespace_paths:
                     paths.update(self.namespace_paths[ns_name])
                 else:
-                    logger.warning(f"Plugin {self.name()}: Namespace not found: {ns_name}")
+                    if warn:
+                        logger.warning(f"Plugin {self.name()}: Namespace not found: {ns_name}")
 
             elif s.startswith("package:"):
                 # Specific package path
                 pkg_path = Path(s[8:])  # Remove "package:" prefix
                 if pkg_path.exists():
                     paths.add(pkg_path)
-                else:
+                elif warn:
                     logger.warning(
                         f"Plugin {self.name()}: Package path does not exist: {pkg_path.as_posix()}"
                     )
 
             else:
-                logger.warning(f"Plugin {self.name()}: Unknown scope specification: {s}")
+                if warn:
+                    logger.warning(f"Plugin {self.name()}: Unknown scope specification: {s}")
 
         return paths
+
+    def configured_scopes(self) -> dict[str, set[Path]]:
+        """Map every scope this plugin is configured to search to the paths it covers.
+
+        In a stable order: ``main`` always; ``packages`` when configured packages
+        add paths beyond the main project and the namespaces (``additional_paths``
+        also holds those, as :func:`pyeye.mcp.server.initialize_plugins` sets it);
+        then one ``namespace:<name>`` per configured namespace, sorted.
+        """
+        namespace_paths = {
+            f"namespace:{name}": _normalized(self.namespace_paths[name])
+            for name in sorted(self.namespace_paths)
+        }
+        main = _normalized([self.project_path])
+        packages = _normalized(self.additional_paths) - main
+        for ns in namespace_paths.values():
+            packages -= ns
+        scopes: dict[str, set[Path]] = {"main": main}
+        if packages:
+            scopes["packages"] = packages
+        scopes.update(namespace_paths)
+        return scopes
+
+    def describe_scope(self, scope: Scope) -> tuple[list[str], list[str]]:
+        """Report what a search over ``scope`` covers, for the plugin-tool envelope (#594).
+
+        Coverage is decided by path, from the same resolution the search uses
+        (:meth:`_resolve_scope_to_paths`), so ``searched`` can't claim more than
+        was read.
+
+        Args:
+            scope: Scope specification, with aliases already expanded
+
+        Returns:
+            ``(searched, unsearched_scopes)``:
+
+            - ``searched``: the configured scopes (see :meth:`configured_scopes`)
+              whose paths were all searched, then each ``package:<path>`` scope
+              given that exists.
+            - ``unsearched_scopes``: the configured scopes with any path not
+              searched, so an agent can widen the search (e.g. ``scope="all"``).
+
+            A ``namespace:`` that isn't configured, a missing ``package:`` path and
+            an unknown scope search nothing, so they appear in neither list.
+        """
+        covered = _normalized(self._scope_paths(scope, warn=False))
+        searched: list[str] = []
+        unsearched: list[str] = []
+        for name, paths in self.configured_scopes().items():
+            (searched if paths <= covered else unsearched).append(name)
+        for s in [scope] if isinstance(scope, str) else scope:
+            if s.startswith("package:") and Path(s[8:]).exists() and s not in searched:
+                searched.append(s)
+        return searched, unsearched
 
     async def _get_scope_roots(self, scope: Scope) -> list[Path]:
         """Get all project roots based on scope.

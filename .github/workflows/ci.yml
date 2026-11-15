@@ -6,6 +6,14 @@
 # 3-version matrix. macOS combinations are dropped
 # on PRs first because macOS bills at 10x (see the multiplier table below).
 #
+# Merge queue (#649): a `merge_group` run must report EVERY required check
+# exactly once, or the queue waits forever. The required names are pre-commit,
+# type-check, changelog-validation, changes, security and the 6 `test-pr (os,
+# py)` names (the PR matrix). On merge_group there is no docs-only shortcut:
+# `changes` forces code=true, so the real test-pr and type-check jobs run and
+# their docs-only dummies skip. test-main stays push-only (its ref check never
+# matches a gh-readonly-queue/* ref).
+#
 # Platform minute multipliers (GitHub-hosted runners):
 # - Linux:   1x (1 minute = 1 minute billed)
 # - Windows: 2x (1 minute = 2 minutes billed)
@@ -18,6 +26,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -43,10 +53,14 @@ jobs:
   # Detect if only documentation files changed
   changes:
     runs-on: ubuntu-latest
+    # Each output takes the paths filter's value on pull_request and the forced
+    # value otherwise. (The outputs used to read only the filter step, so on
+    # push the "always run code checks" step never reached them; consumers only
+    # worked because they also tested event_name.)
     outputs:
-      docs: ${{ steps.filter.outputs.docs }}
-      code: ${{ steps.filter.outputs.code }}
-      plugins: ${{ steps.filter.outputs.plugins }}
+      docs: ${{ steps.filter.outputs.docs || steps.non-pr.outputs.docs }}
+      code: ${{ steps.filter.outputs.code || steps.non-pr.outputs.code }}
+      plugins: ${{ steps.filter.outputs.plugins || steps.non-pr.outputs.plugins }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -72,20 +86,24 @@ jobs:
             plugins:
               - 'plugins/**'
               - '.github/workflows/**'
-      # For non-PR events, always run code checks
+      # For non-PR events (push, merge_group, workflow_dispatch), always run
+      # code checks: a merge_group run must exercise the full matrix.
       - name: Set outputs for non-PR events
         if: github.event_name != 'pull_request'
         id: non-pr
         run: |
           echo "code=true" >> $GITHUB_OUTPUT
           echo "docs=false" >> $GITHUB_OUTPUT
+          echo "plugins=true" >> $GITHUB_OUTPUT
 
   test-pr:
-    # Runs on PRs - reduced endpoint matrix (see header)
-    # Skip if only documentation files changed
+    # Runs on PRs and merge-queue groups - reduced endpoint matrix (see header).
+    # Its 6 job names are required checks. Skipped only for docs-only PRs, when
+    # test-pr-dummy reports the same names instead; merge_group always has
+    # code == 'true'.
     needs: [changes]
     if: |
-      github.event_name == 'pull_request' &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15  # Prevent runaway tests
@@ -366,7 +384,9 @@ jobs:
             });
 
   # Dummy success jobs for docs-only PRs to satisfy branch protection
-  # These jobs report success when tests are skipped for documentation changes
+  # These jobs report success when tests are skipped for documentation changes.
+  # Never on merge_group: there code == 'true', so the real jobs report these
+  # names and a dummy would report them a second time.
   test-pr-dummy:
     name: test-pr (${{ matrix.os }}, ${{ matrix.python-version }})
     needs: [changes]
