@@ -302,7 +302,9 @@ async def outline(
     walks are explicit: ``max_depth=N``, or ``max_depth=None`` for unbounded.
 
     Static-surface ceiling: because the walk is over ``members``, the tree is
-    complete over statically-defined members but NOT over runtime-injected ones
+    complete over that edge's measured scope (class-body definitions for a
+    class, so instance attributes assigned in methods are NOT measured;
+    module-level definitions for a module) but NOT over runtime-injected ones
     (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
     ``__init_subclass__``) — e.g. a Django ``Model`` omits its metaclass-injected
     ``_meta`` / ``objects`` / ``DoesNotExist``.

@@ -81,9 +81,12 @@ Notes that matter:
   result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
   node, tree, or stubs, and `detail` naming the next step:
   - `inspect`/`outline`/`expand` echo `handle` (plus `edge` for `expand`), with
-    `reason: "unresolved"`. That means "this handle doesn't exist as written" (often the
-    right name under the wrong module path), not an empty symbol. Re-`resolve` the bare
-    name to get the canonical handle.
+    `reason: "unresolved"`. That means "pyeye couldn't resolve this handle as written":
+    unknown, **not** evidence the symbol is absent, and not an empty symbol. Often it is
+    the right name under the wrong module path, but some real symbols never resolve (an
+    instance attribute assigned in `__init__`, such as `self.project_path = …`).
+    Re-`resolve` the bare name to get the canonical handle; if that misses too, fall
+    back to `Read` or your LSP before concluding anything.
   - `resolve` echoes `identifier`, and `resolve_at` echoes `file`/`line`/`column`. Their
     `reason` is `unresolved`, `file_not_found` or `no_symbol_at_position`. A missing file
     is not a spelling problem, so don't retry `resolve` with other names for it.
@@ -125,17 +128,22 @@ not the module it was imported from.
 subclass stub's kind is `class`. Drill with `inspect(<handle>)` when you need a
 subclass's constructor signature or docstring.
 
-**Static-surface ceiling.** These structural edges are complete over what is
-*written in source*, not over what exists at runtime. `members` / `outline` /
+**Static-surface ceiling.** Each structural edge measures a stated scope, and a
+returned list is complete only over that scope. A class's `members` (and so its
+`outline`) are its **class-body definitions**: methods, nested classes and
+class-level assignments. Instance attributes assigned in methods (`self.x = …`)
+are **not measured**, so `self.project_path` set in `__init__` is absent from
+`members` although it is in source. A module's `members` are its module-level
+definitions. None of these edges covers what exists only at runtime: `members` / `outline` /
 `subclasses` do not see runtime-injected relationships — metaclass injection,
 `setattr`, `__getattr__`, `type(...)`, `__init_subclass__` registration, or
 `importlib` with computed targets. So `outline` of a Django `Model` omits its
 metaclass-injected `_meta` / `objects` / `DoesNotExist`, and the `subclasses`
 edge (direct children) plus a `trace` subclass closure cover literal
-`class B(A):` subclassing only. An absent member or subclass means "not in
-source," **not** "not at runtime" — don't report a static result as
-runtime-exhaustive. (Same boundary `imported_by` already names for dynamic
-imports.)
+`class B(A):` subclassing only. An absent member or subclass means "not
+measured in that scope": unknown beyond it, **not** proof of absence. Don't
+report a static result as exhaustive over instance attributes or the runtime.
+(Same boundary `imported_by` already names for dynamic imports.)
 
 ## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
@@ -207,6 +215,12 @@ demand — fetch it instead of guessing the repo slug. If a limitation looks lik
 real defect (not an expected static-surface ceiling), surface that URL to the user.
 
 ### Absence vs zero
+
+The general rule: **a value pyeye returns is a measured claim over a stated scope;
+anything it doesn't return, or can't resolve, is unknown, not absent.** That covers
+`found: false` (a resolution miss, not proof of absence), returned lists
+(complete only over their stated scope, see the static-surface ceiling above), and
+optional fields (absent means not measured).
 
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A
 present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
