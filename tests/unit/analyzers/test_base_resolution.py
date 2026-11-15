@@ -232,3 +232,109 @@ def test_build_star_sources_relative_in_nested_package() -> None:
     assert build_star_sources(
         ast.parse("from .impl import *"), "pkg.sub", _resolve_relative, is_package=True
     ) == ["pkg.sub.impl"]
+
+
+# ---------------------------------------------------------------------------
+# Walk semantics pinned for #630: the three builders read only UNGUARDED
+# top-level imports. A guarded import (TYPE_CHECKING, try/except shim, if
+# branch) can't be committed to statically, so it's left out and the base
+# punts to Jedi. This is the "never a wrong answer" contract, not an accident:
+# in a try/except shim, either branch may be the one that runs.
+# ---------------------------------------------------------------------------
+
+_GUARDED = """\
+from __future__ import annotations
+
+import typing
+from typing import TYPE_CHECKING
+
+from lib import Direct
+
+if TYPE_CHECKING:
+    from lib import TypeOnly
+
+try:
+    from fast import Shim
+except ImportError:
+    from slow import Shim
+
+if typing.TYPE_CHECKING:
+    from .sib import *
+
+with open(__file__):
+    from lib import InWith
+
+
+def f():
+    from lib import Local
+
+
+class C:
+    from lib import ClassAttr
+"""
+
+
+def _tree(source: str) -> ast.Module:
+    return ast.parse(source)
+
+
+def test_import_table_ignores_guarded_and_nested_imports() -> None:
+    table = build_import_table(_tree(_GUARDED), "app", _resolve_relative)
+    assert table == {
+        "annotations": "__future__.annotations",
+        "typing": "typing",
+        "TYPE_CHECKING": "typing.TYPE_CHECKING",
+        "Direct": "lib.Direct",
+    }
+
+
+def test_star_sources_ignore_guarded_star_imports() -> None:
+    assert build_star_sources(_tree(_GUARDED), "pkg.app", _resolve_relative) == []
+
+
+def test_module_defines_ignore_guarded_imports() -> None:
+    defines = build_module_defines(_tree(_GUARDED))
+    assert defines == {
+        "annotations": "import",
+        "typing": "import",
+        "TYPE_CHECKING": "import",
+        "Direct": "import",
+        "f": "func",
+        "C": "class",
+    }
+
+
+def test_guarded_base_punts_to_jedi() -> None:
+    """Bases imported only under a guard resolve to None, never a guess."""
+    tree = _tree(_GUARDED)
+    tables = {"app": build_import_table(tree, "app", _resolve_relative)}
+    defines = {
+        "app": build_module_defines(tree),
+        "lib": {"Direct": "class", "TypeOnly": "class"},
+        "fast": {"Shim": "class"},
+        "slow": {"Shim": "class"},
+    }
+    assert resolve_base("app", "Direct", tables, defines) == "lib.Direct"
+    assert resolve_base("app", "TypeOnly", tables, defines) is None
+    assert resolve_base("app", "Shim", tables, defines) is None
+
+
+def test_module_defines_first_binding_wins_between_assign_and_import() -> None:
+    """Assignments and imports both use setdefault, so source order decides."""
+    assert build_module_defines(_tree("X = 1\nfrom lib import X\n")) == {"X": "other"}
+    assert build_module_defines(_tree("from lib import X\nX = 1\n")) == {"X": "import"}
+
+
+def test_module_defines_definition_overrides_import_in_either_order() -> None:
+    assert build_module_defines(_tree("from lib import X\nclass X: ...\n")) == {"X": "class"}
+    assert build_module_defines(_tree("class X: ...\nfrom lib import X\n")) == {"X": "class"}
+
+
+def test_import_table_later_top_level_import_wins() -> None:
+    table = build_import_table(_tree("from a import X\nfrom b import X\n"), "m", _resolve_relative)
+    assert table == {"X": "b.X"}
+
+
+def test_star_sources_keep_source_order() -> None:
+    src = "from b import *\nfrom a import *\nfrom .c import *\n"
+    assert build_star_sources(_tree(src), "pkg.m", _resolve_relative) == ["b", "a", "pkg.c"]

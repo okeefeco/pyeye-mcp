@@ -43,10 +43,11 @@ LAYER_RULES: dict[str, frozenset[str]] = {
     "scope": frozenset({"pyeye.mcp"}),
     "kinds": frozenset({"pyeye.mcp"}),
     "project_layout": frozenset({"pyeye.mcp", "jedi"}),
+    "_module_scope": frozenset({"pyeye.mcp", "jedi"}),
 }
 
 #: Modules that exist today; guards against a path bug quietly emptying the sweep.
-ALWAYS_PRESENT = frozenset({"canonicalization", "scope", "kinds"})
+ALWAYS_PRESENT = frozenset({"canonicalization", "scope", "kinds", "_module_scope"})
 
 #: ``(module, banned package)`` → the issue that removes the violation.
 LAYER_ALLOWLIST: dict[tuple[str, str], str] = {}
