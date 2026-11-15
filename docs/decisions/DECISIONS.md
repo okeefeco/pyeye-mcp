@@ -2,6 +2,30 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-11-15 — trace walks exactly what expand supports: one hop = one `expand` (#621)
+
+**Friction:** `trace` and `expand` walked the same edges under different contracts. trace queued the Jedi `Name` each edge carried, so it walked interior handles `expand` refuses as unresolved (`logging`, `io`; #602). That walk reached Jedi's ~1500-frame `follow_imports` recursion on `io`/`weakref`, which killed the process on Windows/CPython 3.11 (#650). A resolver's wrong-kind `None` became `[]`, so `trace(SomeClass, ["imports"])` answered `unresolved_imports: {}, unsupported_edges: []`: "measured, all resolved" for something never measured. And `max_nodes` filled one adjacent at a time, so a hop could silently keep 2 of 7 members.
+**Decision:** Every trace hop is `expand_resolved(name, handle, edge)`, the body of `expand` after source resolution. `expand` is now "resolve, then `expand_resolved`", so there is one copy of the expandability logic.
+
+- Roots keep their own resolution (#623 slice 2 owns that). Interior nodes are resolved by handle when popped, as `expand` resolves its source. A node that doesn't resolve is not walked and is listed in the new always-present `unresolved_nodes` (Added; it parallels `unresolved_roots`, because #545's not-found decision left trace's list shape in place).
+- A wrong-kind hop adds `{edge, reason, detail}` to `unsupported_edges` with `expand`'s own values, de-duplicated. In a mixed-kind walk an entry means "not walked for nodes of the kind named in `detail`", not "the edge is unsupported".
+- `unresolved_call_sites` / `unresolved_imports` are present iff their edge was actually walked on at least one node, not merely requested.
+- Hops are all-or-nothing (reserve before expand, the #358 outline rule). If any new adjacent would be cut by `max_depth` or `max_nodes`, the hop adds and records nothing (cycle edges included) and sets the truncation reason. A recorded hop is always complete; an unrecorded one is covered by `truncation_reasons`, within the existing fields.
+- Rejected: copying expand's checks into trace (a third copy); filling partially and adding a per-node truncation field (new shape for what reserve-before-expand already makes honest); leaving unresolvable interior nodes silently unwalked (the measured-empty lie again).
+- Not fixed here: a direct `expand("io", "imports")` still recurses ~1500 frames. It is hidden today only because `io` doesn't resolve; #650 owns the guard, and it must land before #623 makes stdlib modules resolvable.
+**Anchor:** `pyeye.mcp.operations.expand.expand_resolved`; `pyeye.mcp.operations.trace.trace`; response_linter rule T.9.
+**Applies-to:** every place trace decides what to walk or how to report it:
+- `trace` root hops and interior hops (both through `expand_resolved`);
+- the Subgraph fields `unsupported_edges`, `unresolved_nodes`, `unresolved_call_sites`, `unresolved_imports` and `truncation_reasons`;
+- the documented shape in `trace.py`'s module docstring, the `trace` tool docstring in `server.py`, and `skills/python-explore/SKILL.md`;
+- linter rules T.4–T.9.
+- Out of scope: the single edge-applicability table (#626), which will replace the resolvers' `None` signal that `expand_resolved` reads.
+**Verify:** gold. `uv run pytest tests/unit/mcp/operations/test_trace.py tests/conformance/test_linter_adversarial_trace.py tests/test_cross_tool_invariants.py::test_trace_expand_agree` passes:
+- `TestTraceInteriorNodesFollowExpand`: `textwrap`/`logging` are nodes, are listed in `unresolved_nodes`, and the imports resolver is never run on `logging`/`io`/`weakref`;
+- `TestTraceWrongKindIsUnsupported`: the entry equals `expand`'s `{reason, detail}`, and `unresolved_imports` is absent;
+- `TestTraceHopBudgetIsAllOrNothing`: every recorded hop equals `expand`'s stub set for `max_nodes` ∈ {1, 2, 3, 4, 6, 9, 50};
+- the #614 fitness test has no `trace_expand` allow-list entries left.
+
 ## 2026-11-15 — One project-roots policy and one file↔module mapper, both named after Jedi's `full_name` (#625)
 
 **Friction:** Project roots were assembled in seven places with five different subsets, and files were mapped to module names by four helpers with different rules. The shared `_get_import_path_for_file` left out the root-package prefix and returned `None` for additional-package files. Only the name index's `_index_module_name` matched Jedi. As a result, in a project whose root is itself a package, `imported_by` and `resolve(<file>)` returned `b` instead of `rootpkg.b`, and `find_module_file("rootpkg.a")` found nothing. Importers in configured additional packages were silently dropped from `imported_by` (#619). The re-export scan named files from source roots and the project only, so it dropped re-exports inside additional packages.

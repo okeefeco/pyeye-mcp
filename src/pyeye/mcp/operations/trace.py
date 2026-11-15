@@ -15,8 +15,9 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "truncation_reasons": ["max_depth"? , "max_nodes"?],  # WHICH cap(s) fired
       "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
       "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
-      "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
-      "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
+      "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
+      "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
+      "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -65,6 +66,25 @@ cover flaky misses on the *other* edges (``members``/``imported_by``/
 ``subclasses`` resolve largely via deterministic AST); whole-walk determinism is
 the #419 / #333 backend concern, not something this field claims to solve.
 
+Every hop is ``expand`` (#621).  A node is walked along an edge only when
+``expand(node, edge)`` would answer found + supported for it — trace calls
+:func:`~pyeye.mcp.operations.expand.expand_resolved`, the body of ``expand``
+after resolution, so there is ONE copy of the expandability logic:
+
+- an interior node is resolved by handle (as ``expand`` resolves its source)
+  before it is walked; one that does not resolve is never walked and is listed
+  in the always-present ``unresolved_nodes`` (walking the Jedi ``Name`` the edge
+  carried is how trace used to expand handles every other primitive rejects);
+- an edge that does not apply to a node's kind is reported in
+  ``unsupported_edges`` with ``expand``'s reason and kind-specific detail —
+  never walked as a measured-empty hop;
+- ``unresolved_call_sites`` / ``unresolved_imports`` are present iff their edge
+  was actually walked on at least one node;
+- each hop is ALL-OR-NOTHING (reserve before expand, the #358 outline rule): if
+  any new adjacent would be cut by ``max_depth`` or ``max_nodes``, the hop adds
+  and records nothing and sets the truncation reason, so a recorded hop is
+  always complete.
+
 Termination: each handle is visited (expanded) at most once; edges *to* an
 already-visited handle are still recorded so cycles stay visible to the agent,
 but do not trigger re-expansion.  This guarantees termination on cyclic graphs.
@@ -73,57 +93,16 @@ but do not trigger re-expansion.  This guarantees termination on cyclic graphs.
 from __future__ import annotations
 
 from collections import deque
-from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
-from pyeye.mcp.operations.edges import EDGE_RESOLVERS, STATUS_IMPLEMENTED, edge_status
-from pyeye.mcp.operations.expand import _unsupported_detail
+from pyeye.mcp.operations.edges import STATUS_IMPLEMENTED, edge_status
+from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-
-
-async def _single_hop(
-    jedi_name: Any, edge: str, analyzer: JediAnalyzer
-) -> tuple[list[tuple[str, Any]], int | None, list[str] | None]:
-    """Resolve ONE edge from *jedi_name*.
-
-    Pure registry consumption: consults :func:`edge_status` and runs the
-    registered resolver (awaiting async resolvers like ``imported_by``).  An
-    unsupported edge or a wrong-kind (``None``) resolver result yields no
-    adjacents — honest no-op handling for the traversal layer.
-
-    Args:
-        jedi_name: Resolved Jedi ``Name`` (or sentinel) for the source handle.
-        edge: The edge to walk.
-        analyzer: Active analyzer.
-
-    Returns:
-        A 3-tuple ``(adjacents, unresolved_call_sites, unresolved_imports)``:
-
-        - ``adjacents``: ``(canonical_handle_string, adjacent_jedi_name)`` pairs —
-          the adjacent name is carried so the caller can build a stub without a
-          re-resolution (the load-bearing reason ``EdgeResult`` carries Names).
-        - ``unresolved_call_sites``: the ``callees`` count of call sites ``goto``
-          could not resolve (dynamic/un-inferable, or a flaky miss, #419), or
-          ``None`` for every non-``callees`` edge (the notion is callees-only).
-          Carried forward so ``trace`` can surface interior call-resolution loss
-          instead of silently dropping it (#488).
-        - ``unresolved_imports``: the ``imports`` list of statically-present
-          import targets ``goto`` could not resolve (#494), or ``None`` for every
-          non-``imports`` edge.  Carried forward for the same reason.
-    """
-    if edge_status(edge) != STATUS_IMPLEMENTED:
-        return [], None, None
-    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
-    edge_result = await raw if isawaitable(raw) else raw
-    if edge_result is None:
-        return [], None, None
-    adjacents = [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
-    return adjacents, edge_result.unresolved_call_sites, edge_result.unresolved_imports
 
 
 def _stops_at(handle: str, scope: str, stop_when: dict[str, Any] | None) -> bool:
@@ -224,24 +203,19 @@ async def trace(
 
     # ``nodes`` doubles as the visited set: a handle is added to ``nodes`` and
     # enqueued together, so membership in ``nodes`` means "already discovered".
+    # A queue entry carries the source's resolved Jedi ``Name`` for a ROOT (it
+    # was resolved above) and ``None`` for an interior node, which is resolved
+    # when popped — the same way ``expand`` resolves its source (#621).
     queue: deque[tuple[str, Any, int]] = deque()
 
-    # #488 (interior honesty): per-source-node count of call sites a ``callees``
-    # hop could not resolve (dynamic/un-inferable, or a flaky goto miss, #419).
-    # ``expand(callees)`` already reports this; without carrying it forward a
-    # ``trace`` subgraph would look more complete than it is. Surfaced ONLY when
-    # ``callees`` was actually traced (absent ⇒ not measured), and only nodes with
-    # a non-zero count are recorded.
-    callees_traced = "callees" in supported_follow
+    # #488 / #494 (interior honesty): per-node unresolved call sites / imports,
+    # carried from each walked hop.  Each map is surfaced ONLY if its edge was
+    # actually walked on at least one node (#621): a requested edge that was
+    # wrong-kind everywhere was never measured, so ``{}`` ("all resolved")
+    # would be a measured-zero claim about nothing.
     unresolved_call_sites: dict[str, int] = {}
-
-    # #494 (interior honesty): per-source-node list of statically-present imports
-    # an ``imports`` hop could not resolve. Same rationale as
-    # ``unresolved_call_sites`` for callees — surfaced ONLY when ``imports`` was
-    # traced (absent ⇒ not measured), and only nodes with unresolvable imports
-    # are recorded.
-    imports_traced = "imports" in supported_follow
     unresolved_imports: dict[str, list[str]] = {}
+    walked_edges: set[str] = set()
 
     # #488: a root that fails to resolve is recorded here, not silently dropped.
     # Without it an internal resolution miss (cold-start non-determinism, #419)
@@ -249,6 +223,11 @@ async def trace(
     # "this root has no neighbours" when really the root was never resolved. This
     # is the absence-vs-zero trap applied to *root resolution*.
     unresolved_roots: list[str] = []
+    # #621: the same guard for INTERIOR nodes.  A node ``expand`` cannot resolve
+    # is never walked (walking the Jedi ``Name`` the edge carried is how trace
+    # used to expand handles every other primitive rejects, #602) — so it is
+    # listed here rather than left as a silent leaf.
+    unresolved_nodes: list[str] = []
 
     for root in starts:
         jedi_name = await _resolve_handle_to_jedi_name(root, analyzer)
@@ -263,49 +242,62 @@ async def trace(
 
     while queue:
         handle, jedi_name, depth = queue.popleft()
+        if jedi_name is None:
+            jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
+            if jedi_name is None:
+                unresolved_nodes.append(handle)
+                continue
         # Resolve a node's edges even at the depth frontier — peeking one hop past
         # the frontier is how truncation is detected (a reachable-but-unvisited
         # neighbour) and how cycle edges back into the closure stay visible.
         can_expand = depth < max_depth
         for edge in supported_follow:
-            adjacents, hop_unresolved, hop_unresolved_imports = await _single_hop(
-                jedi_name, edge, analyzer
-            )
-            if edge == "callees" and hop_unresolved:
+            hop = await expand_resolved(jedi_name, handle, edge, analyzer)
+            if hop.get("unsupported"):
+                # #621: wrong kind for this node — expand's own reason/detail,
+                # reported once per distinct (edge, reason, detail).
+                entry = {"edge": edge, "reason": hop["reason"], "detail": hop["detail"]}
+                if entry not in unsupported_edges:
+                    unsupported_edges.append(entry)
+                continue
+            walked_edges.add(edge)
+            if hop.get("unresolved_call_sites"):
                 # A node is popped (and its callees hop runs) exactly once, so this
                 # records each source node's count a single time. Only > 0 is kept:
                 # 0 means "callees complete here", which the absent key already says.
-                unresolved_call_sites[handle] = hop_unresolved
-            if edge == "imports" and hop_unresolved_imports:
+                unresolved_call_sites[handle] = hop["unresolved_call_sites"]
+            if hop.get("unresolved_imports"):
                 # Same once-per-node guarantee; only non-empty lists are recorded.
-                unresolved_imports[handle] = hop_unresolved_imports
-            for adj_handle, adj_name in adjacents:
-                if adj_handle in nodes:
-                    # Already in the closure: record the (possibly cyclic) edge so
-                    # it stays visible, but never re-expand — this bounds the walk.
-                    edges.append({"from": handle, "to": adj_handle, "kind": edge})
-                    continue
-                # New adjacent — build its stub once.  The stub carries the
-                # resolved ``scope`` that the boundary predicate needs, and is
-                # reused as the node value when the adjacent is kept.
-                stub = build_stub(adj_name, adj_handle, analyzer)
-                if _stops_at(adj_handle, stub["scope"], stop_when):
-                    # Boundary: prune entirely — no node, no edge, no expansion.
-                    # NOT truncation: a deliberately-excluded handle (e.g. an
-                    # external node) is not a cap cutoff, so it never sets
-                    # ``truncated`` and never consumes the ``max_nodes`` budget.
-                    continue
-                if not can_expand:
-                    # A reachable handle one hop past the depth frontier: cut off.
-                    truncation_reasons.add("max_depth")
-                    continue
-                if len(nodes) >= max_nodes:
-                    # Node budget exhausted: this reachable handle is cut off.
-                    truncation_reasons.add("max_nodes")
-                    continue
-                nodes[adj_handle] = stub
-                edges.append({"from": handle, "to": adj_handle, "kind": edge})
-                queue.append((adj_handle, adj_name, depth + 1))
+                unresolved_imports[handle] = hop["unresolved_imports"]
+
+            # Partition the hop: adjacents already in the closure (cycle edges),
+            # boundary adjacents pruned by ``stop_when`` (never added, edged,
+            # expanded, or counted — NOT truncation), and new adjacents.
+            known: list[str] = []
+            new: list[dict[str, Any]] = []
+            for stub in hop["stubs"]:
+                adj = stub["handle"]
+                if adj in nodes:
+                    known.append(adj)
+                elif not _stops_at(adj, stub["scope"], stop_when):
+                    new.append(stub)
+
+            # #621 item 2 — a hop is recorded ALL-OR-NOTHING (reserve before
+            # expand, the #358 outline rule): if any new adjacent is cut, by the
+            # depth frontier or the node budget, the hop records no edges at all,
+            # so a walked hop is never silently partial.
+            if new and not can_expand:
+                truncation_reasons.add("max_depth")
+                continue
+            if len(nodes) + len(new) > max_nodes:
+                truncation_reasons.add("max_nodes")
+                continue
+            for adj in known:
+                edges.append({"from": handle, "to": adj, "kind": edge})
+            for stub in new:
+                nodes[stub["handle"]] = stub
+                edges.append({"from": handle, "to": stub["handle"], "kind": edge})
+                queue.append((stub["handle"], None, depth + 1))
 
     result: dict[str, Any] = {
         "nodes": nodes,
@@ -318,17 +310,16 @@ async def trace(
         # ``unsupported_edges``: absence would be a broken response, never a
         # meaningful "all resolved" signal.
         "unresolved_roots": unresolved_roots,
+        # #621: always present, for the same reason — every discovered interior
+        # node is resolved before it is walked.
+        "unresolved_nodes": unresolved_nodes,
     }
-    # #488 (interior honesty): present ONLY when ``callees`` was traced — call
-    # sites are not measured otherwise, so an absent key honestly means "not
-    # measured" (absence-vs-zero), distinct from the always-present
-    # ``unresolved_roots``. ``{}`` means callees were traced and all resolved.
-    if callees_traced:
+    # #488 / #494 (interior honesty): present ONLY when the edge was walked on at
+    # least one node — absent means "not measured" (absence-vs-zero); ``{}``
+    # means walked and everything resolved.
+    if "callees" in walked_edges:
         result["unresolved_call_sites"] = unresolved_call_sites
-    # #494 (interior honesty): present ONLY when ``imports`` was traced — same
-    # absence-vs-zero discipline. ``{}`` means imports were traced and every
-    # import resolved; entries are the per-node lists of unresolvable targets.
-    if imports_traced:
+    if "imports" in walked_edges:
         result["unresolved_imports"] = unresolved_imports
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,

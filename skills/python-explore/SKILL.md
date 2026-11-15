@@ -196,7 +196,7 @@ present `superclasses: 0` means measured-and-none (the class has no bases). An *
 
 ### `trace` honesty fields — an empty subgraph is not always "nothing there"
 
-A `trace` Subgraph carries two honesty fields. **Read them before treating the graph as
+A `trace` Subgraph carries several honesty fields. **Read them before treating the graph as
 complete** — an empty or clean-looking subgraph can mean a resolution miss, not a real zero:
 
 - **`unresolved_roots`** (always present): `[]` means every root resolved. A **non-empty**
@@ -204,6 +204,13 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   `unresolved_roots` is "I couldn't resolve the root" (a cold-start miss is possible, #419),
   **not** "this root has no neighbours." Retry, `resolve`/`inspect` the handle, or fall back
   to `Read`/your LSP — do not conclude the symbol calls/contains nothing.
+- **`unresolved_nodes`** (always present): interior nodes `trace` reached but could not
+  resolve (the same handles `expand` answers `found: false` for, e.g. some stdlib modules),
+  so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
+  node with no neighbours.
+- **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind
+  (e.g. `imports` on a class): its `detail` names the kind. Those nodes were not walked
+  along that edge — that's "not applicable", not "measured, none".
 - **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
   map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of

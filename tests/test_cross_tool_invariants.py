@@ -71,7 +71,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                          "wrong_kind_not_unsupported"}
 
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
-_ISSUE_621 = "#621"  # trace: wrong-kind as measured-empty; interior nodes skip resolution
 _ISSUE_623 = "#623"  # one canonical handle resolver
 _ISSUE_625 = "#625"  # one file<->module mapper / project-roots policy
 _ISSUE_626 = "#626"  # one edge-applicability table
@@ -252,16 +251,7 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package_var", "found", _ISSUE_625, ("bare",)),
-    # == 4. trace vs expand =================================================
-    # #621: trace expands `textwrap`, which expand refuses as unresolved.
-    ("trace_expand", "xpkg.text", "imports", "textwrap", "expanded_but_refused"): _ISSUE_621,
-    # #621: expand says imports/imported_by is unsupported for a class or
-    # function; trace reports it as measured-empty (unsupported_edges=[]).
-    **{
-        ("trace_expand", root, edge, root, "wrong_kind_not_unsupported"): _ISSUE_621
-        for root in ("xpkg.core.Color", "xpkg.core.Widget", "xpkg.core.make_widget")
-        for edge in ("imported_by", "imports")
-    },
+    # == 4. trace vs expand: none since #621.
 }
 
 
@@ -645,11 +635,12 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
 #: (root, edge) pairs traced.  Covers project and stdlib imports, a namespace
 #: package, class hierarchies, callees, and wrong-kind edges on each kind.
 #:
-#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: trace walks
-#: ``logging`` -> ``io``/``weakref`` (interior nodes expand refuses, #621) and
-#: their ``imports`` hops recurse ~1500 frames deep in Jedi, which overflows the
-#: C stack and kills the process on Windows / CPython 3.11.  ``xpkg.text``
-#: (``import textwrap``) exercises the same interior-node gap shallowly.
+#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: an ``imports`` hop ON
+#: ``io``/``weakref`` recurses ~1500 frames deep in Jedi, which overflows the C
+#: stack and kills the process on Windows / CPython 3.11 (#650).  Since #621
+#: trace no longer walks ``logging`` (expand can't resolve it), but once #623
+#: makes stdlib modules resolvable the walk would reach ``io`` again — re-add
+#: the case when #650 lands.  ``xpkg.text`` (``import textwrap``) stays shallow.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (

@@ -173,6 +173,31 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     if jedi_name is None:
         return not_found(handle, edge=edge)
 
+    return await expand_resolved(jedi_name, handle, edge, analyzer)
+
+
+async def expand_resolved(
+    jedi_name: Any, handle: str, edge: str, analyzer: JediAnalyzer
+) -> dict[str, Any]:
+    """Walk one *edge* from an ALREADY-resolved source — expand minus resolution.
+
+    This is the whole of :func:`expand` after the source handle resolved: the
+    edge-status check, the resolver's wrong-kind (``None``) signal, and the stub
+    build.  ``trace`` calls it for every hop (#621) so that it walks exactly what
+    ``expand`` would answer found + supported for, with the same unsupported
+    ``reason``/``detail`` — one copy of the expandability logic, not two.
+
+    Args:
+        jedi_name: The resolved Jedi ``Name`` (or sentinel) for the source.
+        handle: The handle the caller resolved (used when the name has no
+            ``full_name``).
+        edge: The traversal edge to walk.
+        analyzer: Configured ``JediAnalyzer`` for the project.
+
+    Returns:
+        The supported or unsupported branch of :func:`expand` (always
+        ``found: True``).
+    """
     # Prefer the canonical resolved full_name; fall back to the input handle.
     source = jedi_name.full_name if getattr(jedi_name, "full_name", None) else handle
 
