@@ -74,7 +74,11 @@ method. GitHub's merge-queue documentation doesn't say how the queued squash
 commit's message is built. Community reports say it follows the repository's
 default squash message setting, which here is "pull request title" (so the subject
 is `chore(release): vX.Y.Z (#N)`), and that the message can't be edited at merge
-time. Until a release has gone through the queue, check after merging that
+time. Other reports say a queued squash takes the first commit's message instead.
+Either way the release subject holds: `tag-release.yml` only needs the subject to
+start with `chore(release): vX.Y.Z`, and that is both the release PR's title and
+the subject of the commit `changelog.py prepare` creates. Keep extra commits on a
+release PR after that one. Until a release has gone through the queue, check after merging that
 `git log -1 --format=%s origin/main` starts with `chore(release): vX.Y.Z`. If it
 doesn't, the failure is safe: `tag-release.yml` tags nothing and nothing is
 published. Fix the workflow or setting forward rather than tagging by hand.
