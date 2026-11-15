@@ -1,5 +1,6 @@
 """Tests for Pydantic plugin."""
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -635,6 +636,11 @@ class AuthUser(BaseModel):
     password: str
 """)
 
+            # Namespaces come from config, as in production: the plugin and the
+            # analyzer whose class graph finds the models read the same layout (#664).
+            (main_dir / ".pyeye.json").write_text(
+                json.dumps({"namespaces": {"auth": [ns_path.as_posix()]}})
+            )
             plugin = PydanticPlugin(main_dir)
             plugin.set_namespace_paths({"auth": [str(ns_path)]})
 
@@ -720,6 +726,10 @@ class NamespaceUser(BaseModel):
     email: Optional[str] = None
 """)
 
+        # Namespaces come from config, as in production (#664).
+        (temp_project / ".pyeye.json").write_text(
+            json.dumps({"namespaces": {"models": [ns_path.as_posix()]}})
+        )
         plugin = PydanticPlugin(temp_project)
         plugin.set_namespace_paths({"models": [str(ns_path)]})
 

@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "Plugin results get handles only from the shared resolver; an unplaceable symbol says so and has no handle (#627)"
 issues: [627, 623, 594]
 anchors: ["pyeye.plugins.handles.enrich", "pyeye.plugins.handles.SYMBOLS", "pyeye.plugins.handles._qualname", "pyeye.mcp.server._plugin_tool", "pyeye.resolver.resolve_handle", "tests/test_plugin_handles.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-664-pydantic-models-are-found-by-definition-site-transitively.md"]
 superseded_by: []
 ---
 
