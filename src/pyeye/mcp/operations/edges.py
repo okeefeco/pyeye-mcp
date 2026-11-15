@@ -310,13 +310,17 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
+    Measured scope: a class's members are its class-body definitions; instance
+    attributes assigned in methods (``self.x = ...``) are NOT measured.  A
+    module's members are its module-level definitions.
+
     Static-surface ceiling: members are enumerated from source.  Runtime-injected
     members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
     ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` returns none
     of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.  This is
     the same static-only boundary ``resolve_imported_by`` carries for dynamic
-    imports; ``[]`` therefore means "no statically-defined members," not "no
-    members at runtime."
+    imports; ``[]`` therefore means "no members in the measured scope," not "no
+    members at runtime" (nor "no instance attributes").
 
     Synchronous: Jedi ``get_names`` + AST walk + ``Handle`` construction are all
     sync, so the resolver is sync (a sync resolver called from async ``expand``
@@ -1449,9 +1453,16 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
         for handle, cand in local.items():
             chosen.setdefault(handle, cand)
 
+    # A child whose name is not an identifier (``show-newlines.py``, ``2fast.py``)
+    # cannot be imported as a submodule, so it is not one (#597).  Filtering HERE,
+    # in the source-of-truth, keeps the ``inspect`` count equal to the edge.
+    #
     # Sort by the FULL handle — a total order independent of iterdir, so output is
     # deterministic across runs/platforms (not just by bare child name).
-    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
+    return sorted(
+        (entry for _, entry in chosen.values() if _try_handle(entry.handle) is not None),
+        key=lambda e: e.handle,
+    )
 
 
 def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:

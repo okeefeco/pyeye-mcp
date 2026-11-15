@@ -5,6 +5,18 @@ import os
 
 logger = logging.getLogger(__name__)
 
+#: Variables still parsed (v2.x keeps every documented setting) but with no
+#: effect: setting one logs a warning at startup. To be removed in v3.0.
+DEPRECATED_ENV_VARS: dict[str, str] = {
+    "PYEYE_MAX_WORKERS": "nothing ever used it (#592)",
+    "PYEYE_ANALYSIS_TIMEOUT": "nothing ever used it (#592)",
+    "PYEYE_MAX_FILE_SIZE": "nothing ever used it (#592)",
+    "PYEYE_ENABLE_MEMORY_PROFILING": "nothing ever used it (#592)",
+    "PYEYE_ENABLE_CONNECTION_POOLING": "the connection pool was removed (#628)",
+    "PYEYE_POOL_MAX_CONNECTIONS": "the connection pool was removed (#628)",
+    "PYEYE_POOL_TTL": "the connection pool was removed (#628)",
+}
+
 
 class PerformanceSettings:
     """Configurable performance settings for the MCP server.
@@ -49,7 +61,7 @@ class PerformanceSettings:
             "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
         )
 
-        # File handling settings
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): file handling setting
         self.max_file_size: int = self._get_int_env(
             "PYEYE_MAX_FILE_SIZE",
             1048576,  # 1MB default
@@ -57,10 +69,10 @@ class PerformanceSettings:
             max_val=104857600,  # 1KB to 100MB
         )
 
-        # Concurrency settings
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): concurrency setting
         self.max_workers: int = self._get_int_env("PYEYE_MAX_WORKERS", 4, min_val=1, max_val=32)
 
-        # Analysis settings
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): analysis setting
         self.analysis_timeout: float = self._get_float_env(
             "PYEYE_ANALYSIS_TIMEOUT",
             30.0,  # 30 seconds default
@@ -68,7 +80,7 @@ class PerformanceSettings:
             max_val=300.0,  # 1 second to 5 minutes
         )
 
-        # Memory management
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): memory management
         self.enable_memory_profiling: bool = self._get_bool_env(
             "PYEYE_ENABLE_MEMORY_PROFILING", False
         )
@@ -78,7 +90,7 @@ class PerformanceSettings:
             "PYEYE_ENABLE_PERFORMANCE_METRICS", False
         )
 
-        # Connection pooling settings
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): the connection pool is gone
         self.pool_max_connections: int = self._get_int_env(
             "PYEYE_POOL_MAX_CONNECTIONS", 10, min_val=1, max_val=100
         )
@@ -89,8 +101,20 @@ class PerformanceSettings:
             max_val=86400,  # Max 24 hours
         )
         self.enable_connection_pooling: bool = self._get_bool_env(
-            "PYEYE_ENABLE_CONNECTION_POOLING", True  # Enabled by default for better performance
+            "PYEYE_ENABLE_CONNECTION_POOLING", True
         )
+
+        self._warn_deprecated()
+
+    @staticmethod
+    def _warn_deprecated() -> None:
+        """Log a warning for each deprecated variable that is set."""
+        for key, why in DEPRECATED_ENV_VARS.items():
+            if os.getenv(key) is not None:
+                logger.warning(
+                    f"{key} is deprecated and has no effect: {why}. "
+                    "It will be removed in v3.0; unset it to silence this warning."
+                )
 
     def _get_int_env(
         self, key: str, default: int, min_val: int | None = None, max_val: int | None = None
@@ -188,23 +212,8 @@ class PerformanceSettings:
   File Watching:
     watcher_debounce: {self.watcher_debounce}s
 
-  File Handling:
-    max_file_size: {self.max_file_size} bytes ({self.max_file_size / 1048576:.2f} MB)
-
-  Concurrency:
-    max_workers: {self.max_workers}
-
-  Analysis:
-    analysis_timeout: {self.analysis_timeout}s
-
   Monitoring:
-    enable_memory_profiling: {self.enable_memory_profiling}
     enable_performance_metrics: {self.enable_performance_metrics}
-
-  Connection Pooling:
-    enable_connection_pooling: {self.enable_connection_pooling}
-    pool_max_connections: {self.pool_max_connections}
-    pool_ttl: {self.pool_ttl}s
 """
 
 

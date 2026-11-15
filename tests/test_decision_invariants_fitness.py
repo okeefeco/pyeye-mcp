@@ -303,10 +303,8 @@ SYNTHETIC_IMPORT_SANCTIONED: Site | None = ("resolver.py", "_synthetic_import")
 SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {}
 
 # 2. ``project.search(`` appears nowhere (#457: use the AST name-index).
-PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {
-    # Unreachable from any MCP tool (no caller in src/ or tests/).
-    ("project_manager.py", "ProjectManager.search_all_projects"): "#628",
-}
+#    Empty since #628 slice 2 deleted ``ProjectManager.search_all_projects``.
+PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {}
 
 # 2b. Tests that pin the banned ``project.search`` path as expected behaviour.
 #     Keyed relative to ``tests/``.  Empty since #623 slice 2 removed inspect's

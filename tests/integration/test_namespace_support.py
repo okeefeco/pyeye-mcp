@@ -316,7 +316,7 @@ class TestProjectManagerIntegration:
 
         # Set up project with dependencies
         main_path = str(temp_project["main_project"])
-        manager.get_project(main_path, [str(temp_project["lib_package"])])
+        manager.register_project(main_path, [str(temp_project["lib_package"])])
 
         # Get configured analyzer
         analyzer = manager.get_analyzer(main_path)
@@ -350,7 +350,7 @@ class TestProjectManagerIntegration:
 
         # Set up project with dependencies
         main_path = str(temp_project["main_project"])
-        manager.get_project(main_path, [str(temp_project["lib_package"])])
+        manager.register_project(main_path, [str(temp_project["lib_package"])])
 
         # Register namespaces
         manager.namespace_resolver.register_namespace(

@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.cache import GranularCache, ProjectCache
 from pyeye.metrics import MetricsCollector
 from tests.utils.performance import (
     CommonThresholds,
@@ -89,74 +88,6 @@ class TestPerformanceBaselines:
             stats["p50_ms"], CommonThresholds.SYMBOL_SEARCH_P50, "Symbol search p50"
         )
 
-    # Pure-Python microbenchmark: under coverage it would time the tracer, not
-    # the cache (#428/#486), so coverage is switched off for it.
-    @pytest.mark.no_cover
-    def test_cache_lookup_performance(self):
-        """Test that cache lookups are fast."""
-        cache = ProjectCache()
-        collector = MetricsCollector()
-
-        # Populate cache
-        for i in range(1000):
-            cache.set(f"key_{i}", f"value_{i}")
-
-        @collector.measure("cache_lookup")
-        def lookup():
-            return cache.get("key_500")
-
-        # Measure lookups
-        for _ in range(1000):
-            lookup()
-
-        stats = collector.get_stats("cache_lookup")
-
-        # Cache lookups should be very fast (#486: framework tiers, not bare asserts).
-        assert_performance_threshold(
-            stats["p99_ms"],
-            PerformanceThresholds(base=1.0, linux_ci=2.0, macos_ci=4.0, windows_ci=4.0),
-            "Cache lookup p99",
-        )
-        assert_performance_threshold(
-            stats["p50_ms"],
-            PerformanceThresholds(base=0.1, linux_ci=0.2, macos_ci=0.4, windows_ci=0.4),
-            "Cache lookup p50",
-        )
-
-    # Pure-Python microbenchmark: under coverage it would time the tracer, not
-    # the cache (#428/#486), so coverage is switched off for it.
-    @pytest.mark.no_cover
-    def test_granular_cache_invalidation_performance(self):
-        """Test that granular cache invalidation is efficient."""
-        cache = GranularCache()
-        collector = MetricsCollector()
-
-        # Populate cache with file associations
-        for i in range(100):
-            file_path = Path(f"/test/file_{i}.py")
-            for j in range(10):
-                cache.set(f"key_{i}_{j}", f"value_{i}_{j}", file_path=file_path)
-
-        @collector.measure("cache_invalidation")
-        def invalidate():
-            return cache.invalidate_file(Path("/test/file_50.py"))
-
-        # Measure invalidations
-        for _ in range(10):
-            # Re-populate for next invalidation
-            for j in range(10):
-                cache.set(f"key_50_{j}", f"value_50_{j}", file_path=Path("/test/file_50.py"))
-            invalidate()
-
-        stats = collector.get_stats("cache_invalidation")
-
-        # Invalidation should be fast even with many entries
-        assert_performance_threshold(
-            stats["p95_ms"],
-            PerformanceThresholds(base=5.0, linux_ci=10.0, macos_ci=20.0, windows_ci=20.0),
-            "Granular cache invalidation p95",
-        )
-
     def test_metrics_overhead(self):
         """Test that metrics collection itself has minimal overhead."""
         collector = MetricsCollector()
@@ -193,44 +124,6 @@ class TestPerformanceBaselines:
             unit="ms per operation",
         )
 
-    def test_concurrent_operations_performance(self):
-        """Test performance under concurrent load."""
-        import threading
-
-        collector = MetricsCollector()
-        cache = GranularCache()
-
-        @collector.measure("concurrent_op")
-        def operation(thread_id):
-            # Mix of cache operations
-            for i in range(100):
-                key = f"thread_{thread_id}_key_{i}"
-                cache.set(key, f"value_{i}")
-                cache.get(key)
-            return thread_id
-
-        # Run concurrent operations
-        threads = []
-        start = time.perf_counter()
-
-        for i in range(10):
-            t = threading.Thread(target=operation, args=(i,))
-            threads.append(t)
-            t.start()
-
-        for t in threads:
-            t.join()
-
-        total_time = time.perf_counter() - start
-
-        stats = collector.get_stats("concurrent_op")
-
-        # Should handle 10 threads × 100 operations efficiently
-        assert total_time < 2.0, f"Concurrent operations took {total_time}s (exceeds 2s)"
-        assert_performance_threshold(
-            stats["p95_ms"], CommonThresholds.CONCURRENT_OPS_P95, "Concurrent op p95"
-        )
-
 
 class TestMemoryEfficiency:
     """Test memory usage stays within bounds."""
@@ -258,25 +151,6 @@ class TestMemoryEfficiency:
         # Recent values are capped at 1000 per metric
         for metric in collector.metrics.values():
             assert len(metric.recent_values) <= 1000
-
-    def test_cache_memory_efficiency(self):
-        """Test that cache doesn't grow unbounded."""
-        cache = GranularCache(ttl_seconds=1)  # Use short TTL for test
-
-        # Add many entries
-        for i in range(100):  # Reduce number for faster test
-            cache.set(f"key_{i}", f"value_{i}" * 100)  # Larger values
-
-        # Check that old entries are evicted (via TTL)
-        time.sleep(1.1)  # Wait for TTL to expire
-
-        # Access should trigger cleanup - get will return None for expired entries
-        result = cache.get("key_0")
-        assert result is None, "Cache entry should have expired"
-
-        # Try to get another expired entry to verify cleanup
-        result = cache.get("key_50")
-        assert result is None, "Cache entry should have expired"
 
 
 class TestPerformanceUnderLoad:
@@ -330,42 +204,6 @@ class TestPerformanceUnderLoad:
             windows_ci=200.0,
         )
         assert_performance_threshold(stats["p99_ms"], warm_p99_threshold, "Warm find_symbol p99")
-
-    # Pure-Python microbenchmark: under coverage it would time the tracer, not
-    # the cache (#428/#486), so coverage is switched off for it.
-    @pytest.mark.no_cover
-    def test_sustained_load_performance(self):
-        """Test performance under sustained load."""
-        collector = MetricsCollector()
-        cache = ProjectCache()
-
-        # Populate cache
-        for i in range(1000):
-            cache.set(f"key_{i}", f"value_{i}")
-
-        @collector.measure("sustained_op")
-        def operation():
-            # Mix of operations
-            cache.get(f"key_{time.time_ns() % 1000}")
-            cache.set(f"new_key_{time.time_ns()}", "value")
-
-        # Sustained load for 2 seconds
-        start = time.perf_counter()
-        operations_count = 0
-
-        while time.perf_counter() - start < 2.0:
-            operation()
-            operations_count += 1
-
-        stats = collector.get_stats("sustained_op")
-
-        # Should maintain good performance under sustained load
-        assert operations_count > 1000, f"Only {operations_count} ops in 2s (expected >1000)"
-        assert_performance_threshold(
-            stats["p95_ms"],
-            PerformanceThresholds(base=10.0, linux_ci=20.0, macos_ci=40.0, windows_ci=40.0),
-            "Sustained load p95",
-        )
 
 
 # Performance baseline configuration for CI

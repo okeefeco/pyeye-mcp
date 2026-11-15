@@ -85,10 +85,42 @@ def test_liveness_distinguishes_used_from_merely_loaded():
     assert "PYEYE_MAX_WORKERS" not in live
 
 
+def _deprecated_env_vars() -> set[str]:
+    """Names ``settings.DEPRECATED_ENV_VARS`` lists (parsed, so no import side effects)."""
+    text = _SETTINGS.read_text(encoding="utf-8")
+    block = text.split("DEPRECATED_ENV_VARS", 1)[1].split("}", 1)[0]
+    return set(re.findall(r"\"(PYEYE_\w+)\"\s*:", block))
+
+
+def _undeprecated_mentions() -> dict[str, list[str]]:
+    """Doc lines naming a deprecated variable without saying it is deprecated."""
+    deprecated = _deprecated_env_vars()
+    found: dict[str, list[str]] = {}
+    for path in _DOCS:
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for name in set(_NAME.findall(line)) & deprecated:
+                if "deprecated" not in line.lower():
+                    found.setdefault(name, []).append(f"{path.relative_to(_ROOT).as_posix()}:{n}")
+    return found
+
+
+def test_deprecated_env_vars_parser():
+    deprecated = _deprecated_env_vars()
+    assert {"PYEYE_MAX_WORKERS", "PYEYE_ENABLE_CONNECTION_POOLING", "PYEYE_POOL_TTL"} <= deprecated
+    assert "PYEYE_CACHE_TTL" not in deprecated
+
+
 def test_every_documented_env_var_takes_effect():
-    live = live_env_vars()
+    """A documented variable must work, or (v2.x) be deprecated and say so."""
+    live = live_env_vars() | _deprecated_env_vars()
     dead = {name: where for name, where in documented_env_vars().items() if name not in live}
     assert not dead, (
         "docs name PYEYE_* variables that pyeye never reads or never uses; "
         f"remove them or make them work: {dead}"
     )
+
+
+def test_deprecated_env_vars_are_documented_as_deprecated():
+    """Every doc line naming a deprecated variable must say "deprecated" (#628)."""
+    found = _undeprecated_mentions()
+    assert not found, f"mark these lines as deprecated (no effect, removed in v3.0): {found}"

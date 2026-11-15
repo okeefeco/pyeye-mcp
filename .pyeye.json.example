@@ -16,14 +16,5 @@
       "./plugins/*",
       "~/repos/community-plugins/*"
     ]
-  },
-  "exclude": [
-    "**/tests/**",
-    "**/migrations/**",
-    "**/__pycache__/**"
-  ],
-  "cache": {
-    "ttl_seconds": 300,
-    "max_size_mb": 100
   }
 }
