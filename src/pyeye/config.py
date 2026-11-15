@@ -12,6 +12,21 @@ from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
+#: Top-level config keys that docs or the generated example once described,
+#: but that nothing in pyeye has ever read (#581). They are ignored with a
+#: warning instead of reading as live settings.
+IGNORED_TOP_LEVEL_KEYS: tuple[str, ...] = (
+    "analysis",
+    "cache",
+    "default_packages",
+    "exclude",
+    "exclude_patterns",
+    "logging",
+    "performance",
+    "plugins",
+    "watch_exclude",
+)
+
 
 class ProjectConfig:
     """Manages project-specific configuration for code intelligence."""
@@ -59,6 +74,24 @@ class ProjectConfig:
         # 4. Auto-discover if no config found
         if not self.config.get("packages"):
             self._auto_discover()
+
+        ignored = self.get_ignored_top_level_keys()
+        if ignored:
+            logger.warning(self.ignored_top_level_keys_message(ignored))
+
+    def get_ignored_top_level_keys(self) -> list[str]:
+        """Return the (sorted) top-level keys in the config that pyeye ignores (#581)."""
+        return sorted(key for key in IGNORED_TOP_LEVEL_KEYS if key in self.config)
+
+    @staticmethod
+    def ignored_top_level_keys_message(keys: list[str]) -> str:
+        """Explain that the top-level config *keys* have no effect."""
+        names = ", ".join(keys)
+        return (
+            f"Ignoring {names} in the {PROJECT_NAME} config: {PROJECT_NAME} has never "
+            "read these keys, so they have no effect (#581). Remove them to silence "
+            "this warning."
+        )
 
     def _load_from_file(self, config_path: Path) -> None:
         """Load configuration from a file."""
@@ -607,8 +640,6 @@ def create_example_config(project_path: str = ".") -> None:
         "standalone": {
             "dirs": ["notebooks", "scripts", "examples"],
         },
-        "exclude": ["**/tests/**", "**/migrations/**", "**/__pycache__/**"],
-        "cache": {"ttl_seconds": 300, "max_size_mb": 100},
     }
 
     config_path = Path(project_path) / f".{PROJECT_NAME}.json.example"

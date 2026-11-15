@@ -168,3 +168,25 @@ async def test_resolve_dotted_alias_reports_the_canonical_handle(project) -> Non
     result = await resolve("pkg.Thing", analyzer)
     assert result["handle"] == "pkg._impl.Thing"
     assert Path(result["location"]["file"]) == root / "pkg" / "_impl.py"
+
+
+# ---------------------------------------------------------------------------
+# imports edge: external targets under their canonical handle (#623 slice 5)
+# ---------------------------------------------------------------------------
+
+
+async def test_imports_edge_emits_canonical_external_targets(tmp_path: Path) -> None:
+    """``goto`` on ``from datetime import datetime`` lands on typeshed's private
+    ``_datetime.datetime``; the edge emits ``datetime.datetime``, the handle
+    ``resolve`` and ``inspect`` report (#602).
+    """
+    _write(tmp_path, {"main.py": "from datetime import datetime, timedelta\nimport typing\n"})
+    analyzer = JediAnalyzer(str(tmp_path))
+    result = await expand("main", "imports", analyzer)
+    lint_response(result, "expand")
+    handles = [stub["handle"] for stub in result["stubs"]]
+    assert "datetime.datetime" in handles and "datetime.timedelta" in handles
+    assert not any(h.startswith("_datetime.") for h in handles), handles
+    for handle in handles:
+        resolved = await resolve(handle, analyzer)
+        assert resolved["found"] is True and resolved["handle"] == handle, (handle, resolved)

@@ -14,14 +14,15 @@ Supported identifier forms
 
 Resolution strategy
 -------------------
-- Bare names are resolved by enumerating *all* matches via
-  ``JediAnalyzer.find_symbol``.  If exactly one match, return success; if
-  multiple, return an ambiguous result with sorted candidates; if zero, return
-  not-found.
-- Dotted names are passed directly to ``resolve_canonical``, which follows
-  multi-hop re-export chains and returns the definition-site Handle.
+- Bare names go through :func:`pyeye.resolver.resolve_name`: a #423 shadow is
+  ambiguous, an exact top-level module wins, otherwise every project
+  definition of the name is a canonical candidate (one → success, several →
+  ambiguous with sorted candidates, none → not-found).
+- Dotted names go through :func:`pyeye.resolver.resolve_handle`, which follows
+  re-export chains and returns the definition-site handle (#623).
 - File-with-line: read the line to locate the first non-whitespace column,
-  then use ``script.goto()`` at that position to find the symbol's definition.
+  then use ``script.goto()`` at that position to find the symbol's definition,
+  canonicalized through the resolver.
 - File-only: convert the file path to a dotted module path via
   ``_get_import_path_for_file`` and return a module-scoped Handle.
 

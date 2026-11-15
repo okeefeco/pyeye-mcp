@@ -11,19 +11,21 @@ from typing import Any, NamedTuple
 
 import jedi
 
-from .. import file_artifact_cache
+from .. import file_artifact_cache, settings
 from ..async_utils import read_file_async
-from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
-from ..project_layout import detect_src_layout, file_for_module, module_name_for_file
+from ..project_layout import (
+    detect_src_layout,
+    file_for_module,
+    layout_key,
+    module_name_for_file,
+)
+from ..resolver import Resolved, resolve_handle
 from ..scope_utils import (
-    LazyNamespaceLoader,
     ScopedCache,
-    ScopeDebugger,
-    ScopeValidator,
     SmartScopeResolver,
     parallel_search,
 )
@@ -118,12 +120,7 @@ class JediAnalyzer:
 
         # Initialize scope utilities
         self.smart_resolver = SmartScopeResolver(config)
-        self.scoped_cache = ScopedCache(ttl_seconds=300)
-        self.lazy_loader = LazyNamespaceLoader()
-        self.scope_debugger = ScopeDebugger(self._resolve_scope_to_paths)
-
-        # Validator will be initialized after paths are set
-        self.scope_validator: ScopeValidator | None = None
+        self.scoped_cache = ScopedCache(ttl_seconds=settings.settings.cache_ttl)
 
         # Validate project path exists
         if not self.project_path.exists():
@@ -211,6 +208,16 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
+    @property
+    def layout_key(self) -> str:
+        """This analyzer's effective-layout identity (:func:`pyeye.project_layout.layout_key`).
+
+        Computed on each access rather than cached: ``set_additional_paths``,
+        ``set_namespace_paths`` and ``set_standalone_paths`` change the layout
+        after construction.
+        """
+        return layout_key(self)
+
     def set_additional_paths(self, paths: list[Path]) -> None:
         """Set additional paths from ProjectManager.
 
@@ -219,7 +226,6 @@ class JediAnalyzer:
         """
         self.additional_paths = paths
         logger.info(f"Set {len(paths)} additional paths for {self.project_path}")
-        self._update_validator()
 
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
@@ -236,9 +242,6 @@ class JediAnalyzer:
         """
         self.namespace_paths = {ns: [Path(p) for p in paths] for ns, paths in namespaces.items()}
         logger.info(f"Set {len(self.namespace_paths)} namespace mappings for {self.project_path}")
-        self._update_validator()
-        # Invalidate lazy loader cache when namespaces change
-        self.lazy_loader.invalidate()
 
         # Add namespace repo roots to Jedi's sys_path so full_name values
         # include the namespace prefix.  The declared paths in .pyeye.json are
@@ -323,6 +326,7 @@ class JediAnalyzer:
             all_files,
             file_to_module,
             generation,
+            layout_key=self.layout_key,
         )
 
         if fuzzy:
@@ -349,13 +353,6 @@ class JediAnalyzer:
                 seen.add(key)
                 results.append(r)
         return results
-
-    def _update_validator(self) -> None:
-        """Update the scope validator with current configuration."""
-        scope_aliases = self.config.get_scope_aliases() if self.config else {}
-        self.scope_validator = ScopeValidator(
-            self.namespace_paths, self.additional_paths, scope_aliases
-        )
 
     @staticmethod
     def _is_subpath(path: Path, parent: Path) -> bool:
@@ -1375,14 +1372,20 @@ class JediAnalyzer:
     async def _canonical_cached(
         self, identifier: str, canonical_cache: dict[str, Handle | None]
     ) -> Handle | None:
-        """Memoised :func:`resolve_canonical` keyed by identifier.
+        """The canonical handle for *identifier*, memoised per ``find_subclasses`` call.
 
-        Canonicalisation walks import chains via Jedi and can be repeated many
+        Canonicalisation goes through the one resolver
+        (:func:`pyeye.resolver.resolve_handle`, #623), so a base class is named
+        exactly as ``resolve`` / ``inspect`` name it.  It can be repeated many
         times during an indirect-subclass traversal, so results are cached for
         the lifetime of a single ``find_subclasses`` call.  Never raises.
         """
         if identifier not in canonical_cache:
-            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+            resolved = resolve_handle(identifier, self)
+            # A Resolved handle is always a valid dotted path (the resolver checks).
+            canonical_cache[identifier] = (
+                Handle(resolved.handle) if isinstance(resolved, Resolved) else None
+            )
         return canonical_cache[identifier]
 
     def _build_ast_resolution_tables(

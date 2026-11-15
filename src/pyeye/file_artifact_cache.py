@@ -86,8 +86,17 @@ def _resolve_posix(path: Path | str) -> str:
 
 
 def _project_key(project: jedi.Project) -> str:
-    """Return a stable string key for *project*, derived from its root path."""
-    return Path(project.path).resolve().as_posix()
+    """Return a stable string key for *project*'s import resolution.
+
+    The root alone is not enough (#618): two Projects on one root with different
+    ``added_sys_path`` resolve imports, and so name modules, differently, and must
+    not share Scripts. The key therefore covers the root, the added sys.path in
+    order, and whether Jedi's smart sys.path is on.
+    """
+    root = Path(project.path).resolve().as_posix()
+    added = [Path(p).as_posix() for p in (getattr(project, "added_sys_path", None) or [])]
+    smart = getattr(project, "_smart_sys_path", None)
+    return "\n".join([root, "|".join(added), f"smart={smart}"])
 
 
 # ---------------------------------------------------------------------------

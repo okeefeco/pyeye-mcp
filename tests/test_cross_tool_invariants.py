@@ -72,10 +72,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                 check ∈ {"expanded_but_refused", "edge_not_in_expand",
 #                          "wrong_kind_not_unsupported"}
 
-_ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
-_ISSUE_623 = "#623"  # one canonical handle resolver
-_ISSUE_626 = "#626"  # one edge-applicability table
-
 
 def _round_trip(corpus: str, issue: str, checks: tuple[str, ...], *handles: str) -> dict:
     return {("round_trip", corpus, h, c): issue for h in handles for c in checks}
@@ -89,127 +85,8 @@ _MISS = ("inspect_found", "resolve_found")
 _BOTH_MODES = ("bare", "get_analyzer")
 
 KNOWN_GAPS: dict[tuple[str, ...], str] = {
-    # == 1. round trip ======================================================
-    # #602/#623: typing specials and `__future__` features emitted by `imports`
-    # are dead ends for inspect and resolve (inference lands on their value's
-    # type, which the name == leaf check rightly refuses).
-    **_round_trip("determinism_subclasses", _ISSUE_602, _MISS, "typing.TYPE_CHECKING"),
-    **_round_trip("lookup_project", _ISSUE_602, _MISS, "__future__.annotations"),
-    **_round_trip(
-        "resolve_project",
-        _ISSUE_602,
-        _MISS,
-        "__future__.annotations",
-        "typing.Callable",
-        "typing.ClassVar",
-        "typing.Final",
-        "typing.TYPE_CHECKING",
-    ),
-    **_round_trip("typeref_basic", _ISSUE_602, _MISS, "typing.Callable"),
-    # #623 (slice 5, edges emit the canonical handle): `imports` emits the alias
-    # `typing.Dict` / `typing.List` as a variable stub; inspect and resolve both
-    # canonicalise it to the class `typing.dict` / `typing.list`.  Visible since
-    # slice 2 made inspect find it.
-    **_round_trip(
-        "typeref_basic",
-        _ISSUE_623,
-        ("same_handle", "stub_matches_inspect"),
-        "typing.Dict",
-        "typing.List",
-    ),
-    #
-    # #626: `submodules` applies to a NON-module symbol defined in a package
-    # `__init__` (`pkg.__all__`, `pkg.init_fn`) and fabricates
-    # `<symbol>.<child>` handles from the package's directory.
-    **_round_trip(
-        "canonicalization_multihop",
-        _ISSUE_626,
-        _MISS,
-        "package.__all__._impl",
-        "package.__all__.legacy",
-        "package.__all__.subpkg",
-        "self_reexport_pkg.__all__.submodule",
-    ),
-    **_round_trip(
-        "containment",
-        _ISSUE_626,
-        _MISS,
-        "regular.mypkg.__all__.alpha",
-        "regular.mypkg.__all__.beta",
-        "regular.mypkg.__all__.sub",
-        "survey.svpkg.both.both_fn.leaf",
-        "survey.svpkg.init_fn.bare",
-        "survey.svpkg.init_fn.both",
-        "survey.svpkg.init_fn.empty",
-        "survey.svpkg.init_fn.full",
-        "survey.svpkg.init_fn.initonly",
-        "survey.svpkg.init_fn.nested",
-    ),
-    **_round_trip(
-        "cross_tool",
-        _ISSUE_626,
-        _MISS,
-        "xpkg.__all__.consumer",
-        "xpkg.__all__.core",
-        "xpkg.__all__.text",
-    ),
-    **_round_trip(
-        "resolve_project",
-        _ISSUE_626,
-        _MISS,
-        "mypackage.__all__._core",
-        "mypackage.__all__.collision_demo",
-        "mypackage.__all__.external_subclass_demo",
-        "mypackage.__all__.helpers",
-        "mypackage.__all__.inheritance_via_attr",
-        "mypackage.__all__.usage",
-        "mypackage.__all__.use_widget",
-    ),
-    **_round_trip("subclasses_resolution", _ISSUE_626, _MISS, "pkg.__all__.core"),
-    #
-    # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
-    # #602/#623: stdlib and third-party symbols emitted by `imports` that no
-    # tool resolves (typing specials, and names inference can't place).
-    **_round_trip(
-        "src/pyeye",
-        _ISSUE_602,
-        _MISS,
-        "__future__.annotations",
-        "filelock.FileLock",
-        "threading.Lock",
-        "typing.Awaitable",
-        "typing.Callable",
-        "typing.Coroutine",
-        "typing.Iterable",
-        "typing.Iterator",
-        "typing.Literal",
-        "typing.Mapping",
-        "typing.TYPE_CHECKING",
-        "watchdog.observers.Observer",
-    ),
-    # #623: `imports` emits the typeshed private module (`_datetime.datetime`);
-    # resolve canonicalises to the public one (`datetime.datetime`).
-    **_round_trip(
-        "src/pyeye",
-        _ISSUE_623,
-        ("same_handle",),
-        "_datetime.datetime",
-        "_datetime.timedelta",
-        "_typing.ParamSpec",
-        "_typing.TypeVar",
-    ),
-    #
-    # #667 multi-repo namespace scenario: the same classes of gap, no new ones.
-    **_round_trip(
-        "multirepo_namespace", _ISSUE_602, _MISS, "__future__.annotations", "typing.TYPE_CHECKING"
-    ),
-    **_round_trip(
-        "multirepo_namespace",
-        _ISSUE_626,
-        _MISS,
-        "corp.tools.__all__.sub",
-        "corp.tools.__all__.widgets",
-    ),
+    # == 1. round trip: none since #623 slice 5 (#602) and #674 (#626),
+    #    including the opt-in self-dogfood corpus (src/pyeye) ================
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
     # == 4. trace vs expand: none since #621.

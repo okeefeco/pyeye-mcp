@@ -76,14 +76,18 @@ class TestCallersPinTheirUnknownChoice:
         assert inspect._is_package_path(None) is False  # unknown -> not a package
 
     def test_outline_is_package(self, tree: dict[str, Path]) -> None:
-        def name(p: object) -> SimpleNamespace:
-            return SimpleNamespace(module_path=p)
+        def name(p: object, kind: str = "module") -> SimpleNamespace:
+            return SimpleNamespace(module_path=p, type=kind)
 
         assert outline._is_package(name(tree["init"])) is True
         assert outline._is_package(name(tree["ns"])) is True
         assert outline._is_package(name(tree["mod"])) is False
         assert outline._is_package(name(None)) is False  # unknown -> not a package
         assert outline._is_package(SimpleNamespace()) is False  # no attribute at all
+        # #697: only a module can be a package. A class or function defined in
+        # the package __init__ shares its path and is NOT a package.
+        assert outline._is_package(name(tree["init"], "class")) is False
+        assert outline._is_package(name(tree["init"], "function")) is False
 
     def test_package_dirs(self, tree: dict[str, Path]) -> None:
         analyzer = object()

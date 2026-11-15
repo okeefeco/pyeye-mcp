@@ -8,7 +8,7 @@ Before this fix, in a default setup (no ``.pyeye.json``):
 3. Nothing cleared the analyzer's ``scoped_cache``, so ``get_project_files``
    kept serving a stale file list for 300 s.
 4. ``GranularCache.invalidate_file`` called ``project_graph.invalidate()`` with
-   no key, clearing every project's name index.
+   no key, clearing every project's name index. (#628 deleted GranularCache.)
 
 Event tests drive ``CodebaseWatcher`` handlers directly and invalidation tests
 drive ``ProjectManager._on_files_changed``, so they need no sleeps. One test runs
@@ -39,7 +39,7 @@ from watchdog.events import (
 
 import pyeye.project_manager as project_manager_module
 from pyeye.analyzers import project_graph
-from pyeye.cache import CodebaseWatcher, GranularCache
+from pyeye.cache import CodebaseWatcher
 from pyeye.mcp.operations.resolve import resolve
 from pyeye.project_manager import ProjectManager
 from tests.utils.performance import PerformanceThresholds
@@ -331,17 +331,6 @@ class TestPerProjectInvalidation:
         assert project_graph._normalize(a.as_posix()) not in keys
         assert project_graph._normalize(b.as_posix()) not in keys
         assert project_graph._normalize(other.as_posix()) in keys
-
-    def test_granular_cache_no_longer_clears_every_projects_index(self, tmp_path: Path) -> None:
-        f = tmp_path / "a.py"
-        f.write_text("class Field:\n    pass\n")
-        project_graph.invalidate()
-        other = project_graph.get_name_index((tmp_path / "other").as_posix(), [f], {f: "a"})
-
-        GranularCache().invalidate_file(f)
-        GranularCache().invalidate()
-
-        assert project_graph.get_name_index((tmp_path / "other").as_posix(), [f], {f: "a"}) is other
 
 
 class TestIssueRepro:

@@ -21,7 +21,8 @@ The implementation follows the spec's "Resolution must not guess" rule:
   are absolute), this means ``jedi.Script.goto`` returning exactly one entry
   after deduping by ``full_name``. For annotations re-parsed from a
   forward-ref string (positions point inside the string, not the file), it
-  means :func:`pyeye.canonicalization.resolve_canonical` returning a value.
+  means :func:`_resolve_head_in_scope` placing the name through the one
+  resolver (#623).
 * Annotation handles are what Jedi resolves at the **annotation site** — they
   are not rewritten to a normalised canonical form. ``Dict`` from ``typing``
   resolves to ``"typing.Dict"`` even though Python ≥3.9 treats it as an alias
@@ -30,10 +31,11 @@ The implementation follows the spec's "Resolution must not guess" rule:
   written.
 * PEP 604 unions (``X | Y``) have no single canonical head — ``handle`` is
   absent; ``args`` carry each alternative as its own TypeRef.
-* Forward-ref strings (``"FutureType"``) are re-parsed and recursed; head
-  resolution falls back to :func:`pyeye.canonicalization.resolve_canonical`
-  (project-wide canonicalisation) since the re-parsed AST has no useful
-  position. Unresolvable forward refs degrade to ``{raw: "..."}`` only.
+* Forward-ref strings (``"FutureType"``) are re-parsed and recursed; the head is
+  resolved lexically in the annotation's own module (then builtins, then as an
+  absolute path) through :func:`pyeye.resolver.resolve_handle`, since the
+  re-parsed AST has no useful position. So ``x: "Foo"`` names what ``x: Foo``
+  names. Unresolvable forward refs degrade to ``{raw: "..."}`` only.
 * Callable, Literal, Annotated, ParamSpec, etc. — the spec explicitly permits
   ``args`` / ``handle`` to be absent on these (the "degraded path"). The
   expression as written is preserved in ``raw``.
@@ -46,7 +48,7 @@ head lookups to a callable supplied by the entry point:
 
 * :func:`build_typeref` (file-scope, absolute positions) →
   :func:`_resolve_head_via_jedi`
-* Forward-ref re-parse (no positions) → :func:`_resolve_head_via_canonical`
+* Forward-ref re-parse (no positions) → :func:`_resolve_head_in_scope`
 
 Caching
 -------
@@ -85,8 +87,9 @@ from typing import TYPE_CHECKING, Any
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position
 from pyeye._goto import goto_target
-from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
+from pyeye.project_layout import module_name_for_file
+from pyeye.resolver import Resolved, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -98,7 +101,7 @@ logger = logging.getLogger(__name__)
 # node and returns either a canonical Handle (when resolution yields exactly
 # one definition) or None. The two production resolvers are
 # _resolve_head_via_jedi (positional, file-scope) and
-# _resolve_head_via_canonical (forward-ref, project-scope).
+# _resolve_head_in_scope (forward-ref, lexical in the annotation's module).
 HeadResolver = Callable[[ast.expr], Awaitable["Handle | None"]]
 
 
@@ -475,30 +478,42 @@ def _resolve_head_via_jedi(
         return None
 
 
-async def _resolve_head_via_canonical(
+async def _resolve_head_in_scope(
     head_node: ast.expr,
+    file_path: Path,
     analyzer: JediAnalyzer,
 ) -> Handle | None:
-    """Resolve a forward-ref head via project-wide canonicalisation.
+    """Resolve a forward-ref head the way Python would: in the annotation's module.
 
-    The forward-ref sub-AST has no useful source position, so we cannot use
-    ``script.goto``. Instead we pass the dotted name to
-    :func:`resolve_canonical`, which already knows how to walk the project's
-    import graph from a name alone. ``None`` on any failure (no match,
-    invalid name, exception during resolution) — preserving the no-guess rule.
+    The forward-ref sub-AST has no useful source position, so ``goto`` can't
+    be used.  Instead the name is resolved LEXICALLY through the one resolver
+    (#623), first match wins:
+
+    1. ``<annotation's module>.<name>``: a definition in that module, or a name
+       imported into it (placement follows the import to its definition), so
+       ``x: "Foo"`` names exactly what ``x: Foo`` names;
+    2. ``builtins.<name>`` for a single name (``"int"``), as Python falls back to
+       builtins;
+    3. ``<name>`` as an absolute dotted path (``"pkg.models.Foo"``).
+
+    ``None`` when none resolves, preserving the no-guess rule: a same-named
+    class elsewhere in the project is never picked by name alone.
     """
     name_str = _dotted_name(head_node)
     if name_str is None:
         return None
-    try:
-        return await resolve_canonical(name_str, analyzer)
-    except Exception as exc:
-        logger.debug(
-            "typeref._resolve_head_via_canonical(%r): resolve_canonical raised: %s",
-            name_str,
-            exc,
-        )
-        return None
+    paths: list[str] = []
+    module = module_name_for_file(analyzer, file_path)
+    if module:
+        paths.append(f"{module}.{name_str}")
+    if "." not in name_str:
+        paths.append(f"builtins.{name_str}")
+    paths.append(name_str)
+    for path in paths:
+        resolved = resolve_handle(path, analyzer)
+        if isinstance(resolved, Resolved):
+            return Handle(resolved.handle)  # always a valid dotted path
+    return None
 
 
 async def _build_from_forward_ref(
@@ -511,7 +526,7 @@ async def _build_from_forward_ref(
     Re-parses *text* with ``ast.parse(mode="eval")``. The re-parsed tree has
     positions relative to the string, not the source file, so head resolution
     cannot use the standard ``script.goto`` path. Instead we drive the
-    shared builder with the project-wide canonicalisation resolver.
+    shared builder with :func:`_resolve_head_in_scope` (lexical, #623).
 
     On any parse error the result degrades to ``{raw: text}`` (no handle,
     no args).
@@ -525,14 +540,14 @@ async def _build_from_forward_ref(
 
     sub = sub_tree.body
 
-    async def head_via_canonical(node: ast.expr) -> Handle | None:
-        return await _resolve_head_via_canonical(node, analyzer)
+    async def head_in_scope(node: ast.expr) -> Handle | None:
+        return await _resolve_head_in_scope(node, file_path, analyzer)
 
     return await _build_with_resolver(
         sub,
         file_path,
         analyzer,
-        head_resolver=head_via_canonical,
+        head_resolver=head_in_scope,
         raw_override=raw,
     )
 

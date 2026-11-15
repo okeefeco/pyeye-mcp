@@ -21,21 +21,19 @@ Test cases
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.canonicalization import (
     _collect_re_exports_impl,
-    _get_full_name_from_file,
     _is_valid_handle,
-    _resolve_canonical_impl,
     _scan_package_for_handle,
     collect_re_exports,
-    resolve_canonical,
 )
 from pyeye.handle import Handle
+from tests.utils.resolver_helpers import canonical_handle
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "canonicalization_basic"
 
@@ -52,12 +50,12 @@ def analyzer() -> JediAnalyzer:
 
 
 class TestBareDefinitionIsCanonical:
-    """resolve_canonical on the definition site should be idempotent."""
+    """Canonicalization (resolver.resolve_handle) of the definition site should be idempotent."""
 
     @pytest.mark.asyncio
     async def test_definition_site_resolves_to_itself(self, analyzer: JediAnalyzer) -> None:
         """package._impl.config.Config is the definition site — must return the same handle."""
-        result = await resolve_canonical("package._impl.config.Config", analyzer)
+        result = canonical_handle("package._impl.config.Config", analyzer)
         assert result is not None, "Expected a Handle, got None"
         assert result == Handle("package._impl.config.Config")
 
@@ -73,7 +71,7 @@ class TestReExportCollapsesToDefinitionSite:
     @pytest.mark.asyncio
     async def test_public_path_resolves_to_impl(self, analyzer: JediAnalyzer) -> None:
         """package.Config is a re-export; canonical form is package._impl.config.Config."""
-        result = await resolve_canonical("package.Config", analyzer)
+        result = canonical_handle("package.Config", analyzer)
         assert result is not None, "Expected a Handle, got None for re-export path"
         assert result == Handle(
             "package._impl.config.Config"
@@ -86,17 +84,17 @@ class TestReExportCollapsesToDefinitionSite:
 
 
 class TestUnresolvedNameReturnsNone:
-    """resolve_canonical must return None for unknown identifiers, never raise."""
+    """Canonicalization must return None for unknown identifiers, never raise."""
 
     @pytest.mark.asyncio
     async def test_completely_unknown_returns_none(self, analyzer: JediAnalyzer) -> None:
-        result = await resolve_canonical("does_not_exist.Nowhere", analyzer)
+        result = canonical_handle("does_not_exist.Nowhere", analyzer)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_partial_path_returns_none(self, analyzer: JediAnalyzer) -> None:
         """A module that exists but the leaf symbol does not."""
-        result = await resolve_canonical("package.NonExistentClass", analyzer)
+        result = canonical_handle("package.NonExistentClass", analyzer)
         assert result is None
 
 
@@ -151,40 +149,40 @@ class TestCollectReExports:
 
 
 class TestEdgeCases:
-    """Boundary conditions and error-path coverage for resolve_canonical."""
+    """Boundary conditions and error-path coverage for canonicalization (resolver.resolve_handle)."""
 
     @pytest.mark.asyncio
     async def test_empty_string_returns_none(self, analyzer: JediAnalyzer) -> None:
         """An empty identifier string is invalid and must return None without raising."""
         # Empty string is not a valid identifier (split gives [''] — symbol_name='')
-        result = await resolve_canonical("", analyzer)
+        result = canonical_handle("", analyzer)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_trailing_dot_returns_none(self, analyzer: JediAnalyzer) -> None:
         """An identifier ending in a dot produces an empty symbol_name — return None."""
         # "package." splits to ["package", ""] — symbol_name="" → None
-        result = await resolve_canonical("package.", analyzer)
+        result = canonical_handle("package.", analyzer)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_single_word_module_not_found_returns_none(self, analyzer: JediAnalyzer) -> None:
         """A bare name that doesn't exist in the project returns None."""
-        result = await resolve_canonical("nonexistent_module_xyz", analyzer)
+        result = canonical_handle("nonexistent_module_xyz", analyzer)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_resolve_does_not_raise_on_bad_input(self, analyzer: JediAnalyzer) -> None:
-        """resolve_canonical never raises regardless of input."""
+        """Canonicalization never raises regardless of input."""
         # Try a few pathological inputs
         for bad_input in ["", ".", "...", "a..b", ".leading"]:
             try:
-                result = await resolve_canonical(bad_input, analyzer)
+                result = canonical_handle(bad_input, analyzer)
                 # May return None or a value — either is acceptable
                 assert result is None or isinstance(result, Handle)
             except Exception as exc:
                 raise AssertionError(
-                    f"resolve_canonical raised for input {bad_input!r}: {exc}"
+                    f"canonicalization raised for input {bad_input!r}: {exc}"
                 ) from exc
 
     @pytest.mark.asyncio
@@ -208,16 +206,6 @@ class TestExceptionGuards:
     """Validate that the outer exception-catching wrappers swallow errors silently."""
 
     @pytest.mark.asyncio
-    async def test_resolve_canonical_swallows_internal_error(self, analyzer: JediAnalyzer) -> None:
-        """If _resolve_canonical_impl raises, resolve_canonical returns None."""
-        with patch(
-            "pyeye.canonicalization._resolve_canonical_impl",
-            side_effect=RuntimeError("unexpected internal error"),
-        ):
-            result = await resolve_canonical("package.Config", analyzer)
-        assert result is None
-
-    @pytest.mark.asyncio
     async def test_collect_re_exports_swallows_internal_error(self, analyzer: JediAnalyzer) -> None:
         """If _collect_re_exports_impl raises, collect_re_exports returns []."""
         with patch(
@@ -227,67 +215,10 @@ class TestExceptionGuards:
             result = await collect_re_exports(Handle("package._impl.config.Config"), analyzer)
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_get_full_name_from_file_swallows_jedi_error(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """If Jedi raises inside _get_full_name_from_file, it returns None."""
-        real_file = (
-            Path(__file__).parent.parent.parent
-            / "fixtures"
-            / "canonicalization_basic"
-            / "package"
-            / "__init__.py"
-        )
-        with patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi boom")):
-            result = await _get_full_name_from_file(real_file, "Config", analyzer)
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_full_name_from_file_none_module(self, analyzer: JediAnalyzer) -> None:
-        """Passing None as module_file returns None immediately."""
-        result = await _get_full_name_from_file(None, "Config", analyzer)
-        assert result is None
-
 
 # ---------------------------------------------------------------------------
 # Project-search fallback path (_resolve_via_project_search)
 # ---------------------------------------------------------------------------
-
-
-class TestProjectSearchFallback:
-    """Exercise the fallback code path taken when module file resolution fails."""
-
-    @pytest.mark.asyncio
-    async def test_fallback_returns_handle_when_full_name_matches(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """_resolve_canonical_impl falls back to project search when module file is missing.
-
-        We simulate the missing-file case by patching find_module_file to
-        return None, then verify that find_symbol is consulted and the
-        full_name match yields a Handle.
-        """
-        with patch("pyeye.canonicalization.find_module_file", return_value=None):
-            # The fixture project has Config; project search should find it.
-            # original_identifier must match the full_name Jedi returns.
-            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
-        # May return the handle or None depending on search scope; must not raise
-        assert result is None or isinstance(result, Handle)
-
-    @pytest.mark.asyncio
-    async def test_fallback_returns_none_when_find_symbol_raises(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """_resolve_via_project_search absorbs find_symbol exceptions and returns None."""
-        with (
-            patch("pyeye.canonicalization.find_module_file", return_value=None),
-            patch.object(analyzer, "find_symbol", side_effect=RuntimeError("search boom")),
-            # Isolate the project-search error path from the external fallback (#529).
-            patch("pyeye.canonicalization._resolve_external", return_value=None),
-        ):
-            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
-        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +240,7 @@ class TestExternalReExportCanonicalizes:
         """asyncio/__init__.py re-exports Queue via ``from .queues import *``."""
         import asyncio
 
-        result = await resolve_canonical("asyncio.Queue", analyzer)
+        result = canonical_handle("asyncio.Queue", analyzer)
         assert result == Handle(f"{asyncio.Queue.__module__}.Queue")
 
     @pytest.mark.asyncio
@@ -317,7 +248,7 @@ class TestExternalReExportCanonicalizes:
         """json/__init__.py re-exports JSONDecoder via ``from .decoder import ...``."""
         import json
 
-        result = await resolve_canonical("json.JSONDecoder", analyzer)
+        result = canonical_handle("json.JSONDecoder", analyzer)
         assert result == Handle(f"{json.JSONDecoder.__module__}.JSONDecoder")
 
     @pytest.mark.asyncio
@@ -325,7 +256,7 @@ class TestExternalReExportCanonicalizes:
         """pathlib.Path is defined in pathlib (<=3.12) or pathlib._local (3.13+)."""
         import pathlib
 
-        result = await resolve_canonical("pathlib.Path", analyzer)
+        result = canonical_handle("pathlib.Path", analyzer)
         assert result == Handle(f"{pathlib.Path.__module__}.Path")
 
     @pytest.mark.asyncio
@@ -333,11 +264,11 @@ class TestExternalReExportCanonicalizes:
         import asyncio
 
         canonical = f"{asyncio.Queue.__module__}.Queue"
-        assert await resolve_canonical(canonical, analyzer) == Handle(canonical)
+        assert canonical_handle(canonical, analyzer) == Handle(canonical)
 
     @pytest.mark.asyncio
     async def test_unknown_external_leaf_returns_none(self, analyzer: JediAnalyzer) -> None:
-        assert await resolve_canonical("json.NoSuchThingXyz", analyzer) is None
+        assert canonical_handle("json.NoSuchThingXyz", analyzer) is None
 
 
 # ---------------------------------------------------------------------------
@@ -396,108 +327,3 @@ class TestCollectReExportsImplEdgeCases:
             analyzer,
         )
         assert isinstance(result, list)
-
-
-class TestMultiHopResolutionEdgeCases:
-    """Edge-case coverage for the multi-hop resolution walk."""
-
-    @pytest.mark.asyncio
-    async def test_hop_with_missing_file_terminates(self, analyzer: JediAnalyzer) -> None:
-        """When hop module file is not found, resolution stops at current full_name."""
-        # Patch find_module_file to return None only on the second call
-        # (first call finds the module, second call fails during chain walking)
-        call_count = 0
-        real_find = _resolve_canonical_impl.__globals__["find_module_file"]
-
-        def mock_find(module_dotted: str, a: JediAnalyzer) -> Path | None:
-            nonlocal call_count
-            call_count += 1
-            if call_count > 1:
-                return None
-            return real_find(module_dotted, a)
-
-        with patch("pyeye.canonicalization.find_module_file", side_effect=mock_find):
-            result = await _resolve_canonical_impl("package.Config", analyzer)
-        # Must not raise; result may be None or partial
-        assert result is None or isinstance(result, Handle)
-
-    @pytest.mark.asyncio
-    async def test_project_search_with_no_full_name_in_results(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """_resolve_via_project_search skips results without full_name."""
-        with (
-            patch("pyeye.canonicalization.find_module_file", return_value=None),
-            patch.object(
-                analyzer,
-                "find_symbol",
-                new_callable=AsyncMock,
-                return_value=[{"name": "Config", "file": "x.py"}],  # No full_name key
-            ),
-            # Isolate the project-search branch from the external fallback (#529).
-            patch("pyeye.canonicalization._resolve_external", return_value=None),
-        ):
-            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_project_search_skips_invalid_handle_in_full_name(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """_resolve_via_project_search skips full_name values that produce invalid Handles."""
-        with (
-            patch("pyeye.canonicalization.find_module_file", return_value=None),
-            patch.object(
-                analyzer,
-                "find_symbol",
-                new_callable=AsyncMock,
-                return_value=[{"full_name": "package._impl.config.Config"}],
-            ),
-        ):
-            # original_identifier matches, so it should construct a Handle normally
-            result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
-        # Valid full_name — Handle construction should succeed
-        assert result is None or isinstance(result, Handle)
-
-    @pytest.mark.asyncio
-    async def test_resolution_loop_stabilises_on_same_full_name(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """When _get_full_name_from_file returns the same value twice, the loop stabilises.
-
-        This exercises the stabilisation break at line 192 (``full_name == current_identifier
-        and _ > 0``).
-        """
-        # We want: first call returns "package.X", second call for "package.X" also
-        # returns "package.X" — i.e., the same value, triggering stabilise on iteration 1.
-        # Simplest approach: patch _get_full_name_from_file to always return the same string.
-        fixed = "package.some.Sym"
-        with patch(
-            "pyeye.canonicalization._get_full_name_from_file",
-            new_callable=AsyncMock,
-            return_value=fixed,
-        ):
-            # We need find_module_file to succeed too, otherwise the function
-            # falls through to project-search before entering the loop.
-            real_file = _FIXTURE / "package" / "__init__.py"
-            with patch("pyeye.canonicalization.find_module_file", return_value=real_file):
-                result = await _resolve_canonical_impl("package.Config", analyzer)
-        # full_name = "package.some.Sym" on both calls → stabilises → Handle("package.some.Sym")
-        assert result is None or isinstance(result, Handle)
-
-    @pytest.mark.asyncio
-    async def test_invalid_full_name_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """When Jedi returns a full_name that is not a valid Handle, return None.
-
-        Exercises the ValueError catch at line 217-219.
-        """
-        # Return an invalid dotted name (e.g. empty string, leading dot, etc.)
-        with patch(
-            "pyeye.canonicalization._get_full_name_from_file",
-            new_callable=AsyncMock,
-            return_value="..invalid..name..",
-        ):
-            real_file = _FIXTURE / "package" / "__init__.py"
-            with patch("pyeye.canonicalization.find_module_file", return_value=real_file):
-                result = await _resolve_canonical_impl("package.Config", analyzer)
-        assert result is None
