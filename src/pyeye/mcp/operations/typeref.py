@@ -86,7 +86,8 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position
-from pyeye._goto import goto_target
+from pyeye._goto import binding_target, goto_target
+from pyeye._stdlib_static import is_stdlib
 from pyeye.handle import Handle
 from pyeye.project_layout import module_name_for_file
 from pyeye.resolver import Resolved, resolve_handle
@@ -461,6 +462,9 @@ def _resolve_head_via_jedi(
     except Exception as exc:
         logger.debug("typeref._resolve_head_via_jedi: no script for %s: %s", file_path, exc)
         return None
+    stdlib = _stdlib_binding_handle(script, line, col, analyzer)
+    if stdlib is not None:
+        return stdlib
     target = goto_target(script, line, col)
     if target is None:
         return None
@@ -476,6 +480,28 @@ def _resolve_head_via_jedi(
             col,
         )
         return None
+
+
+def _stdlib_binding_handle(
+    script: Any, line: int, col: int, analyzer: JediAnalyzer
+) -> Handle | None:
+    """The resolver's handle for a head bound by a stdlib import (#544).
+
+    ``goto`` with imports followed lands where typeshed says the name lives,
+    which for ``from collections.abc import Mapping`` is ``typing.Mapping``,
+    the reverse of the real source. The binding itself (imports NOT followed) names
+    the imported path; a stdlib path is placed by the resolver, so the typeref
+    carries the handle ``resolve`` reports. ``None`` when the head is not bound
+    to one stdlib path, or the resolver places it outside the stdlib.
+    """
+    binding = binding_target(script, line, col)
+    path = getattr(binding, "full_name", None) if binding is not None else None
+    if not path or not is_stdlib(path):
+        return None
+    resolved = resolve_handle(path, analyzer)
+    if not isinstance(resolved, Resolved) or resolved.scope != "external":
+        return None
+    return Handle(resolved.handle)
 
 
 async def _resolve_head_in_scope(

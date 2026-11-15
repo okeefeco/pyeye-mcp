@@ -17,6 +17,7 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
+from ..path_utils import normalize_path, relative_within
 from ..project_layout import (
     detect_src_layout,
     layout_key,
@@ -76,6 +77,41 @@ def _jedi_sys_path(paths: Iterable[str | Path]) -> list[str]:
         if native not in out:
             out.append(native)
     return out
+
+
+def _scope_key(scope: Scope | None) -> str:
+    """A stable cache key for *scope*, as passed (order kept: it is the caller's)."""
+    if scope is None or isinstance(scope, str):
+        return str(scope)
+    return "|".join(scope)
+
+
+def _class_fact(node: ast.ClassDef, py_file: Path) -> project_graph.ClassFact:
+    """The facts a subclass stub needs, without keeping the AST node (#397, #713)."""
+    return project_graph.ClassFact(
+        name=node.name,
+        file=py_file,
+        line=node.lineno,
+        # end_lineno is the class body's last line (Python 3.8+ AST), carried so
+        # the subclasses edge reports a real line span without re-deriving a Jedi
+        # Name (#445). Falling back to lineno keeps line_end >= line_start.
+        end_line=node.end_lineno or node.lineno,
+        column=node.col_offset,
+    )
+
+
+def _subclass_info(fqn: str, fact: project_graph.ClassFact, direct_parent: str) -> dict[str, Any]:
+    """One ``find_subclasses`` result record."""
+    return {
+        "name": fact.name,
+        "full_name": fqn,
+        "file": fact.file.as_posix(),
+        "line": fact.line,
+        "end_line": fact.end_line,
+        "column": fact.column,
+        "direct_parent": direct_parent,
+        "is_direct": True,
+    }
 
 
 class JediAnalyzer:
@@ -138,17 +174,22 @@ class JediAnalyzer:
             resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
+                in_project: list[Path] = []
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
-                    if pkg != resolved_project and pkg.exists():
-                        added_sys_path.append(pkg.as_posix())
-                        logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
-                if added_sys_path:
-                    self.source_roots = [
-                        Path(p)
-                        for p in added_sys_path
-                        if self._is_subpath(Path(p), resolved_project)
-                    ]
+                    if pkg == resolved_project or not pkg.exists():
+                        continue
+                    # A root inside the project keeps project_path's spelling, as
+                    # in the no-config branch below: files are enumerated under
+                    # that spelling, and location.file must keep it (#603, #714).
+                    rel = relative_within(pkg, self.project_path)
+                    if rel is not None:
+                        pkg = self.project_path / rel
+                        in_project.append(pkg)
+                    added_sys_path.append(pkg.as_posix())
+                    logger.info(f"Adding {pkg.as_posix()} to Jedi sys path")
+                if in_project:
+                    self.source_roots = in_project
             else:
                 # No config: apply the same src-layout rule ProjectConfig's
                 # auto-discovery uses, so an analyzer built without config names
@@ -179,8 +220,15 @@ class JediAnalyzer:
 
             # Store the FINAL merged list (src-layout + namespace roots) as the
             # public attribute, typed as Path, in the same sys.path-precedence
-            # order that is handed to jedi.Project (#423).
-            self.added_sys_path = [Path(p) for p in added_sys_path]
+            # order that is handed to jedi.Project (#423).  Jedi gets RESOLVED
+            # paths: it resolves the module paths it compares them with, so a
+            # symlinked or short-name spelling would never match (#714).  The
+            # caller's spelling stays in project_path / source_roots, for
+            # display and for the file <-> module mapper.
+            jedi_sys_path = list(
+                dict.fromkeys(normalize_path(p).as_posix() for p in added_sys_path)
+            )
+            self.added_sys_path = [Path(p) for p in jedi_sys_path]
 
             # When the project_path IS a Python package (has __init__.py),
             # Jedi must be rooted at the PARENT so that the package name is
@@ -192,10 +240,11 @@ class JediAnalyzer:
                 self._jedi_root_is_parent = True
 
             # #722: never jedi.Project directly; make_project drops Jedi's own
-            # subprocess directory from the base sys.path.
+            # subprocess directory from the base sys.path.  The root and
+            # added_sys_path are the RESOLVED, Jedi-facing spellings (#714).
             self.project = make_project(
                 jedi_root,
-                added_sys_path=_jedi_sys_path(added_sys_path) if added_sys_path else (),
+                added_sys_path=_jedi_sys_path(jedi_sys_path) if jedi_sys_path else (),
             )
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
@@ -275,8 +324,23 @@ class JediAnalyzer:
 
     # LIVE (not deprecated): the AST name-index search (#457) behind ``find_symbol``
     # and ``_resolve_simple_type`` — i.e. behind ``resolve``. Do not remove.
+    async def find_member_definitions(self, name: str) -> list[Any]:
+        """Every method or class-body attribute named *name*, project-wide (#508).
+
+        The fallback behind ``resolve_name`` rule 4: these definitions are never
+        bare-name *indexed* (#457), so ``find_symbol`` can't see them.  Dunder
+        names are never returned.  Same index build, caching and scope
+        filtering as :meth:`_search_all_scopes`.
+        """
+        return await self._search_all_scopes(name, members=True)
+
     async def _search_all_scopes(
-        self, name: str, scope: Scope | None = None, fuzzy: bool = False
+        self,
+        name: str,
+        scope: Scope | None = None,
+        fuzzy: bool = False,
+        *,
+        members: bool = False,
     ) -> list[Any]:
         """Find every project definition of *name* across the requested scope.
 
@@ -299,6 +363,8 @@ class JediAnalyzer:
                    Defaults to "all".
             fuzzy: When True, match any indexed name *containing* ``name``
                    (substring), mirroring the old search; else exact name.
+            members: Search the member index (methods and class attributes,
+                #508) instead of the name index.
 
         Returns:
             ``DefinitionSentinel`` objects for every matching definition,
@@ -316,7 +382,7 @@ class JediAnalyzer:
         all_files = await self.get_project_files(pattern="*.py", scope="all")
         file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         index = await asyncio.to_thread(
-            project_graph.get_name_index,
+            project_graph.get_member_index if members else project_graph.get_name_index,
             self.project_path.as_posix(),
             all_files,
             file_to_module,
@@ -1004,198 +1070,95 @@ class JediAnalyzer:
                                                            the simple name; caller
                                                            must disambiguate with FQN
         """
-        subclasses: list[dict[str, Any]] = []
-        processed_classes: set[str] = set()
-
         # Determine if the caller supplied a FQN (has a dot) or a bare simple name.
         is_fqn_input = "." in base_class
         # For FQN input the simple leaf name used to match dotted base expressions.
         leaf_name = base_class.split(".")[-1] if is_fqn_input else base_class
 
         try:
+            # Snapshot before listing files, so a graph built from a listing that
+            # a watcher invalidation raced is never cached (#617).
+            generation = project_graph.generation(self.project_path.as_posix())
             # Get all Python files in scope (cached by get_project_files)
             py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
 
-            # Derive each file's module name ONCE and reuse it everywhere below
-            # (#421 item 3).  The class graph, the resolved index, and the AST
-            # resolution tables each used to re-derive this per file (and the
-            # class graph re-derived it per class node); sharing one map removes
-            # that and makes the "same module derivation" invariant mechanically
-            # true rather than by convention.  ``None`` means "not importable" —
-            # each call site keeps its own ``stem`` fallback, preserving behaviour.
-            file_to_module: dict[Path, str | None] = {
-                py_file: self._get_import_path_for_file(py_file) for py_file in py_files
-            }
+            if is_fqn_input:
+                # FQN-strict path (the `subclasses` edge): children whose declared
+                # base resolves to the requested FQN's definition site
+                # (re-export-aware; #335 Bug A), served from the resolved class
+                # graph, built once per generation, layout and scope (#397).
+                graph = project_graph.get_class_graph(
+                    self.project_path.as_posix(),
+                    lambda: self._build_class_graph(py_files),
+                    generation,
+                    layout_key=self.layout_key,
+                    scope_key=_scope_key(scope),
+                )
+                return {
+                    "ambiguous": False,
+                    "subclasses": [
+                        _subclass_info(fqn, graph.classes[fqn], leaf_name)
+                        for fqn in self._direct_children(base_class, graph)
+                        if fqn in graph.classes
+                    ],
+                }
 
-            # Single pass: parse each file once, extract all class info
-            # Maps full_name -> (node, tree, file) for deduplication
-            classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-            # Maps parent name -> set of child full_names (simple-name lookups)
-            parent_to_children: dict[str, set[str]] = {}
-
-            for py_file in py_files:
-                try:
-                    # Bucket 1: AST comes from cache.
-                    tree = file_artifact_cache.get_ast(py_file)
-                    module_path = file_to_module[py_file]
-
-                    for node in ast.walk(tree):
-                        if not isinstance(node, ast.ClassDef):
-                            continue
-
-                        fqn = (
-                            f"{module_path}.{node.name}"
-                            if module_path
-                            else f"{py_file.stem}.{node.name}"
-                        )
-
-                        classes_by_fqn[fqn] = (node, tree, py_file)
-
-                        # Record parent->child edges for all bases
-                        for base in node.bases:
-                            parent_name = self._get_base_name_from_ast(base)
-                            if parent_name and parent_name != "object":
-                                parent_to_children.setdefault(parent_name, set()).add(fqn)
-                except Exception as e:
-                    logger.debug(f"Error parsing {py_file}: {e}")
+            # Simple-name path: no production caller (the edge passes a FQN), so
+            # it stays uncached and builds its own inventory.
+            classes_by_fqn, parent_to_children = self._class_inventory(
+                py_files, self._file_to_module(py_files)
+            )
 
             # -------------------------------------------------------------------
             # Ambiguity check: when caller passes a bare simple name and multiple
             # distinct FQN-keyed classes share that leaf name, return the
             # ambiguous variant so the caller can re-call with a FQN.
             # -------------------------------------------------------------------
-            if not is_fqn_input:
-                matching_fqns_for_name = [
-                    fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
-                ]
-                if len(matching_fqns_for_name) > 1:
-                    # Build candidate descriptors
-                    candidates: list[dict[str, Any]] = []
-                    for fqn in sorted(matching_fqns_for_name):
-                        node, _, py_file = classes_by_fqn[fqn]
-                        candidates.append(
-                            {
-                                "handle": fqn,
-                                "kind": "class",
-                                "location": {
-                                    "file": py_file.as_posix(),
-                                    "line_start": node.lineno,
-                                    "line_end": node.lineno,
-                                },
-                            }
-                        )
-                    return {"ambiguous": True, "candidates": candidates}
-
-            # -------------------------------------------------------------------
-            # Find all direct subclasses.
-            # -------------------------------------------------------------------
-            direct_fqns: set[str] = set()
-
-            # Caches shared across the index build and the direct lookup.  Keyed
-            # by source position / identifier so repeated Jedi goto() and
-            # canonicalization work is done once.
-            resolved_cache: dict[tuple[str, int, int], str | None] = {}
-            canonical_cache: dict[str, Handle | None] = {}
-
-            # Build the resolved parent->children index ONCE (#405).  The old
-            # per-target resolver re-resolved every class base on every closure
-            # node (O(closure_nodes x classes x goto)).  Instead, resolve each
-            # base a single time here and bucket the child under its base's
-            # definition-site key, so the lookups below are O(1).  Resolution is
-            # AST-first (resolve_base — no Jedi, #335-robust) with a Jedi goto
-            # fallback only when the AST cannot commit; both routes yield the
-            # same definition-site key.
-            #
-            # Only the FQN-input path consults this index; the simple-name path
-            # uses parent_to_children (+ aliased-base goto) alone, so it skips
-            # the build — and the expensive, non-deterministic Jedi goto
-            # fallbacks the build runs — entirely (#421 item 1).
-            import_tables: dict[str, dict[str, str]] = {}
-            module_defines: dict[str, dict[str, str]] = {}
-            star_sources: dict[str, list[str]] = {}
-            resolved_index: dict[str, set[str]] = {}
-            if is_fqn_input:
-                import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
-                    py_files, file_to_module
-                )
-                for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
-                    child_module = file_to_module.get(child_file) or child_file.stem
-                    for base in child_node.bases:
-                        base_dotted = self._get_base_name_from_ast(base)
-                        if not base_dotted or base_dotted.split(".")[-1] == "object":
-                            continue
-                        key = await self._resolve_base_to_key(
-                            base,
-                            base_dotted,
-                            child_module,
-                            child_file,
-                            import_tables,
-                            module_defines,
-                            star_sources,
-                            resolved_cache,
-                            canonical_cache,
-                        )
-                        if key is not None:
-                            resolved_index.setdefault(key, set()).add(child_fqn)
-
-            async def direct_children(target_fqn: str) -> set[str]:
-                """Children whose base resolves to *target_fqn* (def-site exact or re-export)."""
-                key = self._target_index_key(
-                    target_fqn, import_tables, module_defines, star_sources
-                )
-                if key is None:
-                    canon = await self._canonical_cached(target_fqn, canonical_cache)
-                    key = str(canon) if canon is not None else target_fqn
-                return set(resolved_index.get(key, set()))
-
-            if is_fqn_input:
-                # FQN-strict path: children whose declared base resolves to the
-                # requested FQN's definition site (re-export-aware; issue #335 Bug A).
-                direct_fqns = await direct_children(base_class)
-
-            else:
-                # Simple name path (unambiguous — ambiguity was checked above).
-                # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
-                if base_class in parent_to_children:
-                    direct_fqns.update(parent_to_children[base_class])
-
-                # Check dotted name matches (e.g., class Foo(module.Animal))
-                for parent_name, children in parent_to_children.items():
-                    if parent_name != base_class and parent_name.endswith(f".{base_class}"):
-                        direct_fqns.update(children)
-
-                # Try Jedi-based resolution for aliased imports
-                # e.g., "from module import Animal as A" -> class Foo(A)
-                direct_fqns.update(
-                    await self._resolve_aliased_bases(
-                        base_class, classes_by_fqn, parent_to_children
+            matching_fqns_for_name = [
+                fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
+            ]
+            if len(matching_fqns_for_name) > 1:
+                candidates: list[dict[str, Any]] = []
+                for fqn in sorted(matching_fqns_for_name):
+                    node, _, py_file = classes_by_fqn[fqn]
+                    candidates.append(
+                        {
+                            "handle": fqn,
+                            "kind": "class",
+                            "location": {
+                                "file": py_file.as_posix(),
+                                "line_start": node.lineno,
+                                "line_end": node.lineno,
+                            },
+                        }
                     )
-                )
+                return {"ambiguous": True, "candidates": candidates}
 
-            # Build result list
+            # Simple name path (unambiguous — ambiguity was checked above).  It
+            # uses parent_to_children (+ aliased-base goto) alone and never
+            # builds the resolved class graph (#421 item 1).
+            direct_fqns: set[str] = set()
+            # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
+            if base_class in parent_to_children:
+                direct_fqns.update(parent_to_children[base_class])
+
+            # Check dotted name matches (e.g., class Foo(module.Animal))
+            for parent_name, children in parent_to_children.items():
+                if parent_name != base_class and parent_name.endswith(f".{base_class}"):
+                    direct_fqns.update(children)
+
+            # Try Jedi-based resolution for aliased imports
+            # e.g., "from module import Animal as A" -> class Foo(A)
+            direct_fqns.update(
+                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
+            )
+
+            subclasses: list[dict[str, Any]] = []
             for fqn in direct_fqns:
-                if fqn in processed_classes or fqn not in classes_by_fqn:
+                if fqn not in classes_by_fqn:
                     continue
-                processed_classes.add(fqn)
-
                 node, _, py_file = classes_by_fqn[fqn]
-
-                subclass_info: dict[str, Any] = {
-                    "name": node.name,
-                    "full_name": fqn,
-                    "file": py_file.as_posix(),
-                    "line": node.lineno,
-                    # end_lineno is the class body's last line (Python 3.8+ AST);
-                    # carried so the subclasses edge can report a real line span
-                    # without re-deriving a Jedi Name (#445). Defensive fallback
-                    # to lineno keeps line_end >= line_start.
-                    "end_line": node.end_lineno or node.lineno,
-                    "column": node.col_offset,
-                    "direct_parent": leaf_name,
-                    "is_direct": True,
-                }
-
-                subclasses.append(subclass_info)
+                subclasses.append(_subclass_info(fqn, _class_fact(node, py_file), leaf_name))
 
         except Exception as e:
             logger.error(f"Error finding subclasses: {e}")
@@ -1206,7 +1169,116 @@ class JediAnalyzer:
 
         return {"ambiguous": False, "subclasses": subclasses}
 
-    async def _canonical_cached(
+    def _file_to_module(self, py_files: list[Path]) -> dict[Path, str | None]:
+        """Each file's module name, derived ONCE per build and shared (#421 item 3).
+
+        ``None`` means "not importable"; each consumer keeps its own ``stem``
+        fallback, so the "same module derivation" invariant holds mechanically.
+        """
+        return {py_file: self._get_import_path_for_file(py_file) for py_file in py_files}
+
+    def _class_inventory(
+        self, py_files: list[Path], file_to_module: dict[Path, str | None]
+    ) -> tuple[dict[str, tuple[ast.ClassDef, ast.Module, Path]], dict[str, set[str]]]:
+        """Every class in *py_files*, plus parent name -> child FQNs (simple-name lookups).
+
+        One pass over each file's cached AST. A file that can't be read or parsed
+        is skipped, as before.
+
+        Returns:
+            ``(classes_by_fqn, parent_to_children)``: FQN -> ``(node, tree, file)``,
+            and each declared base's dotted text -> the FQNs that name it.
+        """
+        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
+        parent_to_children: dict[str, set[str]] = {}
+        for py_file in py_files:
+            try:
+                # Bucket 1: AST comes from cache.
+                tree = file_artifact_cache.get_ast(py_file)
+                module_path = file_to_module[py_file]
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.ClassDef):
+                        continue
+                    fqn = (
+                        f"{module_path}.{node.name}"
+                        if module_path
+                        else f"{py_file.stem}.{node.name}"
+                    )
+                    classes_by_fqn[fqn] = (node, tree, py_file)
+                    for base in node.bases:
+                        parent_name = self._get_base_name_from_ast(base)
+                        if parent_name and parent_name != "object":
+                            parent_to_children.setdefault(parent_name, set()).add(fqn)
+            except Exception as e:
+                logger.debug(f"Error parsing {py_file}: {e}")
+        return classes_by_fqn, parent_to_children
+
+    def _build_class_graph(self, py_files: list[Path]) -> project_graph.ClassGraph:
+        """Build the resolved class graph for *py_files* (#397; uncached).
+
+        Resolves each class base ONCE and buckets the child under its base's
+        definition-site key (#405). Resolution is AST-first (``resolve_base``: no
+        Jedi, #335-robust) with a Jedi ``goto`` fallback only when the AST can't
+        commit; both routes yield the same key. Keeps only strings and ints, so
+        the cached graph pins no AST, Jedi or parso objects (#713).
+
+        Runs Jedi, so it must run on the analyzer's (Jedi worker) thread.
+        """
+        file_to_module = self._file_to_module(py_files)
+        classes_by_fqn, _ = self._class_inventory(py_files, file_to_module)
+        import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
+            py_files, file_to_module
+        )
+        # Memoised for this build: repeated goto / canonicalisation runs once.
+        resolved_cache: dict[tuple[str, int, int], str | None] = {}
+        canonical_cache: dict[str, Handle | None] = {}
+        children: dict[str, set[str]] = {}
+        for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
+            child_module = file_to_module.get(child_file) or child_file.stem
+            for base in child_node.bases:
+                base_dotted = self._get_base_name_from_ast(base)
+                if not base_dotted or base_dotted.split(".")[-1] == "object":
+                    continue
+                key = self._resolve_base_to_key(
+                    base,
+                    base_dotted,
+                    child_module,
+                    child_file,
+                    import_tables,
+                    module_defines,
+                    star_sources,
+                    resolved_cache,
+                    canonical_cache,
+                )
+                if key is not None:
+                    children.setdefault(key, set()).add(child_fqn)
+        return project_graph.ClassGraph(
+            classes={
+                fqn: _class_fact(node, py_file)
+                for fqn, (node, _, py_file) in classes_by_fqn.items()
+            },
+            children_by_key={key: frozenset(fqns) for key, fqns in children.items()},
+            import_tables=import_tables,
+            module_defines=module_defines,
+            star_sources=star_sources,
+        )
+
+    def _direct_children(self, target_fqn: str, graph: project_graph.ClassGraph) -> set[str]:
+        """Classes whose base resolves to *target_fqn*'s definition site (or its re-export).
+
+        The target is keyed exactly as bases were (:meth:`_target_index_key`);
+        when the AST can't key it, it is canonicalised through the resolver,
+        as before (#623).
+        """
+        key = self._target_index_key(
+            target_fqn, graph.import_tables, graph.module_defines, graph.star_sources
+        )
+        if key is None:
+            canon = self._canonical_cached(target_fqn, {})
+            key = str(canon) if canon is not None else target_fqn
+        return set(graph.children_by_key.get(key, frozenset()))
+
+    def _canonical_cached(
         self, identifier: str, canonical_cache: dict[str, Handle | None]
     ) -> Handle | None:
         """The canonical handle for *identifier*, memoised per ``find_subclasses`` call.
@@ -1260,7 +1332,7 @@ class JediAnalyzer:
                 star_sources[module_name] = stars
         return import_tables, module_defines, star_sources
 
-    async def _resolve_base_to_key(
+    def _resolve_base_to_key(
         self,
         base: ast.expr,
         base_dotted: str,
@@ -1315,7 +1387,7 @@ class JediAnalyzer:
         resolved = resolved_cache[cache_key]
         if resolved is None:
             return None
-        canonical = await self._canonical_cached(resolved, canonical_cache)
+        canonical = self._canonical_cached(resolved, canonical_cache)
         return str(canonical) if canonical is not None else resolved
 
     def _target_index_key(

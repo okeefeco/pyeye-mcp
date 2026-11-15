@@ -221,21 +221,19 @@ class TestSymbolHandles:
         self, project: Path, tool: str, key: str, value: str, expected_handle: str
     ) -> None:
         payload = await _call(_server(project), tool, scope="main", **EXTRA_ARGS.get(tool, {}))
-        # Every matching record: find_computed_fields reports a property once per
-        # matching decorator (@computed_field + @property), a separate, pre-existing
-        # duplication that this additive change leaves alone.
+        # One record per symbol: find_computed_fields no longer repeats a property
+        # once per matching decorator (@computed_field + @property, #672).
         records = [r for r in _records(tool, payload) if r.get(key) == value]
-        assert records
-        for record in records:
-            assert record["handle"] == expected_handle
-            assert record["scope"] == "project"
-            assert "unresolved" not in record
+        assert len(records) == 1, records
+        record = records[0]
+        assert record["handle"] == expected_handle
+        assert record["scope"] == "project"
+        assert "unresolved" not in record
         inspected = await server.inspect(record["handle"], project_path=str(project))
         assert inspected.get("found", True) is not False
         assert inspected["handle"] == expected_handle
         # Drift guard: the record's location IS inspect's location (#627).
-        for record in records:
-            assert record["location"] == inspected["location"]
+        assert record["location"] == inspected["location"]
 
     async def test_reexported_model_gets_the_definition_site_handle(self, project: Path) -> None:
         """``shop.Product`` is a re-export; the canonical handle is where it's defined."""

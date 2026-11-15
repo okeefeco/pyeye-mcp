@@ -6,7 +6,7 @@ anchors: ["pyeye.canonicalization.find_definition_name", "_resolve_class_member"
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md"]
+amended_by: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md", "2026-11-15-544-stdlib-private-definitions-get-public-handles-os-path-is-located.md"]
 superseded_by: []
 ---
 

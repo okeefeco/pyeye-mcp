@@ -17,7 +17,11 @@ Resolution strategy
 - Bare names go through :func:`pyeye.resolver.resolve_name`: a #423 shadow is
   ambiguous, an exact top-level module wins, otherwise every project
   definition of the name is a canonical candidate (one → success, several →
-  ambiguous with sorted candidates, none → not-found).
+  ambiguous with sorted candidates, none → not-found).  Methods and class-body
+  attributes are a **fallback** (#508): they are candidates only when no module
+  or top-level definition matches, so a top-level ``helper`` hides a
+  same-named ``Class.helper``.  Dunder names are never member candidates; a
+  bare dunder miss's ``detail`` points at ``expand(<class>, "members")``.
 - Dotted names go through :func:`pyeye.resolver.resolve_handle`, which follows
   re-export chains and returns the definition-site handle (#623).
 - File-with-line: read the line to locate the first non-whitespace column,
@@ -51,7 +55,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
@@ -100,7 +104,7 @@ class _AmbiguousResult(TypedDict):
     candidates: list[_Candidate]
 
 
-class _Miss(TypedDict):
+class _Miss(TypedDict, total=False):
     """Internal not-found signal from the resolution helpers.
 
     Never returned to a caller: :func:`resolve` / :func:`resolve_at` render it
@@ -108,12 +112,17 @@ class _Miss(TypedDict):
     operation's lookup echo and an actionable ``detail`` (#626).
     """
 
-    found: Literal[False]
-    reason: str
+    found: Required[Literal[False]]
+    reason: Required[str]
+    #: Overrides the default ``detail`` when the miss has a better next step.
+    detail: str
 
 
-def _miss(reason: str) -> _Miss:
-    return _Miss(found=False, reason=reason)
+def _miss(reason: str, detail: str | None = None) -> _Miss:
+    miss = _Miss(found=False, reason=reason)
+    if detail is not None:
+        miss["detail"] = detail
+    return miss
 
 
 #: What the internal helpers return.
@@ -351,13 +360,18 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult
     """
     result = await resolve_name(name, analyzer)
     if isinstance(result, NotFound):
-        return _miss("unresolved")
+        # A bare dunder is never a member candidate (#508): say where to look.
+        return _miss("unresolved", result.detail if _is_dunder(name) else None)
     if isinstance(result, Ambiguous):
         candidates = sorted(
             (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
         )
         return _AmbiguousResult(found=True, ambiguous=True, candidates=candidates)
     return _success_from_resolved(result)
+
+
+def _is_dunder(name: str) -> bool:
+    return name.startswith("__") and name.endswith("__")
 
 
 async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
@@ -465,7 +479,9 @@ async def resolve(
     """
     result = await _resolve_identifier(identifier, analyzer)
     if result["found"] is False:
-        return not_found_for("resolve", {"identifier": identifier}, result["reason"])
+        return not_found_for(
+            "resolve", {"identifier": identifier}, result["reason"], result.get("detail")
+        )
     return result
 
 
