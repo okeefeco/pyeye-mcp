@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..async_utils import filtered_rglob
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class PydanticPlugin(AnalyzerPlugin):
         """Detect if this project uses Pydantic."""
         # Check for Pydantic imports in any Python file
         # Note: Using sync I/O here as detect() is called during initialization
-        for py_file in self.project_path.rglob("*.py"):
+        for py_file in filtered_rglob("*.py", self.project_path):
             try:
                 if py_file.stat().st_size > 1000000:  # Skip very large files
                     continue

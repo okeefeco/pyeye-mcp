@@ -320,12 +320,13 @@ class TestScopeReporting:
     async def test_packages_scope_reports_what_it_actually_reads(
         self, project: tuple[Path, Path, Path]
     ) -> None:
-        # initialize_plugins puts main and the namespaces into additional_paths, so
-        # `packages` searches them too, and reports that.
+        # `packages` searches the configured packages only (#690). It used to also
+        # search main and the namespaces, which initialize_plugins mixed into
+        # additional_paths (#594); the envelope still reports exactly what it read.
         payload = await self._payload(project, scope="packages")
 
-        assert payload["searched"] == ["main", "packages", "namespace:shared"]
-        assert payload["unsearched_scopes"] == []
+        assert payload["searched"] == ["packages"]
+        assert payload["unsearched_scopes"] == ["main", "namespace:shared"]
 
     async def test_alias_reports_the_requested_name_and_the_expansion(
         self, project: tuple[Path, Path, Path]

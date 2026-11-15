@@ -567,6 +567,23 @@ class ProjectConfig:
         aliases = self.config.get("scope_aliases", {})
         return dict(aliases) if aliases else {}
 
+    def get_standalone_paths(self) -> list[Path]:
+        """The configured standalone script directories that exist (#690).
+
+        Relative entries are taken from the project root. The one source for
+        the analyzer (via ``ProjectManager``) and the plugins.
+        """
+        paths: list[Path] = []
+        for dir_path in self.get_standalone_config().get("dirs", []):
+            resolved_path = Path(dir_path).expanduser()
+            if not resolved_path.is_absolute():
+                resolved_path = self.project_path / resolved_path
+            if resolved_path.exists():
+                paths.append(resolved_path)
+            else:
+                logger.warning(f"Standalone directory does not exist: {resolved_path.as_posix()}")
+        return paths
+
     def get_standalone_config(self) -> dict[str, Any]:
         """Get standalone scripts configuration.
 
