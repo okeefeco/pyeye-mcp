@@ -148,10 +148,42 @@ def _install_recovery() -> None:
     filters = importlib.import_module(_FILTER_MODULE)
     if not _is_marked(filters.get_parso_cache_node):
         setattr(filters, "get_parso_cache_node", node_or_none)  # noqa: B010
+    _install_own_tree_guard(filters._AbstractUsedNamesFilter)
     for name in _CODE_LINES_MODULES:
         module: ModuleType = importlib.import_module(name)
         if not _is_marked(module.get_cached_code_lines):
             setattr(module, "get_cached_code_lines", code_lines)  # noqa: B010
+
+
+def _install_own_tree_guard(filter_class: Any) -> None:
+    """A filter uses parso's cache node only when it is the filter's own tree (#783).
+
+    The filter takes the node **by path** and keys its definition-name memo
+    and ``get_cached_parent_scope`` on it, but reads ``_used_names`` from its
+    module's own tree. After the LRU evicts a file and another Script re-parses
+    it, the path names a different tree. A Script still holding the old one
+    would then read the other parse's names and reject them all, so ``goto``
+    answered ``[]``. A foreign node is treated like an evicted one: the filter
+    computes without its memo, with an identical answer.
+
+    Every ``_AbstractUsedNamesFilter`` subclass reaches this through
+    ``super().__init__``; ``tests/unit/test_parso_cache_node_identity.py`` pins
+    that, the signature, and that no other Jedi module takes the node by path.
+    """
+    original_init = filter_class.__init__
+    if _is_marked(original_init):
+        return
+
+    def init_own_tree(self: Any, parent_context: Any, node_context: Any = None) -> None:
+        original_init(self, parent_context, node_context)
+        item = self._parso_cache_node
+        # A missing entry is already None (node_or_none); this catches a
+        # PRESENT entry that belongs to another parse of the same path.
+        if item is not None and item.node is not self._node_context.get_root_context().tree_node:
+            self._parso_cache_node = None
+
+    _mark(init_own_tree, original_init)
+    filter_class.__init__ = init_own_tree
 
 
 def _read_lines(path: Any) -> list[str]:

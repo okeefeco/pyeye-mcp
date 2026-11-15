@@ -171,6 +171,7 @@ assert "jedi" in sys.modules
 mods = [pc._FILTER_MODULE, *pc._CODE_LINES_MODULES]
 names = ["get_parso_cache_node"] + ["get_cached_code_lines"] * len(pc._CODE_LINES_MODULES)
 assert all(pc._is_marked(getattr(importlib.import_module(m), n)) for m, n in zip(mods, names))
+assert pc._is_marked(importlib.import_module(pc._FILTER_MODULE)._AbstractUsedNamesFilter.__init__)
 assert not any(type(f).__name__ == "_RecoverAfterJediImport" for f in sys.meta_path)
 print("ok")
 """
