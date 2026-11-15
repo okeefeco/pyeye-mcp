@@ -199,7 +199,7 @@ class TestStringInput:
 
 
 # ---------------------------------------------------------------------------
-# Source roots and additional paths (covers _project_roots branches)
+# Source roots and additional paths (the SCOPE roots boundary, #625)
 # ---------------------------------------------------------------------------
 
 

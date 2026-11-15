@@ -68,6 +68,8 @@ import sysconfig
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from pyeye.project_layout import RootsBoundary, project_roots
+
 if TYPE_CHECKING:
     from .analyzers.jedi_analyzer import JediAnalyzer
 
@@ -188,32 +190,6 @@ def _is_subpath(path: Path, parent: Path) -> bool:
         return False
 
 
-def _project_roots(analyzer: JediAnalyzer) -> list[Path]:
-    """Collect all source roots from the analyzer, resolved to absolute paths.
-
-    Includes:
-    - ``analyzer.project_path``
-    - ``analyzer.source_roots`` (e.g. the ``src/`` directory in a src-layout)
-    - ``analyzer.additional_paths`` (sibling packages added via config)
-
-    TODO(Phase 4): If edge_counts wires classify_scope into hot paths (called
-    per-node during inspect), add caching keyed on the analyzer instance.
-    Current rebuild-per-call is fine for Phase 1–3 use (a handful of resolve/
-    inspect calls per agent interaction).  A module-level ``id(analyzer)`` dict
-    would work but leaks memory; ``functools.cache`` won't hash mutable objects.
-    """
-    roots: list[Path] = [analyzer.project_path.resolve()]
-    for p in analyzer.source_roots:
-        resolved = p.resolve()
-        if resolved not in roots:
-            roots.append(resolved)
-    for p in analyzer.additional_paths:
-        resolved = p.resolve()
-        if resolved not in roots:
-            roots.append(resolved)
-    return roots
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -263,7 +239,7 @@ def classify_scope(file_path: Path | str, analyzer: JediAnalyzer) -> Scope:
         return "external"
 
     # Rule 4: Project source roots
-    for root in _project_roots(analyzer):
+    for root in project_roots(analyzer, RootsBoundary.SCOPE, resolved=True):
         if _is_subpath(resolved, root):
             return "project"
 

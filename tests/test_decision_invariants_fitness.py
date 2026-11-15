@@ -322,19 +322,11 @@ MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {
     ("analyzers/base_resolution.py", "build_module_defines"): "#630",
 }
 
-# 4. Project-roots lists come from ONE helper.  Each copy today includes a
-#    different subset of ``additional_paths`` / ``added_sys_path``.  #625 builds
-#    the roots policy (one helper, each boundary's subset named) and sets
-#    SANCTIONED.
-PROJECT_ROOTS_SANCTIONED: Site | None = None
+# 4. Project-roots lists come from ONE helper: ``project_layout.project_roots``
+#    (#625), which names each boundary's subset (SCOPE, TOP_LEVEL_PACKAGE,
+#    MODULE_LOOKUP, NAMESPACE_PORTIONS).  Only the dead legacy copies remain.
+PROJECT_ROOTS_SANCTIONED: Site | None = ("project_layout.py", "project_roots")
 PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {
-    ("scope.py", "_project_roots"): "#625",
-    ("mcp/operations/resolve.py", "_project_roots"): "#625",
-    ("canonicalization.py", "_namespace_roots"): "#625",
-    ("canonicalization.py", "find_module_file"): "#625",
-    ("canonicalization.py", "_scan_package_for_handle"): "#625",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer._get_import_path_for_file"): "#625",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer._find_init_file"): "#625",
     # Legacy methods unreachable from any MCP tool.
     ("analyzers/jedi_analyzer.py", "JediAnalyzer.find_imports"): "#628",
     ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
