@@ -33,7 +33,6 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.edges import (
     EDGE_RESOLVERS,
-    _dir_shallow_qualifies,
     _enumerate_submodule_paths,
     _package_dirs,
     edge_status,
@@ -41,6 +40,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.trace import trace
+from pyeye.project_layout import dir_shallow_qualifies
 from tests.utils.resolver_helpers import anchor_for
 
 _CONTAINMENT = Path(__file__).parent / "fixtures" / "containment"
@@ -166,16 +166,16 @@ class TestDirShallowQualifies:
 
     def test_dir_with_direct_py_qualifies(self) -> None:
         # sub/ contains gamma.py directly → qualifies.
-        assert _dir_shallow_qualifies(_MYPKG / "sub") is True
+        assert dir_shallow_qualifies(_MYPKG / "sub") is True
 
     def test_data_dir_does_not_qualify(self) -> None:
         # data/ holds only notes.txt → junk, does not qualify.
-        assert _dir_shallow_qualifies(_MYPKG / "data") is False
+        assert dir_shallow_qualifies(_MYPKG / "data") is False
 
     def test_pycache_does_not_qualify(self) -> None:
         # __pycache__ holds only a .pyc → does not qualify (and is name-skipped
         # by the enumerator regardless).
-        assert _dir_shallow_qualifies(_MYPKG / "__pycache__") is False
+        assert dir_shallow_qualifies(_MYPKG / "__pycache__") is False
 
 
 # ---------------------------------------------------------------------------

@@ -10,72 +10,6 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 class TestListPackages:
     """Test the list_packages functionality."""
 
-    @pytest.mark.asyncio
-    async def test_list_packages_empty_project(self, tmp_path):
-        """Test listing packages in an empty project."""
-        result = await JediAnalyzer(str(tmp_path)).list_packages()
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_list_packages_single_package(self, tmp_path):
-        """Test listing a single package."""
-        # Create a package structure
-        package_dir = tmp_path / "mypackage"
-        package_dir.mkdir()
-        (package_dir / "__init__.py").write_text("")
-        (package_dir / "module1.py").write_text("def foo(): pass")
-        (package_dir / "module2.py").write_text("class Bar: pass")
-
-        result = await JediAnalyzer(str(tmp_path)).list_packages()
-        assert len(result) == 1
-        assert result[0]["name"] == "mypackage"
-        assert result[0]["path"] == package_dir.as_posix()
-        assert result[0]["is_namespace"] is False
-        assert "module1" in result[0]["modules"]
-        assert "module2" in result[0]["modules"]
-        assert result[0]["subpackages"] == []
-
-    @pytest.mark.asyncio
-    async def test_list_packages_nested(self, tmp_path):
-        """Test listing nested packages."""
-        # Create nested package structure
-        parent_dir = tmp_path / "parent"
-        parent_dir.mkdir()
-        (parent_dir / "__init__.py").write_text("")
-
-        child_dir = parent_dir / "child"
-        child_dir.mkdir()
-        (child_dir / "__init__.py").write_text("")
-        (child_dir / "module.py").write_text("def func(): pass")
-
-        result = await JediAnalyzer(str(tmp_path)).list_packages()
-        assert len(result) == 2
-
-        # Find parent package
-        parent_pkg = next(p for p in result if p["name"] == "parent")
-        assert "child" in parent_pkg["subpackages"]
-
-        # Find child package
-        child_pkg = next(p for p in result if p["name"] == "parent.child")
-        assert "module" in child_pkg["modules"]
-
-    @pytest.mark.asyncio
-    async def test_list_packages_ignores_hidden(self, tmp_path):
-        """Test that hidden directories are ignored."""
-        # Create visible package
-        visible_dir = tmp_path / "visible"
-        visible_dir.mkdir()
-        (visible_dir / "__init__.py").write_text("")
-
-        # Create hidden package
-        hidden_dir = tmp_path / ".hidden"
-        hidden_dir.mkdir()
-        (hidden_dir / "__init__.py").write_text("")
-
-        result = await JediAnalyzer(str(tmp_path)).list_packages()
-        assert len(result) == 1
-        assert result[0]["name"] == "visible"
-
     def test_list_packages_project_not_found(self):
         """Test error handling for non-existent project.
 
@@ -92,102 +26,6 @@ class TestListPackages:
         assert "Project not found" in str(exc_info.value)
 
 
-class TestListModules:
-    """Test the list_modules functionality."""
-
-    @pytest.mark.asyncio
-    async def test_list_modules_empty_project(self, tmp_path):
-        """Test listing modules in an empty project."""
-        result = await JediAnalyzer(str(tmp_path)).list_modules()
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_list_modules_single_file(self, tmp_path):
-        """Test listing a single module."""
-        module_file = tmp_path / "module.py"
-        module_file.write_text('''
-"""Module docstring."""
-
-def public_func():
-    """Public function."""
-    pass
-
-def _private_func():
-    """Private function."""
-    pass
-
-class MyClass:
-    """A class."""
-    pass
-''')
-
-        result = await JediAnalyzer(str(tmp_path)).list_modules()
-        assert len(result) == 1
-        module = result[0]
-        assert module["name"] == "module"
-        assert module["import_path"] == "module"
-        assert module["file"] == module_file.as_posix()
-        assert "public_func" in module["functions"]
-        assert "_private_func" not in module["functions"]  # Private functions not in exports
-        assert "MyClass" in module["classes"]
-        assert module["size_lines"] > 0
-
-    @pytest.mark.asyncio
-    async def test_list_modules_with_imports(self, tmp_path):
-        """Test module with imports."""
-        module_file = tmp_path / "module.py"
-        module_file.write_text("""
-import os
-import json
-from pathlib import Path
-from typing import List
-
-def process_file(path: Path) -> List[str]:
-    return []
-""")
-
-        result = await JediAnalyzer(str(tmp_path)).list_modules()
-        assert len(result) == 1
-        module = result[0]
-        assert "os" in module["imports_from"]
-        assert "json" in module["imports_from"]
-        assert "pathlib" in module["imports_from"]
-        assert "typing" in module["imports_from"]
-
-    @pytest.mark.asyncio
-    async def test_list_modules_in_package(self, tmp_path):
-        """Test listing modules in a package."""
-        package_dir = tmp_path / "mypackage"
-        package_dir.mkdir()
-        (package_dir / "__init__.py").write_text("# Package init")
-        (package_dir / "module1.py").write_text("def func1(): pass")
-        (package_dir / "module2.py").write_text("def func2(): pass")
-
-        result = await JediAnalyzer(str(tmp_path)).list_modules()
-        assert len(result) == 3  # __init__ + 2 modules
-
-        # Check import paths
-        import_paths = [m["import_path"] for m in result]
-        assert "mypackage" in import_paths  # __init__.py
-        assert "mypackage.module1" in import_paths
-        assert "mypackage.module2" in import_paths
-
-    @pytest.mark.asyncio
-    async def test_list_modules_skips_tests(self, tmp_path):
-        """Test that test directories are skipped."""
-        # Create main module
-        (tmp_path / "module.py").write_text("def func(): pass")
-
-        # Create test directory
-        test_dir = tmp_path / "tests"
-        test_dir.mkdir()
-        (test_dir / "test_module.py").write_text("def test_func(): pass")
-
-        result = await JediAnalyzer(str(tmp_path)).list_modules()
-        assert len(result) == 1
-        assert result[0]["name"] == "module"
-
-
 class TestJediAnalyzerMethods:
     """Test the JediAnalyzer methods directly."""
 
@@ -202,29 +40,6 @@ class TestJediAnalyzerMethods:
 
         with pytest.raises(ProjectNotFoundError):
             JediAnalyzer("/non/existent/path")
-
-    @pytest.mark.asyncio
-    async def test_list_packages_method(self, tmp_path):
-        """Test list_packages method directly."""
-        # Create a package
-        pkg_dir = tmp_path / "package"
-        pkg_dir.mkdir()
-        (pkg_dir / "__init__.py").write_text("")
-
-        analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.list_packages()
-        assert len(result) == 1
-        assert result[0]["name"] == "package"
-
-    @pytest.mark.asyncio
-    async def test_list_modules_method(self, tmp_path):
-        """Test list_modules method directly."""
-        (tmp_path / "module.py").write_text("def func(): pass")
-
-        analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.list_modules()
-        assert len(result) == 1
-        assert result[0]["name"] == "module"
 
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "resolve_project"

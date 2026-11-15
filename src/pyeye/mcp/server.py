@@ -667,7 +667,8 @@ async def expand(
           "edge":   str,
           "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
-          "unresolved_imports": [target, ...] }  # imports ONLY (#494); [] when all resolved
+          "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
+          "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624); [] when all resolved
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -684,6 +685,11 @@ async def expand(
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
     ``line_end``, and ``signature`` when Jedi yields one (always for
     class/function/method; also any name whose inferred type is callable).
+
+    A call, import or base whose definition Jedi can't pin to exactly one
+    target is reported as unresolved (``unresolved_call_sites`` /
+    ``unresolved_imports`` / ``unresolved_superclasses``), never guessed (#624).
+    ``superclasses`` stubs are in declaration order.
 
     ``callees`` is the only supported way to ask what a function calls; the
     reverse question (what calls it) is not answerable here — see the

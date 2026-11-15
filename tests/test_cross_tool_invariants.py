@@ -64,6 +64,7 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                 check ∈ {"inspect_found", "resolve_found", "same_handle",
 #                          "stub_matches_inspect"}
 #   counts:       ("counts", corpus, handle, edge)
+#   superclasses: ("superclasses", corpus, class_handle)
 #   agree:        ("agree", corpus, analyzer_mode, entry_id, field)
 #                 field ∈ {"found", "handle", "kind", "scope"}
 #   trace_expand: ("trace_expand", root, edge, node, check)
@@ -104,11 +105,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "typing.TYPE_CHECKING",
     ),
     **_round_trip("typeref_basic", _ISSUE_602, _MISS, "typing.Callable"),
-    # #602/#623: inspect finds stdlib modules (#623 slice 2); resolve doesn't
-    # until it moves onto the resolver (slice 3).
-    **_round_trip("cross_tool", _ISSUE_602, ("resolve_found",), "logging", "textwrap"),
-    **_round_trip("lookup_project", _ISSUE_602, ("resolve_found",), "enum"),
-    **_round_trip("resolve_project", _ISSUE_602, ("resolve_found",), "functools", "math", "os"),
     # #623 (slice 5, edges emit the canonical handle): `imports` emits the alias
     # `typing.Dict` / `typing.List` as a variable stub; inspect and resolve both
     # canonicalise it to the class `typing.dict` / `typing.list`.  Visible since
@@ -170,12 +166,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     ),
     **_round_trip("subclasses_resolution", _ISSUE_626, _MISS, "pkg.__all__.core"),
     #
-    # #623: inspect finds a module that resolve can't (module shadowed by a
-    # same-named namespace dir — resolve and inspect use different placement).
-    **_round_trip("containment", _ISSUE_623, ("resolve_found",), "collision.pkg.modwins.keep"),
-    # #623: namespace-package `imports` stub says kind=namespace/scope=external;
-    # inspect says module/project.
-    **_round_trip("cross_tool", _ISSUE_623, ("stub_matches_inspect",), "xns"),
     # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
     # #602/#623: stdlib and third-party symbols emitted by `imports` that no
     # tool resolves (typing specials, and names inference can't place).
@@ -188,39 +178,13 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "threading.Lock",
         "typing.Awaitable",
         "typing.Callable",
+        "typing.Coroutine",
         "typing.Iterable",
         "typing.Iterator",
         "typing.Literal",
         "typing.Mapping",
         "typing.TYPE_CHECKING",
         "watchdog.observers.Observer",
-    ),
-    # #602/#623: modules inspect finds since #623 slice 2; resolve doesn't
-    # until slice 3.
-    **_round_trip(
-        "src/pyeye",
-        _ISSUE_602,
-        ("resolve_found",),
-        "aiofiles",
-        "ast",
-        "asyncio",
-        "contextlib",
-        "functools",
-        "hashlib",
-        "jedi",
-        "json",
-        "logging",
-        "os",
-        "psutil",
-        "re",
-        "shutil",
-        "signal",
-        "sys",
-        "sysconfig",
-        "threading",
-        "time",
-        "traceback",
-        "typing",
     ),
     # #623: `imports` emits the typeshed private module (`_datetime.datetime`);
     # resolve canonicalises to the public one (`datetime.datetime`).
@@ -230,15 +194,14 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         ("same_handle",),
         "_datetime.datetime",
         "_datetime.timedelta",
+        "_typing.ParamSpec",
         "_typing.TypeVar",
     ),
+    # #623 slice 4 (exact top-level module wins): bare `inspect` is ambiguous
+    # between stdlib `inspect` and pyeye's own `inspect` symbols.
+    **_round_trip("src/pyeye", _ISSUE_623, ("same_handle",), "inspect"),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
-    # #602/#623: inspect/outline/expand/trace find `os.path`; resolve doesn't.
-    **_agree("cross_tool", "stdlib_dotted_module", "found", _ISSUE_602, _BOTH_MODES),
-    # #623: resolve_at on `import logging` returns found `logging`; every other
-    # tool rejects it.
-    **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
     # == 4. trace vs expand: none since #621.
 }
 
@@ -300,6 +263,14 @@ _SWEEP_CORPORA: dict[str, Path] = {
         "determinism_subclasses",
     )
 }
+#: A project plus a configured PEP 420 namespace repo OUTSIDE its root
+#: (``app/.pyeye.json`` -> ``../acme-repo``).  #623 slice 2 regressed exactly
+#: this shape (the repo's modules stopped resolving) with no corpus to notice.
+_SWEEP_CORPORA["xns_repo"] = _FIXTURES / "xns_repo" / "app"
+
+#: Extra sweep seeds for modules outside the corpus root (``_module_seeds`` only
+#: walks the root).
+_EXTRA_SEEDS: dict[str, list[str]] = {"xns_repo": ["acme.tools", "acme.widgets"]}
 
 
 def _module_seeds(root: Path) -> list[str]:
@@ -351,7 +322,7 @@ async def _sweep(corpus: str, root: Path | None = None, follow_members: bool = T
     root = root or _SWEEP_CORPORA[corpus]
     analyzer = ProjectManager().get_analyzer(str(root))
     sweep = _Sweep()
-    queue = _module_seeds(root)
+    queue = _module_seeds(root) + _EXTRA_SEEDS.get(corpus, [])
     while queue:
         source = queue.pop(0)
         if source in sweep.expanded:
@@ -467,6 +438,42 @@ async def test_count_equals_expand_all_edges(corpus: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 3b. inspect's superclasses field IS the superclasses edge (#624)
+# ---------------------------------------------------------------------------
+
+
+def _superclasses_violations(corpus: str, sweep: _Sweep) -> dict[tuple[str, ...], str]:
+    """Field == edge: the resolved bases in declaration order, raw text for the rest."""
+    out: dict[tuple[str, ...], str] = {}
+    for handle, node in sweep.inspected.items():
+        if node.get("kind") != "class" or "superclasses" not in node:
+            continue
+        edge = sweep.expanded[handle].get("superclasses") or {}
+        resolved = [s["handle"] for s in edge.get("stubs") or []]
+        unresolved = edge.get("unresolved_superclasses")
+        field = node["superclasses"]
+        if unresolved is None:
+            out[("superclasses", corpus, handle)] = f"edge has no unresolved_superclasses: {edge}"
+            continue
+        if [b for b in field if b not in unresolved] != resolved or sorted(
+            b for b in field if b in unresolved
+        ) != sorted(unresolved):
+            out[("superclasses", corpus, handle)] = (
+                f"field {field} != edge stubs {resolved} + unresolved {unresolved}"
+            )
+    return out
+
+
+@pytest.mark.parametrize("corpus", sorted(_SWEEP_CORPORA))
+async def test_superclasses_field_is_the_edge(corpus: str) -> None:
+    """``inspect(cls).superclasses`` shows exactly what ``expand(cls, "superclasses")`` does."""
+    sweep = await _sweep(corpus)
+    _assert_matches_allowlist(
+        _superclasses_violations(corpus, sweep), ("superclasses", corpus), f"superclasses[{corpus}]"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 2. Tools agree on a handle
 # ---------------------------------------------------------------------------
 
@@ -522,12 +529,29 @@ _ROOT_PACKAGE_ENTRIES = (
     _Entry("class", "lookup_project.models.ServiceConfig", ("models.py", 8, 6)),
 )
 
+#: A project whose ``.pyeye.json`` configures a PEP 420 namespace repo outside
+#: the project root (#623).  Positions are relative to the project root.
+_XNS_REPO_ENTRIES = (
+    _Entry("ns_package", "acme", None),
+    _Entry("ns_module", "acme.tools", None),
+    _Entry("ns_function", "acme.tools.helper", ("../acme-repo/acme/tools.py", 4, 4)),
+    _Entry("ns_method", "acme.tools.Tool.use", ("../acme-repo/acme/tools.py", 12, 8)),
+    _Entry("ns_subpackage", "acme.widgets", None),
+    _Entry("ns_class", "acme.widgets.Widget", ("../acme-repo/acme/widgets/__init__.py", 4, 6)),
+    _Entry("project_subclass", "main.FancyWidget", ("main.py", 7, 6)),
+)
+
 #: corpus name -> (project root, entries)
 _AGREE_CORPORA: dict[str, tuple[Path, tuple[_Entry, ...]]] = {
     "cross_tool": (_XTOOL, _XTOOL_ENTRIES),
     "src_layout": (_FIXTURES / "added_sys_path_project", _SRC_LAYOUT_ENTRIES),
     "root_package": (_FIXTURES / "lookup_project", _ROOT_PACKAGE_ENTRIES),
+    "xns_repo": (_FIXTURES / "xns_repo" / "app", _XNS_REPO_ENTRIES),
 }
+
+#: Corpora whose project root sits in a fixture dir with sibling repos it
+#: configures by relative path: the whole parent is copied, so ``../`` resolves.
+_AGREE_COPY_PARENT = frozenset({"xns_repo"})
 
 _FIELDS = ("found", "handle", "kind", "scope")
 
@@ -606,8 +630,13 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
     mode ran first, and on other test files that use the same fixture.
     """
     source_root, entries = _AGREE_CORPORA[corpus]
-    root = tmp_path.resolve() / source_root.name
-    shutil.copytree(source_root, root)
+    if corpus in _AGREE_COPY_PARENT:
+        container = tmp_path.resolve() / source_root.parent.name
+        shutil.copytree(source_root.parent, container)
+        root = container / source_root.name
+    else:
+        root = tmp_path.resolve() / source_root.name
+        shutil.copytree(source_root, root)
     analyzer = _analyzer(mode, root)
     observed: dict[tuple[str, ...], str] = {}
     for entry in entries:
@@ -730,4 +759,4 @@ class TestAllowListIsExact:
     def test_every_entry_names_an_issue(self) -> None:
         for key, issue in KNOWN_GAPS.items():
             assert issue.startswith("#"), f"{key!r} must name the issue that removes it"
-            assert key[0] in {"round_trip", "counts", "agree", "trace_expand"}, key
+            assert key[0] in {"round_trip", "counts", "superclasses", "agree", "trace_expand"}, key
