@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from pyeye.mcp.server import mcp, register_plugin_tools
+from pyeye.mcp.server import PLUGIN_PROJECT_PATH_NOTE, mcp, register_plugin_tools
 from pyeye.plugins.base import AnalyzerPlugin
 from pyeye.plugins.django import DjangoPlugin
 from pyeye.plugins.flask import FlaskPlugin
@@ -104,7 +104,9 @@ class TestPluginToolNames:
 
         for plugin in all_plugins:
             for name, func in plugin.register_tools().items():
-                assert descriptions[name] == " ".join((inspect.getdoc(func) or "").split()), name
+                # The plugin's own docstring, then the shared project_path note (#665).
+                expected = (inspect.getdoc(func) or "") + PLUGIN_PROJECT_PATH_NOTE
+                assert descriptions[name] == " ".join(expected.split()), name
 
     def test_duplicate_name_raises_instead_of_dropping_a_tool(self, tmp_path: Path) -> None:
         server = MCPServer("plugin-names")

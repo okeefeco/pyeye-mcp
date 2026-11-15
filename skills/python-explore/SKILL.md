@@ -333,6 +333,11 @@ list-changed notification). By default they return a bare list:
 an empty answer is *zero content items*, and nothing says which scope was searched.
 "These are all the models" looks the same as "these are the main repo's models".
 
+**Another project:** pass `project_path`, as on the core tools. Plugin tools run against
+the given project even if its framework wasn't auto-detected there; an empty result means
+the scan found none. Omitted, they answer about the project the server started in. A
+`project_path` that doesn't exist is a tool error.
+
 **Always call them with `envelope=true`.** You get one object back:
 
 ```text

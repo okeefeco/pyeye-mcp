@@ -68,7 +68,7 @@ BASELINE: dict[tuple[str, str], int] = {
     ("src/pyeye/mcp/operations/typeref.py::_cache_key", "resolve"): 1,
     ("src/pyeye/mcp/operations/typeref.py::_project_root", "resolve"): 1,
     ("src/pyeye/mcp/operations/typeref.py::invalidate_project", "resolve"): 1,
-    ("src/pyeye/mcp/server.py::configure_packages", "resolve"): 2,
+    ("src/pyeye/mcp/server.py::configure_packages", "resolve"): 1,
     ("src/pyeye/project_manager.py::ProjectManager._layout_roots", "resolve"): 1,
     ("src/pyeye/project_manager.py::ProjectManager._needs_update", "resolve"): 1,
     ("src/pyeye/project_manager.py::ProjectManager._on_files_changed", "resolve"): 1,

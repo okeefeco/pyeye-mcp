@@ -11,7 +11,7 @@ from inspect import (
     signature as _signature,  # `inspect` is shadowed by the MCP tool below
 )
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from mcp.server.mcpserver import MCPServer
 
@@ -271,6 +271,71 @@ def all_plugin_tool_names(project_path: str) -> set[str]:
     return names
 
 
+#: Appended to every plugin tool's description (#665).
+PLUGIN_PROJECT_PATH_NOTE = """
+
+``project_path`` selects the project to analyse; omitted, it is the project
+the server started in, exactly as before.  Plugin tools run against the given project even if its
+framework wasn't auto-detected there; an empty result means the scan found
+none.  A ``project_path`` that doesn't exist is an MCP tool error."""
+
+
+class _PluginContext(NamedTuple):
+    """A plugin instance and the scope resolver for one project (#665)."""
+
+    plugin: AnalyzerPlugin
+    resolver: SmartScopeResolver | None
+
+
+def _build_plugin_context(plugin_class: type[AnalyzerPlugin], project_path: str) -> _PluginContext:
+    """A fresh plugin for *project_path*, configured from that project alone (#665).
+
+    Not gated on ``detect()`` (the #665 decision): a plugin tool asked about a
+    project runs its scan there, so ``[]`` is a measured empty, never a refusal
+    based on a heuristic.  Its package, namespace and standalone paths and its
+    ``scope_defaults`` all come from the project's own config, so nothing leaks
+    from the startup project or from another project.
+    """
+    config = ProjectConfig(project_path)
+    plugin = plugin_class(project_path)
+    _apply_plugin_paths(plugin, config)
+    return _PluginContext(plugin, SmartScopeResolver(config))
+
+
+def _plugin_context_for(
+    plugin: AnalyzerPlugin, resolver: SmartScopeResolver | None, project_path: str | None
+) -> _PluginContext:
+    """The plugin and resolver to answer a call about *project_path* (#665).
+
+    No ``project_path``, or the registered plugin's own project, keeps the
+    registered instance (and its resolver), so the default call is unchanged.
+    Any other project gets its own, cached in ``ProjectManager`` beside its
+    analyzer.  A registration without a resolver (tests) stays without one.
+    """
+    if project_path is None or paths_equal(project_path, plugin.project_path):
+        return _PluginContext(plugin, resolver)
+    context: _PluginContext = get_project_manager().get_plugin_context(
+        project_path,
+        type(plugin),
+        lambda path: _build_plugin_context(type(plugin), path),
+    )
+    if resolver is None:
+        return _PluginContext(context.plugin, None)
+    return context
+
+
+def reapply_plugin_paths(project_path: str | Path, config: ProjectConfig) -> None:
+    """Give *project_path*'s plugins the paths from *config* (#618, #665).
+
+    The startup project's active plugins are updated in place.  Plugins built
+    for a per-call ``project_path`` are dropped with the project's analyzer by
+    ``invalidate_analyzer``, so the next call rebuilds them from the new config.
+    """
+    for plugin in _plugins:
+        if paths_equal(plugin.project_path, project_path):
+            _apply_plugin_paths(plugin, config)
+
+
 def _plugin_tool(
     tool_name: str,
     func: Callable[..., Any],
@@ -299,42 +364,53 @@ def _plugin_tool(
         raise TypeError(f"Plugin tool {tool_name!r} has no 'scope' parameter")
     if "envelope" in signature.parameters:
         raise TypeError(f"Plugin tool {tool_name!r} already declares 'envelope'")
+    if "project_path" in signature.parameters:
+        raise TypeError(f"Plugin tool {tool_name!r} already declares 'project_path'")
     hints = typing.get_type_hints(func)
 
     @functools.wraps(func)
-    async def wrapper(*args: Any, envelope: bool = False, **kwargs: Any) -> Any:
+    async def wrapper(
+        *args: Any, envelope: bool = False, project_path: str | None = None, **kwargs: Any
+    ) -> Any:
+        # #665: answer about the project the caller named.  get_analyzer first, so
+        # a project_path that doesn't exist is the core tools' tool error
+        # (ProjectNotFoundError), never a scan of nothing reported as [].
+        if project_path is not None:
+            get_analyzer(project_path)
+        target, target_resolver = _plugin_context_for(plugin, resolver, project_path)
+        target_func = func if target is plugin else target.register_tools()[tool_name]
         bound = signature.bind_partial(*args, **kwargs)
-        if resolver is not None:
+        if target_resolver is not None:
             if bound.arguments.get("scope") is None:
-                bound.arguments["scope"] = resolver.plugin_tool_default(tool_name)
+                bound.arguments["scope"] = target_resolver.plugin_tool_default(tool_name)
         else:
             bound.apply_defaults()
         requested = bound.arguments["scope"]
-        if resolver is not None:
+        if target_resolver is not None:
             # Plugins resolve only main/all/packages/namespace:/package:, so an
             # alias (from config or the caller) would otherwise search nothing.
-            bound.arguments["scope"] = resolver.resolve_aliases(requested)
+            bound.arguments["scope"] = target_resolver.resolve_aliases(requested)
         if tool_name in _MODEL_LOOKUP_TOOLS:
             # Select the model in one place, with the shared shapes (#627 slice B).
             result = await _lookup_model(
-                tool_name, plugin, bound.arguments["model_name"], bound.arguments["scope"]
+                tool_name, target, bound.arguments["model_name"], bound.arguments["scope"]
             )
         else:
-            result = func(*bound.args, **bound.kwargs)
+            result = target_func(*bound.args, **bound.kwargs)
             if _isawaitable(result):
                 result = await result
             # Canonical handles, scope and absolute locations on every record (#627),
             # before the envelope, so the bare list and `results` carry the same.
             result = plugin_handles.enrich(
-                tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
+                tool_name, result, lambda: get_analyzer(target.project_path.as_posix())
             )
         # The caller's spelling of the project root, as the core tools give it
         # (#717): enrich's locations come from the analyzer, which is resolved.
         # Before the envelope, so the bare list and `results` carry the same.
-        result = respell_paths(result, [absolute_path(plugin.project_path)])
+        result = respell_paths(result, [absolute_path(project_path or target.project_path)])
         if not envelope:
             return result
-        searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
+        searched, unsearched = target.describe_scope(bound.arguments["scope"])
         return {
             "scope": requested,
             "searched": searched,
@@ -346,6 +422,9 @@ def _plugin_tool(
     # output as before when ``envelope`` is false; the union admits the envelope.
     return_type = hints.get("return", Any) | dict[str, Any]
     envelope_param = _Parameter("envelope", _Parameter.KEYWORD_ONLY, default=False, annotation=bool)
+    project_path_param = _Parameter(
+        "project_path", _Parameter.KEYWORD_ONLY, default=None, annotation=str | None
+    )
     parameters = [
         (
             p.replace(default=None, annotation=Scope | None)
@@ -355,13 +434,20 @@ def _plugin_tool(
         for p in signature.parameters.values()
     ]
     wrapper.__signature__ = signature.replace(  # type: ignore[attr-defined]
-        parameters=[*parameters, envelope_param], return_annotation=return_type
+        parameters=[*parameters, envelope_param, project_path_param],
+        return_annotation=return_type,
     )
-    annotations = {**hints, "envelope": bool, "return": return_type}
+    annotations = {
+        **hints,
+        "envelope": bool,
+        "project_path": str | None,
+        "return": return_type,
+    }
     if resolver is not None:
         annotations["scope"] = Scope | None
     wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
+    wrapper.__doc__ = (func.__doc__ or "").rstrip() + PLUGIN_PROJECT_PATH_NOTE
     return wrapper
 
 
@@ -656,10 +742,9 @@ def configure_packages(
     typeref.invalidate_project(root)
     invalidate_re_exports(root)
 
-    # Give this project's active plugins the new paths (#618).
-    for plugin in _plugins:
-        if plugin.project_path.resolve() == root:
-            _apply_plugin_paths(plugin, config)
+    # Give this project's plugins the new paths (#618).  Per-call plugins (#665)
+    # were dropped with the analyzer above and rebuild from the new config.
+    reapply_plugin_paths(root, config)
     # Then re-detect on the startup project, whose tools plugins are bound to: a
     # framework used only in a newly added package activates now (#659).
     activated: list[str] | None = None
