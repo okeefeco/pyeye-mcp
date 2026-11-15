@@ -21,12 +21,13 @@ cached (#617).
 
 Phase B (#397) adds the **resolved class graph** (:func:`get_class_graph`), which
 backs the ``subclasses`` edge: every class's facts plus its children bucketed
-under each base's definition site. It shares the name index's lifecycle
+under each base's definition site. The **reverse import graph**
+(:func:`get_import_graph`) backs ``imported_by`` the same way. It shares the name index's lifecycle
 (:func:`invalidate`, :func:`generation`, layout keying), but its build resolves
 bases with Jedi ``goto`` where the AST can't commit, so the analyzer supplies the
 build and runs it on its own (Jedi worker) thread. It is keyed on scope as well,
 because which modules' import tables are in the build decides which bases
-resolve. The import graph for ``imported_by`` follows separately.
+resolve.
 
 Thread-safety: a single module lock guards the cache dicts and provides
 single-flight name-index builds, so concurrent first-callers (e.g. via
@@ -41,6 +42,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from pyeye import file_artifact_cache
 from pyeye._module_sentinel import DefinitionSentinel
@@ -103,10 +105,31 @@ class ClassGraph:
     star_sources: dict[str, list[str]]
 
 
-#: root -> (layout key, scope key) -> class graph.
-_class_graphs: dict[str, dict[tuple[str, str], ClassGraph]] = {}
-#: (root, layout key, scope key) -> the lock that makes that graph's build single-flight.
-_class_graph_locks: dict[tuple[str, str, str], threading.Lock] = {}
+@dataclass(frozen=True)
+class ImportGraph:
+    """A project's reverse import graph for one layout and scope (#397).
+
+    The inversion of ``JediAnalyzer.find_importers``' AST match: a module ``T``
+    is imported by a file when the file has ``import T`` / ``import T.x`` (every
+    dotted prefix of an ``import`` is registered), a ``from`` clause resolving
+    to ``T`` or below it (every prefix of the resolved clause), or
+    ``from <pkg> import <name>`` with ``<pkg>.<name> == T`` (#436). Imports
+    anywhere in the file count, function bodies included (#619).
+
+    Attributes:
+        importers: A dotted module name -> its importers as ``(importer module
+            or None, importer file)``, one entry per file, in POSIX-sorted file
+            order. ``None`` is an importer with no module name (#668); only its
+            absolute imports are registered.
+    """
+
+    importers: dict[str, tuple[tuple[str | None, Path], ...]]
+
+
+#: The cached graphs: root -> (graph kind, layout key, scope key) -> graph.
+_graphs: dict[str, dict[tuple[str, str, str], object]] = {}
+#: (root, graph kind, layout key, scope key) -> the lock that makes that build single-flight.
+_graph_locks: dict[tuple[str, str, str, str], threading.Lock] = {}
 
 
 def _normalize(project_key: str) -> str:
@@ -272,6 +295,40 @@ def get_name_index(
         return index
 
 
+def _get_graph(
+    kind: str,
+    project_key: str,
+    build: Callable[[], object],
+    generation: Generation | None,
+    layout_key: str,
+    scope_key: str,
+) -> object:
+    """Return the cached *kind* graph, building it with *build* on first use.
+
+    The shared lifecycle of every project graph (#397): one build per project,
+    layout and scope per generation; dropped by :func:`invalidate` and then
+    rebuilt, never reported empty; single-flight under a per-key lock rather
+    than the store lock, so a long build never blocks other lookups; a build
+    that raced an invalidation is returned but not cached (#617).
+    """
+    key = _normalize(project_key)
+    sub = (kind, layout_key, scope_key)
+    cached = _graphs.get(key, {}).get(sub)
+    if cached is not None:
+        return cached
+    with _lock:
+        build_lock = _graph_locks.setdefault((key, *sub), threading.Lock())
+    with build_lock:
+        cached = _graphs.get(key, {}).get(sub)  # built while we waited
+        if cached is not None:
+            return cached
+        graph = build()
+        with _lock:
+            if generation is None or generation == (_epoch, _generations.get(key, 0)):
+                _graphs.setdefault(key, {})[sub] = graph
+        return graph
+
+
 def get_class_graph(
     project_key: str,
     build: Callable[[], ClassGraph],
@@ -281,12 +338,6 @@ def get_class_graph(
     scope_key: str = "",
 ) -> ClassGraph:
     """Return the cached class graph, building it with *build* on first use (#397).
-
-    One build per project, layout and scope per generation; every later call
-    returns the same object until :func:`invalidate` drops it. A dropped graph
-    is rebuilt, never reported empty. Builds are single-flight per key, under
-    a lock of their own rather than the store lock, so a long build (Jedi
-    ``goto`` fallbacks across a large project) doesn't block other lookups.
 
     *build* runs on the calling thread: it may call Jedi, which must stay on the
     Jedi worker.
@@ -303,22 +354,27 @@ def get_class_graph(
     Returns:
         The class graph for that project, layout and scope.
     """
-    key = _normalize(project_key)
-    sub = (layout_key, scope_key)
-    cached = _class_graphs.get(key, {}).get(sub)
-    if cached is not None:
-        return cached
-    with _lock:
-        build_lock = _class_graph_locks.setdefault((key, *sub), threading.Lock())
-    with build_lock:
-        cached = _class_graphs.get(key, {}).get(sub)  # built while we waited
-        if cached is not None:
-            return cached
-        graph = build()
-        with _lock:
-            if generation is None or generation == (_epoch, _generations.get(key, 0)):
-                _class_graphs.setdefault(key, {})[sub] = graph
-        return graph
+    graph = _get_graph("class", project_key, build, generation, layout_key, scope_key)
+    return cast(ClassGraph, graph)
+
+
+def get_import_graph(
+    project_key: str,
+    build: Callable[[], ImportGraph],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+    scope_key: str = "",
+) -> ImportGraph:
+    """Return the cached reverse import graph, building it on first use (#397).
+
+    Same key and lifecycle as :func:`get_class_graph`; see it for the arguments.
+
+    Returns:
+        The import graph for that project, layout and scope.
+    """
+    graph = _get_graph("import", project_key, build, generation, layout_key, scope_key)
+    return cast(ImportGraph, graph)
 
 
 def invalidate(project_key: str | None = None) -> None:
@@ -327,7 +383,7 @@ def invalidate(project_key: str | None = None) -> None:
     Wired into the file-change watcher path and project eviction. Whole-index
     invalidation is intentional: rebuilds are parse-bound and cheap relative to
     the correctness cost of a stale or partial index. It drops the name index
-    and every class graph (#397) of the project.
+    and every class and import graph (#397) of the project.
 
     Args:
         project_key: The project to drop; ``None`` clears all projects.
@@ -336,10 +392,10 @@ def invalidate(project_key: str | None = None) -> None:
     with _lock:
         if project_key is None:
             _name_indices.clear()
-            _class_graphs.clear()
+            _graphs.clear()
             _epoch += 1
         else:
             key = _normalize(project_key)
             _name_indices.pop(key, None)
-            _class_graphs.pop(key, None)
+            _graphs.pop(key, None)
             _generations[key] = _generations.get(key, 0) + 1
