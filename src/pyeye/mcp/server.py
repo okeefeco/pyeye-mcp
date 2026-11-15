@@ -18,6 +18,7 @@ from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
+from ..path_utils import absolute_path, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -95,6 +96,18 @@ PLUGINS = _plugins  # Expose for testing
 # Module-level exports for testing
 project_manager = None  # Will be initialized lazily
 project_config = None  # Will be initialized lazily
+
+
+def _for_caller(result: Any, project_path: str) -> dict[str, Any]:
+    """*result* with every in-project file path in the caller's spelling (#717).
+
+    The analyzer is built from the resolved root (#603: one analyzer per
+    directory, whatever spelling reached it first), and Jedi reports files
+    resolved. An agent that opened a symlinked ``project_path`` must still get
+    paths under the root it gave, or it can't match them to its own paths or
+    its sandbox's allowed directories.
+    """
+    return dict(respell_paths(dict(result), [absolute_path(project_path)]))
 
 
 def get_analyzer(project_path: str = ".") -> JediAnalyzer:
@@ -248,6 +261,10 @@ def _plugin_tool(
             result = plugin_handles.enrich(
                 tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
             )
+        # The caller's spelling of the project root, as the core tools give it
+        # (#717): enrich's locations come from the analyzer, which is resolved.
+        # Before the envelope, so the bare list and `results` carry the same.
+        result = respell_paths(result, [absolute_path(plugin.project_path)])
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
@@ -628,7 +645,7 @@ async def resolve(
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
     # to match this wrapper's declared return type. TypedDict instances are
     # already dicts at runtime; this is a mypy-compliance shallow copy.
-    return dict(await _resolve_impl(identifier, analyzer))
+    return _for_caller(await _resolve_impl(identifier, analyzer), project_path)
 
 
 @mcp.tool()
@@ -667,7 +684,7 @@ async def resolve_at(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _resolve_at_impl(file, line, column, analyzer))
+    return _for_caller(await _resolve_at_impl(file, line, column, analyzer), project_path)
 
 
 @mcp.tool()
@@ -710,7 +727,7 @@ async def inspect(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _inspect_impl(handle, analyzer))
+    return _for_caller(await _inspect_impl(handle, analyzer), project_path)
 
 
 @mcp.tool()
@@ -831,7 +848,19 @@ async def expand(
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
-          "unparseable_files": [file, ...] }  # subclasses / imported_by ONLY (#729); [] when all parsed
+          "unparseable_files": [file, ...],  # subclasses / imported_by ONLY (#729); [] when all parsed
+          "ceiling": str }               # #417 — the scope the list is complete over
+
+    ``ceiling`` names the edge's static-surface ceiling (#417), absent only for
+    ``enclosing_scope``, which is exact.  A name missing from ``stubs`` is
+    unknown beyond that scope, not absent:
+
+      - ``static_definitions``: definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included.
+      - ``literal_subclassing``: project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included.
+      - ``declared_bases``: the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses.
+      - ``static_imports``: import statements written in source; importlib / __import__ with a computed name is not included.
+      - ``static_calls``: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
+      - ``on_disk_modules``: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -874,7 +903,7 @@ async def expand(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _expand_impl(handle, edge, analyzer))
+    return _for_caller(await _expand_impl(handle, edge, analyzer), project_path)
 
 
 @mcp.tool()
@@ -927,7 +956,8 @@ async def trace(
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
           "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
-          "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
+          "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
+          "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
     recorded (so cycles stay visible) but never re-expanded, guaranteeing
@@ -963,8 +993,7 @@ async def trace(
         subgraph never overstates how complete the call walk was.
     """
     analyzer = get_analyzer(project_path)
-    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(
+    return _for_caller(
         await _trace_impl(
             start,
             follow,
@@ -972,7 +1001,8 @@ async def trace(
             max_depth=max_depth,
             max_nodes=max_nodes,
             stop_when=stop_when,
-        )
+        ),
+        project_path,
     )
 
 
@@ -1057,6 +1087,12 @@ async def outline(
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
 
+    **Ceiling (#417).** The root carries ``ceiling``: ``"static_definitions"``
+    for a members walk (a class body or a module's top level; no ``self.x``
+    instance attributes, nothing injected at runtime) or ``"on_disk_modules"``
+    for a package survey.  The tree is complete over that scope only (see
+    ``expand`` for every ceiling id).  Absent for a non-container root.
+
     **Result-level summary (#435).** The root also carries
     ``truncation_reasons``: the sorted set of every node's
     ``truncation_reason`` (absent when nothing was cut), named like
@@ -1105,7 +1141,10 @@ async def outline(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
+    return _for_caller(
+        await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes),
+        project_path,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)

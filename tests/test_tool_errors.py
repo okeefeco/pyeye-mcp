@@ -194,6 +194,9 @@ async def test_plugin_tools_are_wrapped_outermost() -> None:
     from mcp.server.mcpserver import MCPServer
 
     class FakePlugin:
+        # As real plugins have (AnalyzerPlugin.project_path); see #717.
+        project_path = Path.cwd()
+
         def name(self) -> str:
             return "fake"
 
