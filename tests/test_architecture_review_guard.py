@@ -14,8 +14,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pyeye.architecture_review.guard import (
+    CANNOT_CONFIRM,
+    CORROBORATED,
+    DIVERGENT,
     apply_cross_derivation_guard,
+    corroborate_imports,
     imports_via_ast,
 )
 
@@ -187,3 +193,145 @@ def test_non_divergent_confident_finding_passes_untouched(tmp_path: Path) -> Non
     out = result[0]
     assert out["grade"] == "deterministic_single"
     assert "possible_extractor_bug" not in out
+
+
+# ---------------------------------------------------------------------------
+# Group C — #499 third state: cannot_confirm (an unresolvable import)
+# ---------------------------------------------------------------------------
+
+
+def _assert_cannot_confirm(out: dict[str, Any]) -> None:
+    """Neither confirmed nor flagged as a divergence: unpromoted, needs review."""
+    assert out["grade"] == "ambiguous", "cannot_confirm must not stay confident"
+    assert out["corroboration"] == "cannot_confirm"
+    assert "possible_extractor_bug" not in out, "an unresolved import is not a divergence"
+
+
+def test_cannot_confirm_verdict_is_neither_confirmed_nor_flagged() -> None:
+    finding = {"grade": "deterministic_single", "claim": "x"}
+
+    result = apply_cross_derivation_guard([finding], corroborate_fn=lambda _f: CANNOT_CONFIRM)
+
+    _assert_cannot_confirm(result[0])
+    # Input dict NOT mutated.
+    assert finding == {"grade": "deterministic_single", "claim": "x"}
+
+
+def test_bool_verdicts_keep_their_meaning() -> None:
+    """``True``/``False`` still mean corroborated/divergent (backward compatible)."""
+    findings = [
+        {"grade": "deterministic_single", "claim": "ok"},
+        {"grade": "deterministic_single", "claim": "bad"},
+    ]
+    verdicts = {"ok": True, "bad": False}
+
+    result = apply_cross_derivation_guard(findings, corroborate_fn=lambda f: verdicts[f["claim"]])
+
+    assert result[0] is findings[0]
+    assert result[1]["grade"] == "ambiguous"
+    assert result[1]["possible_extractor_bug"] is True
+    assert result[1]["corroboration"] == "divergent"
+
+
+def test_named_verdicts_match_the_bools() -> None:
+    findings = [
+        {"grade": "deterministic_single", "claim": "ok"},
+        {"grade": "deterministic_single", "claim": "bad"},
+    ]
+    verdicts = {"ok": CORROBORATED, "bad": DIVERGENT}
+
+    result = apply_cross_derivation_guard(findings, corroborate_fn=lambda f: verdicts[f["claim"]])
+
+    assert result[0] is findings[0]
+    assert result[1]["possible_extractor_bug"] is True
+
+
+def test_unknown_verdict_is_rejected() -> None:
+    """A typo'd verdict must not silently read as agreement or divergence."""
+    finding = {"grade": "deterministic_single", "claim": "x"}
+
+    with pytest.raises(ValueError, match="corroborat"):
+        apply_cross_derivation_guard([finding], corroborate_fn=lambda _f: "agree")
+
+
+# --- corroborate_imports: the import-fact corroborator ----------------------
+
+
+def test_corroborate_imports_agreement(tmp_path: Path) -> None:
+    module_file = _write_fixture(tmp_path)
+    verdict = corroborate_imports({"os", "pkg.sub", "sibling"}, [], module_file)
+    assert verdict == CORROBORATED
+
+
+def test_corroborate_imports_dropped_import_is_divergent(tmp_path: Path) -> None:
+    """#494: a real import silently missing (not listed as unresolved) is a divergence."""
+    module_file = _write_fixture(tmp_path)
+    assert corroborate_imports({"os", "sibling"}, [], module_file) == DIVERGENT
+
+
+def test_corroborate_imports_invented_import_is_divergent(tmp_path: Path) -> None:
+    module_file = _write_fixture(tmp_path)
+    claimed = {"os", "pkg.sub", "sibling", "json"}
+    assert corroborate_imports(claimed, [], module_file) == DIVERGENT
+
+
+def test_unresolved_import_is_cannot_confirm_not_divergence(tmp_path: Path) -> None:
+    """The edge side reports ``pkg.sub.thing`` in ``unresolved_imports``: it is
+    missing from the claim because the edge could not resolve it, which is not
+    evidence of an extractor bug, and not agreement either."""
+    module_file = _write_fixture(tmp_path)
+
+    verdict = corroborate_imports({"os", "sibling"}, ["pkg.sub.thing"], module_file)
+
+    assert verdict == CANNOT_CONFIRM
+
+
+def test_unresolved_import_also_claimed_still_cannot_confirm(tmp_path: Path) -> None:
+    """Unresolved on the edge side never reads as silent agreement."""
+    module_file = _write_fixture(tmp_path)
+
+    verdict = corroborate_imports({"os", "pkg.sub", "sibling"}, ["pkg.sub.thing"], module_file)
+
+    assert verdict == CANNOT_CONFIRM
+
+
+def test_real_divergence_wins_over_unresolved(tmp_path: Path) -> None:
+    """An unexplained drop is still a divergence even when another import is unresolved."""
+    module_file = _write_fixture(tmp_path)
+
+    # "os" is dropped with no unresolved entry covering it; pkg.sub is unresolved.
+    verdict = corroborate_imports({"sibling"}, ["pkg.sub.thing"], module_file)
+
+    assert verdict == DIVERGENT
+
+
+def test_unparseable_source_is_cannot_confirm(tmp_path: Path) -> None:
+    """The AST side cannot derive anything (e.g. newer syntax, #703): cannot confirm."""
+    module_file = tmp_path / "broken.py"
+    module_file.write_text("def f(:\n    pass\n", encoding="utf-8")
+
+    assert corroborate_imports({"os"}, [], module_file) == CANNOT_CONFIRM
+
+
+def test_unreadable_source_is_cannot_confirm(tmp_path: Path) -> None:
+    assert corroborate_imports({"os"}, [], tmp_path / "missing.py") == CANNOT_CONFIRM
+
+
+def test_499_acceptance_unresolvable_fact_is_surfaced_for_review(tmp_path: Path) -> None:
+    """#499 acceptance: a finding whose import fact is unresolvable on the edge side
+    is surfaced as cannot-confirm, neither confirmed nor flagged as a divergence."""
+    module_file = _write_fixture(tmp_path)
+    finding = {
+        "grade": "deterministic_single",
+        "axis": "layering",
+        "claim": "module imports only os and sibling",
+        "claimed_imports": ["os", "sibling"],
+        "unresolved_imports": ["pkg.sub.thing"],
+    }
+
+    def corroborate(f: dict[str, Any]) -> str:
+        return corroborate_imports(set(f["claimed_imports"]), f["unresolved_imports"], module_file)
+
+    result = apply_cross_derivation_guard([finding], corroborate_fn=corroborate)
+
+    _assert_cannot_confirm(result[0])
