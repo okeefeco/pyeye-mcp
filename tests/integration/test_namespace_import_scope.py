@@ -82,7 +82,7 @@ def project_with_sibling(tmp_path: Path) -> tuple[JediAnalyzer, Path, Path]:
 @pytest.fixture(autouse=True)
 def _stub_jedi_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Neutralise the kind/signature/span helpers so the test isolates scope."""
-    monkeypatch.setattr(stubs_mod, "_normalise_kind_from_name", lambda _name: "class")
+    monkeypatch.setattr(stubs_mod, "normalise_kind_from_name", lambda _name: "class")
     monkeypatch.setattr(stubs_mod, "get_end_line", lambda _name: 3)
     monkeypatch.setattr(stubs_mod, "_build_signature", lambda _name: None)
 

@@ -27,20 +27,9 @@ Resolution strategy
 
 Kind normalisation
 ------------------
-Jedi's ``Name.type`` is mapped to the API kind vocabulary:
-
-    class      → "class"
-    function   → "function"  (→ "method" when enclosed by a class)
-    module     → "module"
-    statement  → "variable"
-    param      → "variable"
-    property   → "property"
-    keyword    → "variable"  (rare; included for completeness)
-
-A class-enclosed function is promoted to ``"method"`` via
-``_normalise_kind_from_name`` — the single normalisation helper shared by
-``resolve``, ``inspect``, and the stub builder so all three primitives agree on
-``kind`` for the same symbol (issue #406).
+Jedi's ``Name.type`` is mapped to the closed kind vocabulary by
+:mod:`pyeye.kinds` (#623), which also promotes a class-enclosed function to
+``"method"`` (#406), so every primitive agrees on ``kind`` for the same symbol.
 
 Deterministic ambiguous ordering
 ---------------------------------
@@ -71,6 +60,10 @@ from pyeye.canonicalization import (
     resolve_canonical,
 )
 from pyeye.handle import Handle
+from pyeye.kinds import (
+    normalise_kind as _normalise_kind,
+    normalise_kind_from_name as _normalise_kind_from_name,
+)
 from pyeye.path_utils import dedupe_paths
 from pyeye.scope import classify_scope
 
@@ -173,84 +166,6 @@ def _parse_identifier(identifier: str) -> IdentifierForm:
 
     # 4. bare_name: no dots, no path separators
     return {"kind": "bare_name", "name": identifier}
-
-
-# ---------------------------------------------------------------------------
-# Kind normalisation
-# ---------------------------------------------------------------------------
-
-# Jedi type → API kind
-_JEDI_TYPE_TO_KIND: dict[str, str] = {
-    "class": "class",
-    "function": "function",
-    "module": "module",
-    "instance": "variable",
-    "statement": "variable",
-    "param": "variable",
-    "property": "property",
-    "keyword": "variable",
-    "import": "module",
-}
-
-
-def _normalise_kind(jedi_type: str | None) -> str:
-    """Map Jedi's ``Name.type`` to the API kind vocabulary."""
-    if jedi_type is None:
-        return "variable"
-    return _JEDI_TYPE_TO_KIND.get(jedi_type, jedi_type)
-
-
-def _is_method(jedi_name: Any) -> bool:
-    """Return True if *jedi_name* is a method (a function enclosed by a class).
-
-    Reads the resolved Jedi ``Name``'s parent scope directly via
-    ``Name.parent()`` instead of re-deriving the enclosing scope from the dotted
-    handle.  Dotted-name string arithmetic plus a filesystem module lookup
-    cannot see class nesting — for ``module.Outer.Inner.method`` it treats
-    ``Outer`` as a module, fails to find it, and misclassifies the nested-class
-    method as a plain function (issue #337).  Using ``parent()`` also avoids a
-    redundant per-call Jedi ``Script`` load.
-
-    Lives here (rather than in ``inspect``) so the resolve path can apply the
-    same promotion without a circular import — ``inspect`` and ``stubs`` import
-    it from this module (issue #406).
-
-    Args:
-        jedi_name: The resolved Jedi ``Name`` object for the symbol.
-
-    Returns:
-        ``True`` when the symbol is a function whose immediate enclosing scope
-        is a class (at any nesting depth).
-    """
-    if getattr(jedi_name, "type", None) != "function":
-        return False
-    try:
-        parent = jedi_name.parent()
-    except Exception:
-        return False
-    return parent is not None and getattr(parent, "type", None) == "class"
-
-
-def _normalise_kind_from_name(jedi_name: Any) -> str:
-    """Normalise a Jedi ``Name`` to the API kind, promoting methods.
-
-    The single source of truth for kind normalisation across ``resolve``,
-    ``inspect``, and the stub builder.  Maps ``Name.type`` via
-    :func:`_normalise_kind`, then promotes a class-enclosed function from
-    ``"function"`` to ``"method"`` via :func:`_is_method`.
-
-    Before #406 only ``inspect`` and ``stubs`` applied this promotion, so the
-    resolve path reported a method as ``"function"`` while the others reported
-    ``"method"`` — three primitives, two answers, one symbol.
-
-    Args:
-        jedi_name: The resolved Jedi ``Name`` object for the symbol.
-
-    Returns:
-        The API kind string, with ``"method"`` substituted for a method.
-    """
-    raw_kind = _normalise_kind(getattr(jedi_name, "type", None))
-    return "method" if raw_kind == "function" and _is_method(jedi_name) else raw_kind
 
 
 # ---------------------------------------------------------------------------

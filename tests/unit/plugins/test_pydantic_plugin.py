@@ -590,9 +590,9 @@ class User(BaseModel):
         assert len(configs) >= 1
 
     @pytest.mark.asyncio
-    @patch("pyeye.plugins.pydantic.logger")
+    @patch("pyeye.plugins.base.logger")
     async def test_logging_on_errors(self, mock_logger, temp_project):
-        """Test that errors are logged appropriately."""
+        """Unparseable user code is skipped with a warning (#637; was debug, so invisible)."""
         # Create a file with invalid Python syntax
         bad_file = temp_project / "bad.py"
         bad_file.write_text("from pydantic import BaseModel\nclass User(BaseModel\n")
@@ -600,8 +600,8 @@ class User(BaseModel):
         plugin = PydanticPlugin(temp_project)
         await plugin.find_models()
 
-        # Should have logged a debug message about parsing error (not warning)
-        assert mock_logger.debug.called
+        assert mock_logger.warning.called
+        assert "bad.py" in mock_logger.warning.call_args.args[0]
 
     @pytest.mark.asyncio
     async def test_find_models_with_namespace_scope(self):

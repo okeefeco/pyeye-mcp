@@ -3,10 +3,8 @@
 import ast
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-from ..async_utils import read_file_async
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -37,12 +35,11 @@ class FlaskPlugin(AnalyzerPlugin):
         for file_name in common_files:
             file_path = self.project_path / file_name
             if file_path.exists():
-                try:
-                    content = file_path.read_text()
-                    if "from flask import" in content or "import flask" in content:
-                        return True
-                except Exception:
-                    pass
+                content = self._read_text_or_skip(file_path)
+                if content is not None and (
+                    "from flask import" in content or "import flask" in content
+                ):
+                    return True
 
         # Check for Flask in requirements
         requirements_files = [
@@ -54,22 +51,18 @@ class FlaskPlugin(AnalyzerPlugin):
         for req_file in requirements_files:
             req_path = self.project_path / req_file
             if req_path.exists():
-                try:
-                    content = req_path.read_text().lower()
-                    if "flask" in content:
-                        return True
-                except Exception:
-                    pass
+                content = self._read_text_or_skip(req_path)
+                if content is not None and "flask" in content.lower():
+                    return True
 
         # Check for Flask imports in any Python files
         for py_file in self.project_path.glob("**/*.py"):
             if py_file.is_file():
-                try:
-                    content = py_file.read_text()
-                    if "from flask import" in content or "import flask" in content:
-                        return True
-                except Exception:
-                    pass
+                content = self._read_text_or_skip(py_file)
+                if content is not None and (
+                    "from flask import" in content or "import flask" in content
+                ):
+                    return True
 
         return False
 
@@ -85,27 +78,6 @@ class FlaskPlugin(AnalyzerPlugin):
             "find_error_handlers": self.find_error_handlers,
             "find_cli_commands": self.find_cli_commands,
         }
-
-    async def _read_source(self, py_file: Path) -> str | None:
-        """Read a project file, or warn and return ``None`` if it cannot be read as text."""
-        try:
-            return await read_file_async(py_file)
-        except (OSError, UnicodeDecodeError) as e:
-            logger.warning(f"Error reading {py_file.as_posix()}: {e}")
-            return None
-
-    def _parse_source(self, py_file: Path, content: str) -> ast.Module | None:
-        """Parse user source, or warn and return ``None`` if it is not valid Python.
-
-        Only genuinely unparseable user code is skipped here. Errors raised while
-        walking a parsed tree propagate, so an AST-API change cannot masquerade as
-        "nothing found" (#622).
-        """
-        try:
-            return ast.parse(content, filename=py_file.as_posix())
-        except (SyntaxError, ValueError, RecursionError) as e:
-            logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
-            return None
 
     async def find_routes(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Flask routes in the project.
@@ -555,21 +527,15 @@ class FlaskPlugin(AnalyzerPlugin):
 
         # Find route files
         for py_file in self.project_path.rglob("*.py"):
-            try:
-                content = py_file.read_text()
-                if "@" in content and "route" in content:
-                    components["routes"].append(py_file.as_posix())
-            except Exception:
-                pass
+            content = self._read_text_or_skip(py_file)
+            if content is not None and "@" in content and "route" in content:
+                components["routes"].append(py_file.as_posix())
 
         # Find blueprint files
         for py_file in self.project_path.rglob("*.py"):
-            try:
-                content = py_file.read_text()
-                if "Blueprint" in content:
-                    components["blueprints"].append(py_file.as_posix())
-            except Exception:
-                pass
+            content = self._read_text_or_skip(py_file)
+            if content is not None and "Blueprint" in content:
+                components["blueprints"].append(py_file.as_posix())
 
         # Find template directories
         for template_dir in self.project_path.glob("**/templates"):

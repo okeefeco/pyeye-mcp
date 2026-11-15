@@ -5,7 +5,6 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..async_utils import read_file_async
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -23,26 +22,26 @@ class PydanticPlugin(AnalyzerPlugin):
         # Check for Pydantic imports in any Python file
         # Note: Using sync I/O here as detect() is called during initialization
         for py_file in self.project_path.rglob("*.py"):
-            if py_file.stat().st_size > 1000000:  # Skip very large files
-                continue
             try:
-                content = py_file.read_text()
-                if "from pydantic import" in content or "import pydantic" in content:
-                    return True
-            except Exception:
-                pass
+                if py_file.stat().st_size > 1000000:  # Skip very large files
+                    continue
+            except OSError as e:
+                logger.warning(f"Plugin {self.name()}: error reading {py_file.as_posix()}: {e}")
+                continue
+            content = self._read_text_or_skip(py_file)
+            if content is not None and (
+                "from pydantic import" in content or "import pydantic" in content
+            ):
+                return True
 
         # Check requirements files
         req_files = ["requirements.txt", "pyproject.toml", "Pipfile"]
         for req_file in req_files:
             req_path = self.project_path / req_file
             if req_path.exists():
-                try:
-                    content = req_path.read_text().lower()
-                    if "pydantic" in content:
-                        return True
-                except Exception:
-                    pass
+                content = self._read_text_or_skip(req_path)
+                if content is not None and "pydantic" in content.lower():
+                    return True
 
         return False
 
@@ -72,31 +71,31 @@ class PydanticPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "BaseModel" not in content and "pydantic" not in content.lower():
-                    continue  # Quick filter
+            content = await self._read_source(py_file)
+            if content is None:
+                continue
+            if "BaseModel" not in content and "pydantic" not in content.lower():
+                continue  # Quick filter
 
-                tree = ast.parse(content, filename=py_file.as_posix())
+            tree = self._parse_source(py_file, content)
+            if tree is None:
+                continue
 
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.ClassDef):
-                        # Check if it inherits from BaseModel or any Pydantic base
-                        if self._is_pydantic_model(node, content):
-                            model_info = {
-                                "name": node.name,
-                                "file": py_file.as_posix(),
-                                "line": node.lineno,
-                                "type": "pydantic_model",
-                                "fields": self._extract_fields(node),
-                                "validators": self._extract_validators(node),
-                                "config": self._extract_config(node),
-                                "base_classes": [self._get_base_name(base) for base in node.bases],
-                            }
-                            models.append(model_info)
-
-            except Exception as e:
-                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Check if it inherits from BaseModel or any Pydantic base
+                    if self._is_pydantic_model(node, content):
+                        model_info = {
+                            "name": node.name,
+                            "file": py_file.as_posix(),
+                            "line": node.lineno,
+                            "type": "pydantic_model",
+                            "fields": self._extract_fields(node),
+                            "validators": self._extract_validators(node),
+                            "config": self._extract_config(node),
+                            "base_classes": [self._get_base_name(base) for base in node.bases],
+                        }
+                        models.append(model_info)
 
         return models
 
@@ -152,30 +151,30 @@ class PydanticPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "validator" not in content and "field_validator" not in content:
-                    continue
+            content = await self._read_source(py_file)
+            if content is None:
+                continue
+            if "validator" not in content and "field_validator" not in content:
+                continue
 
-                tree = ast.parse(content, filename=py_file.as_posix())
+            tree = self._parse_source(py_file, content)
+            if tree is None:
+                continue
 
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef):
-                        # Check for validator decorators
-                        for decorator in node.decorator_list:
-                            if self._is_validator_decorator(decorator):
-                                validator_info = {
-                                    "name": node.name,
-                                    "file": py_file.as_posix(),
-                                    "line": node.lineno,
-                                    "type": self._get_validator_type(decorator),
-                                    "fields": self._get_validator_fields(decorator),
-                                    "mode": self._get_validator_mode(decorator),
-                                }
-                                validators.append(validator_info)
-
-            except Exception as e:
-                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    # Check for validator decorators
+                    for decorator in node.decorator_list:
+                        if self._is_validator_decorator(decorator):
+                            validator_info = {
+                                "name": node.name,
+                                "file": py_file.as_posix(),
+                                "line": node.lineno,
+                                "type": self._get_validator_type(decorator),
+                                "fields": self._get_validator_fields(decorator),
+                                "mode": self._get_validator_mode(decorator),
+                            }
+                            validators.append(validator_info)
 
         return validators
 
@@ -206,39 +205,39 @@ class PydanticPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "Config" not in content and "model_config" not in content:
-                    continue
+            content = await self._read_source(py_file)
+            if content is None:
+                continue
+            if "Config" not in content and "model_config" not in content:
+                continue
 
-                tree = ast.parse(content, filename=py_file.as_posix())
+            tree = self._parse_source(py_file, content)
+            if tree is None:
+                continue
 
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.ClassDef):
-                        # Look for Config inner class or model_config
-                        for item in node.body:
-                            if isinstance(item, ast.ClassDef) and item.name == "Config":
-                                config_info = {
-                                    "model": node.name,
-                                    "file": py_file.as_posix(),
-                                    "line": item.lineno,
-                                    "settings": self._extract_config_settings(item),
-                                }
-                                configs.append(config_info)
-                            elif isinstance(item, ast.Assign):
-                                for target in item.targets:
-                                    if isinstance(target, ast.Name) and target.id == "model_config":
-                                        configs.append(
-                                            {
-                                                "model": node.name,
-                                                "file": py_file.as_posix(),
-                                                "line": item.lineno,
-                                                "settings": self._extract_config_dict(item.value),
-                                            }
-                                        )
-
-            except Exception as e:
-                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Look for Config inner class or model_config
+                    for item in node.body:
+                        if isinstance(item, ast.ClassDef) and item.name == "Config":
+                            config_info = {
+                                "model": node.name,
+                                "file": py_file.as_posix(),
+                                "line": item.lineno,
+                                "settings": self._extract_config_settings(item),
+                            }
+                            configs.append(config_info)
+                        elif isinstance(item, ast.Assign):
+                            for target in item.targets:
+                                if isinstance(target, ast.Name) and target.id == "model_config":
+                                    configs.append(
+                                        {
+                                            "model": node.name,
+                                            "file": py_file.as_posix(),
+                                            "line": item.lineno,
+                                            "settings": self._extract_config_dict(item.value),
+                                        }
+                                    )
 
         return configs
 
@@ -297,29 +296,29 @@ class PydanticPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "computed_field" not in content and "@property" not in content:
-                    continue
+            content = await self._read_source(py_file)
+            if content is None:
+                continue
+            if "computed_field" not in content and "@property" not in content:
+                continue
 
-                tree = ast.parse(content, filename=py_file.as_posix())
+            tree = self._parse_source(py_file, content)
+            if tree is None:
+                continue
 
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef):
-                        for decorator in node.decorator_list:
-                            if self._is_computed_field_decorator(decorator):
-                                computed_fields.append(
-                                    {
-                                        "name": node.name,
-                                        "file": py_file.as_posix(),
-                                        "line": node.lineno,
-                                        "type": "computed_field",
-                                        "return_type": self._get_return_type(node),
-                                    }
-                                )
-
-            except Exception as e:
-                logger.debug(f"Error parsing {py_file.as_posix()}: {e}")
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    for decorator in node.decorator_list:
+                        if self._is_computed_field_decorator(decorator):
+                            computed_fields.append(
+                                {
+                                    "name": node.name,
+                                    "file": py_file.as_posix(),
+                                    "line": node.lineno,
+                                    "type": "computed_field",
+                                    "return_type": self._get_return_type(node),
+                                }
+                            )
 
         return computed_fields
 
