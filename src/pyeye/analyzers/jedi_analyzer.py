@@ -16,7 +16,7 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
-from ..path_utils import normalize_path, path_to_key, relative_within
+from ..path_utils import absolute_path, normalize_path, path_to_key, relative_within
 from ..project_layout import (
     detect_src_layout,
     layout_key,
@@ -166,7 +166,7 @@ class JediAnalyzer:
         # spelling the caller used (#603). abspath, not resolve(): an already
         # absolute path must keep its spelling (no /var -> /private/var on macOS,
         # no RUNNER~1 expansion on Windows) so callers' own paths still match.
-        self.project_path = Path(os.path.abspath(project_path))
+        self.project_path = absolute_path(project_path)
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories
@@ -196,12 +196,12 @@ class JediAnalyzer:
         try:
             # Get additional sys paths from config (e.g., src/ layout, sibling packages)
             added_sys_path: list[str] = []
-            resolved_project = self.project_path.resolve()
+            resolved_project = normalize_path(self.project_path)
             if config:
                 package_paths = config.get_package_paths()
                 in_project: list[Path] = []
                 for pkg_path in package_paths:
-                    pkg = Path(pkg_path).resolve()
+                    pkg = normalize_path(pkg_path)
                     if pkg == resolved_project or not pkg.exists():
                         continue
                     # A root inside the project keeps project_path's spelling, as
@@ -238,7 +238,7 @@ class JediAnalyzer:
             # include the namespace prefix from the first query.
             for ns_paths in self.namespace_paths.values():
                 for ns_path in ns_paths:
-                    resolved = ns_path.resolve()
+                    resolved = normalize_path(ns_path)
                     if resolved.exists() and resolved.as_posix() not in added_sys_path:
                         added_sys_path.append(resolved.as_posix())
                         logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
@@ -258,7 +258,7 @@ class JediAnalyzer:
             # When the project_path IS a Python package (has __init__.py),
             # Jedi must be rooted at the PARENT so that the package name is
             # included in full_name values.
-            jedi_root = self.project_path.resolve()
+            jedi_root = normalize_path(self.project_path)
             self._jedi_root_is_parent = False
             if (jedi_root / "__init__.py").exists():
                 jedi_root = jedi_root.parent
@@ -324,7 +324,7 @@ class JediAnalyzer:
         ns_sys_paths: set[str] = set()
         for ns_paths in self.namespace_paths.values():
             for ns_path in ns_paths:
-                resolved = ns_path.resolve()
+                resolved = normalize_path(ns_path)
                 if resolved.exists():
                     ns_sys_paths.add(resolved.as_posix())
 
