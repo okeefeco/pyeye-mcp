@@ -73,3 +73,18 @@ def goto_target(script: Any, line: int, col: int, *, prefer: str | None = None) 
     except Exception:
         return None
     return pick_target(defs, prefer=prefer)
+
+
+def binding_target(script: Any, line: int, col: int) -> Any | None:
+    """``goto`` WITHOUT following imports at (*line*, *col*), then :func:`pick_target`.
+
+    Lands on the binding a name refers to, such as the ``from collections.abc
+    import Mapping`` that bound ``Mapping``, whose ``full_name`` is the imported
+    path. Used where the imported path, not typeshed's view of its target,
+    decides the handle (#544). Any error from Jedi is no answer.
+    """
+    try:
+        defs = script.goto(line, col, follow_imports=False)
+    except Exception:
+        return None
+    return pick_target(defs)

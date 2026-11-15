@@ -190,15 +190,17 @@ def test_external_name_is_placed_at_its_definition(
     assert (result.handle, result.kind, result.scope) == (path, kind, "external")
 
 
-@pytest.mark.parametrize("path", ["collections.abc.Mapping", "os.sep"])
+# ``collections.abc.Mapping`` was here until #544 placed stdlib names at their
+# runtime definition (tests/unit/test_stdlib_runtime_resolution.py).
+@pytest.mark.parametrize("path", ["os.sep"])
 def test_definition_elsewhere_and_mismatched_inference_are_not_found(
     project: JediAnalyzer, path: str
 ) -> None:
     """An honest miss, not a wrong answer (#544).
 
-    ``collections.abc.Mapping``'s goto lands on ``typing.Mapping`` (typeshed's
-    reversed claim) and it infers to ``_SpecialGenericAlias``; ``os.sep`` goes to
-    a platform module and infers to ``str``.  Neither is the requested path.
+    ``os.sep`` goes to a platform module and infers to ``str``, which is not the
+    requested path.  (``collections.abc.Mapping``, whose goto lands on typeshed's
+    reversed ``typing.Mapping``, is now placed by the stdlib runtime step.)
     """
     assert isinstance(resolve_handle(path, project), NotFound)
 

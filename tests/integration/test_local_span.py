@@ -62,6 +62,5 @@ async def test_member_stubs_agree(analyzer: JediAnalyzer) -> None:
     spans = {s["handle"]: (s["line_start"], s["line_end"]) for s in expanded["stubs"]}
     assert spans["pkg.m.Config.name"] == (2, 2)
     assert spans["pkg.m.Config.port"] == (3, 3)
-    # The method still spans its block (one past its last line until #709).
-    assert spans["pkg.m.Config.load"][0] == 5
-    assert spans["pkg.m.Config.load"][1] >= 7
+    # The method spans exactly its block, lines 5-7 (#709).
+    assert spans["pkg.m.Config.load"] == (5, 7)

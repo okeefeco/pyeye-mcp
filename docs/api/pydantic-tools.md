@@ -157,7 +157,7 @@ Get the complete schema for a specific Pydantic model.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `model_name` | string | ✅ | - | Name of the Pydantic model class |
+| `model_name` | string | ✅ | - | The model's class name, or its handle (e.g. `accounts.models.User`, or a re-export such as `accounts.User`). Use a handle to choose between models that share a name |
 
 ### Returns
 
@@ -292,7 +292,9 @@ openapi_schema = schema["schema"]  # Can be used directly in OpenAPI specs
 
 ### Error Conditions
 
-- Raises error if model not found
+- **Not found:** no model matches `model_name`. The response is the shared not-found shape, `{found: false, model_name, reason: "unresolved", detail}`.
+- **Ambiguous:** several models share the name. The response is `{found: true, ambiguous: true, candidates: [{handle, kind, scope, location}]}`, the same shape `resolve` uses; call again with one candidate's `handle` as `model_name`.
+- **Found:** the answer below, plus `found: true` and the model's `handle`.
 - Returns partial schema for complex types
 - May not capture runtime schema modifications
 
@@ -779,7 +781,10 @@ print(f"BaseModel has {len(all_descendants)} descendant models")
 
 ### Error Conditions
 
-- Raises error if model not found
+- **Not found:** no model matches `model_name`. The response is the shared not-found shape, `{found: false, model_name, reason: "unresolved", detail}`.
+- **Ambiguous:** several models share the name. The response is `{found: true, ambiguous: true, candidates: [{handle, kind, scope, location}]}`, the same shape `resolve` uses; call again with one candidate's `handle` as `model_name`.
+- **Found:** the answer below, plus `found: true` and the model's `handle`.
+- Children are matched by base-class name, so with two models of the same name a child of either is listed under both (see [#664](https://github.com/okeefeco/pyeye-mcp/issues/664))
 - Handles multiple inheritance
 - May miss dynamic class creation
 
