@@ -68,6 +68,18 @@ class PerformanceSettings:
             max_val=1_000_000,
         )
 
+        # jedi.Script entries in file_artifact_cache (#713), within the combined
+        # cap above. Each cached Script keeps its Jedi inference state, and with
+        # it every module it inferred, so this, not the parso cap, is what bounds
+        # the memory of Jedi's parse trees in real use. Latency lever only:
+        # an evicted Script is rebuilt on demand.
+        self.script_cache_max_entries: int = self._get_int_env(
+            "PYEYE_SCRIPT_CACHE_MAX_ENTRIES",
+            200,
+            min_val=1,
+            max_val=1_000_000,
+        )
+
         # File watcher settings
         self.watcher_debounce: float = self._get_float_env(
             "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
@@ -221,6 +233,7 @@ class PerformanceSettings:
     cache_ttl: {self.cache_ttl}s
     artifact_cache_max_entries: {self.artifact_cache_max_entries}
     parso_cache_max_entries: {self.parso_cache_max_entries}
+    script_cache_max_entries: {self.script_cache_max_entries}
 
   File Watching:
     watcher_debounce: {self.watcher_debounce}s
