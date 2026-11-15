@@ -442,38 +442,23 @@ class JediAnalyzer:
 
         # Narrow to the requested scope at lookup time, then dedup by
         # (name, file, line) — preserving the historical key.
-        scope_dirs = [d.resolve() for d in await self._resolve_scope_to_paths(effective_scope)]
+        scope_dirs = [
+            normalize_path(d) for d in await self._resolve_scope_to_paths(effective_scope)
+        ]
 
         results: list[Any] = []
         seen: set[tuple[str, str | None, int]] = set()
         for r in candidates:
             if r.module_path is None:
                 continue
-            resolved_mp = r.module_path.resolve()
-            if not any(self._is_subpath(resolved_mp, scope_dir) for scope_dir in scope_dirs):
+            resolved_mp = normalize_path(r.module_path)
+            if not any(relative_within(resolved_mp, d) is not None for d in scope_dirs):
                 continue
             key = (r.name, resolved_mp.as_posix(), r.line)
             if key not in seen:
                 seen.add(key)
                 results.append(r)
         return results
-
-    @staticmethod
-    def _is_subpath(path: Path, parent: Path) -> bool:
-        """Check if path is a subdirectory of parent.
-
-        Args:
-            path: The path to check
-            parent: The potential parent path
-
-        Returns:
-            True if path is under parent, False otherwise
-        """
-        try:
-            path.relative_to(parent)
-            return True
-        except ValueError:
-            return False
 
     async def get_project_files(
         self,
