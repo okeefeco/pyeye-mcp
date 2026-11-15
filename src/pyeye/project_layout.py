@@ -59,7 +59,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .path_utils import dedupe_paths
 
@@ -223,6 +223,43 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
             if mod_file.exists():
                 return mod_file
     return None
+
+
+PackageKind = Literal["regular", "namespace", "module", "unknown"]
+
+
+def package_kind(module_path: Any) -> PackageKind:
+    """Classify a Jedi ``module_path`` by what it says about package-ness (#625).
+
+    The one package predicate. It reads only the path:
+
+    - ``…/__init__.py`` → ``"regular"`` (a regular package);
+    - any other ``….py`` → ``"module"`` (a plain module, or a symbol defined in one);
+    - an existing directory → ``"namespace"`` (a PEP 420 package, anchored on its
+      directory since #444);
+    - ``None``, or a non-``.py`` file such as a stub or extension module →
+      ``"unknown"``.
+
+    ``"unknown"`` is deliberately its own answer. Jedi gives a namespace package
+    a ``None`` path, but it gives builtins one too, so the path alone can't
+    tell. Each caller decides what unknown means for it, and says so:
+    ``edges._package_dirs`` looks the handle up as a namespace package by name,
+    while ``inspect``'s ``is_package`` and ``outline``'s survey mode treat it as
+    not a package.
+    """
+    if module_path is None:
+        return "unknown"
+    path = Path(module_path)
+    if path.name == "__init__.py":
+        return "regular"
+    if path.suffix == ".py":
+        return "module"
+    try:
+        if path.is_dir():
+            return "namespace"
+    except OSError:
+        pass
+    return "unknown"
 
 
 def detect_src_layout(project_path: Path | str) -> Path | None:
