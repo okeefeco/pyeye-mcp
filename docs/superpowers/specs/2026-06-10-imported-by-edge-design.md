@@ -205,6 +205,10 @@ would be inert for `members`/`callees`; additive later if a caller ever needs to
 
 - **Runtime-dynamic imports.** `imported_by` covers static `import`/`from-import`
   (including conditional/nested ones — an AST walk sees them regardless of nesting).
+  *Amended 2026-11-15 (#619):* "nested" includes imports inside a function or class
+  body, deliberately. `imports` counts only module-scope bindings (#360), so the two
+  edges are not exact inverses; only `imports(M) ∋ B ⇒ M ∈ imported_by(B)` holds
+  (`tests/test_imports_imported_by.py`).
   Imports whose target is computed at runtime — `importlib.import_module(var)`,
   `__import__(var)` — are undetectable and out of scope. This is the **universal static
   ceiling** of import-graph analysis (the same *class* of boundary as `callees`' dynamic
