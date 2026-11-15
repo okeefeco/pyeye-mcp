@@ -76,7 +76,7 @@ from pyeye._stdlib_static import is_stdlib, public_handle
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
-from pyeye.resolver import Resolved, handle_for_anchor, resolve_handle
+from pyeye.resolver import Resolved, handle_for_anchor, resolve_item
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -725,7 +725,7 @@ def _stdlib_import_target(
     """
     if node.level or not node.module or not is_stdlib(node.module):
         return None
-    resolved = resolve_handle(f"{node.module}.{name}", analyzer)
+    resolved = resolve_item(f"{node.module}.{name}", analyzer)  # per import (#704)
     if not isinstance(resolved, Resolved) or resolved.scope != "external":
         return None
     handle = _try_handle(resolved.handle)
@@ -758,7 +758,7 @@ def _canonical_import_targets(
     for handle, name in adjacents:
         module_path = getattr(name, "module_path", None)
         if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
-            resolved = resolve_handle(str(handle), analyzer)
+            resolved = resolve_item(str(handle), analyzer)  # per import (#704)
             if isinstance(resolved, Resolved) and resolved.handle != str(handle):
                 handle, name = Handle(resolved.handle), resolved.anchor
         key = str(handle)
