@@ -73,7 +73,6 @@ The server is designed for high performance with:
 * **5-minute result caching** with intelligent invalidation
 * **LRU project management** (max 10 projects)
 * **File watching** for automatic updates
-* **Connection pooling** for Jedi analyzers
 
 Framework Support
 -----------------

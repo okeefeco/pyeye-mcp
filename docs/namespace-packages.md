@@ -341,6 +341,9 @@ results = await analyzer.find_symbol("User", scope="all")
 
 Use the debug tools to understand scope resolution:
 
+> **Deprecated:** `ScopeDebugger` is unused by pyeye and will be removed in v3.0 (#628);
+> constructing it emits a `DeprecationWarning`.
+
 ```python
 from pyeye.scope_utils import ScopeDebugger
 
@@ -360,6 +363,9 @@ debug_info = await debugger.debug_file_search(
 ```
 
 ### Validating Scopes
+
+> **Deprecated:** `ScopeValidator` is unused by pyeye and will be removed in v3.0 (#628);
+> constructing it emits a `DeprecationWarning`.
 
 ```python
 from pyeye.scope_utils import ScopeValidator

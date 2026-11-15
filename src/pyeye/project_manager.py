@@ -5,12 +5,9 @@ import logging
 import threading
 from pathlib import Path
 
-import jedi
-
 from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
-from .cache import CodebaseWatcher, GranularCache
-from .connection_pool import ProjectConnectionPool
+from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
 
 logger = logging.getLogger(__name__)
@@ -26,7 +23,6 @@ class ProjectManager:
             max_projects: Maximum number of projects to keep in memory.
                          If None, uses value from settings.
         """
-        self.projects: dict[Path, jedi.Project] = {}
         # One watcher per resolved root, shared by every project whose layout
         # includes that root; ``_watch_users`` records who uses each (#617).
         self.watchers: dict[Path, CodebaseWatcher] = {}
@@ -34,14 +30,14 @@ class ProjectManager:
         # Guards watchers/_watch_users: the watchdog thread reads them while
         # analysis threads register and drop projects.
         self._watch_lock = threading.RLock()
-        self.caches: dict[Path, GranularCache] = {}
         self.analyzers: dict[Path, JediAnalyzer] = {}  # Analyzer instance cache
         self.access_order: list[Path] = []  # LRU tracking
         self.max_projects = (
             max_projects if max_projects is not None else settings.settings.max_projects
         )
 
-        # Project dependencies - maps project to its dependencies
+        # Project dependencies - maps a registered project to its package paths.
+        # A key here means the project was registered via ``register_project``.
         self.dependencies: dict[Path, set[Path]] = {}
 
         # Standalone script directories - maps project to its standalone dirs
@@ -50,26 +46,16 @@ class ProjectManager:
         # Namespace resolver for distributed packages
         self.namespace_resolver = NamespaceResolver()
 
-        # Initialize connection pool if enabled
-        self.connection_pool: ProjectConnectionPool | None = None
-        if settings.settings.enable_connection_pooling:
-            self.connection_pool = ProjectConnectionPool(
-                max_connections=settings.settings.pool_max_connections,
-                ttl_seconds=settings.settings.pool_ttl,
-            )
-            logger.info("Connection pooling enabled")
+    def register_project(self, project_path: str, include_paths: list[str] | None = None) -> None:
+        """Record a project's package paths and watch them.
 
-    def get_project(
-        self, project_path: str, include_paths: list[str] | None = None
-    ) -> jedi.Project:
-        """Get or create a Jedi project.
+        The recorded paths feed the analyzer (``get_analyzer`` passes them to
+        ``set_additional_paths``), and a watcher on each root keeps the caches
+        fresh. A changed path set tears the old registration down first.
 
         Args:
             project_path: Main project path
             include_paths: Additional paths to include (e.g., local packages)
-
-        Returns:
-            Jedi project configured with all paths
         """
         main_path = Path(project_path).resolve()
 
@@ -78,47 +64,10 @@ class ProjectManager:
             self.access_order.remove(main_path)
         self.access_order.append(main_path)
 
-        # Use connection pool if available
-        if self.connection_pool:
-            # Convert include_paths to resolved Path objects
-            additional_paths = []
-            if include_paths:
-                for path in include_paths:
-                    resolved = Path(path).resolve()
-                    if resolved.exists() and resolved.is_dir():
-                        additional_paths.append(resolved)
+        if self._needs_update(main_path, include_paths):
+            self._register(main_path, include_paths)
 
-            # Get pooled connection
-            project = self.connection_pool.get_connection(main_path, additional_paths)
-
-            # Store in projects dict for backward compatibility
-            self.projects[main_path] = project
-
-            # Update dependencies tracking for compatibility
-            self.dependencies[main_path] = set(additional_paths)
-
-            # Ensure cache exists
-            if main_path not in self.caches:
-                self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
-
-            self._watch(main_path, main_path)
-            for dep_path in additional_paths:
-                self._watch(dep_path, main_path)
-
-            # Don't apply LRU eviction when using connection pool
-            # Pool handles its own eviction
-            return project
-
-        # Fall back to original implementation if pooling is disabled
-        if main_path not in self.projects or self._needs_update(main_path, include_paths):
-            self._create_project(main_path, include_paths)
-
-        # Only evict old projects if connection pooling is disabled
-        # When pooling is enabled, the pool manages its own eviction
-        if not self.connection_pool:
-            self._evict_if_needed()
-
-        return self.projects[main_path]
+        self._evict_if_needed()
 
     def _needs_update(self, main_path: Path, include_paths: list[str] | None = None) -> bool:
         """Check if project configuration has changed."""
@@ -130,35 +79,22 @@ class ProjectManager:
 
         return current_deps != new_deps
 
-    def _create_project(self, main_path: Path, include_paths: list[str] | None = None) -> None:
-        """Create a new project with watchers and cache."""
-        logger.info(f"Creating project for {main_path.as_posix()}")
+    def _register(self, main_path: Path, include_paths: list[str] | None = None) -> None:
+        """(Re-)register *main_path* with its existing dependency directories, and watch them."""
+        logger.info(f"Registering project {main_path.as_posix()}")
 
-        # Clean up old project if exists
-        if main_path in self.projects:
+        # Clean up the old registration if the paths changed
+        if main_path in self.dependencies:
             self._cleanup_project(main_path)
 
-        # Configure project paths
-        all_paths = [main_path]
         dep_paths = set()
+        for path in include_paths or []:
+            resolved = Path(path).resolve()
+            if resolved.exists() and resolved.is_dir():
+                dep_paths.add(resolved)
+                logger.info(f"  Including dependency: {resolved}")
 
-        if include_paths:
-            for path in include_paths:
-                resolved = Path(path).resolve()
-                if resolved.exists() and resolved.is_dir():
-                    all_paths.append(resolved)
-                    dep_paths.add(resolved)
-                    logger.info(f"  Including dependency: {resolved}")
-
-        # Create Jedi project with all paths
-        # Jedi's added_sys_path allows searching in multiple locations
-        self.projects[main_path] = jedi.Project(path=main_path, added_sys_path=all_paths)
-
-        # Store dependencies
         self.dependencies[main_path] = dep_paths
-
-        # Create granular cache with configurable TTL
-        self.caches[main_path] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
 
         self._watch(main_path, main_path)
         for dep_path in dep_paths:
@@ -171,16 +107,8 @@ class ProjectManager:
         # Stop the watchers no other project still uses
         self._unwatch_project(project_path)
 
-        # Clear cache
-        if project_path in self.caches:
-            del self.caches[project_path]
-
         # Drop cached analyzer
         self.analyzers.pop(project_path, None)
-
-        # Remove project
-        if project_path in self.projects:
-            del self.projects[project_path]
 
         # Clear dependencies
         if project_path in self.dependencies:
@@ -201,51 +129,15 @@ class ProjectManager:
     def _evict_if_needed(self) -> None:
         """Evict least recently used projects if over limit.
 
-        Checks both ``self.projects`` and ``self.analyzers`` so that the
-        analyzer-only path (``get_analyzer`` called without a prior
-        ``get_project``) is also bounded by ``max_projects``.
+        Counts registered projects and analyzers together, so the analyzer-only
+        path (``get_analyzer`` without a prior ``register_project``) is bounded
+        by ``max_projects`` too.
         """
-        while max(len(self.projects), len(self.analyzers)) > self.max_projects:
+        while len(set(self.dependencies) | set(self.analyzers)) > self.max_projects:
             # Remove least recently used
             lru_path = self.access_order.pop(0)
             logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
             self._cleanup_project(lru_path)
-
-    def get_cache(self, project_path: str) -> GranularCache:
-        """Get cache for a project."""
-        main_path = Path(project_path).resolve()
-        if main_path not in self.caches:
-            self.caches[main_path] = GranularCache()
-        return self.caches[main_path]
-
-    def search_all_projects(self, name: str) -> dict[str, list]:
-        """Search for a symbol across all active projects.
-
-        Args:
-            name: Symbol name to search for
-
-        Returns:
-            Dictionary mapping project paths to results
-        """
-        results = {}
-
-        for project_path, project in self.projects.items():
-            try:
-                search_results = project.search(name, all_scopes=True)
-                if search_results:
-                    results[project_path.as_posix()] = [
-                        {
-                            "name": r.name,
-                            "file": Path(r.module_path).as_posix() if r.module_path else None,
-                            "line": r.line,
-                            "type": r.type,
-                        }
-                        for r in search_results
-                    ]
-            except Exception as e:
-                logger.error(f"Error searching in {project_path.as_posix()}: {e}")
-
-        return results
 
     def get_analyzer(self, project_path: str) -> JediAnalyzer:
         """Get a configured JediAnalyzer for the given project.
@@ -265,10 +157,9 @@ class ProjectManager:
 
         LRU eviction
         ------------
-        Both the analyzer cache and the project cache are limited to
-        ``max_projects`` entries combined.  When
-        ``max(len(analyzers), len(projects)) > max_projects``, the
-        least-recently-used entry is evicted via ``_cleanup_project``, which
+        Analyzers and registered projects together are limited to
+        ``max_projects`` distinct paths.  Over that, the least-recently-used
+        entry is evicted via ``_cleanup_project``, which
         tears down watchers and project state in addition to dropping the
         analyzer.
 
@@ -340,7 +231,7 @@ class ProjectManager:
             # get_package_paths() always prepends the project itself; skip the first entry
             extra_paths = [p for p in config_package_paths if Path(p).resolve() != path_key]
             if extra_paths:
-                self.get_project(path_key.as_posix(), extra_paths)
+                self.register_project(path_key.as_posix(), extra_paths)
                 logger.info(
                     f"Bridged {len(extra_paths)} extra package paths from config to dependencies"
                 )
@@ -382,8 +273,6 @@ class ProjectManager:
 
         # Every analyzer is watched, config or not (#617): its root plus every
         # package, namespace and standalone root its layout reads from.
-        if path_key not in self.caches:
-            self.caches[path_key] = GranularCache(ttl_seconds=settings.settings.cache_ttl)
         for root in self._layout_roots(analyzer):
             self._watch(root, path_key)
 
@@ -408,8 +297,8 @@ class ProjectManager:
         analyzer with the updated configuration.
 
         Unlike ``_cleanup_project``, this method only removes the analyzer
-        entry; it does **not** stop watchers, clear the GranularCache, or
-        remove the ``jedi.Project`` from ``self.projects``.
+        entry; it does **not** stop watchers or drop the project's registered
+        dependencies.
 
         Args:
             project_path: Path to the project whose analyzer should be evicted.
@@ -485,8 +374,7 @@ class ProjectManager:
     def _on_files_changed(self, root: Path, paths: list[str]) -> None:
         """Invalidate every cache of every project that reads from *root* (#617).
 
-        For each such project: its ``GranularCache`` entries for each path, its
-        name index (``project_graph.invalidate`` keyed on that project only),
+        For each such project: its name index (``project_graph.invalidate`` keyed on that project only),
         its TypeRef cache (``typeref.invalidate_project``), and its analyzer's
         ``scoped_cache`` (file lists and lookup results).
         Each path's ``file_artifact_cache`` entries are dropped once. Projects
@@ -509,10 +397,6 @@ class ProjectManager:
         for path in paths:
             file_artifact_cache.invalidate(path)
         for project in projects:
-            cache = self.caches.get(project)
-            if cache is not None:
-                for path in paths:
-                    cache.invalidate_file(Path(path))
             project_graph.invalidate(project.as_posix())
             # A referenced type can move to another file, which the TypeRef key
             # (keyed on the annotation's own file) can't see (#620).
@@ -521,19 +405,9 @@ class ProjectManager:
             if analyzer is not None:
                 analyzer.scoped_cache.invalidate_all()
 
-    def get_pool_stats(self) -> dict | None:
-        """Get connection pool statistics.
-
-        Returns:
-            Pool statistics if pooling is enabled, None otherwise
-        """
-        if self.connection_pool:
-            return self.connection_pool.get_stats()
-        return None
-
     def cleanup_all(self) -> None:
         """Clean up all projects and evict the analyzer cache."""
-        known = set(self.projects) | set(self.analyzers)
+        known = set(self.dependencies) | set(self.analyzers)
         for users in self._watch_users.values():
             known |= users
         for project_path in sorted(known):
@@ -546,15 +420,8 @@ class ProjectManager:
         for watcher in leftovers:
             watcher.stop()
 
-        # Clear any analyzer entries that had no corresponding jedi.Project
-        # (e.g. get_analyzer was called without a prior get_project call).
         self.analyzers.clear()
-
         self.access_order.clear()
-
-        # Clear connection pool if it exists
-        if self.connection_pool:
-            self.connection_pool.clear()
 
 
 # Global project manager instance

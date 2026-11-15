@@ -1,6 +1,6 @@
 """Single-site fitness tests for DECISIONS invariants (#615, epic #629).
 
-Each decision in ``docs/decisions/DECISIONS.md`` says a capability lives in ONE
+Each decision in ``docs/decisions/entries/`` says a capability lives in ONE
 place, but its Verify line samples only the site where the friction showed up.
 These tests sweep ``src/pyeye`` with an AST scan, so a second copy can't
 creep in unseen.
@@ -303,10 +303,8 @@ SYNTHETIC_IMPORT_SANCTIONED: Site | None = ("resolver.py", "_synthetic_import")
 SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {}
 
 # 2. ``project.search(`` appears nowhere (#457: use the AST name-index).
-PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {
-    # Unreachable from any MCP tool (no caller in src/ or tests/).
-    ("project_manager.py", "ProjectManager.search_all_projects"): "#628",
-}
+#    Empty since #628 slice 2 deleted ``ProjectManager.search_all_projects``.
+PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {}
 
 # 2b. Tests that pin the banned ``project.search`` path as expected behaviour.
 #     Keyed relative to ``tests/``.  Empty since #623 slice 2 removed inspect's

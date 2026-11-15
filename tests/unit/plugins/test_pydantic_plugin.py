@@ -728,3 +728,50 @@ class NamespaceUser(BaseModel):
         assert schema is not None
         assert schema["model"] == "NamespaceUser"
         assert len(schema["fields"]) == 3
+
+
+class TestComputedFieldsOneRecordPerField:
+    """#672: one record per computed field, whatever the number of matching decorators."""
+
+    _SOURCE = """
+from pydantic import BaseModel, computed_field
+
+class User(BaseModel):
+    first_name: str
+    last_name: str
+
+    @computed_field
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"
+
+    @property
+    def display_name(self) -> str:
+        return self.full_name.upper()
+
+    @computed_field(repr=False)
+    def slug(self) -> str:
+        return self.first_name.lower()
+"""
+
+    @pytest.mark.asyncio
+    async def test_each_field_is_reported_exactly_once(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        computed = await PydanticPlugin(temp_project).find_computed_fields()
+
+        names = sorted(c["name"] for c in computed)
+        # full_name stacks @computed_field + @property: it used to appear twice.
+        # slug uses the called form @computed_field(...), which used to be missed.
+        assert names == ["display_name", "full_name", "slug"]
+
+    @pytest.mark.asyncio
+    async def test_record_shape_is_unchanged(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        computed = await PydanticPlugin(temp_project).find_computed_fields()
+
+        full_name = next(c for c in computed if c["name"] == "full_name")
+        assert full_name["type"] == "computed_field"
+        assert full_name["return_type"] == "str"
+        assert full_name["line"] == 10  # the def line, not a decorator's

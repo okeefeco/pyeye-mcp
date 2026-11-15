@@ -57,6 +57,15 @@ git commit -m "docs: update installation instructions"
 - While 2.x is current, run `python scripts/changelog.py no-breaking` on every PR. It MUST print `0`. A `*.breaking.md` fragment or a `### BREAKING CHANGES` heading fails it.
 - `python scripts/changelog.py check` (CI `changelog-validation`) rejects bad fragment names and unknown categories.
 
+### Decision Entries (one file per decision, #679)
+
+- **Before changing a contract, read the relevant decisions.** Run `python scripts/decisions.py index --active` (narrow it with `--symbol <name>` or `--issue <N>`), then open the one to three entries that matter. Do not grep or read the whole log.
+- NEVER add an entry to `docs/decisions/DECISIONS.md`. It is a static header. A new decision is a new file, `docs/decisions/entries/YYYY-MM-DD-<issue>-<slug>.md`, written with the `decision-log` skill (its File Convention defines the front matter).
+- Amending or superseding an entry: add the link to the new entry's front matter, add the reverse link to the old entry (`amended_by` / `superseded_by`), and set its `status`. Never rewrite an old entry's body.
+- Every new entry MUST have `**Applies-to:**`: every governed site, or `none (<why>)` for a policy decision. `check` enforces it (#636). Never add a name to `APPLIES_TO_GRANDFATHERED`; it only shrinks.
+- Run `python scripts/decisions.py check` (also in CI and pre-commit). It MUST pass.
+- If a merge of `main` brings entries back into `DECISIONS.md` (a branch that predates #679), run `python scripts/decisions.py migrate`. It splits them into files, verifies each body and restores the header. It is idempotent.
+
 ### PR Creation via CLI
 
 ```bash

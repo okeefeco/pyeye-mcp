@@ -71,13 +71,22 @@ Notes that matter:
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
   dotted handle.
+- **A bare name that is a top-level module resolves to that module.** `resolve("functools")`
+  is stdlib `functools` and `resolve("inspect")` is stdlib `inspect`, even when the project
+  also defines something with that name. To reach the project's symbol or submodule, use
+  its dotted handle: `resolve("jaraco.functools")`, or `pyeye.mcp.operations.inspect` in
+  pyeye's own repo. Only two top-level packages sharing a name across project roots stay
+  ambiguous.
 - **Not found:** check `found` on every `resolve`/`resolve_at`/`inspect`/`outline`/`expand`
   result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
   node, tree, or stubs, and `detail` naming the next step:
   - `inspect`/`outline`/`expand` echo `handle` (plus `edge` for `expand`), with
-    `reason: "unresolved"`. That means "this handle doesn't exist as written" (often the
-    right name under the wrong module path), not an empty symbol. Re-`resolve` the bare
-    name to get the canonical handle.
+    `reason: "unresolved"`. That means "pyeye couldn't resolve this handle as written":
+    unknown, **not** evidence the symbol is absent, and not an empty symbol. Often it is
+    the right name under the wrong module path, but some real symbols never resolve (an
+    instance attribute assigned in `__init__`, such as `self.project_path = …`).
+    Re-`resolve` the bare name to get the canonical handle; if that misses too, fall
+    back to `Read` or your LSP before concluding anything.
   - `resolve` echoes `identifier`, and `resolve_at` echoes `file`/`line`/`column`. Their
     `reason` is `unresolved`, `file_not_found` or `no_symbol_at_position`. A missing file
     is not a spelling problem, so don't retry `resolve` with other names for it.
@@ -119,17 +128,22 @@ not the module it was imported from.
 subclass stub's kind is `class`. Drill with `inspect(<handle>)` when you need a
 subclass's constructor signature or docstring.
 
-**Static-surface ceiling.** These structural edges are complete over what is
-*written in source*, not over what exists at runtime. `members` / `outline` /
+**Static-surface ceiling.** Each structural edge measures a stated scope, and a
+returned list is complete only over that scope. A class's `members` (and so its
+`outline`) are its **class-body definitions**: methods, nested classes and
+class-level assignments. Instance attributes assigned in methods (`self.x = …`)
+are **not measured**, so `self.project_path` set in `__init__` is absent from
+`members` although it is in source. A module's `members` are its module-level
+definitions. None of these edges covers what exists only at runtime: `members` / `outline` /
 `subclasses` do not see runtime-injected relationships — metaclass injection,
 `setattr`, `__getattr__`, `type(...)`, `__init_subclass__` registration, or
 `importlib` with computed targets. So `outline` of a Django `Model` omits its
 metaclass-injected `_meta` / `objects` / `DoesNotExist`, and the `subclasses`
 edge (direct children) plus a `trace` subclass closure cover literal
-`class B(A):` subclassing only. An absent member or subclass means "not in
-source," **not** "not at runtime" — don't report a static result as
-runtime-exhaustive. (Same boundary `imported_by` already names for dynamic
-imports.)
+`class B(A):` subclassing only. An absent member or subclass means "not
+measured in that scope": unknown beyond it, **not** proof of absence. Don't
+report a static result as exhaustive over instance attributes or the runtime.
+(Same boundary `imported_by` already names for dynamic imports.)
 
 ## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
@@ -202,6 +216,12 @@ real defect (not an expected static-surface ceiling), surface that URL to the us
 
 ### Absence vs zero
 
+The general rule: **a value pyeye returns is a measured claim over a stated scope;
+anything it doesn't return, or can't resolve, is unknown, not absent.** That covers
+`found: false` (a resolution miss, not proof of absence), returned lists
+(complete only over their stated scope, see the static-surface ceiling above), and
+optional fields (absent means not measured).
+
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A
 present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
 `callers` key means pyeye didn't measure it — don't read that as "no callers."
@@ -221,8 +241,11 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
   node with no neighbours.
 - **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind
-  (e.g. `imports` on a class): its `detail` names the kind. Those nodes were not walked
-  along that edge — that's "not applicable", not "measured, none".
+  (e.g. `imports` on a class), with `reason: "not_applicable"`: its `detail` names the
+  kind and the kinds the edge does apply to. Those nodes were not walked along that
+  edge — that's "not applicable", not "measured, none". `expand` gives the same
+  `not_applicable` answer directly (e.g. `members` on a function, `subclasses` on a
+  module), never a `stubs: []`.
 - **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
   map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of
@@ -233,10 +256,17 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   (each entry is the intended dotted target). A node listed here has an **incomplete import
   set** — a dependency closure is missing those edges. `expand(handle, "imports")` carries
   the same signal as a flat `unresolved_imports: [target, …]` list (`[]` when all resolved).
+- **`unresolved_importers`** (present only when you traced `imported_by`): a
+  `{handle: [file, …]}` map of files that import that module but have **no module name**
+  (a path part that isn't a Python identifier, e.g. `my-script.py`, `tools-dir/x.py`), so
+  they can't be stubs. They are still dependents: count them when sizing fan-in.
+  `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
+  list (`[]` when every importer has a handle).
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
-claim from `imports` likewise requires the node absent from `unresolved_imports`.
+claim from `imports` likewise requires the node absent from `unresolved_imports`, and a
+"nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`.
 
 ### Framework plugin tools — always pass `envelope=true`
 
@@ -366,16 +396,10 @@ trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (cap
 Then drill: `resolve(root) → outline(pkg) | expand(pkg, "submodules") → pick a
 module → inspect / expand("members") / trace`.
 
-> **Cold-start limit — namespace-rooted packages.** The bare-name entry above
-> (`resolve("myapp")`) is reliable for a **regular** package (one with an
-> `__init__.py`). A PEP 420 **namespace** package (no `__init__.py` at its root)
-> may surface as an `external`/`namespace` handle that `resolve`/`inspect` can't
-> anchor, so `resolve("<name>")` can come back ambiguous/not-found and
-> `inspect(<namespace-pkg>)` omits its `submodules` count — even though
-> `expand(<namespace-pkg>, "submodules")` still enumerates children once you hold
-> the handle. End-to-end namespace cold-start is deferred to #444; until then,
-> orient a namespace package via a child handle you already know, or by resolving
-> a concrete module inside it.
+> **Namespace-rooted packages work the same way.** A PEP 420 namespace package
+> (no `__init__.py` at its root) resolves to `kind: "module"`, anchored on its
+> directory, and namespaces configured in `.pyeye.json` count as `scope:
+> "project"`, including repos that live outside the project root.
 
 **"What does this function call?"** — forward, reliable:
 

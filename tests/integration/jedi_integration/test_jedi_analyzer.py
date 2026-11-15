@@ -59,146 +59,6 @@ class TestJediAnalyzer:
         assert len(results) == 3
 
     @pytest.mark.asyncio
-    async def test_find_reexports(self):
-        """Test finding re-export paths for symbols."""
-        # Create test fixture
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Test finding re-exports for User class
-        user_file = fixture_path / "models" / "user.py"
-        import_paths = await analyzer.find_reexports("User", "models.user", str(user_file))
-
-        assert len(import_paths) >= 1
-        assert "from reexport_test.models.user import User" in import_paths
-        # reexport_test is itself a package, so module names carry its prefix
-        # (#625: one file -> module mapper, matching Jedi full_name).
-        # Should also find the re-export from models/__init__.py
-        assert "from reexport_test.models import User" in import_paths
-
-    @pytest.mark.asyncio
-    async def test_find_symbol_with_import_paths(self):
-        """Test find_symbol includes import_paths for re-exported symbols."""
-        # Use the test fixture
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Find the User symbol
-        results = await analyzer.find_symbol("User", include_import_paths=True)
-
-        # Should find at least one result
-        assert len(results) > 0
-
-        # Check that import_paths is included for symbols that are re-exported
-        for result in results:
-            if result.get("name") == "User":
-                # Should have import_paths field if re-exported
-                if "reexport_test.models.user" in result.get("full_name", ""):
-                    assert "import_paths" in result
-                    assert len(result["import_paths"]) >= 1
-
-    @pytest.mark.asyncio
-    async def test_multi_level_reexports(self):
-        """Test multi-level re-exports (core -> auth -> authenticator)."""
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Test finding re-exports for Authenticator class (multi-level)
-        auth_file = fixture_path / "core" / "auth" / "authenticator.py"
-        import_paths = await analyzer.find_reexports(
-            "Authenticator", "core.auth.authenticator", str(auth_file)
-        )
-
-        assert len(import_paths) >= 1
-        # Direct import
-        assert "from reexport_test.core.auth.authenticator import Authenticator" in import_paths
-        # Re-export from auth/__init__.py
-        assert "from reexport_test.core.auth import Authenticator" in import_paths
-        # Re-export from core/__init__.py
-        assert "from reexport_test.core import Authenticator" in import_paths
-
-    @pytest.mark.asyncio
-    async def test_find_reexports_with_longer_file_path(self):
-        """Test that file path is used when it provides more complete module info."""
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Test with a short module name but complete file path
-        # This should use the file path to determine the full module
-        file_path = str(fixture_path / "models" / "user.py")
-        # Pass just "user" as module, file path should expand it to "models.user"
-        import_paths = await analyzer.find_reexports("User", "user", file_path)
-
-        # The function should use the file path to get full module
-        assert len(import_paths) >= 1
-        # Even with short module input, we get the re-export
-        assert "from reexport_test.models import User" in import_paths
-
-    def test_find_init_file_with_matching_base_name(self):
-        """Test _find_init_file when base directory name matches module prefix."""
-        # Create a temporary test structure where base name matches
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create mypackage/mypackage/__init__.py structure
-            base = Path(tmpdir) / "mypackage"
-            base.mkdir()
-            sub = base / "mypackage"
-            sub.mkdir()
-            init_file = sub / "__init__.py"
-            init_file.write_text("# Test init")
-
-            analyzer = JediAnalyzer(str(base))
-            # Looking for mypackage.submodule, but we're already in mypackage base
-            found = analyzer._find_init_file("mypackage")
-            assert found == init_file
-
-    @pytest.mark.asyncio
-    async def test_check_symbol_in_init_with_all(self):
-        """Test _check_symbol_in_init with __all__ declaration."""
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            init_file = Path(tmpdir) / "__init__.py"
-            init_file.write_text("""
-from .models import User, Admin
-
-__all__ = [
-    "User",
-    "Admin",
-]
-""")
-
-            fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-            analyzer = JediAnalyzer(str(fixture_path))
-
-            # Check symbol that's in __all__ and imported
-            assert await analyzer._check_symbol_in_init(init_file, "User", "models")
-            assert await analyzer._check_symbol_in_init(init_file, "Admin", "models")
-            # Check symbol not in __all__
-            assert not await analyzer._check_symbol_in_init(init_file, "NotThere", "models")
-
-    @pytest.mark.asyncio
-    async def test_check_symbol_in_init_error_handling(self):
-        """Test _check_symbol_in_init handles file read errors gracefully."""
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Test with non-existent file
-        non_existent = Path("/does/not/exist/__init__.py")
-        result = await analyzer._check_symbol_in_init(non_existent, "Symbol", "module")
-        assert result is False  # Should return False on error
-
-    def test_find_init_file_not_found(self):
-        """Test _find_init_file returns None when init file doesn't exist."""
-        fixture_path = Path(__file__).parent.parent.parent / "fixtures" / "reexport_test"
-        analyzer = JediAnalyzer(str(fixture_path))
-
-        # Test with module that doesn't exist
-        result = analyzer._find_init_file("nonexistent.module.path")
-        assert result is None  # Should return None when not found
-
-    @pytest.mark.asyncio
     async def test_error_handling(self, temp_project_dir, caplog):
         """find_symbol wraps an internal search failure in AnalysisError."""
         analyzer = JediAnalyzer(str(temp_project_dir))
@@ -298,7 +158,7 @@ class Kitten(Cat):  # This won't be found since Cat is not imported
         analyzer = JediAnalyzer(str(temp_project_dir))
 
         # Find direct subclasses of Animal only
-        raw = await analyzer.find_subclasses("Animal", include_indirect=False)
+        raw = await analyzer.find_subclasses("Animal")
         assert not raw.get("ambiguous"), "Animal is unambiguous in this project"
         results = raw["subclasses"]
 
@@ -312,92 +172,6 @@ class Kitten(Cat):  # This won't be found since Cat is not imported
         for result in results:
             assert result["is_direct"] is True
             assert result["direct_parent"] == "Animal"
-
-    @pytest.mark.asyncio
-    async def test_find_subclasses_indirect(self, temp_project_dir):
-        """Test finding both direct and indirect subclasses."""
-        # Create test files with deeper hierarchy
-        base_file = temp_project_dir / "hierarchy.py"
-        base_file.write_text("""
-class Animal:
-    pass
-
-class Mammal(Animal):
-    pass
-
-class Dog(Mammal):
-    pass
-
-class GoldenRetriever(Dog):
-    pass
-
-class Bird(Animal):
-    pass
-
-class Eagle(Bird):
-    pass
-""")
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Find all subclasses of Animal (direct and indirect)
-        raw = await analyzer.find_subclasses("Animal", include_indirect=True)
-        assert not raw.get("ambiguous"), "Animal is unambiguous in this project"
-        results = raw["subclasses"]
-
-        # Should find all subclasses
-        assert len(results) == 5
-        names = {r["name"] for r in results}
-        assert names == {"Mammal", "Dog", "GoldenRetriever", "Bird", "Eagle"}
-
-        # Check direct vs indirect
-        for result in results:
-            if result["name"] in ["Mammal", "Bird"]:
-                assert result["is_direct"] is True
-                assert result["direct_parent"] == "Animal"
-            else:
-                assert result["is_direct"] is False
-                assert result["direct_parent"] != "Animal"
-
-    @pytest.mark.asyncio
-    async def test_find_subclasses_with_hierarchy(self, temp_project_dir):
-        """Test finding subclasses with full hierarchy chain."""
-        # Create test file
-        test_file = temp_project_dir / "classes.py"
-        test_file.write_text("""
-class A:
-    pass
-
-class B(A):
-    pass
-
-class C(B):
-    pass
-
-class D(C):
-    pass
-""")
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Find subclasses with hierarchy
-        raw = await analyzer.find_subclasses("A", show_hierarchy=True)
-        assert not raw.get("ambiguous"), "A is unambiguous in this project"
-        results = raw["subclasses"]
-
-        # Check that hierarchy chains are included
-        for result in results:
-            assert "inheritance_chain" in result
-            chain = result["inheritance_chain"]
-            assert isinstance(chain, list)
-            assert result["name"] in chain
-            assert "object" in chain  # Should end with object
-
-            # Check specific chains
-            if result["name"] == "D":
-                assert "C" in chain
-                assert "B" in chain
-                assert "A" in chain
 
     @pytest.mark.asyncio
     async def test_find_subclasses_multiple_inheritance(self, temp_project_dir):
@@ -466,12 +240,13 @@ class NetworkError(Exception):
         assert not raw.get("ambiguous"), "Exception is unambiguous in this project"
         results = raw["subclasses"]
 
-        # Should find CustomError and NetworkError (direct)
-        # and ValidationError (indirect)
+        # Should find CustomError and NetworkError (direct); ValidationError
+        # subclasses CustomError, so it is not a direct subclass of Exception.
         assert len(results) >= 2
         names = {r["name"] for r in results}
         assert "CustomError" in names
         assert "NetworkError" in names
+        assert "ValidationError" not in names, "grandchild must not be a direct subclass"
 
     @pytest.mark.asyncio
     async def test_find_subclasses_identical_names_different_modules(self, temp_project_dir):
@@ -524,7 +299,7 @@ class Service(BaseService):
 """)
 
         analyzer = JediAnalyzer(str(temp_project_dir))
-        raw = await analyzer.find_subclasses("BaseService", include_indirect=False)
+        raw = await analyzer.find_subclasses("BaseService")
         assert not raw.get("ambiguous"), "BaseService is unambiguous in this project"
         results = raw["subclasses"]
 
@@ -548,74 +323,15 @@ class Service(BaseService):
         fqns = {r["full_name"] for r in results}
         assert len(fqns) == 3, f"FQNs should be unique, got: {fqns}"
 
-    @pytest.mark.asyncio
-    async def test_find_subclasses_indirect_across_files(self, temp_project_dir):
-        """Test finding indirect subclasses when inheritance crosses file boundaries.
-
-        Regression test for issue #234 - indirect inheritance only worked within
-        a single file because _check_inheritance only searched the current file's AST.
-        """
-        # Create base class
-        base_file = temp_project_dir / "base.py"
-        base_file.write_text("""
-class BaseService:
-    pass
-""")
-
-        # Create intermediate class in module_a
-        module_a = temp_project_dir / "module_a"
-        module_a.mkdir()
-        (module_a / "__init__.py").write_text("")
-        (module_a / "components.py").write_text("""
-from base import BaseService
-
-class Service(BaseService):
-    '''Direct subclass'''
-    pass
-""")
-
-        # Create indirect subclass in different module that imports from module_a
-        module_b = temp_project_dir / "module_b"
-        module_b.mkdir()
-        (module_b / "__init__.py").write_text("")
-        (module_b / "prod.py").write_text("""
-from module_a.components import Service
-
-class ProdService(Service):
-    '''Indirect subclass - inherits from Service which inherits from BaseService'''
-    pass
-""")
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        raw = await analyzer.find_subclasses("BaseService", include_indirect=True)
-        assert not raw.get("ambiguous"), "BaseService is unambiguous in this project"
-        results = raw["subclasses"]
-
-        # Should find both Service (direct) and ProdService (indirect)
-        assert (
-            len(results) >= 2
-        ), f"Expected at least 2 subclasses, found {len(results)}: {[r['name'] for r in results]}"
-
-        names = {r["name"] for r in results}
-        assert "Service" in names, "Direct subclass 'Service' not found"
-        assert "ProdService" in names, "Indirect subclass 'ProdService' not found"
-
-        # Check is_direct flag
-        for result in results:
-            if result["name"] == "Service":
-                assert result["is_direct"] is True, "Service should be marked as direct"
-            elif result["name"] == "ProdService":
-                assert result["is_direct"] is False, "ProdService should be marked as indirect"
-
 
 class TestFindSubclassesLazyIndexBuild:
     """#421 item 1: the resolved index is built only when it is consulted.
 
-    The simple-name + ``include_indirect=False`` path resolves direct subclasses
-    from ``parent_to_children`` (plus aliased-base goto) alone — it never reads
-    the resolved index, so it must not pay for (nor run the non-deterministic
-    Jedi ``goto`` fallbacks of) ``_build_ast_resolution_tables``. The FQN-input
-    and indirect-traversal paths DO consult the index and must still build it.
+    The simple-name path resolves direct subclasses from ``parent_to_children``
+    (plus aliased-base goto) alone — it never reads the resolved index, so it
+    must not pay for (nor run the non-deterministic Jedi ``goto`` fallbacks of)
+    ``_build_ast_resolution_tables``. The FQN-input path DOES consult the index
+    and must still build it.
     """
 
     @staticmethod
@@ -630,50 +346,36 @@ class TestFindSubclassesLazyIndexBuild:
             "class Cat(Animal):\n"
             "    pass\n"
             "\n"
-            "class Puppy(Dog):\n"  # grandchild — only the indirect path reaches it
+            "class Puppy(Dog):\n"  # grandchild — never a direct subclass of Animal
             "    pass\n"
         )
         return JediAnalyzer(str(temp_project_dir))
 
     @pytest.mark.asyncio
-    async def test_simple_name_non_indirect_skips_index_build(self, temp_project_dir):
-        """Simple name + non-indirect: index build is skipped, result still correct."""
+    async def test_simple_name_skips_index_build(self, temp_project_dir):
+        """Simple-name input: index build is skipped, result still correct."""
         analyzer = self._make_project(temp_project_dir)
         with patch.object(
             analyzer,
             "_build_ast_resolution_tables",
             wraps=analyzer._build_ast_resolution_tables,
         ) as spy:
-            raw = await analyzer.find_subclasses("Animal", include_indirect=False)
+            raw = await analyzer.find_subclasses("Animal")
 
-        assert spy.call_count == 0, "simple-name + non-indirect path must not build the index"
+        assert spy.call_count == 0, "simple-name path must not build the index"
         assert not raw.get("ambiguous")
         assert {r["name"] for r in raw["subclasses"]} == {"Dog", "Cat"}
 
     @pytest.mark.asyncio
-    async def test_indirect_path_builds_index(self, temp_project_dir):
-        """Indirect traversal consults the index, so it must be built."""
+    async def test_fqn_builds_index(self, temp_project_dir):
+        """FQN input consults the index, so it must be built."""
         analyzer = self._make_project(temp_project_dir)
         with patch.object(
             analyzer,
             "_build_ast_resolution_tables",
             wraps=analyzer._build_ast_resolution_tables,
         ) as spy:
-            raw = await analyzer.find_subclasses("Animal", include_indirect=True)
-
-        assert spy.call_count == 1, "indirect path must build the resolved index"
-        assert "Puppy" in {r["name"] for r in raw["subclasses"]}
-
-    @pytest.mark.asyncio
-    async def test_fqn_non_indirect_builds_index(self, temp_project_dir):
-        """FQN input consults the index even when non-indirect, so it must be built."""
-        analyzer = self._make_project(temp_project_dir)
-        with patch.object(
-            analyzer,
-            "_build_ast_resolution_tables",
-            wraps=analyzer._build_ast_resolution_tables,
-        ) as spy:
-            raw = await analyzer.find_subclasses("animals.Animal", include_indirect=False)
+            raw = await analyzer.find_subclasses("animals.Animal")
 
         assert spy.call_count == 1, "FQN-input path must build the resolved index"
         assert not raw.get("ambiguous")
@@ -826,34 +528,39 @@ class TestFindSubclassesReExport:
         )
 
 
-class TestFindSubclassesIndirectIdentity:
-    """Issue #335 Bug B: grandchild traversal must carry FQN identity.
+class TestFindSubclassesHopIdentity:
+    """Issue #335 Bug B: walking one hop at a time must carry FQN identity.
 
     Two unrelated classes share the simple name ``Car``:
     - ``pkg.vehicles_a.Car`` is a real subclass of ``Vehicle`` (with grandchild RaceCar).
     - ``pkg.vehicles_b.Car`` is unrelated (with child SportsCar).
 
-    The indirect-subclass walk previously expanded via the simple name ``Car``
-    against ``parent_to_children``, pulling SportsCar (a child of the *unrelated*
-    Car) into Vehicle's subclass list.
+    The old indirect-subclass walk expanded via the simple name ``Car`` against
+    ``parent_to_children``, pulling SportsCar (a child of the *unrelated* Car)
+    into Vehicle's subclass list. ``find_subclasses`` is direct-only now (#628)
+    and ``trace`` walks it one hop at a time, so the same identity guarantee is
+    checked hop by hop: each FQN step owns only its own children.
     """
 
     @pytest.mark.asyncio
-    async def test_indirect_walk_excludes_same_named_unrelated_grandchild(self) -> None:
-        """Vehicle's subclasses are exactly {Car, RaceCar}; SportsCar excluded."""
+    async def test_hop_walk_excludes_same_named_unrelated_grandchild(self) -> None:
+        """Vehicle -> {Car}, then the real Car -> {RaceCar}; SportsCar never appears."""
         analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
-        raw = await analyzer.find_subclasses("pkg.vehicles_a.Vehicle")
 
+        raw = await analyzer.find_subclasses("pkg.vehicles_a.Vehicle")
         assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
-        names = {s["name"] for s in raw["subclasses"]}
-        assert "Car" in names, f"Real direct subclass Car missing; got {names}"
-        assert "RaceCar" in names, f"Genuine grandchild RaceCar missing; got {names}"
-        assert (
-            "SportsCar" not in names
-        ), f"SportsCar extends the unrelated vehicles_b.Car and must not appear; got {names}"
-        assert (
-            len(raw["subclasses"]) == 2
-        ), f"Expected exactly 2 subclasses of Vehicle; got {len(raw['subclasses'])}: {names}"
+        first_hop = {s["full_name"] for s in raw["subclasses"]}
+        assert first_hop == {
+            "pkg.vehicles_a.Car"
+        }, f"Vehicle's only direct subclass is the real Car; got {first_hop}"
+
+        raw = await analyzer.find_subclasses("pkg.vehicles_a.Car")
+        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        second_hop = {s["full_name"] for s in raw["subclasses"]}
+        assert second_hop == {"pkg.vehicles_a.RaceCar"}, (
+            "The real Car owns only RaceCar; SportsCar extends the unrelated "
+            f"vehicles_b.Car and must not appear; got {second_hop}"
+        )
 
     @pytest.mark.asyncio
     async def test_unrelated_car_keeps_only_its_own_child(self) -> None:
@@ -943,26 +650,35 @@ class TestFindSubclassesJediIndependence:
     is unique in the project the subclass relationship is unambiguous from the
     AST alone, so resolution MUST NOT depend on the Jedi layer.  This test
     simulates total Jedi-layer failure by patching ``get_script`` and asserts
-    the full unique-name chain (Root -> Mid -> Leaf) is still discovered.
+    each hop of the unique-name chain (Root -> Mid -> Leaf) is still discovered,
+    for both FQN and simple-name input.
     """
 
     @pytest.mark.asyncio
-    async def test_unique_name_chain_resolves_without_jedi(self) -> None:
-        """Direct and indirect subclasses of a unique-name class survive Jedi failure."""
+    @pytest.mark.parametrize(
+        ("base", "expected"),
+        [
+            ("pkg.deep_chain.Root", {"Mid"}),
+            ("pkg.deep_chain.Mid", {"Leaf"}),
+            ("Root", {"Mid"}),
+            ("Mid", {"Leaf"}),
+        ],
+    )
+    async def test_unique_name_chain_resolves_without_jedi(
+        self, base: str, expected: set[str]
+    ) -> None:
+        """Direct subclasses of a unique-name class survive Jedi failure."""
         failed_script = Mock()
         failed_script.goto.return_value = []
         failed_script.get_names.return_value = []
 
         analyzer = JediAnalyzer(str(_ISSUE_335_FIXTURE))
         with patch("pyeye.file_artifact_cache.get_script", return_value=failed_script):
-            raw = await analyzer.find_subclasses("pkg.deep_chain.Root")
+            raw = await analyzer.find_subclasses(base)
 
-        assert raw.get("ambiguous") is False, f"FQN input must not be ambiguous; got: {raw}"
+        assert raw.get("ambiguous") is False, f"{base!r} must not be ambiguous; got: {raw}"
         names = {s["name"] for s in raw["subclasses"]}
-        assert names == {
-            "Mid",
-            "Leaf",
-        }, (
+        assert names == expected, (
             "Unique-name subclass chain must resolve from the AST without Jedi "
-            f"goto/canonicalisation; got {names}"
+            f"goto/canonicalisation; {base!r} gave {names}"
         )

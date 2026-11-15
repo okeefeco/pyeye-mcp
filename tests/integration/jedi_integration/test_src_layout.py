@@ -5,6 +5,7 @@ were not being passed to Jedi's added_sys_path, requiring users to use
 'src.package.*' instead of just 'package.*' for module paths.
 """
 
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -365,49 +366,57 @@ where = ["src"]
         return temp_project_dir
 
     @pytest.mark.asyncio
-    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path):
-        """Test that find_symbol returns 'mypackage.core.MyClass' not 'src.mypackage.core.MyClass'."""
-        config = ProjectConfig(str(real_src_project))
-        analyzer = JediAnalyzer(str(real_src_project), config=config)
+    @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
+    async def test_symbol_is_addressable_by_package_path(self, real_src_project: Path, symbol: str):
+        """Symbols resolve as 'mypackage.core.<symbol>', never 'src.mypackage.core.<symbol>'.
 
-        # Find the class
-        results = await analyzer.find_symbol("MyClass", include_import_paths=True)
+        This used to check ``find_symbol``'s ``import_paths``, which #628 removed. The
+        live surface for the same property is ``resolve``, whose handle comes from
+        pyeye's module mapper. Jedi's raw ``full_name`` can still carry ``src.``
+        (seen on macOS/Windows CI), so it isn't asserted here.
 
-        assert len(results) >= 1, "Should find MyClass"
+        The root is resolved first: macOS's temp dir is a symlink and Windows'
+        can be an 8.3 short name, and a symlinked root is #714 (covered by the
+        test below).
+        """
+        root = real_src_project.resolve()
+        config = ProjectConfig(str(root))
+        analyzer = JediAnalyzer(str(root), config=config)
 
-        # Check the import path - it should be 'mypackage.core.MyClass', not 'src.mypackage.core.MyClass'
-        result = results[0]
-        import_paths = result.get("import_paths", [])
+        result = await resolve_impl(symbol, analyzer)
 
-        # At least one import path should NOT start with 'src.'
-        has_correct_path = any(
-            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        assert result.get("found") is True, f"Should resolve {symbol}; got {result}"
+        assert result["handle"] == f"mypackage.core.{symbol}", (
+            f"Expected handle 'mypackage.core.{symbol}', got: {result['handle']!r}. "
+            "The 'src.' prefix should not appear."
         )
-        assert has_correct_path, (
-            f"Expected import path like 'mypackage.core.MyClass', "
-            f"got: {import_paths}. The 'src.' prefix should not appear."
-        )
+        expected_file = (real_src_project / "src" / "mypackage" / "core.py").resolve()
+        assert Path(result["location"]["file"]).resolve().as_posix() == expected_file.as_posix()
 
     @pytest.mark.asyncio
-    async def test_find_symbol_function_uses_package_path(self, real_src_project: Path):
-        """Test that find_symbol for function returns correct import path."""
-        config = ProjectConfig(str(real_src_project))
-        analyzer = JediAnalyzer(str(real_src_project), config=config)
+    @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#714: resolve invents __main__.<name> when the root is a symlink",
+    )
+    @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
+    async def test_symbol_is_addressable_through_a_symlinked_root(
+        self, real_src_project: Path, tmp_path: Path, symbol: str
+    ):
+        """The same holds when the project root is reached through a symlink.
 
-        results = await analyzer.find_symbol("my_function", include_import_paths=True)
+        macOS's temp dir is ``/var/...``, a symlink to ``/private/var/...``, and
+        that is where the src-layout checks failed on CI. A symlinked root
+        reproduces the case on Linux.
+        """
+        link = tmp_path / "linked-root"
+        link.symlink_to(real_src_project, target_is_directory=True)
+        analyzer = JediAnalyzer(str(link), config=ProjectConfig(str(link)))
 
-        assert len(results) >= 1, "Should find my_function"
+        result = await resolve_impl(symbol, analyzer)
 
-        result = results[0]
-        import_paths = result.get("import_paths", [])
-
-        has_correct_path = any(
-            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
-        )
-        assert has_correct_path, (
-            f"Expected import path like 'mypackage.core.my_function', "
-            f"got: {import_paths}. The 'src.' prefix should not appear."
-        )
+        assert result.get("found") is True, f"Should resolve {symbol}; got {result}"
+        assert result["handle"] == f"mypackage.core.{symbol}", result
 
     @pytest.mark.asyncio
     async def test_module_is_addressable_by_package_path(self, real_src_project: Path):

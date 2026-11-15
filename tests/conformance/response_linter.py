@@ -48,7 +48,8 @@ E.1 Required fields — ``source`` (str, single-line) and ``edge`` (str, single-
 E.2 Discriminated-union exclusivity — exactly one of supported (has ``stubs``
     list) or unsupported (has ``unsupported: True``) branch; garbled/blended
     results are rejected.  The unsupported branch requires ``reason`` ∈
-    {``deferred_reference_backend``, ``not_yet_implemented``, ``unknown_edge``}
+    {``deferred_reference_backend``, ``not_yet_implemented``, ``unknown_edge``,
+    ``not_applicable``}
     and a non-empty ``detail`` str.
 E.3 ``unresolved_call_sites`` placement — only allowed on the supported branch
     when ``edge == "callees"``; must be a plain ``int`` (not bool).
@@ -59,6 +60,9 @@ E.5 ``unresolved_imports`` (#494) placement — only allowed on the supported
 E.6 ``unresolved_superclasses`` (#624) placement — only allowed on the supported
     branch when ``edge == "superclasses"``; a list of non-empty single-line
     strs (the unresolved bases' source text).
+E.7 ``unresolved_importers`` (#668) placement — only allowed on the supported
+    branch when ``edge == "imported_by"``; a list of non-empty single-line strs
+    (the POSIX paths of importing files that have no module name).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -91,6 +95,8 @@ T.7 ``unresolved_call_sites`` (#488), when present (only if ``callees`` was
 T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced),
     is a dict ``{handle: [target, ...]}`` of non-empty single-line handle keys
     and non-empty lists of non-empty single-line target strs.  Optional.
+T.10 ``unresolved_importers`` (#668), when present (only if ``imported_by`` was
+    traced), is a dict ``{handle: [file, ...]}`` shaped like T.8.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -757,6 +763,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "deferred_reference_backend",
         "not_yet_implemented",
         "unknown_edge",
+        # #626: an implemented edge that doesn't apply to the source's kind.
+        "not_applicable",
     }
 )
 
@@ -1040,21 +1048,14 @@ def _check_expand_structural_floor(
                 "when edge == 'callees'."
             )
 
-        # E.5 — unresolved_imports must NOT be present on the unsupported branch
-        if "unresolved_imports" in response:
-            violations.append(
-                "[E.5 unresolved_imports placement] 'unresolved_imports' is present on the "
-                "unsupported branch. It must only appear on the supported branch when "
-                "edge == 'imports'."
-            )
-
-        # E.6 — unresolved_superclasses must NOT be present on the unsupported branch
-        if "unresolved_superclasses" in response:
-            violations.append(
-                "[E.6 unresolved_superclasses placement] 'unresolved_superclasses' is "
-                "present on the unsupported branch. It must only appear on the supported "
-                "branch when edge == 'superclasses'."
-            )
+        # E.5–E.7 — the per-edge loss lists must NOT be on the unsupported branch
+        for rule, key, edge_name in _EDGE_LOSS_LISTS:
+            if key in response:
+                violations.append(
+                    f"[{rule} {key} placement] '{key}' is present on the unsupported "
+                    f"branch. It must only appear on the supported branch when "
+                    f"edge == '{edge_name}'."
+                )
 
     else:
         # --- Supported branch (has_stubs_key) ---
@@ -1092,56 +1093,83 @@ def _check_expand_structural_floor(
                     f"an int; got {type(ucs).__name__!r} ({_truncate(ucs)})."
                 )
 
-        # E.5 — unresolved_imports (#494): if present, must be on the imports
-        # supported branch and be a list of non-empty single-line handle strings.
-        if "unresolved_imports" in response:
-            ui = response["unresolved_imports"]
-            edge_is_imports = isinstance(edge_val, str) and edge_val == "imports"
-            if not edge_is_imports:
-                violations.append(
-                    f"[E.5 unresolved_imports placement] 'unresolved_imports' is present "
-                    f"but edge={edge_val!r} (not 'imports'). It is only valid on the "
-                    f"supported branch when edge == 'imports'."
-                )
-            elif not isinstance(ui, list):
-                violations.append(
-                    f"[E.5 unresolved_imports type] 'unresolved_imports' must be a list; "
-                    f"got {type(ui).__name__!r}."
-                )
-            else:
-                for idx, item in enumerate(ui):
-                    if not isinstance(item, str) or not item.strip():
-                        violations.append(
-                            f"[E.5 unresolved_imports entry] unresolved_imports[{idx}]: "
-                            f"must be a non-empty str; got {_truncate(item)}."
-                        )
-                    elif "\n" in item:
-                        violations.append(
-                            f"[E.5 unresolved_imports entry single-line] "
-                            f"unresolved_imports[{idx}]: must be single-line."
-                        )
+        # E.5–E.7 — unresolved_imports (#494) / _superclasses (#624) / _importers (#668): if
+        # present, must be on their edge's supported branch and be a list of
+        # non-empty single-line strings.
+        for rule, key, edge_name in _EDGE_LOSS_LISTS:
+            if key in response:
+                _check_edge_loss_list(response[key], rule, key, edge_name, edge_val, violations)
 
-        # E.6 — unresolved_superclasses (#624): superclasses-only, a list of
-        # non-empty single-line strs (each an unresolved base's source text).
-        if "unresolved_superclasses" in response:
-            us = response["unresolved_superclasses"]
-            if not (isinstance(edge_val, str) and edge_val == "superclasses"):
+
+#: Per-edge "couldn't name / couldn't resolve" lists on an ExpandResult:
+#: (rule, key, the one edge it may appear on).
+_EDGE_LOSS_LISTS = (
+    ("E.5", "unresolved_imports", "imports"),  # #494
+    ("E.6", "unresolved_superclasses", "superclasses"),  # #624
+    ("E.7", "unresolved_importers", "imported_by"),  # #668
+)
+#: The same losses carried onto a trace Subgraph, keyed by node: (rule, key).
+_TRACE_LOSS_MAPS = (
+    ("T.8", "unresolved_imports"),  # #494
+    ("T.10", "unresolved_importers"),  # #668
+)
+
+
+def _check_edge_loss_list(
+    value: Any, rule: str, key: str, edge_name: str, edge_val: Any, violations: list[str]
+) -> None:
+    """E.5–E.7 — a supported-branch loss list: right edge, list of single-line strs."""
+    if not (isinstance(edge_val, str) and edge_val == edge_name):
+        violations.append(
+            f"[{rule} {key} placement] '{key}' is present but edge={edge_val!r} "
+            f"(not '{edge_name}'). It is only valid on the supported branch when "
+            f"edge == '{edge_name}'."
+        )
+        return
+    if not isinstance(value, list):
+        violations.append(
+            f"[{rule} {key} type] '{key}' must be a list; got {type(value).__name__!r}."
+        )
+        return
+    for idx, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            violations.append(
+                f"[{rule} {key} entry] {key}[{idx}]: must be a non-empty str; "
+                f"got {_truncate(item)}."
+            )
+        elif "\n" in item:
+            violations.append(
+                f"[{rule} {key} entry single-line] {key}[{idx}]: must be single-line."
+            )
+
+
+def _check_trace_loss_map(value: Any, rule: str, key: str, violations: list[str]) -> None:
+    """T.8 / T.10 — ``{handle: [str, ...]}`` with non-empty lists (zero-loss nodes omitted)."""
+    if not isinstance(value, dict):
+        violations.append(
+            f"[{rule} trace {key} type] '{key}' must be a dict {{handle: [str, ...]}}; "
+            f"got {type(value).__name__!r}."
+        )
+        return
+    for handle, items in value.items():
+        kpath = f"{key}[{handle!r}]"
+        if not isinstance(handle, str) or not handle.strip() or "\n" in handle:
+            violations.append(
+                f"[{rule} trace {key} key] {kpath}: key must be a non-empty single-line "
+                "handle string."
+            )
+        if not isinstance(items, list) or not items:
+            violations.append(
+                f"[{rule} trace {key} value] {kpath}: must be a non-empty list; "
+                f"got {_truncate(items)}."
+            )
+            continue
+        for idx, item in enumerate(items):
+            if not isinstance(item, str) or not item.strip() or "\n" in item:
                 violations.append(
-                    f"[E.6 unresolved_superclasses placement] 'unresolved_superclasses' is "
-                    f"present but edge={edge_val!r} (not 'superclasses')."
+                    f"[{rule} trace {key} entry] {kpath}[{idx}]: must be a non-empty "
+                    "single-line str."
                 )
-            elif not isinstance(us, list):
-                violations.append(
-                    f"[E.6 unresolved_superclasses type] must be a list; "
-                    f"got {type(us).__name__!r}."
-                )
-            else:
-                for idx, item in enumerate(us):
-                    if not isinstance(item, str) or not item.strip() or "\n" in item:
-                        violations.append(
-                            f"[E.6 unresolved_superclasses entry] unresolved_superclasses[{idx}]: "
-                            f"must be a non-empty single-line str; got {_truncate(item)}."
-                        )
 
 
 # ---------------------------------------------------------------------------
@@ -1440,38 +1468,12 @@ def _check_trace_structural_floor(
                         f"must be >= 1 (omit zero counts); got {count}."
                     )
 
-    # T.8 — unresolved_imports (#494 interior honesty): OPTIONAL map, present only
-    # when ``imports`` was traced (absent ⇒ not measured). When present it is a
-    # dict {handle: [target, ...]} where each key is a non-empty single-line
-    # handle and each value is a NON-EMPTY list of non-empty single-line import
-    # target strings (a node with no unresolvable imports is omitted, like T.7).
-    if "unresolved_imports" in response:
-        ui = response["unresolved_imports"]
-        if not isinstance(ui, dict):
-            violations.append(
-                f"[T.8 trace unresolved_imports type] 'unresolved_imports' must be a "
-                f"dict {{handle: [target, ...]}}; got {type(ui).__name__!r}."
-            )
-        else:
-            for key, targets in ui.items():
-                kpath = f"unresolved_imports[{key!r}]"
-                if not isinstance(key, str) or not key.strip() or "\n" in key:
-                    violations.append(
-                        f"[T.8 trace unresolved_imports key] {kpath}: key must be a "
-                        "non-empty single-line handle string."
-                    )
-                if not isinstance(targets, list) or not targets:
-                    violations.append(
-                        f"[T.8 trace unresolved_imports value] {kpath}: must be a "
-                        f"non-empty list of import targets; got {_truncate(targets)}."
-                    )
-                else:
-                    for idx, t in enumerate(targets):
-                        if not isinstance(t, str) or not t.strip() or "\n" in t:
-                            violations.append(
-                                f"[T.8 trace unresolved_imports target] {kpath}[{idx}]: "
-                                "must be a non-empty single-line str."
-                            )
+    # T.8 / T.10 — unresolved_imports (#494) / unresolved_importers (#668):
+    # OPTIONAL maps, present only when their edge was traced (absent ⇒ not
+    # measured). Each is {handle: [str, ...]}; a node with nothing lost is omitted.
+    for rule, key in _TRACE_LOSS_MAPS:
+        if key in response:
+            _check_trace_loss_map(response[key], rule, key, violations)
 
 
 # ---------------------------------------------------------------------------

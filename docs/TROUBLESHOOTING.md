@@ -247,14 +247,8 @@ sudo dnf install python3-devel
 
 **Solution**:
 
-1. Exclude unnecessary directories:
-
-   ```json
-   {
-     "exclude_patterns": ["**/node_modules", "**/.venv", "**/build"]
-   }
-   ```
-
+1. Include only the packages and namespaces you need. There is no file-exclusion
+   setting: `exclude_patterns` is deprecated and has no effect (#581).
 2. Limit project scope to relevant code
 
 ### High Memory Usage
@@ -299,14 +293,8 @@ sudo dnf install python3-devel
 
 **Solution**:
 
-1. Exclude volatile directories:
-
-   ```json
-   {
-     "watch_exclude": ["**/logs", "**/tmp", "**/__pycache__"]
-   }
-   ```
-
+1. Watchers already ignore `.git`, `__pycache__`, virtualenvs and other
+   non-source directories (`watch_exclude` is deprecated and has no effect, #581).
 2. Increase debounce time (default: 0.5s):
 
    ```bash
@@ -515,18 +503,10 @@ Check debug logs to see detection results.
 
 ### How to exclude certain files?
 
-**Answer**: Add exclusion patterns to configuration:
-
-```json
-{
-  "exclude_patterns": [
-    "**/*.pyc",
-    "**/test_*.py",
-    "**/migrations/*",
-    "**/__pycache__/*"
-  ]
-}
-```
+**Answer**: You can't yet. pyeye analyses every `.py` file in the configured
+packages, namespaces and standalone directories. The `exclude_patterns` and
+`exclude` keys are deprecated and have no effect: pyeye never read them, and it
+logs a warning when they are set (#581).
 
 ### Can I use with monorepos?
 

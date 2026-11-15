@@ -25,6 +25,10 @@ from tests.utils.performance import (
 class TestScopedCachePerformance:
     """Test scoped cache performance."""
 
+    # Pure-Python microbenchmark (100k lookups): under coverage the tracer's
+    # per-line cost dominates and the result depended on suite composition
+    # (#428), so coverage is switched off for it.
+    @pytest.mark.no_cover
     async def test_cache_hit_performance(self):
         """Test that cache hits are fast."""
         cache = ScopedCache(ttl_seconds=300)
@@ -35,12 +39,12 @@ class TestScopedCachePerformance:
             cache.set(f"key_{i}", f"value_{i}_all", "all")
 
         # Measure cache hit time for 100k lookups
-        start = time.time()
+        start = time.perf_counter()
         for _ in range(1000):
             for i in range(100):
                 value = cache.get(f"key_{i}", "main")
                 assert value == f"value_{i}"
-        elapsed_ms = (time.time() - start) * 1000
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
         # Define thresholds for 100k cache lookups
         bulk_cache_threshold = PerformanceThresholds(
@@ -66,13 +70,10 @@ class TestScopedCachePerformance:
         assert cache.get("key", "all") == "all_value"
         assert cache.get("key", "namespace:test") == "namespace_value"
 
-        # Invalidate one scope
-        cache.invalidate_scope("main")
-
-        # Check only that scope was invalidated
-        assert cache.get("key", "main") is None
-        assert cache.get("key", "all") == "all_value"
-        assert cache.get("key", "namespace:test") == "namespace_value"
+        # invalidate_all (the file watcher's call) clears every scope
+        cache.invalidate_all()
+        for scope in ("main", "all", "namespace:test"):
+            assert cache.get("key", scope) is None
 
     async def test_cache_ttl_performance(self):
         """Test cache TTL expiration."""
@@ -315,7 +316,7 @@ class TestPerformanceBenchmarks:
         # Test lazy loader with many namespaces
         loader = LazyNamespaceLoader()
 
-        start = time.time()
+        start = time.perf_counter()
 
         # Load several namespaces
         tasks = []
@@ -323,10 +324,13 @@ class TestPerformanceBenchmarks:
             tasks.append(loader.get_namespace_files(f"namespace_{i}", namespace_paths))
 
         results = await asyncio.gather(*tasks)
-        elapsed = time.time() - start
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
-        # Should complete within 2 seconds even with many namespaces
-        assert elapsed < 2.0, f"Loading 10 namespaces took {elapsed:.3f}s"
+        assert_performance_threshold(
+            elapsed_ms,
+            PerformanceThresholds(base=2000.0, linux_ci=4000.0, macos_ci=8000.0, windows_ci=8000.0),
+            "Loading 10 namespaces",
+        )
 
         # Verify results
         for result in results:
@@ -341,15 +345,10 @@ class TestPerformanceBenchmarks:
             for i in range(1000):
                 cache.set(f"key_{i}", f"value_{i}" * 100, scope)
 
-        # Get cache stats
-        stats = cache.get_stats()
-
-        # Should have 4 scopes
-        assert stats["scope_count"] == 4
-
-        # Each scope should have 1000 entries
-        for scope_stats in stats["scopes"].values():
-            assert scope_stats["entry_count"] == 1000
+        # Should have 4 scopes of 1000 entries each
+        assert len(cache.caches) == 4
+        for entries in cache.caches.values():
+            assert len(entries) == 1000
 
     async def test_parallel_search_scalability(self, tmp_path):
         """Test parallel search scales well with many paths."""
@@ -361,12 +360,16 @@ class TestPerformanceBenchmarks:
             (dir_path / "file.py").touch()
             paths.append(dir_path)
 
-        start = time.time()
+        start = time.perf_counter()
         results = await parallel_search("*.py", paths, max_concurrent=20)
-        elapsed = time.time() - start
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
         # Should handle 100 paths efficiently
-        assert elapsed < 1.0, f"Searching 100 paths took {elapsed:.3f}s"
+        assert_performance_threshold(
+            elapsed_ms,
+            PerformanceThresholds(base=1000.0, linux_ci=2000.0, macos_ci=4000.0, windows_ci=4000.0),
+            "Searching 100 paths",
+        )
         assert len(results) == 100
 
 

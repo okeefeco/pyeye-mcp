@@ -51,6 +51,7 @@ from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind
 from pyeye.mcp.operations.edges import (
     EdgeResult,
+    edge_applies,
     edge_status,
     resolve_callees,
     resolve_imported_by,
@@ -336,11 +337,11 @@ class TestResolveMembersModule:
 
 
 class TestResolveMembersNonContainer:
-    """A non-container (function/method/variable/...) has empty members."""
+    """``members`` doesn't apply to a non-container: the table decides (#626)."""
 
-    def test_function_has_no_members(self, analyzer: JediAnalyzer) -> None:
-        members = _members_for(_MAKE_WIDGET_HANDLE, analyzer)
-        assert members == []
+    def test_function_is_not_applicable(self, analyzer: JediAnalyzer) -> None:
+        jedi_name = anchor_for(_MAKE_WIDGET_HANDLE, analyzer)
+        assert not edge_applies("members", jedi_name)
 
 
 # ---------------------------------------------------------------------------
@@ -551,7 +552,7 @@ class TestResolveCalleesNeverReverseSearch:
 # ---------------------------------------------------------------------------
 
 
-async def _imported_by_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
+async def _imported_by_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     """Resolve *handle* to a Jedi name and await its ``imported_by`` result.
 
     Returns the raw resolver result so tests can distinguish ``None`` (wrong
@@ -646,35 +647,24 @@ class TestResolveImportedByMeasuredEmpty:
 
 
 class TestResolveImportedByNonModule:
-    """A non-module handle → wrong-kind ``None`` (NOT ``EdgeResult([])``).
+    """``imported_by`` applies to modules only (#626's applicability table).
 
-    This is the load-bearing #332 distinction: a class/function CAN be imported,
-    so returning ``[]`` would be the "measured zero" lie. ``None`` signals "this
-    edge does not apply to this kind" and becomes ``not_yet_implemented``
-    downstream in Phase 4 — it must be distinguishable from the measured-empty
-    module case above.
+    A class or function CAN be imported, so a measured ``[]`` would be the #332
+    "measured zero" lie. The table says the edge doesn't apply, and readers
+    answer ``not_applicable`` instead of calling the resolver.
     """
 
-    @pytest.mark.asyncio
-    async def test_class_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
-        # Widget is a class — imported_by does not apply to a symbol kind.
-        result = await _imported_by_for(_WIDGET_HANDLE, analyzer)
-        assert result is None, f"non-module handle must return None, got {result!r}"
+    @pytest.mark.parametrize("handle", [_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE])
+    def test_symbol_handles_are_not_applicable(self, analyzer: JediAnalyzer, handle: str) -> None:
+        assert not edge_applies("imported_by", anchor_for(handle, analyzer))
 
     @pytest.mark.asyncio
-    async def test_function_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
-        # make_widget is a function — also a symbol kind, also None.
-        result = await _imported_by_for(_MAKE_WIDGET_HANDLE, analyzer)
-        assert result is None, f"non-module handle must return None, got {result!r}"
-
-    @pytest.mark.asyncio
-    async def test_none_is_distinct_from_measured_empty(self, analyzer: JediAnalyzer) -> None:
-        # The two empty-looking outcomes must be machine-distinguishable.
-        wrong_kind = await _imported_by_for(_WIDGET_HANDLE, analyzer)
-        measured_empty = await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer)
-        assert wrong_kind is None
-        assert measured_empty == EdgeResult(adjacents=[])
-        assert wrong_kind != measured_empty
+    async def test_a_module_nobody_imports_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
+        assert edge_applies("imported_by", anchor_for(_MODULE_FORMS_HANDLE, analyzer))
+        # Measured, none found, and none unnamed either (#668).
+        assert await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer) == EdgeResult(
+            adjacents=[], unresolved_importers=[]
+        )
 
 
 class TestResolveImportedByNeverReverseSearch:
@@ -723,8 +713,8 @@ async def _subclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
 class TestResolveSubclassesClass:
     """``subclasses`` = the project classes that DIRECTLY subclass a base (#422).
 
-    The resolver reuses ``find_subclasses(scope="main", include_indirect=False)``,
-    so the result is the DIRECT (depth-1) subclasses only — one hop, symmetric
+    The resolver reuses ``find_subclasses(scope="main")``, which is direct-only
+    (#628), so the result is the DIRECT (depth-1) subclasses only — one hop, symmetric
     with ``superclasses``; the full closure is served by ``trace``. The dedicated
     fixture pins a known topology:
 
@@ -751,7 +741,7 @@ class TestResolveSubclassesClass:
         self, subclasses_analyzer: JediAnalyzer
     ) -> None:
         # Dog(Mammal) is a grandchild of Animal — since #422 the edge is a single
-        # hop (include_indirect=False), so the grandchild must NOT appear. The
+        # hop (find_subclasses is direct-only), so the grandchild must NOT appear. The
         # transitive closure is reached via trace(follow=["subclasses"]).
         handles = {
             str(h) for h in (await _subclasses_for(_ANIMAL_HANDLE, subclasses_analyzer)).handles
@@ -1309,7 +1299,7 @@ _MAKE_WIDGET_FROM_IMPORTS_HANDLE = "mypackage._core.widgets.make_widget"
 _HELPERS_MODULE_HANDLE = "mypackage.helpers"
 
 
-def _imports_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
+def _imports_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     """Resolve *handle* to a Jedi name and return its ``imports`` result.
 
     Returns the raw resolver result so tests can distinguish ``None`` (wrong
@@ -1448,33 +1438,15 @@ class TestResolveImportsMeasuredEmpty:
 
 
 class TestResolveImportsNonModule:
-    """A non-module handle → wrong-kind ``None`` (NOT ``EdgeResult([])``).
+    """``imports`` applies to modules only (#626's applicability table)."""
 
-    This is the load-bearing #332 distinction (mirroring ``imported_by``): a
-    function/class CAN have local imports, so returning ``EdgeResult([])`` would
-    be the "measured zero" lie.  ``None`` signals "this edge does not apply to
-    this kind" and becomes ``not_yet_implemented`` downstream in ``expand``.
-    """
+    @pytest.mark.parametrize("handle", [_WIDGET_HANDLE, _MAKE_WIDGET_HANDLE])
+    def test_symbol_handles_are_not_applicable(self, analyzer: JediAnalyzer, handle: str) -> None:
+        assert not edge_applies("imports", anchor_for(handle, analyzer))
 
-    def test_class_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """A class handle returns ``None`` (wrong kind for the imports edge)."""
-        result = _imports_for(_WIDGET_HANDLE, analyzer)
-        assert result is None, f"non-module handle must return None, got {result!r}"
-
-    def test_function_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """A function handle returns ``None`` (wrong kind for the imports edge)."""
-        result = _imports_for(_MAKE_WIDGET_HANDLE, analyzer)
-        assert result is None, f"non-module handle must return None, got {result!r}"
-
-    def test_none_is_distinct_from_measured_empty(self, analyzer: JediAnalyzer) -> None:
-        """The two empty-looking outcomes must be machine-distinguishable."""
-        wrong_kind = _imports_for(_WIDGET_HANDLE, analyzer)
-        # widgets module itself IS a module — returns EdgeResult (possibly with imports)
-        module_result = _imports_for(_MODULE_HANDLE, analyzer)
-        assert wrong_kind is None
-        assert module_result is not None
-        # They must differ: None vs EdgeResult
-        assert wrong_kind != module_result
+    def test_a_module_applies(self, analyzer: JediAnalyzer) -> None:
+        assert edge_applies("imports", anchor_for(_MODULE_HANDLE, analyzer))
+        assert _imports_for(_MODULE_HANDLE, analyzer) is not None
 
 
 class TestResolveImportsNeverReverseSearch:

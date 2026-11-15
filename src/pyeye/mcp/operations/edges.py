@@ -9,18 +9,11 @@ This module is the **single source of truth** for which traversal edges
 2. :data:`EDGE_RESOLVERS` / the resolver registry — maps *implemented* edge
    names (``members``, ``callees``, ``imported_by``, ``subclasses``,
    ``superclasses``, ``imports``, ``enclosing_scope``, ``submodules``) to their
-   resolver callables.  ``members``/``callees``/``superclasses``/``imports``/
-   ``enclosing_scope``/``submodules`` are synchronous and always return an
-   :class:`EdgeResult` or ``None``; ``imported_by`` and ``subclasses`` are
-   **async**.  ``imported_by`` and ``imports`` return ``EdgeResult | None``
-   — ``None`` is their wrong-kind signal (the handle is not a module).
-   ``subclasses``, ``superclasses``, and ``enclosing_scope`` ALWAYS return an
-   :class:`EdgeResult` (never ``None``): a module handle yields
-   ``EdgeResult([])`` for ``enclosing_scope`` because modules have no lexical
-   enclosing scope; non-class handles yield ``EdgeResult([])`` for
-   ``subclasses``/``superclasses``.  An :class:`EdgeResult` carries the
-   adjacent canonical handles plus, for ``callees`` only, the count of
-   unresolved call sites.  ``expand`` awaits any awaitable resolver result.
+   resolver callables.  ``imported_by`` and ``subclasses`` are **async**; the
+   rest are synchronous.  Every resolver returns an :class:`EdgeResult`.  None
+   of them checks the source's kind: whether an edge applies to a kind is
+   decided once, in :data:`EDGE_APPLIES_TO` / :func:`edge_applies` (#626), and
+   every reader asks before calling a resolver.
 
 Status model (spec §4.3)
 ------------------------
@@ -79,8 +72,10 @@ from pyeye._goto import goto_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.handle import Handle
-from pyeye.kinds import normalise_kind
+from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
+from pyeye.resolver import Resolved, resolve_handle
+from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -122,12 +117,17 @@ class EdgeResult:
             expressions (``ast.unparse`` text, declaration order) whose ``goto``
             named no single class — listed, never silently dropped.  ``None``
             for every other edge.
+        unresolved_importers: For ``imported_by`` (#668), the POSIX paths of
+            files that import the target but have no module name, so no handle
+            (``my-script.py``, ``tools-dir/x.py``).  Listed, never dropped.
+            ``None`` for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
     unresolved_call_sites: int | None = None
     unresolved_imports: list[str] | None = None
     unresolved_superclasses: list[str] | None = None
+    unresolved_importers: list[str] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -181,6 +181,10 @@ STATUS_IMPLEMENTED = "implemented"
 STATUS_NOT_YET_IMPLEMENTED = "not_yet_implemented"
 STATUS_DEFERRED_REFERENCE_BACKEND = "deferred_reference_backend"
 STATUS_UNKNOWN_EDGE = "unknown_edge"
+#: The edge is implemented, but not for the source handle's kind (#626), e.g.
+#: ``imports`` on a class.  Unlike the other statuses it depends on the handle,
+#: so :func:`edge_status` never returns it: see :func:`edge_applies`.
+STATUS_NOT_APPLICABLE = "not_applicable"
 
 #: Edges with a working (or Phase-3-bound) resolver.
 _IMPLEMENTED_EDGES = frozenset(
@@ -241,6 +245,47 @@ def edge_status(edge: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Edge applicability (#626): the ONE table of which kinds each edge applies to
+# ---------------------------------------------------------------------------
+
+#: Kinds each implemented edge applies to.  Every reader (``expand`` and, through
+#: it, ``trace``; ``inspect.edge_counts``; ``outline``) asks :func:`edge_applies`
+#: before calling a resolver, so the resolvers carry no kind gates of their own.
+#: A wrong kind is answered as unsupported with :data:`STATUS_NOT_APPLICABLE`,
+#: never as a measured ``[]``: "this edge doesn't exist for a function" is not
+#: "this function has none".
+EDGE_APPLIES_TO: dict[str, frozenset[str]] = {
+    "members": frozenset({"class", "module"}),
+    "callees": frozenset({"function", "method"}),
+    "imported_by": frozenset({"module"}),
+    "imports": frozenset({"module"}),
+    "subclasses": frozenset({"class"}),
+    "superclasses": frozenset({"class"}),
+    # A plain module applies too (measured ``[]``); a symbol defined in a
+    # package ``__init__`` does not, so it can never enumerate the package's
+    # directory as if it were the package.
+    "submodules": frozenset({"module"}),
+    "enclosing_scope": KINDS - {"module"},
+}
+
+
+def edge_kind(jedi_name: Any) -> str:
+    """The kind the applicability table is keyed on (methods promoted, #406)."""
+    return normalise_kind_from_name(jedi_name)
+
+
+def edge_applies(edge: str, jedi_name: Any) -> bool:
+    """Whether *edge* applies to *jedi_name*'s kind, per :data:`EDGE_APPLIES_TO`."""
+    return edge_kind(jedi_name) in EDGE_APPLIES_TO.get(edge, frozenset())
+
+
+def not_applicable_detail(edge: str, kind: str) -> str:
+    """The ``detail`` for a wrong-kind (:data:`STATUS_NOT_APPLICABLE`) answer."""
+    kinds = ", ".join(sorted(EDGE_APPLIES_TO[edge]))
+    return f"Edge '{edge}' does not apply to a {kind} handle; it applies to: {kinds}."
+
+
+# ---------------------------------------------------------------------------
 # members resolver (spec §5.1)
 # ---------------------------------------------------------------------------
 
@@ -264,13 +309,17 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
+    Measured scope: a class's members are its class-body definitions; instance
+    attributes assigned in methods (``self.x = ...``) are NOT measured.  A
+    module's members are its module-level definitions.
+
     Static-surface ceiling: members are enumerated from source.  Runtime-injected
     members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
     ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` returns none
     of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.  This is
     the same static-only boundary ``resolve_imported_by`` carries for dynamic
-    imports; ``[]`` therefore means "no statically-defined members," not "no
-    members at runtime."
+    imports; ``[]`` therefore means "no members in the measured scope," not "no
+    members at runtime" (nor "no instance attributes").
 
     Synchronous: Jedi ``get_names`` + AST walk + ``Handle`` construction are all
     sync, so the resolver is sync (a sync resolver called from async ``expand``
@@ -287,16 +336,14 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    kind = normalise_kind(getattr(jedi_name, "type", None))
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
         return EdgeResult(adjacents=[])
 
-    if kind == "class":
+    # Dispatch, not a gate: callers check edge_applies("members", …) first (#626).
+    if edge_kind(jedi_name) == "class":
         return EdgeResult(adjacents=_class_members(jedi_name, handle, analyzer))
-    if kind == "module":
-        return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
-    return EdgeResult(adjacents=[])
+    return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
 
 
 def _try_handle(s: str) -> Handle | None:
@@ -536,15 +583,8 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         pairs and the unresolved-call-site count.  Non-function sources yield
         ``EdgeResult(adjacents=[], unresolved_call_sites=0)``.
     """
-    kind = normalise_kind(getattr(jedi_name, "type", None))
-    # Jedi reports BOTH module-level functions AND methods (instance, class,
-    # static) with ``type="function"``, so ``normalise_kind`` yields
-    # ``"function"`` for all of them.  This gate therefore INCLUDES methods and
-    # @property getters — they are not excluded.  Only non-function kinds
-    # (class, module, variable, …) short-circuit here.
-    if kind != "function":
-        return EdgeResult(adjacents=[], unresolved_call_sites=0)
-
+    # Callers check edge_applies("callees", …) first (#626): functions and
+    # methods (Jedi also reports @property getters as functions).
     file_path = getattr(jedi_name, "module_path", None)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
@@ -634,7 +674,44 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
 # ---------------------------------------------------------------------------
 
 
-async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
+def _canonical_import_targets(
+    adjacents: list[tuple[Handle, Any]], source: str | None, analyzer: JediAnalyzer
+) -> list[tuple[Handle, Any]]:
+    """Emit each EXTERNAL import target under its canonical handle (#623, #602).
+
+    ``goto`` on an import lands where typeshed says the name lives, which is
+    sometimes a private module (``_datetime.datetime``, ``_typing.TypeVar``) or
+    the importing module itself (typeshed's ``io.pyi`` imports from ``_io``,
+    which Jedi reports back as ``io``).  An external target is re-resolved
+    through :func:`pyeye.resolver.resolve_handle`, so the emitted handle is the
+    one ``resolve`` and ``inspect`` report; a target equal to *source* (a
+    self-edge) is dropped; duplicates collapse.  A target the resolver can't
+    place keeps Goto's handle, so the miss stays visible to the round-trip
+    test rather than vanishing.
+
+    Only ``imports`` does this.  Project targets, and every other edge's
+    targets, are definition-site by construction (Jedi ``full_name`` of a
+    project definition), which ``tests/test_cross_tool_invariants.py``'s
+    round-trip test enforces for every edge.  ``imports`` is also not an
+    ``inspect.edge_counts`` edge, so this can't break count == expand (#599).
+    """
+    out: list[tuple[Handle, Any]] = []
+    seen: set[str] = set()
+    for handle, name in adjacents:
+        module_path = getattr(name, "module_path", None)
+        if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
+            resolved = resolve_handle(str(handle), analyzer)
+            if isinstance(resolved, Resolved) and resolved.handle != str(handle):
+                handle, name = Handle(resolved.handle), resolved.anchor
+        key = str(handle)
+        if key == source or key in seen:
+            continue
+        seen.add(key)
+        out.append((handle, name))
+    return out
+
+
+async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the modules that import a target module as canonical handles.
 
     The inbound ``imported_by`` edge for a **module** handle.  Reuses
@@ -651,15 +728,9 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
     re-resolution would drop it.  Constructing the sentinel from the file the
     scan already returned keeps that breadth (#345).
 
-    Kind gate (the load-bearing #332 distinction):
-
-    - **module** → measured: ``EdgeResult`` with the importer handles (possibly
-      empty if nobody imports it — a genuine measured "none", NOT an error).
-    - **non-module** (class / function / variable / …) → ``None``.  A *symbol*
-      CAN be imported, so returning ``EdgeResult([])`` would be the "measured
-      zero" lie; ``None`` signals "this edge does not apply to this kind" and
-      becomes ``not_yet_implemented`` downstream in ``expand`` (Phase 4).  The
-      caller MUST distinguish ``None`` from ``EdgeResult([])``.
+    Applies to the kinds in :data:`EDGE_APPLIES_TO` (#626). Readers check
+    :func:`edge_applies` before calling, and answer a wrong kind as
+    unsupported (``not_applicable``), so this resolver has no kind gate.
 
     Asynchronous: ``find_importers`` reads project files asynchronously, so this
     resolver is ``async``.  ``expand`` awaits awaitable resolver results; the
@@ -673,31 +744,31 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 
     Returns:
         An :class:`EdgeResult` whose ``adjacents`` are the importer
-        ``(canonical Handle, ModuleSentinel)`` pairs (kind module) for a module
-        target, or ``None`` for a non-module target.  ``unresolved_call_sites``
+        ``(canonical Handle, ModuleSentinel)`` pairs (kind module).  ``unresolved_call_sites``
         is always ``None`` — that notion is callees-only.
     """
-    if normalise_kind(getattr(jedi_name, "type", None)) != "module":
-        return None
-
     module_path = getattr(jedi_name, "full_name", None)
     target_file = getattr(jedi_name, "module_path", None)
     if not module_path or target_file is None:
-        return EdgeResult(adjacents=[])
+        return EdgeResult(adjacents=[], unresolved_importers=[])
 
-    importer_pairs = await analyzer.find_importers(module_path, Path(target_file), scope="all")
+    found = await analyzer.find_importers(module_path, Path(target_file), scope="all")
 
     adjacents: list[tuple[Handle, Any]] = []
-    for importer_module, importer_file in importer_pairs:
+    unnamed = [f.as_posix() for f in found.unnamed]
+    for importer_module, importer_file in found.named:
         h = _try_handle(importer_module)
         if h is None:
+            # A name the mapper produced but Handle rejects: still a dependent.
+            unnamed.append(importer_file.as_posix())
             continue
         # Build the Name from the importer's FILE, not by re-resolving the
         # handle — re-resolution drops non-package scripts (see docstring).
         name = ModuleSentinel(importer_file, str(h), analyzer)
         adjacents.append((h, name))
 
-    return EdgeResult(adjacents=adjacents)
+    # #668: an importer without a handle is listed, never silently dropped.
+    return EdgeResult(adjacents=adjacents, unresolved_importers=sorted(unnamed))
 
 
 # ---------------------------------------------------------------------------
@@ -722,7 +793,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
 
     The outbound-but-reliably-static ``subclasses`` edge for a **class** handle.
     Reuses :meth:`JediAnalyzer.find_subclasses` — an AST class-graph walk +
-    forward ``goto``/``resolve_canonical`` (NO ``Script.get_references``, the
+    forward ``goto``/``resolver.resolve_handle`` (NO ``Script.get_references``, the
     same load-bearing trust constraint as ``callees`` / ``imported_by``).
     ``subclasses`` is an **expand-only** edge: ``inspect``
     does NOT measure it (dropped in #392; a cheap direct count is gated on the
@@ -731,8 +802,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     ``references``).
 
     Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
-    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1,
-    ``include_indirect=False``) — symmetric with ``superclasses`` (direct bases).
+    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1;
+    ``find_subclasses`` is direct-only since #628) — symmetric with
+    ``superclasses`` (direct bases).
     The full transitive closure is served exclusively by
     ``trace(follow=["subclasses"], max_depth=k, max_nodes=N)``, which already owns
     the cap + ``truncated`` contract; ``expand`` carries a static pointer to that
@@ -762,15 +834,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     detail, not a one-hop ``expand`` field — symmetric with ``imported_by``'s
     ``ModuleSentinel`` stubs.
 
-    Kind gate (the slice's defining decision):
-
-    - **class** → measured: ``EdgeResult`` with the subclass handles (possibly
-      empty if the class has no project subclasses — a genuine measured "none").
-    - **non-class** (function / variable / module / …) → ``EdgeResult([])``,
-      NEVER ``None``.  Only a class CAN be subclassed, so ``[]`` for the wrong
-      kind is true by definition (exactly the ``members``/``callees`` case) —
-      NOT the absence-vs-zero lie that forces ``imported_by``'s ``None`` path.
-      Because this resolver never returns ``None``, ``expand`` needs no change.
+    Applies to the kinds in :data:`EDGE_APPLIES_TO` (#626). Readers check
+    :func:`edge_applies` before calling, and answer a wrong kind as
+    unsupported (``not_applicable``), so this resolver has no kind gate.
 
     Asynchronous: ``find_subclasses`` reads project files asynchronously, so
     this resolver is ``async``.  ``expand`` awaits awaitable resolver results.
@@ -786,9 +852,6 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
         or ``EdgeResult([])`` for any non-class target.  ``unresolved_call_sites``
         is always ``None`` — that notion is callees-only.
     """
-    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
-        return EdgeResult(adjacents=[])
-
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
         return EdgeResult(adjacents=[])
@@ -800,12 +863,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # which already owns the cap + ``truncated`` contract; routing it there also
     # makes trace's per-hop BFS correct (a closure-per-hop resolver collapsed the
     # whole closure onto depth 1).
-    result = await analyzer.find_subclasses(
-        handle,
-        scope=_project_search_scope(analyzer),
-        include_indirect=False,
-        show_hierarchy=False,
-    )
+    result = await analyzer.find_subclasses(handle, scope=_project_search_scope(analyzer))
     # An FQN input never triggers the ambiguous variant.  Carry a defensive
     # assert so a future regression surfaces loudly instead of silently yielding
     # an empty list.
@@ -883,17 +941,9 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
        ``inspect._count_superclasses``), so
        ``len(stubs) == inspect.edge_counts.superclasses`` by construction.
 
-    Kind gate (the defining decision of this edge):
-
-    - **class** → measured: ``EdgeResult`` with the direct-base handles
-      (possibly empty if the class has no explicit bases — a genuine measured
-      "none").
-    - **non-class** (function / variable / module / …) → ``EdgeResult([])``,
-      NEVER ``None``.  Only a class CAN have superclasses, so ``[]`` for the
-      wrong kind is true by definition (exactly the ``members``/``callees``
-      case) — NOT the absence-vs-zero lie that forces ``imported_by``'s
-      ``None`` path.  Because this resolver never returns ``None``,
-      ``expand.py`` needs no change.
+    Applies to the kinds in :data:`EDGE_APPLIES_TO` (#626). Readers check
+    :func:`edge_applies` before calling, and answer a wrong kind as
+    unsupported (``not_applicable``), so this resolver has no kind gate.
 
     Synchronous: AST walk + per-base Jedi ``goto`` + ``Handle`` construction
     are all sync, like ``resolve_members``/``resolve_callees``.  No
@@ -954,7 +1004,9 @@ def superclass_bases(
         order; ``[]`` for a class with no explicit bases; ``None`` when the
         target is not a class or its source can't be read.
     """
-    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
+    # The helper's own input contract (inspect calls it too), read from the one
+    # applicability table rather than a re-derived kind (#626).
+    if not edge_applies("superclasses", jedi_name):
         return None
     file_path = getattr(jedi_name, "module_path", None)
     line = getattr(jedi_name, "line", None)
@@ -1006,7 +1058,7 @@ def _import_from_target(node: ast.ImportFrom, name: str) -> str:
     return f"{prefix}{module}{sep}{name}"
 
 
-def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None:
+def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the module-scope imports of a module as canonical handles.
 
     The outbound ``imports`` edge — the FORWARD complement of ``imported_by``
@@ -1028,17 +1080,9 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
     stdlib ``os``'s ``from posix import _exit``) are unresolvable by Jedi and so
     land in ``unresolved_imports`` below.
 
-    Kind gate (mirrors ``resolve_imported_by``):
-
-    - **module** → measured: ``EdgeResult`` with the imported handles (possibly
-      empty if the module has no module-scope imports — a genuine measured
-      "none", NOT an error).
-    - **non-module** (class / function / variable / …) → ``None``.  A non-module
-      CAN contain local imports, so returning ``EdgeResult([])`` would be the
-      "measured zero" lie; ``None`` signals "this edge does not apply to this
-      kind" and becomes ``not_yet_implemented`` downstream in ``expand`` /
-      treated as no-adjacents in ``trace._single_hop`` — those paths already
-      handle ``None`` correctly and require NO modification.
+    Applies to the kinds in :data:`EDGE_APPLIES_TO` (#626). Readers check
+    :func:`edge_applies` before calling, and answer a wrong kind as
+    unsupported (``not_applicable``), so this resolver has no kind gate.
 
     Positioning logic (verified against real Jedi):
 
@@ -1081,13 +1125,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
         ``(canonical Handle, Jedi Name)`` pairs for a module target, sorted by
         handle string, and whose ``unresolved_imports`` lists the statically-
         present imports that goto could not resolve (sorted, deduped; ``[]`` when
-        all resolved); or ``None`` for a non-module target.
+        all resolved).
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    if normalise_kind(getattr(jedi_name, "type", None)) != "module":
-        return None
-
     file_path = getattr(jedi_name, "module_path", None)
     if file_path is None:
         return EdgeResult(adjacents=[])
@@ -1148,6 +1189,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
                 seen.add(key)
                 adjacents.append((h, name))
 
+    adjacents = _canonical_import_targets(
+        adjacents, getattr(jedi_name, "full_name", None), analyzer
+    )
+
     # Sort by canonical handle string for deterministic order (mirrors
     # resolve_subclasses / resolve_superclasses).
     adjacents.sort(key=lambda pair: str(pair[0]))
@@ -1207,9 +1252,6 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     _ = analyzer  # unused: kept for the EDGE_RESOLVERS (jedi_name, analyzer) signature contract
     # Module gate: a module has no lexical enclosing scope.  Gate on kind BEFORE
     # calling parent() — a ModuleSentinel may not have a parent() method at all.
-    if normalise_kind(getattr(jedi_name, "type", None)) == "module":
-        return EdgeResult(adjacents=[])
-
     # Retrieve the parent Jedi Name via the Jedi API (not dotted-name arithmetic).
     try:
         parent = jedi_name.parent()
@@ -1405,9 +1447,16 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
         for handle, cand in local.items():
             chosen.setdefault(handle, cand)
 
+    # A child whose name is not an identifier (``show-newlines.py``, ``2fast.py``)
+    # cannot be imported as a submodule, so it is not one (#597).  Filtering HERE,
+    # in the source-of-truth, keeps the ``inspect`` count equal to the edge.
+    #
     # Sort by the FULL handle — a total order independent of iterdir, so output is
     # deterministic across runs/platforms (not just by bare child name).
-    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
+    return sorted(
+        (entry for _, entry in chosen.values() if _try_handle(entry.handle) is not None),
+        key=lambda e: e.handle,
+    )
 
 
 def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
@@ -1436,9 +1485,11 @@ def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     Returns:
         An :class:`EdgeResult` whose ``adjacents`` are the child
-        ``(Handle, ModuleSentinel)`` pairs.  For any non-package handle the
-        enumerator yields no entries, so this returns ``EdgeResult([])`` — the
-        "wrong kind → measured-empty, never ``None``" convention.
+        ``(Handle, ModuleSentinel)`` pairs.  A plain (non-package) module yields
+        no entries: a measured ``EdgeResult([])``.  A non-module handle is never
+        passed here: ``submodules`` applies to modules only (:data:`EDGE_APPLIES_TO`,
+        #626), which stops a symbol defined in a package ``__init__`` from
+        enumerating the package directory as if it were the package.
     """
     adjacents: list[tuple[Handle, Any]] = []
     for entry in _enumerate_submodule_paths(jedi_name, analyzer):
@@ -1454,21 +1505,10 @@ def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 # Resolver registry
 # ---------------------------------------------------------------------------
 
-#: Maps *implemented* edge names → resolver callables.  ``members``/``callees``/
-#: ``superclasses``/``imports``/``enclosing_scope``/``submodules`` are synchronous;
-#: ``members``/``callees``/``superclasses``/``enclosing_scope``/``submodules``
-#: always return an :class:`EdgeResult` (``submodules`` → ``EdgeResult([])`` for a
-#: non-package handle); ``imports`` returns ``EdgeResult | None`` (``None`` for
-#: non-module handles, mirroring ``imported_by``).  ``imported_by`` and
-#: ``subclasses`` are async.  ``imported_by`` may return ``None`` (its
-#: wrong-kind signal); ``subclasses``, ``superclasses``, and ``enclosing_scope``
-#: always return an :class:`EdgeResult` (non-applicable kind → ``EdgeResult([])``,
-#: never ``None``).  The value type therefore admits a sync-or-async resolver
-#: returning ``EdgeResult | None`` so ``expand`` can stay edge-agnostic
-#: (awaiting awaitable results, treating ``None`` as not-yet-implemented).
-EDGE_RESOLVERS: dict[
-    str, Callable[[Any, JediAnalyzer], EdgeResult | None | Awaitable[EdgeResult | None]]
-] = {
+#: Maps *implemented* edge names → resolver callables.  ``imported_by`` and
+#: ``subclasses`` are async, the rest synchronous; all return an
+#: :class:`EdgeResult`.  Callers check :func:`edge_applies` first (#626).
+EDGE_RESOLVERS: dict[str, Callable[[Any, JediAnalyzer], EdgeResult | Awaitable[EdgeResult]]] = {
     "members": resolve_members,
     "callees": resolve_callees,
     "imported_by": resolve_imported_by,

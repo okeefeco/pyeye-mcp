@@ -39,10 +39,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
+from pyeye._goto import goto_target
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.project_layout import file_for_module, find_namespace_package_dirs
+from pyeye.project_layout import (
+    RootsBoundary,
+    file_for_module,
+    find_namespace_package_dirs,
+    project_roots,
+)
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -80,6 +86,13 @@ class NotFound:
     detail: str
 
 
+@dataclass(frozen=True)
+class Ambiguous:
+    """A bare name with several canonical definitions, in deterministic order."""
+
+    candidates: tuple[Resolved, ...]
+
+
 def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     """Resolve an exact dotted *path* to its definition. Never raises.
 
@@ -105,6 +118,103 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         scope=scope_for(anchor, canonical, kind, analyzer),
         anchor=anchor,
     )
+
+
+async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | NotFound:
+    """Resolve a bare (dot-free) name: an exact top-level module wins (#623).
+
+    Policy, first rule that applies:
+
+    1. **Shadow** (#423): the name is a top-level package or module under more
+       than one project root (``<name>/`` in both the project and ``src/``).
+       Picking one would hide the collision, so the result is ambiguous.
+    2. **Exact top-level module**: the name is itself a complete top-level
+       module (the project's own package, a PEP 420 namespace root, or an
+       external module such as ``functools`` or ``inspect``).  It wins even
+       when project definitions share the name; those are reachable by their
+       dotted handles.
+    3. **Name index**: every project definition named *bare*, each
+       re-resolved through :func:`resolve_handle` so every candidate is
+       canonical; duplicates (an alias and its definition) collapse.  One
+       left is the answer; several are ambiguous.
+
+    Never raises.
+    """
+    if "." in bare or not _is_dotted_path(bare):
+        return NotFound(reason="unresolved", detail=f"{bare!r} is not a bare name.")
+
+    shadow = _top_level_shadow(bare, analyzer)
+    if len(shadow) > 1:
+        return Ambiguous(candidates=_ordered(shadow))
+
+    exact = resolve_handle(bare, analyzer)
+    if isinstance(exact, Resolved) and exact.kind == "module" and exact.handle == bare:
+        return exact
+
+    try:
+        matches = await analyzer.find_symbol(bare)
+    except Exception as exc:  # never raise: an index failure is an honest miss
+        logger.debug("resolve_name(%r): find_symbol failed: %s", bare, exc)
+        matches = []
+    found: dict[str, Resolved] = {}
+    for match in matches:
+        full_name = match.get("full_name")
+        if not full_name:
+            continue
+        candidate = resolve_handle(full_name, analyzer)
+        if isinstance(candidate, Resolved):
+            found.setdefault(candidate.handle, candidate)
+    if not found:
+        return NotFound(reason="unresolved", detail=f"No definition named {bare!r}.")
+    if len(found) == 1:
+        return next(iter(found.values()))
+    return Ambiguous(candidates=_ordered(list(found.values())))
+
+
+def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:
+    """Top-level modules named *bare* under DISTINCT project roots (#423 shadow).
+
+    Each root of the ``TOP_LEVEL_PACKAGE`` boundary is checked for
+    ``<root>/<bare>/__init__.py`` or ``<root>/<bare>.py``.  Fewer than two
+    distinct files is no shadow.
+    """
+    files: dict[str, Path] = {}
+    for root in project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE):
+        for candidate in (root / bare / "__init__.py", root / f"{bare}.py"):
+            if candidate.is_file():
+                files.setdefault(candidate.resolve().as_posix(), candidate)
+                break
+    if len(files) < 2:
+        return []
+    out = []
+    for path in files.values():
+        anchor = ModuleSentinel(path, bare, analyzer)
+        out.append(
+            Resolved(
+                handle=bare,
+                kind="module",
+                scope=scope_for(anchor, bare, "module", analyzer),
+                anchor=anchor,
+            )
+        )
+    return out
+
+
+_SCOPE_ORDER = {"project": 0, "external": 1}
+
+
+def _ordered(candidates: list[Resolved]) -> tuple[Resolved, ...]:
+    """Deterministic order: project first, then by file and line."""
+
+    def key(r: Resolved) -> tuple[int, str, int]:
+        module_path = getattr(r.anchor, "module_path", None)
+        return (
+            _SCOPE_ORDER.get(r.scope, 9),
+            module_path.as_posix() if module_path else "",
+            getattr(r.anchor, "line", None) or 0,
+        )
+
+    return tuple(sorted(candidates, key=key))
 
 
 # ---------------------------------------------------------------------------
@@ -234,37 +344,56 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
     """Steps 3 and 5 for a handle outside the project, from one synthetic import.
 
     3. **External module**: an inferred module whose ``full_name`` is *path*.
-    5. **Guarded inference**: otherwise, an inferred definition whose name
-       equals the leaf; its ``full_name`` is the canonical handle.
+    5. **External definition**, first rule that applies:
+
+       a. *Definition at the requested site*: ``goto`` (through the one picker,
+          :func:`pyeye._goto.goto_target`) lands on a definition whose
+          ``full_name`` IS *path* and that has a file.  This is placement by
+          definition lookup (#506) for names whose value is something else:
+          ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
+          ``bool``.  A target at a DIFFERENT path is refused here, so a
+          re-export never becomes canonical through this step
+          (``collections.abc.Mapping`` → ``typing.Mapping``, #544).
+       b. *Guarded inference*: an inferred definition whose name equals the
+          leaf; its ``full_name`` is the canonical handle (a re-export under the
+          same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
     """
-    inferred = _synthetic_import(path, analyzer)
+    inferred, target = _synthetic_import(path, analyzer)
     for name in inferred:  # 3
         if name.type == "module" and name.full_name == path:
             return path, name
-    leaf = path.rsplit(".", 1)[-1]
     if "." not in path:
         return None
-    for name in inferred:  # 5
+    if (  # 5a
+        target is not None
+        and target.full_name == path
+        and getattr(target, "module_path", None) is not None
+    ):
+        return path, target
+    leaf = path.rsplit(".", 1)[-1]
+    for name in inferred:  # 5b
         if name.name == leaf and name.full_name and _is_dotted_path(name.full_name):
             return name.full_name, name
     return None
 
 
-def _synthetic_import(path: str, analyzer: JediAnalyzer) -> list[Any]:
-    """Infer *path* through a synthetic ``import <parent>`` (``import <path>`` if top-level).
+def _synthetic_import(path: str, analyzer: JediAnalyzer) -> tuple[list[Any], Any | None]:
+    """Infer and ``goto`` *path* through a synthetic ``import <parent>``.
 
-    The one place a file-less ``jedi.Script`` is built (#623). Returns the
-    inferred Jedi ``Name`` objects; never raises.
+    The one place a file-less ``jedi.Script`` is built (#623).  Returns the
+    inferred Jedi ``Name`` objects and the single ``goto`` target picked by
+    :func:`pyeye._goto.goto_target` (``None`` unless exactly one).  Never raises.
     """
     module_dotted = path.rsplit(".", 1)[0] if "." in path else path
     try:
         import jedi
 
         script = jedi.Script(code=f"import {module_dotted}\n{path}", project=analyzer.project)
-        return list(script.infer(2, len(path)))
+        inferred = list(script.infer(2, len(path)))
     except Exception as exc:
         logger.debug("resolver: synthetic import of %r failed: %s", path, exc)
-        return []
+        return [], None
+    return inferred, goto_target(script, 2, len(path))
 
 
 # ---------------------------------------------------------------------------

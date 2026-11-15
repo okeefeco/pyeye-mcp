@@ -168,9 +168,39 @@ def test_external_class_resolves_to_its_definition(project: JediAnalyzer) -> Non
     assert (result.handle, result.kind, result.scope) == (_PATH_CLASS_HANDLE, "class", "external")
 
 
-def test_inference_rejects_a_different_object(project: JediAnalyzer) -> None:
-    """``typing.TYPE_CHECKING`` infers to ``bool``: an honest miss, not a wrong answer."""
-    assert isinstance(resolve_handle("typing.TYPE_CHECKING", project), NotFound)
+@pytest.mark.parametrize(
+    ("path", "kind"),
+    [
+        ("typing.TYPE_CHECKING", "variable"),  # infers to bool
+        ("typing.Dict", "variable"),  # infers to the class typing.dict
+        ("__future__.annotations", "variable"),  # infers to a _Feature instance
+        ("typing.ClassVar", "function"),  # infers to _SpecialForm
+    ],
+)
+def test_external_name_is_placed_at_its_definition(
+    project: JediAnalyzer, path: str, kind: str
+) -> None:
+    """#506 for externals (#623 slice 5): the definition at the requested path wins.
+
+    Inference answers "what value is this?", which for these names is another
+    object; goto lands on the definition at exactly this path, so the name is
+    its own canonical handle.
+    """
+    result = _resolved(path, project)
+    assert (result.handle, result.kind, result.scope) == (path, kind, "external")
+
+
+@pytest.mark.parametrize("path", ["collections.abc.Mapping", "os.sep"])
+def test_definition_elsewhere_and_mismatched_inference_are_not_found(
+    project: JediAnalyzer, path: str
+) -> None:
+    """An honest miss, not a wrong answer (#544).
+
+    ``collections.abc.Mapping``'s goto lands on ``typing.Mapping`` (typeshed's
+    reversed claim) and it infers to ``_SpecialGenericAlias``; ``os.sep`` goes to
+    a platform module and infers to ``str``.  Neither is the requested path.
+    """
+    assert isinstance(resolve_handle(path, project), NotFound)
 
 
 def test_inference_never_runs_inside_the_project(project: JediAnalyzer) -> None:

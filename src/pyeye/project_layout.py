@@ -114,6 +114,54 @@ def project_roots(analyzer: Any, boundary: RootsBoundary, *, resolved: bool = Fa
     return dedupe_paths(ordered, resolve_output=resolved)
 
 
+def _resolved_posix(path: Any) -> str:
+    try:
+        return Path(path).resolve().as_posix()
+    except OSError:
+        return Path(path).as_posix()
+
+
+def layout_key(analyzer: Any) -> str:
+    """A stable identity for the analyzer's *effective layout* (#618).
+
+    Anything that maps files to module names depends on the layout, not just on
+    the project root: two analyzers on one root with different source roots name
+    the same file differently (``src.pkg.mod`` vs ``pkg.mod``). Process-wide
+    caches that bake module names in key on this, so analyzers with different
+    layouts on the same root can't read each other's entries.
+
+    Covers every layout attribute in the module docstring, plus standalone
+    script directories. Paths are resolved. ``added_sys_path`` keeps its order
+    (sys.path precedence matters); the other lists are sets; namespaces are
+    sorted by name.
+
+    Args:
+        analyzer: Any object carrying the layout attributes.
+
+    Returns:
+        A string, equal for equal layouts.
+    """
+
+    def paths(attr: str) -> list[str]:
+        return [_resolved_posix(p) for p in getattr(analyzer, attr, None) or []]
+
+    namespaces = getattr(analyzer, "namespace_paths", None) or {}
+    parts = [
+        "root=" + _resolved_posix(analyzer.project_path),
+        "pkgroot=" + str(_root_is_package(analyzer)),
+        "src=" + "|".join(sorted(paths("source_roots"))),
+        "syspath=" + "|".join(paths("added_sys_path")),
+        "pkgs=" + "|".join(sorted(paths("additional_paths"))),
+        "standalone=" + "|".join(sorted(paths("standalone_paths"))),
+        "ns="
+        + ";".join(
+            f"{name}:" + "|".join(sorted(_resolved_posix(p) for p in namespaces[name]))
+            for name in sorted(namespaces)
+        ),
+    ]
+    return "\n".join(parts)
+
+
 def _root_is_package(analyzer: Any) -> bool:
     flag = getattr(analyzer, "_jedi_root_is_parent", None)
     if flag is not None:
@@ -122,23 +170,34 @@ def _root_is_package(analyzer: Any) -> bool:
 
 
 def _is_under(path: Path, parent: Path) -> bool:
+    """Whether *path* lies inside *parent*, as spelled.
+
+    ``relative_to`` is lexical, so ``root/../other/x.py`` would count as inside
+    ``root`` (with a relative path that starts with ``..``). That is how a
+    root-package project used to claim an unnormalised sibling repo's files
+    (#668), so such a path is not "under".
+    """
     try:
-        path.relative_to(parent)
-        return True
+        rel = path.relative_to(parent)
     except ValueError:
         return False
+    return ".." not in rel.parts
 
 
 def _dotted(rel: Path, file: Path) -> str | None:
     """Module name for *file* given its path *rel* relative to a sys.path root.
 
     ``None`` for an ``__init__.py`` sitting directly at the root: it names no
-    importable package from that root.
+    importable package from that root. ``None`` too when any part isn't a
+    Python identifier (``my-pkg``, ``2fast``, ``mod.v2``): no ``import`` can
+    reach the file under that name, so the mapper never invents one (#668).
     """
     parts = list(rel.parts[:-1])
     if file.name != "__init__.py":
         parts.append(file.stem)
-    return ".".join(parts) if parts else None
+    if not parts or not all(part.isidentifier() for part in parts):
+        return None
+    return ".".join(parts)
 
 
 def module_name_for_file(analyzer: Any, file: Path) -> str | None:
@@ -157,7 +216,9 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
     resolved or not) as the analyzer's roots.
 
     Returns ``None`` when the file is under none of them, is not a ``.py``
-    file, or is an ``__init__.py`` directly at a root.
+    file, is an ``__init__.py`` directly at a root, or has a path part that
+    isn't a Python identifier. It never returns an invented name; callers must
+    treat ``None`` as "can't be named", not as "not there" (#668).
     """
     file = Path(file)
     if file.suffix != ".py":

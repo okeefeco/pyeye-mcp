@@ -137,7 +137,6 @@ The server is optimized for speed:
 
 - **5-minute caching** with intelligent invalidation
 - **File watching** for automatic cache updates
-- **Connection pooling** for Jedi analyzers
 - **Concurrent analysis** across multiple projects
 
 Typical response times:

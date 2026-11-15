@@ -139,11 +139,7 @@ def initialize_plugins(project_path: str = ".") -> None:
         try:
             plugin = plugin_class(project_path)
             if plugin.detect():
-                # Pass namespace configuration to the plugin
-                from pathlib import Path
-
-                plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
-                plugin.set_namespace_paths(config.get_namespaces())
+                _apply_plugin_paths(plugin, config)
 
                 _plugins.append(plugin)
                 logger.info(f"Activated {plugin.name()} plugin with namespace support")
@@ -168,6 +164,18 @@ def initialize_plugins(project_path: str = ".") -> None:
     # Outside the per-plugin try: a duplicate name is a bug in the declared names,
     # not an optional plugin failing to load, so it must not be swallowed.
     register_plugin_tools(mcp, _plugins, resolver)
+
+
+def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:
+    """Give *plugin* the package and namespace paths from *config*.
+
+    Shared by ``initialize_plugins`` and ``configure_packages`` (#618), so a
+    reconfigured project's plugins see the same paths a restart would give them.
+    """
+    from pathlib import Path
+
+    plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
+    plugin.set_namespace_paths(config.get_namespaces())
 
 
 _PLUGIN_CLASSES: tuple[type[AnalyzerPlugin], ...] = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
@@ -459,6 +467,7 @@ def configure_packages(
     namespaces: dict[str, list[str]] | None = None,
     standalone_dirs: list[str] | None = None,
     save: bool = True,
+    project_path: str = ".",
 ) -> dict[str, Any]:
     """Python: Configure additional packages, namespaces, and standalone scripts for analysis.
 
@@ -468,10 +477,17 @@ def configure_packages(
         standalone_dirs: Directories containing standalone Python scripts.
             Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
+        project_path: Project root to configure (default: current directory)
     """
-    # Load existing config
+    from pathlib import Path
+
+    from ..analyzers import project_graph
+    from .operations import typeref
+
+    # Load existing config for the project being configured (#618: was always ".")
     global project_config
-    project_config = ProjectConfig(".")
+    root = Path(project_path).resolve()
+    project_config = ProjectConfig(root.as_posix())
     config = project_config
 
     # Update configuration
@@ -496,7 +512,7 @@ def configure_packages(
 
     if len(all_paths) > 1:
         # Configure with all paths
-        manager.get_project(all_paths[0], all_paths[1:])
+        manager.register_project(all_paths[0], all_paths[1:])
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
@@ -506,11 +522,22 @@ def configure_packages(
     # rebuilds with the updated package paths, namespaces, and standalone
     # directories.  Multi-project / namespace scenarios can have stale
     # analyzers for secondary paths too.
-    if all_paths:
-        for path in all_paths:
-            manager.invalidate_analyzer(path)
-    else:
-        manager.invalidate_analyzer(".")
+    manager.invalidate_analyzer(root.as_posix())
+    for path in all_paths:
+        manager.invalidate_analyzer(path)
+
+    # Drop the project's process-wide caches. Layout keying (#618) already keeps
+    # a new layout from reading the old entries; this frees them and covers the
+    # TypeRef cache, which is keyed on the root alone (#620).
+    project_graph.invalidate(root.as_posix())
+    typeref.invalidate_project(root)
+
+    # Plugins are configured once at startup; give this project's plugins the new
+    # paths. Re-detection (a new package bringing a new framework) still needs a
+    # restart.
+    for plugin in _plugins:
+        if plugin.project_path.resolve() == root:
+            _apply_plugin_paths(plugin, config)
 
     result: dict[str, Any] = {
         "packages": config.get_package_paths(),
@@ -519,10 +546,16 @@ def configure_packages(
         "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
     # Report config keys that are present but ignored rather than letting them
-    # read as live (#513). Absent — not [] — when there are none.
+    # read as live (#513, #581). Absent — not [] — when there are none.
+    warnings = []
     ignored = config.get_ignored_standalone_keys()
     if ignored:
-        result["warnings"] = [ProjectConfig.ignored_standalone_keys_message(ignored)]
+        warnings.append(ProjectConfig.ignored_standalone_keys_message(ignored))
+    ignored_top = config.get_ignored_top_level_keys()
+    if ignored_top:
+        warnings.append(ProjectConfig.ignored_top_level_keys_message(ignored_top))
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
@@ -661,11 +694,14 @@ async def expand(
     Supported edges (the complete static/outbound set):
       - ``members``  — class/module → direct members (attributes, methods, nested
         classes).  ``stubs: []`` means the class/module was found but has no
-        members; that is NOT the same as unsupported.  Static-surface ceiling:
-        members are read from source; runtime-injected members (metaclass /
-        ``setattr`` / ``__getattr__`` / ``type()`` / ``__init_subclass__``) are
-        NOT captured — e.g. a Django ``Model`` shows none of its metaclass-injected
-        ``_meta`` / ``objects`` / ``DoesNotExist``.
+        members; that is NOT the same as unsupported.  Measured scope: a class's
+        members are its class-body definitions; instance attributes assigned in
+        methods (``self.x = ...``) are NOT measured.  A module's members are its
+        module-level definitions.  Static-surface ceiling: runtime-injected
+        members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+        ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` shows
+        none of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.
+        A name missing from ``stubs`` is unknown outside that scope, not absent.
       - ``callees``  — function/method → forward static call targets.  Includes
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
@@ -677,9 +713,11 @@ async def expand(
         a function or class body too (a lazy import is still a dependency).
         So it is NOT the exact inverse of ``imports``: if ``imports(M)`` shows
         module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
-        importer appears only here.  Non-module handles return the unsupported branch
-        with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
-        not yet implemented).  Ceiling: runtime-dynamic imports
+        importer appears only here.  A file that imports it but has no module
+        name (``my-script.py``, ``tools-dir/x.py``) can't be a stub; it is listed
+        in ``unresolved_importers`` (#668), never dropped.  Non-module handles
+        return the unsupported branch with ``reason: "not_applicable"`` (#626).
+        Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
@@ -693,36 +731,39 @@ async def expand(
         reference backend / class-graph cache (#333/#397), because even the direct
         count is a reverse query needing the same project-wide scan as
         ``callers``/``references``.  ``stubs: []`` means the class has no project
-        subclasses (measured-none).  A non-class handle also returns the supported
-        branch with ``stubs: []`` (and no ``transitive_hint``) — only a class CAN
-        be subclassed, so ``[]`` is true by definition, not an absence-vs-zero
-        lie.  Static-surface ceiling: the result is complete only over literal
+        subclasses (measured-none).  A non-class handle returns the unsupported
+        branch with ``reason: "not_applicable"`` (#626).  Static-surface ceiling: the result is complete only over literal
         ``class B(A):`` subclassing; dynamically-created subclasses
         (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
         registration) are NOT captured.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle
-        returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).
+        returns the unsupported branch with ``reason: "not_applicable"``.
       - ``imports``  — module → the symbols/modules it imports (Stubs), computed
         by static AST + forward ``goto``.  Counts the imports that bind a
         module-scope name (guarded ones included; imports inside a function or
         class body are not), and reports each imported symbol at its canonical
         definition site.  ``stubs: []`` is measured-none.  A
         non-module handle returns the unsupported branch with
-        ``reason: "not_yet_implemented"`` (mirrors ``imported_by``).
+        ``reason: "not_applicable"`` (mirrors ``imported_by``).
       - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope
         (the inverse of ``members``), resolved by Jedi ``parent()``: a method →
         its class, a nested def/class → its enclosing def/class, a top-level
         def/class/variable → its module.  At most ONE Stub.  A module returns
-        ``stubs: []`` (a module has no enclosing lexical scope — packages are not
-        lexical scopes); ``[]`` is therefore measured-empty, never unsupported.
+        the unsupported branch with ``reason: "not_applicable"``: a module has no
+        enclosing lexical scope (packages are not lexical scopes).
 
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Wrong-kind handles (e.g. ``imported_by`` on a non-module) return the
-        unsupported branch with ``reason: "not_yet_implemented"``.
+      - Wrong-kind handles (an edge that doesn't apply to the handle's kind, e.g.
+        ``imported_by`` on a class or ``members`` on a function) return the
+        unsupported branch with ``reason: "not_applicable"`` (#626). Which kinds
+        each edge applies to is one table, ``edges.EDGE_APPLIES_TO``:
+        members → class, module; callees → function, method; imports,
+        imported_by, submodules → module; subclasses, superclasses → class;
+        enclosing_scope → every kind except module.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union.  ``found`` is always present.
@@ -744,7 +785,8 @@ async def expand(
           "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
-          "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624); [] when all resolved
+          "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
+          "unresolved_importers": [file, ...] }  # imported_by ONLY (#668); [] when all named
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -754,7 +796,8 @@ async def expand(
           "edge":   str,
           "unsupported": True,
           "reason":  str,               # deferred_reference_backend |
-                                        # not_yet_implemented | unknown_edge
+                                        # not_yet_implemented | unknown_edge |
+                                        # not_applicable
           "detail":  str,               # human-readable explanation
           "report_issues": str }        # #458 — URL to report this limitation
 
@@ -834,6 +877,7 @@ async def trace(
           "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
+          "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
@@ -909,11 +953,14 @@ async def outline(
     node's handle, or pass a larger ``max_depth`` (``None`` = unbounded).
 
     **Static-surface ceiling.** The tree walks the ``members`` edge, so it is
-    complete over what is *statically defined in source* but not over runtime.
-    Runtime-injected members (metaclass / ``setattr`` / ``__getattr__`` /
-    ``type()`` / ``__init_subclass__``) are NOT captured — e.g. ``outline`` of a
+    complete only over that edge's measured scope: class-body definitions for a
+    class (instance attributes assigned in methods, ``self.x = ...``, are NOT
+    measured) and module-level definitions for a module.  Runtime-injected
+    members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+    ``__init_subclass__``) are NOT captured either — e.g. ``outline`` of a
     Django ``Model`` omits its metaclass-injected ``_meta`` / ``objects`` /
-    ``DoesNotExist``.  An absent member is "not in source," not "not at runtime."
+    ``DoesNotExist``.  An absent member is unknown outside the measured scope,
+    not absent from the code.
 
     **Absence contracts — an agent MUST read these before consuming the tree.**
 

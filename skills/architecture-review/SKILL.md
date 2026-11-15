@@ -94,7 +94,9 @@ the orchestrator's job is to wire the steps together and drive the human loop.
 - **Resolve the caller-supplied scope** to a canonical handle (a package, module,
   or directory). Scope is **required** — if the caller gave none, ask for one; do
   not default to the whole repo (auto-iteration is deferred).
-- **Load the Tier-3 baseline:** `docs/decisions/DECISIONS.md` plus any existing
+- **Load the Tier-3 baseline:** the decision log, one file per decision in
+  `docs/decisions/entries/` (list them with `python scripts/decisions.py index
+  --active` where that script exists, then open the relevant ones), plus any existing
   conformance tests / fitness functions. These are the *only* first-strength
   external anchors a recommendation may cite.
 - **Load prior cross-run state** with `state.load_state(path)`: prior coverage,
@@ -134,12 +136,21 @@ stage can only *downgrade* a grade (to `ambiguous`); neither invents or promotes
    *surviving* `deterministic_single`, the injected `corroborate_fn`
    **independently re-derives its Tier-1 fact** from source / AST (or an LSP) —
    **NOT** from another pyeye edge and **NOT** from the auditor's own evidence
-   (for import / layering facts, wire in `guard.imports_via_ast`, a from-scratch
-   stdlib `ast` reader). If the independent derivation diverges from the
-   auditor's fact, the guard rewrites the grade to `ambiguous` and sets
-   `possible_extractor_bug = True` (surface, do not confirm). This is what catches a
-   *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge silently dropping
-   a real import, #494) — the gate cannot, because a reproducible error reproduces.
+   (for import / layering facts, wire in `guard.corroborate_imports`, which
+   compares the edge's resolved imports and its `unresolved_imports` against
+   `guard.imports_via_ast`, a from-scratch stdlib `ast` reader). The verdict has
+   three states (#499):
+   - **corroborated**: the finding keeps `deterministic_single`.
+   - **divergent**: the guard rewrites the grade to `ambiguous` and sets
+     `possible_extractor_bug = True` (surface, do not confirm). This is what
+     catches a *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge
+     silently dropping a real import, #494) — the gate cannot, because a
+     reproducible error reproduces.
+   - **cannot_confirm**: the fact couldn't be decided (an import listed in
+     `unresolved_imports`, or source that doesn't parse). The grade becomes
+     `ambiguous` with `corroboration: "cannot_confirm"` and **no**
+     `possible_extractor_bug`: present it to the human as "needs review, could
+     not verify", never as confirmed and never as an extractor bug.
 
 Net: `deterministic_single` survives only when **reproduction-stable AND
 cross-derivation-corroborated.**
@@ -213,8 +224,8 @@ handles / #issue) — never bare `file:line`; `Verify` must be honestly tiered
 (gold / partial / unverifiable).
 
 When drafting the entry, pull evidence and handles from the finding verbatim.
-The entry appends to `docs/decisions/DECISIONS.md` (newest on top; create with
-the standard header if absent).
+The entry is a new file in `docs/decisions/entries/`, in the format the
+`decision-log` skill's File Convention defines (one file per decision; #679).
 
 **Prefer an executable fitness-function or conformance-test stub** so the norm
 becomes a running check (anti-drift, spec §14): the stub lives in `tests/` and

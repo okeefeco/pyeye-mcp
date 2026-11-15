@@ -234,6 +234,18 @@ repos:
       - id: markdownlint
         args: ['--fix']
 
+  # Decision log (#679): one file per decision in docs/decisions/entries/. Validates
+  # front matter, names and symmetric amend/supersede links, and points at
+  # `scripts/decisions.py migrate` if an entry was written into DECISIONS.md.
+  - repo: local
+    hooks:
+      - id: decisions-check
+        name: Decision log check (one file per decision)
+        entry: uv run --frozen python scripts/decisions.py check
+        language: system
+        files: ^(docs/decisions/|scripts/decisions\.py$)
+        pass_filenames: false
+
   # Decision-log nudge — runs AFTER each commit, never blocks. Prints a one-line
   # suggestion when the just-committed diff touches a contract surface (new
   # PYEYE_* config knob, public/dunder signature change, or an output-shape dict
@@ -250,16 +262,16 @@ repos:
         always_run: true
         verbose: true
 
-  # Duplicate-code report (#616): near-identical AST token runs in the MCP
-  # operations and canonicalization. REPORT-ONLY: the script always exits 0
-  # (today's known copies are consolidated under #629 Phase 2), so it never
-  # blocks a commit or CI. verbose:true so the report shows despite passing.
-  # Making it blocking (--fail-on-findings) is a pending user decision; see
-  # docs/development/duplicate-code-check.md.
+  # Duplicate-code ratchet (#616, blocking since #636): near-identical AST token
+  # runs in the MCP operations and canonicalization. Fails on a clone site not
+  # in the script's BASELINE, and on a baselined site that has gone (delete its
+  # entry). verbose:true so the report shows when it passes. pytest runs the
+  # same ratchet (tests/test_duplicate_code_report.py), so it is enforced even
+  # when this file filter skips the hook. See docs/development/duplicate-code-check.md.
   - repo: local
     hooks:
       - id: duplicate-code-report
-        name: Duplicate-code report (non-blocking)
+        name: Duplicate-code ratchet
         entry: uv run --frozen python scripts/duplicate_code_report.py
         language: system
         files: ^(src/pyeye/mcp/operations/.*|src/pyeye/canonicalization)\.py$

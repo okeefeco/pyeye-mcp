@@ -14,14 +14,15 @@ Supported identifier forms
 
 Resolution strategy
 -------------------
-- Bare names are resolved by enumerating *all* matches via
-  ``JediAnalyzer.find_symbol``.  If exactly one match, return success; if
-  multiple, return an ambiguous result with sorted candidates; if zero, return
-  not-found.
-- Dotted names are passed directly to ``resolve_canonical``, which follows
-  multi-hop re-export chains and returns the definition-site Handle.
+- Bare names go through :func:`pyeye.resolver.resolve_name`: a #423 shadow is
+  ambiguous, an exact top-level module wins, otherwise every project
+  definition of the name is a canonical candidate (one → success, several →
+  ambiguous with sorted candidates, none → not-found).
+- Dotted names go through :func:`pyeye.resolver.resolve_handle`, which follows
+  re-export chains and returns the definition-site handle (#623).
 - File-with-line: read the line to locate the first non-whitespace column,
-  then use ``script.goto()`` at that position to find the symbol's definition.
+  then use ``script.goto()`` at that position to find the symbol's definition,
+  canonicalized through the resolver.
 - File-only: convert the file path to a dotted module path via
   ``_get_import_path_for_file`` and return a module-scoped Handle.
 
@@ -54,15 +55,9 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
-from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
-from pyeye.kinds import (
-    normalise_kind as _normalise_kind,
-    normalise_kind_from_name as _normalise_kind_from_name,
-)
 from pyeye.mcp.operations.not_found import not_found_for
-from pyeye.project_layout import RootsBoundary, find_namespace_package_dirs, project_roots
-from pyeye.resolver import NotFound, Resolved, resolve_handle
+from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -195,132 +190,6 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
         _SCOPE_ORDER.get(candidate["scope"], 99),
         candidate["location"]["file"],
         candidate["location"]["line_start"],
-    )
-
-
-def _parent_is_root(path: Path, roots: list[Path]) -> bool:
-    """Return whether *path*'s parent resolves to one of the project *roots*."""
-    try:
-        parent = path.parent.resolve()
-    except OSError:
-        return False
-    return any(parent == root for root in roots)
-
-
-def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyzer) -> bool:
-    """Return whether *candidate* is the top-level package named *name* (§7.1).
-
-    A **structural** predicate (keys on file layout, NOT the name string beyond
-    the exact-match clause) so a deeper symbol that merely shares the root's name
-    is never promoted.  Both clauses must hold:
-
-    1. the candidate's handle has **no dots** and equals *name* (a deeper
-       ``foo.bar.name`` has dots → never qualifies); and
-    2. its ``location.file`` is a **root-level regular-package anchor**: a
-       ``__init__.py`` whose parent dir is named *name* and whose grandparent is
-       a project root.
-
-    **Regular packages only.** A PEP 420 namespace root (no ``__init__.py``)
-    surfaces via ``find_symbol`` with an *empty* ``location.file``, so it never
-    satisfies clause (2) and is never promoted by bare name.  Anchoring a
-    namespace root to a project handle (so bare-name promotion could work) is
-    deferred to #444; until then a namespace root resolves via ``resolve(path)``
-    (see the §7.2 boundary in the design spec).
-
-    Args:
-        candidate: The resolve candidate under test.
-        name: The bare queried name.
-        analyzer: Active analyzer (supplies the project roots).
-
-    Returns:
-        ``True`` iff *candidate* is the top-level regular package for *name*.
-    """
-    # Clause 1 — handle is exactly the bare name (no dots).
-    handle = candidate["handle"]
-    if "." in handle or handle != name:
-        return False
-
-    # Clause 2 — root-level regular-package anchor: <root>/<name>/__init__.py.
-    file_str = candidate["location"]["file"]
-    if not file_str:
-        return False
-    path = Path(file_str)
-    if path.name != "__init__.py":
-        return False
-    pkg_dir = path.parent
-    return pkg_dir.name == name and _parent_is_root(
-        pkg_dir, project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE, resolved=True)
-    )
-
-
-def _select_root_package(
-    candidates: list[_Candidate], name: str, analyzer: JediAnalyzer
-) -> _Candidate | None:
-    """Promote a unique top-level package from *candidates*, else ``None`` (§7.1).
-
-    Keeps the candidates satisfying :func:`_is_top_level_package`, then promotes
-    only when they identify ONE unambiguous root package:
-
-    - zero survivors → ``None`` (no root package among the candidates);
-    - more than one DISTINCT handle → ``None`` (genuinely ambiguous);
-    - one distinct handle but more than one DISTINCT on-disk file → ``None``: a
-      real **shadow**, two top-level packages sharing an import name across roots
-      (e.g. ``project/<name>`` and ``src/<name>``).  Silently picking one would
-      hide the collision, so stay ambiguous (#423 review).
-
-    Args:
-        candidates: The ambiguous candidate set.
-        name: The bare queried name.
-        analyzer: Active analyzer.
-
-    Returns:
-        The promoted candidate, or ``None`` to keep the ambiguous result.
-    """
-    kept = [c for c in candidates if _is_top_level_package(c, name, analyzer)]
-    if not kept:
-        return None
-    if len({c["handle"] for c in kept}) != 1:
-        return None
-    if len({c["location"]["file"] for c in kept}) != 1:
-        return None
-    return kept[0]
-
-
-def _anchor_namespace_package(name: str, analyzer: JediAnalyzer) -> _SuccessResult | None:
-    """Anchor a top-level PEP 420 namespace package to a directory handle (#444).
-
-    Jedi surfaces a no-``__init__.py`` namespace package as unanchored external
-    symbol(s) with an empty ``module_path`` (or nothing at all), so it never
-    resolves to a project handle and the cold-start survey returns empty.  When
-    *name* is a namespace package on disk (``find_namespace_package_dirs`` finds
-    its portion dirs), return a project/external-scoped success **anchored on the
-    package directory itself** — consistent with the dir-anchored stub contract
-    the ``submodules`` edge already uses (the handle's location ``file`` is a
-    directory, never byte-read).
-
-    The handle is the bare *name* (a top-level package is its own canonical
-    handle).  Scope is classified from the anchor directory, so a namespace
-    package inside the project is ``project`` (the case #444 is about), while one
-    on an external sys.path root stays ``external``.
-
-    Args:
-        name: The bare queried name (a top-level namespace package candidate).
-        analyzer: Active analyzer (supplies the search roots).
-
-    Returns:
-        A dir-anchored :class:`_SuccessResult`, or ``None`` if *name* is not a
-        namespace package on disk (caller falls back to its normal path).
-    """
-    dirs = find_namespace_package_dirs(name, analyzer)
-    if not dirs:
-        return None
-    anchor = dirs[0].as_posix()
-    return _SuccessResult(
-        found=True,
-        handle=name,
-        kind="module",
-        scope=classify_scope(anchor, analyzer),
-        location=_make_location(anchor, 1, 0),
     )
 
 
@@ -467,265 +336,22 @@ def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _get_jedi_name_from_match(
-    file_posix: str,
-    line: int | None,
-    column: int | None,
-    analyzer: JediAnalyzer,
-) -> Any | None:
-    """Return the Jedi Name object at (file, line, column), or None on failure.
-
-    Used to upgrade a match-dict location to a full span via
-    :func:`~pyeye._jedi_location.location_from_name`.  The lookup is best-effort;
-    callers fall back to the degenerate point-location when ``None`` is returned.
-
-    Args:
-        file_posix: POSIX path string of the source file.
-        line: 1-indexed line number (may be None if unavailable).
-        column: 0-indexed column (may be None if unavailable).
-        analyzer: Active analyzer for file-level Jedi access.
-
-    Returns:
-        A Jedi ``Name`` object on success, or ``None`` on any failure.
-    """
-    if not file_posix or line is None:
-        return None
-    try:
-        file_path = Path(file_posix)
-        if not file_path.exists():
-            return None
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        resolved_col = column if column is not None else 0
-        defs = script.goto(line, resolved_col, follow_imports=False)
-        if defs:
-            return defs[0]
-    except Exception:
-        pass
-    return None
-
-
 async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
-    """Enumerate all project matches for a bare (no-dots) symbol name.
+    """Resolve a bare (no-dots) name through the one resolver (#623).
 
-    Calls ``analyzer.find_symbol(name)`` to get all matches.  Returns:
-    - success if exactly one project match is found
-    - ambiguous if multiple project matches are found
-    - not-found if no matches are found
+    :func:`pyeye.resolver.resolve_name` decides: a #423 shadow is ambiguous, an
+    exact top-level module wins, otherwise every project definition of the
+    name is a canonical candidate.
     """
-    try:
-        matches = await analyzer.find_symbol(name)
-    except Exception as exc:
-        logger.debug("_resolve_bare_name(%r): find_symbol failed: %s", name, exc)
+    result = await resolve_name(name, analyzer)
+    if isinstance(result, NotFound):
         return _miss("unresolved")
-
-    # NOTE: do NOT early-return on empty matches — a PEP 420 namespace package
-    # surfaces as zero matches (the AST name-index has no file-less entry for it)
-    # and must still reach the #444 anchoring below (#457).
-
-    # Filter to matches that have a full_name (resolvable symbols)
-    valid_matches = [m for m in matches if m.get("full_name")]
-
-    # Namespace-package anchoring (#444): a top-level PEP 420 namespace package
-    # (no __init__.py) surfaces via Jedi as unanchored external symbol(s) with an
-    # empty module_path — or as nothing at all.  When every match is such an
-    # unanchored symbol (or there are none), anchor the name to its on-disk
-    # directory so the cold-start chain (inspect / outline / expand) can fire
-    # from the top.  Keyed on disk structure, so a genuinely anchored symbol of
-    # the same name (with a real file) is never shadowed.
-    if not valid_matches or all(not (m.get("module_path") or m.get("file")) for m in valid_matches):
-        anchored = _anchor_namespace_package(name, analyzer)
-        if anchored is not None:
-            return anchored
-
-    if not valid_matches:
-        # No project symbol by that name: an exact top-level module (``os``,
-        # ``io``, ``logging``) resolves to itself (#623, #602).  With index hits
-        # the "exact module wins" policy is #623 slice 4.
-        return _from_resolver(name, analyzer)
-
-    if len(valid_matches) == 1:
-        return await _build_success_from_match(valid_matches[0], analyzer)
-
-    # Multiple matches — build ambiguous result
-    candidates: list[_Candidate] = []
-    for match in valid_matches:
-        candidate = await _build_candidate_from_match(match, analyzer)
-        if candidate is not None:
-            candidates.append(candidate)
-
-    if not candidates:
-        return _miss("unresolved")
-
-    if len(candidates) == 1:
-        # After deduplication, only one valid candidate
-        c = candidates[0]
-        return _SuccessResult(
-            found=True,
-            handle=c["handle"],
-            kind=c["kind"],
-            scope=c["scope"],
-            location=c["location"],
+    if isinstance(result, Ambiguous):
+        candidates = sorted(
+            (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
         )
-
-    # Root-package disambiguation (#423): a bare top-level package name should
-    # resolve to its single root handle, not an ambiguous set.  This runs BEFORE
-    # the ambiguous fallback and keys on file structure (not the name string), so
-    # a submodule sharing the root's name is never wrongly promoted.
-    root = _select_root_package(candidates, name, analyzer)
-    if root is not None:
-        return _SuccessResult(
-            found=True,
-            handle=root["handle"],
-            kind=root["kind"],
-            scope=root["scope"],
-            location=root["location"],
-        )
-
-    # Sort candidates deterministically: (scope, file, line_start)
-    candidates.sort(key=_candidate_sort_key)
-
-    return _AmbiguousResult(
-        found=True,
-        ambiguous=True,
-        candidates=candidates,
-    )
-
-
-async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyzer) -> _HelperResult:
-    """Build a _SuccessResult from a single find_symbol match dict."""
-    full_name = match.get("full_name", "")
-    file_str = match.get("file", "")
-
-    # Canonicalise
-    handle = await resolve_canonical(full_name, analyzer)
-    if handle is None:
-        try:
-            handle = Handle(full_name)
-        except ValueError:
-            return _miss("unresolved")
-
-    scope = classify_scope(file_str, analyzer) if file_str else "external"
-    file_posix = Path(file_str).as_posix() if file_str else ""
-    match_line = match.get("line")
-    match_col = match.get("column")
-
-    # Attempt to get a real Jedi Name for the span (column_end + line_end).
-    # Falls back to the degenerate _make_location shape when lookup fails.
-    # The Jedi Name also drives method promotion (function → method, #406);
-    # the match dict's flat ``type`` cannot see class nesting.
-    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
-    if jedi_name is not None:
-        location = cast(_Location, location_from_name(file_posix, jedi_name))
-        kind = _normalise_kind_from_name(jedi_name)
-    else:
-        location = _make_location(file_posix, match_line, match_col)
-        kind = _normalise_kind(match.get("type"))
-
-    return _SuccessResult(
-        found=True,
-        handle=str(handle),
-        kind=kind,
-        scope=scope,
-        location=location,
-    )
-
-
-async def _build_candidate_from_match(
-    match: dict[str, Any], analyzer: JediAnalyzer
-) -> _Candidate | None:
-    """Build a _Candidate dict from a single find_symbol match dict."""
-    full_name = match.get("full_name", "")
-    file_str = match.get("file", "")
-
-    if not full_name:
-        return None
-
-    # Canonicalise
-    handle = await resolve_canonical(full_name, analyzer)
-    if handle is None:
-        try:
-            handle = Handle(full_name)
-        except ValueError:
-            return None
-
-    scope = classify_scope(file_str, analyzer) if file_str else "external"
-
-    match_line = match.get("line") or 1
-    match_col = match.get("column") or 0
-    file_posix = Path(file_str).as_posix() if file_str else ""
-
-    # Attempt to get a real Jedi Name for the span (column_end + line_end).
-    # Falls back to the degenerate point shape when lookup fails.  The Jedi Name
-    # also drives method promotion (function → method, #406) so candidates carry
-    # the same kind a later resolve/inspect of the chosen handle would report.
-    jedi_name = _get_jedi_name_from_match(file_posix, match_line, match_col, analyzer)
-    if jedi_name is not None:
-        loc = cast(_Location, location_from_name(file_posix, jedi_name))
-        kind = _normalise_kind_from_name(jedi_name)
-    else:
-        kind = _normalise_kind(match.get("type"))
-        loc = _Location(
-            file=file_posix,
-            line_start=match_line,
-            line_end=match_line,
-            column_start=match_col,
-            column_end=match_col,
-        )
-
-    return _Candidate(
-        handle=str(handle),
-        kind=kind,
-        scope=scope,
-        location=loc,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Dotted-name resolution helper
-# ---------------------------------------------------------------------------
-
-
-def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
-    """Look up kind by re-deriving from the canonical handle's definition site.
-
-    Used as a fallback when ``find_symbol`` leaf search doesn't return the
-    matching symbol.  Walks the dotted handle up to its enclosing module file,
-    then searches ``jedi.Script.get_names`` (all scopes) for the symbol and
-    normalises its kind — promoting class-enclosed functions to ``"method"``.
-
-    The handle may name a nested symbol (``Class.method``, ``Outer.Inner``) whose
-    module is several components up, so we strip trailing components until
-    ``find_module_file`` succeeds rather than splitting only at the last dot —
-    the old single split treated the class as a module, missed the symbol, and
-    fell through to ``"variable"`` (issue #406).
-
-    Returns ``"module"`` for a bare module name (no dot), ``"variable"`` when
-    the kind genuinely cannot be determined (safest Python kind — every binding
-    is at minimum a name binding).
-    """
-    from pyeye.canonicalization import find_module_file
-
-    if "." not in canonical_handle:
-        return "module"  # bare module name
-
-    module_file = None
-    prefix = canonical_handle
-    while "." in prefix:
-        prefix = prefix.rsplit(".", 1)[0]
-        module_file = find_module_file(prefix, analyzer)
-        if module_file is not None:
-            break
-    if module_file is None:
-        return "variable"  # safer default than "class"
-
-    script = file_artifact_cache.get_script(module_file, analyzer.project)
-    try:
-        for name_obj in script.get_names(all_scopes=True, definitions=True, references=False):
-            if name_obj.full_name == canonical_handle:
-                return _normalise_kind_from_name(name_obj) or "variable"
-    except Exception as exc:
-        logger.debug("_kind_for_canonical(%r): get_names failed: %s", canonical_handle, exc)
-    return "variable"
+        return _AmbiguousResult(found=True, ambiguous=True, candidates=candidates)
+    return _success_from_resolved(result)
 
 
 async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
@@ -739,6 +365,17 @@ def _from_resolver(path: str, analyzer: JediAnalyzer) -> _HelperResult:
     if isinstance(resolved, NotFound):
         return _miss("unresolved")
     return _success_from_resolved(resolved)
+
+
+def _candidate_from_resolved(resolved: Resolved) -> _Candidate:
+    """Build an ambiguous-result candidate from a :class:`~pyeye.resolver.Resolved`."""
+    success = _success_from_resolved(resolved)
+    return _Candidate(
+        handle=success["handle"],
+        kind=success["kind"],
+        scope=success["scope"],
+        location=success["location"],
+    )
 
 
 def _success_from_resolved(resolved: Resolved) -> _SuccessResult:

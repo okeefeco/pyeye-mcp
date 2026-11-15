@@ -90,7 +90,12 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
+from pyeye.mcp.operations.edges import (
+    EDGE_APPLIES_TO,
+    edge_applies,
+    resolve_members,
+    resolve_submodules,
+)
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.project_layout import package_kind
@@ -116,11 +121,11 @@ _MEMBER_COUNT: str = "member_count"
 _SUBMODULE_COUNT: str = "submodule_count"
 
 # ---------------------------------------------------------------------------
-# Container kinds — resolve_members returns [] for non-containers by definition,
-# so non-container nodes always get children: [] without calling resolve_members.
+# Container kinds — the kinds ``members`` applies to (#626's table), so a
+# non-container node gets children: [] without calling resolve_members.
 # ---------------------------------------------------------------------------
 
-_CONTAINER_KINDS: frozenset[str] = frozenset({"class", "module"})
+_CONTAINER_KINDS: frozenset[str] = EDGE_APPLIES_TO["members"]
 
 
 def _is_container(kind: str) -> bool:
@@ -135,8 +140,17 @@ def _is_package(jedi_name: Any) -> bool:
     anchored on its directory, per :func:`pyeye.project_layout.package_kind`
     (#625). ``"unknown"`` is not a package here: survey mode needs a path that
     proves it. A plain ``X.py`` module becomes a leaf in survey mode.
+
+    Only a MODULE can be a package (#697): a class or function defined in a
+    package ``__init__.py`` shares that file as its ``module_path``, so the path
+    alone would survey the package's submodules as if they were the class's
+    children. The kind gate is the ``submodules`` row of the edge-applicability
+    table (:func:`edge_applies`), the same rule ``expand`` answers
+    ``not_applicable`` with.
     """
-    return package_kind(getattr(jedi_name, "module_path", None)) in ("regular", "namespace")
+    return edge_applies("submodules", jedi_name) and package_kind(
+        getattr(jedi_name, "module_path", None)
+    ) in ("regular", "namespace")
 
 
 def _child_adjacents(
@@ -302,7 +316,9 @@ async def outline(
     walks are explicit: ``max_depth=N``, or ``max_depth=None`` for unbounded.
 
     Static-surface ceiling: because the walk is over ``members``, the tree is
-    complete over statically-defined members but NOT over runtime-injected ones
+    complete over that edge's measured scope (class-body definitions for a
+    class, so instance attributes assigned in methods are NOT measured;
+    module-level definitions for a module) but NOT over runtime-injected ones
     (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
     ``__init_subclass__``) — e.g. a Django ``Model`` omits its metaclass-injected
     ``_meta`` / ``objects`` / ``DoesNotExist``.

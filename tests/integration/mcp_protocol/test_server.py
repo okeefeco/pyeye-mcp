@@ -19,8 +19,6 @@ from pyeye.mcp.server import (
 async def _find_subclasses_flat(
     base_class: str,
     project_path: str,
-    include_indirect: bool = True,
-    show_hierarchy: bool = False,
 ) -> list[dict[str, Any]]:
     """Flatten ``JediAnalyzer.find_subclasses`` to the legacy ``list[dict]`` contract.
 
@@ -32,11 +30,7 @@ async def _find_subclasses_flat(
     preserved against the kept analyzer method.
     """
     analyzer = JediAnalyzer(project_path)
-    result = await analyzer.find_subclasses(
-        base_class=base_class,
-        include_indirect=include_indirect,
-        show_hierarchy=show_hierarchy,
-    )
+    result = await analyzer.find_subclasses(base_class=base_class)
 
     if result.get("ambiguous", False):
         merged: list[dict[str, Any]] = []
@@ -45,11 +39,7 @@ async def _find_subclasses_flat(
             candidate_handle = candidate.get("handle")
             if not candidate_handle:
                 continue
-            candidate_result = await analyzer.find_subclasses(
-                base_class=candidate_handle,
-                include_indirect=include_indirect,
-                show_hierarchy=show_hierarchy,
-            )
+            candidate_result = await analyzer.find_subclasses(base_class=candidate_handle)
             for subclass in candidate_result.get("subclasses", []):
                 key = subclass.get("full_name") or repr(subclass)
                 if key not in seen:
@@ -196,78 +186,6 @@ class TestConfigurePackages:
         mock_validator.validate_path.assert_called()
 
 
-class TestFindSymbol:
-    """Test the find_symbol analyzer method (re-export behavior)."""
-
-    @pytest.mark.asyncio
-    async def test_find_symbol_with_reexports(self):
-        """Test find_symbol includes import_paths for re-exported symbols."""
-        # Use the test fixture
-        fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
-
-        # Find the User symbol in the test fixture
-        analyzer = JediAnalyzer(fixture_path)
-        results = await analyzer.find_symbol("User", include_import_paths=True, scope="main")
-
-        # Should find at least one result
-        assert len(results) > 0
-
-        # Check that import_paths is included for the User class
-        user_found = False
-        for result in results:
-            if result.get("name") == "User" and "user.py" in result.get("file", ""):
-                user_found = True
-                # Should have import_paths field with re-export information
-                assert "import_paths" in result
-                import_paths = result["import_paths"]
-                assert len(import_paths) >= 2
-                # Should have both direct and re-exported paths
-                assert any(
-                    "from reexport_test.models.user import User" in path for path in import_paths
-                )
-                assert any("from reexport_test.models import User" in path for path in import_paths)
-
-        assert user_found, "User class not found in results"
-
-    @pytest.mark.asyncio
-    async def test_find_symbol_multi_level_reexports(self):
-        """Test find_symbol with multi-level re-exports."""
-        fixture_path = str(Path(__file__).parent.parent.parent / "fixtures" / "reexport_test")
-
-        # Find the Authenticator symbol
-        analyzer = JediAnalyzer(fixture_path)
-        results = await analyzer.find_symbol(
-            "Authenticator", include_import_paths=True, scope="main"
-        )
-
-        # Should find the Authenticator class
-        assert len(results) > 0
-
-        auth_found = False
-        for result in results:
-            if result.get("name") == "Authenticator" and "authenticator.py" in result.get(
-                "file", ""
-            ):
-                auth_found = True
-                assert "import_paths" in result
-                import_paths = result["import_paths"]
-                # Should have multiple levels of re-exports
-                assert len(import_paths) >= 3
-                # Check for all three levels
-                assert any(
-                    "from reexport_test.core.auth.authenticator import Authenticator" in p
-                    for p in import_paths
-                )
-                assert any(
-                    "from reexport_test.core.auth import Authenticator" in p for p in import_paths
-                )
-                assert any(
-                    "from reexport_test.core import Authenticator" in p for p in import_paths
-                )
-
-        assert auth_found, "Authenticator class not found in results"
-
-
 class TestFindSubclasses:
     """Test the kept ``JediAnalyzer.find_subclasses`` method (flat-list contract)."""
 
@@ -296,8 +214,8 @@ class Cat(Animal):
         assert "Cat" in names
 
     @pytest.mark.asyncio
-    async def test_find_subclasses_with_params(self, temp_project_dir):
-        """Test find_subclasses with include_indirect and show_hierarchy."""
+    async def test_find_subclasses_direct_only(self, temp_project_dir):
+        """find_subclasses returns direct subclasses only; the grandchild is excluded."""
         test_file = temp_project_dir / "hierarchy.py"
         test_file.write_text("""
 class Base:
@@ -310,23 +228,14 @@ class Leaf(Middle):
     pass
 """)
 
-        # Test with indirect=False
-        result = await _find_subclasses_flat("Base", str(temp_project_dir), include_indirect=False)
-        assert len(result) == 1
-        assert result[0]["name"] == "Middle"
+        result = await _find_subclasses_flat("Base", str(temp_project_dir))
+        assert [r["name"] for r in result] == ["Middle"]
+        assert result[0]["is_direct"] is True
+        assert result[0]["direct_parent"] == "Base"
 
-        # Test with indirect=True and hierarchy
-        result = await _find_subclasses_flat(
-            "Base", str(temp_project_dir), include_indirect=True, show_hierarchy=True
-        )
-        assert len(result) == 2
-        names = {r["name"] for r in result}
-        assert "Middle" in names
-        assert "Leaf" in names
-
-        # Check hierarchy is included
-        for r in result:
-            assert "inheritance_chain" in r
+        # The grandchild is one more hop away: a direct subclass of Middle.
+        result = await _find_subclasses_flat("Middle", str(temp_project_dir))
+        assert [r["name"] for r in result] == ["Leaf"]
 
     @pytest.mark.asyncio
     async def test_find_subclasses_not_found(self, temp_project_dir):

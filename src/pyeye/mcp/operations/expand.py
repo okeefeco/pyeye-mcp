@@ -25,18 +25,20 @@ is then supported or unsupported, distinguished by the presence of
       "edge": str,
       "stubs": [Stub, ...],         # [] means MEASURED, none found
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
-      "unresolved_imports": [target, ...],  # imports ONLY (#494) — ABSENT otherwise
-      "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624) — ABSENT otherwise
+      "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
+      "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
+      "unresolved_importers": [file, ...] }  # imported_by ONLY (#668) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
-reference edge, or an unknown name)::
+reference edge, an unknown name, or ``not_applicable``: an implemented edge that
+doesn't apply to the source's kind, per ``edges.EDGE_APPLIES_TO``, #626)::
 
     { "found": True,
       "source": str,
       "edge": str,
       "unsupported": True,
       "reason": "deferred_reference_backend" | "not_yet_implemented"
-                | "unknown_edge",
+                | "unknown_edge" | "not_applicable",
       "detail": str,
       "report_issues": url }   # #458 — where to report this limitation
 
@@ -53,6 +55,10 @@ Design invariants
 - ``unresolved_imports`` is present ONLY for ``imports`` (#494): the resolver
   returns a list (``[]`` when every import resolved, the unresolvable targets
   otherwise); for every other edge it returns ``None`` and the key is omitted.
+- ``unresolved_importers`` is present ONLY for ``imported_by`` (#668): the POSIX
+  paths of files that import the target but have no module name, so no handle
+  and no stub (``my-script.py``, ``tools-dir/x.py``). ``[]`` when every
+  importer has one. They are real dependents: count them for fan-in.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
@@ -61,7 +67,9 @@ Design invariants
   a ghost handle either (#545 — reverses the earlier "callers rule ghosts out
   upstream" design, whose upstream guard, ``inspect``, itself fabricated).
 - ``reason`` IS the ``edge_status`` value — the status string doubles as the
-  unsupported reason (single source of truth in :mod:`edges`).
+  unsupported reason (single source of truth in :mod:`edges`) — or
+  ``not_applicable`` when :func:`edges.edge_applies` says the edge doesn't apply
+  to the source's kind (#626).
 
 ``expand`` is ``async`` to match the server's ``resolve`` / ``inspect`` pattern
 (and to leave room for future pagination), even though the body is currently
@@ -73,14 +81,17 @@ from __future__ import annotations
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
-from pyeye.kinds import normalise_kind
 from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import (
     EDGE_RESOLVERS,
     STATUS_DEFERRED_REFERENCE_BACKEND,
     STATUS_IMPLEMENTED,
+    STATUS_NOT_APPLICABLE,
     STATUS_NOT_YET_IMPLEMENTED,
+    edge_applies,
+    edge_kind,
     edge_status,
+    not_applicable_detail,
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
@@ -215,45 +226,31 @@ async def expand_resolved(
         }
 
     # ------------------------------------------------------------------
-    # Run the edge resolver and build a stub per carried (handle, Name) pair.
-    # The resolver carries the Jedi Name so builtin/stdlib callee stubs build
-    # without re-resolution (the load-bearing reason EdgeResult carries Names).
+    # Wrong kind — the edge exists but not for this source's kind, per the ONE
+    # applicability table (#626).  Unsupported, never a measured ``stubs: []``:
+    # "imports doesn't exist for a class" is not "this class imports nothing".
+    # Distinct from the not-found path above and from a measured-empty result.
     # ------------------------------------------------------------------
-    # A resolver may be sync (members/callees → EdgeResult) or async
-    # (imported_by → Awaitable[EdgeResult | None]); await any awaitable result.
-    # A ``None`` result is the WRONG-KIND signal: the edge genuinely does not
-    # apply to this handle's kind (e.g. ``imported_by`` on a class — a symbol
-    # CAN be imported, so claiming ``stubs: []`` would be the #332 measured-zero
-    # lie).  Surface it as the UNSUPPORTED branch with a KIND-SPECIFIC detail
-    # (synthesized inline — the generic _unsupported_detail can't name the kind).
-    # This is DISTINCT from the source-not-found path above (jedi_name is None →
-    # found: False) and from a measured-empty EdgeResult (the resolver matched
-    # the kind but found no adjacents → supported ``stubs: []``).
-    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
-    edge_result = await raw if isawaitable(raw) else raw
-
-    if edge_result is None:
-        kind = normalise_kind(getattr(jedi_name, "type", None))
-        # NOTE: The detail message below uses affirmative "supported for modules
-        # only" wording. Both ``imported_by`` and ``imports`` are module-only
-        # edges whose resolvers return ``None`` for non-module handles; this
-        # branch handles them generically.  If a future edge adds a
-        # ``None``-returning resolver with a DIFFERENT kind restriction, this
-        # branch must be revisited to generate an edge-specific detail rather
-        # than the hardcoded module-only hint.
+    if not edge_applies(edge, jedi_name):
         return {
             "found": True,
             "source": source,
             "edge": edge,
             "unsupported": True,
-            "reason": STATUS_NOT_YET_IMPLEMENTED,
-            "detail": (
-                f"Edge '{edge}' does not apply to a {kind} handle; it is "
-                f"supported for modules only in this slice."
-            ),
-            # #458: this is a limitation moment — point at where to report it.
+            "reason": STATUS_NOT_APPLICABLE,
+            "detail": not_applicable_detail(edge, edge_kind(jedi_name)),
+            # Kept from the pre-#626 wrong-kind branch (no field is removed in 2.x).
             "report_issues": meta.issues_url(),
         }
+
+    # ------------------------------------------------------------------
+    # Run the edge resolver and build a stub per carried (handle, Name) pair.
+    # The resolver carries the Jedi Name so builtin/stdlib callee stubs build
+    # without re-resolution (the load-bearing reason EdgeResult carries Names).
+    # A resolver may be sync or async; await any awaitable result.
+    # ------------------------------------------------------------------
+    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+    edge_result = await raw if isawaitable(raw) else raw
 
     stubs = [
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
@@ -274,10 +271,14 @@ async def expand_resolved(
     # whose goto named no single class, by source text ([] when all resolved).
     if edge_result.unresolved_superclasses is not None:
         result["unresolved_superclasses"] = edge_result.unresolved_superclasses
-    # subclasses is direct-only (#422); a CLASS result carries a static pointer to
-    # the trace route for the full closure.  Class-gated: a non-class subclasses
-    # result is a measured-empty [], where the "use trace" hint would be noise.
-    if edge == "subclasses" and normalise_kind(getattr(jedi_name, "type", None)) == "class":
+    # unresolved_importers (#668): the same mechanic for imported_by — an
+    # importing file with no module name has no handle, so it is listed here
+    # ([] when every importer has one) instead of silently missing.
+    if edge_result.unresolved_importers is not None:
+        result["unresolved_importers"] = edge_result.unresolved_importers
+    # subclasses is direct-only (#422); its (class-only, #626) result carries a
+    # static pointer to the trace route for the full closure.
+    if edge == "subclasses":
         result["transitive_hint"] = SUBCLASSES_TRANSITIVE_HINT
 
     return result

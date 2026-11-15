@@ -280,11 +280,6 @@ def test_find_module_file_in_root_package(root_package_project: Path) -> None:
     assert find_module_file("rootpkg", analyzer) == root_package_project / "__init__.py"
 
 
-def test_find_init_file_in_root_package(root_package_project: Path) -> None:
-    analyzer = JediAnalyzer(str(root_package_project))
-    assert analyzer._find_init_file("rootpkg") == root_package_project / "__init__.py"
-
-
 @pytest.fixture
 def additional_package_project(tmp_path: Path) -> tuple[Path, Path]:
     project = tmp_path / "main"
@@ -314,3 +309,42 @@ async def test_reexport_scan_keeps_additional_package_reexports(
     analyzer.set_additional_paths([shared])
     found = await _scan_package_for_handle("relib.impl.Thing", shared / "relib", analyzer)
     assert "relib.Thing" in found
+
+
+# ---------------------------------------------------------------------------
+# The mapper never invents a name (#668)
+# ---------------------------------------------------------------------------
+
+
+def test_unnormalised_namespace_root_beside_a_root_package(tmp_path: Path) -> None:
+    """A root given as ``app/../repo`` maps by its module, not its path (#668).
+
+    ``tmp/app/../corp-web/x.py`` is lexically "under" ``tmp/app``, so a
+    root-package project used to claim it and name it
+    ``app....corp-web.corp.web.views``.
+    """
+    project = tmp_path / "app"
+    _write(project / "__init__.py")
+    repo = tmp_path / "corp-web"
+    views = _write(repo / "corp" / "web" / "views.py")
+    unnormalised = project / ".." / "corp-web"
+    layout = _layout(project, _jedi_root_is_parent=True, namespace_paths={"corp": [unnormalised]})
+    assert module_name_for_file(layout, unnormalised / "corp" / "web" / "views.py") == (
+        "corp.web.views"
+    )
+    assert module_name_for_file(layout, views) is None  # not under any root as spelled
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "my-pkg/mod.py",  # hyphen: not importable
+        "pkg/2fast.py",  # leading digit
+        "pkg.v2/mod.py",  # a dot inside a directory name
+        "pkg/mod.v2.py",  # a dot inside a module stem
+    ],
+)
+def test_non_identifier_paths_have_no_module_name(tmp_path: Path, rel: str) -> None:
+    project = tmp_path / "proj"
+    file = _write(project / rel)
+    assert module_name_for_file(_layout(project), file) is None
