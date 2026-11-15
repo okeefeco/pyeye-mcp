@@ -54,16 +54,28 @@ class AnalyzerPlugin(ABC):
             logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
             return None
 
-    def _parse_source(self, path: Path, content: str) -> ast.Module | None:
+    def _parse_source(self, path: Path, content: str) -> ast.Module | None:  # noqa: ARG002
         """Parse user source, or warn and return ``None`` if it is not valid Python.
 
-        Parses *content* directly rather than through the shared
-        ``file_artifact_cache``: routing every plugin walk through that LRU
-        exposed an eviction-dependent miss in external re-export resolution
-        (#684), so plugins stay off it until that is fixed.
+        Goes through the shared ``file_artifact_cache`` (#699), the one parse/cache
+        implementation the primitives and handle enrichment use (#629), so a file
+        is parsed once however many plugin tools walk it. *content* stays in the
+        signature for callers that read the file first to pre-filter it.
+
+        The returned tree is shared, so callers must not mutate it.
+
+        A file that can't be read or parsed is skipped with a warning (#622), and
+        any other error propagates. (5505cad briefly moved plugins off this cache
+        on the suspicion that it caused #684, which was in fact parso's own cache
+        GC, fixed in #706.)
         """
+        from .. import file_artifact_cache
+
         try:
-            return ast.parse(content, filename=path.as_posix())
+            return file_artifact_cache.get_ast(path)
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
+            return None
         except (SyntaxError, ValueError, RecursionError) as e:
             logger.warning(f"Plugin {self.name()}: error parsing {path.as_posix()}: {e}")
             return None
