@@ -13,12 +13,12 @@ import jedi
 
 from .. import file_artifact_cache
 from ..async_utils import read_file_async
-from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
 from ..project_layout import detect_src_layout, file_for_module, module_name_for_file
+from ..resolver import Resolved, resolve_handle
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -1347,14 +1347,23 @@ class JediAnalyzer:
     async def _canonical_cached(
         self, identifier: str, canonical_cache: dict[str, Handle | None]
     ) -> Handle | None:
-        """Memoised :func:`resolve_canonical` keyed by identifier.
+        """The canonical handle for *identifier*, memoised per ``find_subclasses`` call.
 
-        Canonicalisation walks import chains via Jedi and can be repeated many
+        Canonicalisation goes through the one resolver
+        (:func:`pyeye.resolver.resolve_handle`, #623), so a base class is named
+        exactly as ``resolve`` / ``inspect`` name it.  It can be repeated many
         times during an indirect-subclass traversal, so results are cached for
         the lifetime of a single ``find_subclasses`` call.  Never raises.
         """
         if identifier not in canonical_cache:
-            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+            resolved = resolve_handle(identifier, self)
+            canonical: Handle | None = None
+            if isinstance(resolved, Resolved):
+                try:
+                    canonical = Handle(resolved.handle)
+                except ValueError:
+                    canonical = None
+            canonical_cache[identifier] = canonical
         return canonical_cache[identifier]
 
     def _build_ast_resolution_tables(

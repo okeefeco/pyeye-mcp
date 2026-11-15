@@ -18,10 +18,10 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.resolve import resolve
+from tests.utils.resolver_helpers import canonical_handle
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "resolve_project"
 _WIDGETS = _FIXTURE / "mypackage" / "_core" / "widgets.py"
@@ -48,25 +48,25 @@ class TestResolveCanonicalPlacesClassMembers:
     async def test_class_attribute_is_its_own_canonical_handle(
         self, analyzer: JediAnalyzer, handle: str, _file: Path, _line: int
     ) -> None:
-        assert await resolve_canonical(handle, analyzer) == Handle(handle)
+        assert canonical_handle(handle, analyzer) == Handle(handle)
 
     @pytest.mark.asyncio
     async def test_method_still_canonical(self, analyzer: JediAnalyzer) -> None:
         handle = "mypackage._core.widgets.Widget.greet"
-        assert await resolve_canonical(handle, analyzer) == Handle(handle)
+        assert canonical_handle(handle, analyzer) == Handle(handle)
 
     @pytest.mark.asyncio
     async def test_member_through_reexported_class_collapses_to_definition(
         self, analyzer: JediAnalyzer
     ) -> None:
         """mypackage re-exports Widget, so mypackage.Widget.name is an alias path."""
-        assert await resolve_canonical("mypackage.Widget.name", analyzer) == Handle(
+        assert canonical_handle("mypackage.Widget.name", analyzer) == Handle(
             "mypackage._core.widgets.Widget.name"
         )
 
     @pytest.mark.asyncio
     async def test_unknown_member_is_none(self, analyzer: JediAnalyzer) -> None:
-        assert await resolve_canonical("mypackage._core.widgets.Widget.nope", analyzer) is None
+        assert canonical_handle("mypackage._core.widgets.Widget.nope", analyzer) is None
 
 
 class TestResolveClassAttribute:

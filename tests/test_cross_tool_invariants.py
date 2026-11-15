@@ -89,33 +89,6 @@ _BOTH_MODES = ("bare", "get_analyzer")
 
 KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # == 1. round trip ======================================================
-    # #602/#623: typing specials and `__future__` features emitted by `imports`
-    # are dead ends for inspect and resolve (inference lands on their value's
-    # type, which the name == leaf check rightly refuses).
-    **_round_trip("determinism_subclasses", _ISSUE_602, _MISS, "typing.TYPE_CHECKING"),
-    **_round_trip("lookup_project", _ISSUE_602, _MISS, "__future__.annotations"),
-    **_round_trip(
-        "resolve_project",
-        _ISSUE_602,
-        _MISS,
-        "__future__.annotations",
-        "typing.Callable",
-        "typing.ClassVar",
-        "typing.Final",
-        "typing.TYPE_CHECKING",
-    ),
-    **_round_trip("typeref_basic", _ISSUE_602, _MISS, "typing.Callable"),
-    # #623 (slice 5, edges emit the canonical handle): `imports` emits the alias
-    # `typing.Dict` / `typing.List` as a variable stub; inspect and resolve both
-    # canonicalise it to the class `typing.dict` / `typing.list`.  Visible since
-    # slice 2 made inspect find it.
-    **_round_trip(
-        "typeref_basic",
-        _ISSUE_623,
-        ("same_handle", "stub_matches_inspect"),
-        "typing.Dict",
-        "typing.List",
-    ),
     #
     # #626: `submodules` applies to a NON-module symbol defined in a package
     # `__init__` (`pkg.__all__`, `pkg.init_fn`) and fabricates

@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
+from pyeye._goto import goto_target
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
@@ -343,37 +344,56 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
     """Steps 3 and 5 for a handle outside the project, from one synthetic import.
 
     3. **External module**: an inferred module whose ``full_name`` is *path*.
-    5. **Guarded inference**: otherwise, an inferred definition whose name
-       equals the leaf; its ``full_name`` is the canonical handle.
+    5. **External definition**, first rule that applies:
+
+       a. *Definition at the requested site*: ``goto`` (through the one picker,
+          :func:`pyeye._goto.goto_target`) lands on a definition whose
+          ``full_name`` IS *path* and that has a file.  This is placement by
+          definition lookup (#506) for names whose value is something else:
+          ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
+          ``bool``.  A target at a DIFFERENT path is refused here, so a
+          re-export never becomes canonical through this step
+          (``collections.abc.Mapping`` → ``typing.Mapping``, #544).
+       b. *Guarded inference*: an inferred definition whose name equals the
+          leaf; its ``full_name`` is the canonical handle (a re-export under the
+          same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
     """
-    inferred = _synthetic_import(path, analyzer)
+    inferred, target = _synthetic_import(path, analyzer)
     for name in inferred:  # 3
         if name.type == "module" and name.full_name == path:
             return path, name
-    leaf = path.rsplit(".", 1)[-1]
     if "." not in path:
         return None
-    for name in inferred:  # 5
+    if (  # 5a
+        target is not None
+        and target.full_name == path
+        and getattr(target, "module_path", None) is not None
+    ):
+        return path, target
+    leaf = path.rsplit(".", 1)[-1]
+    for name in inferred:  # 5b
         if name.name == leaf and name.full_name and _is_dotted_path(name.full_name):
             return name.full_name, name
     return None
 
 
-def _synthetic_import(path: str, analyzer: JediAnalyzer) -> list[Any]:
-    """Infer *path* through a synthetic ``import <parent>`` (``import <path>`` if top-level).
+def _synthetic_import(path: str, analyzer: JediAnalyzer) -> tuple[list[Any], Any | None]:
+    """Infer and ``goto`` *path* through a synthetic ``import <parent>``.
 
-    The one place a file-less ``jedi.Script`` is built (#623). Returns the
-    inferred Jedi ``Name`` objects; never raises.
+    The one place a file-less ``jedi.Script`` is built (#623).  Returns the
+    inferred Jedi ``Name`` objects and the single ``goto`` target picked by
+    :func:`pyeye._goto.goto_target` (``None`` unless exactly one).  Never raises.
     """
     module_dotted = path.rsplit(".", 1)[0] if "." in path else path
     try:
         import jedi
 
         script = jedi.Script(code=f"import {module_dotted}\n{path}", project=analyzer.project)
-        return list(script.infer(2, len(path)))
+        inferred = list(script.infer(2, len(path)))
     except Exception as exc:
         logger.debug("resolver: synthetic import of %r failed: %s", path, exc)
-        return []
+        return [], None
+    return inferred, goto_target(script, 2, len(path))
 
 
 # ---------------------------------------------------------------------------

@@ -54,9 +54,9 @@ automatically.  For example, ``package/__init__.py`` importing
 ``from package.subpkg import Config`` yields ``full_name='package.subpkg.Config'``
 (not the final definition).
 
-The implementation therefore uses an iterative walk: resolve() calls
-``_get_full_name_from_file`` repeatedly until the ``full_name`` stabilises or
-a cycle is detected (max-depth guard).
+Canonicalization is :func:`pyeye.resolver.resolve_handle` (#623): placement
+matches the head by name and follows ``goto`` to the definition, so a chain of
+re-exports collapses to the definition site in one step.
 
 For re-export collection, a BFS expansion is used: starting from the canonical
 handle, scan all Python files in the package tree for names whose ``full_name``
@@ -69,8 +69,9 @@ from pathlib import Path
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.canonicalization import collect_re_exports, resolve_canonical
+from pyeye.canonicalization import collect_re_exports
 from pyeye.handle import Handle
+from tests.utils.resolver_helpers import canonical_handle
 
 _FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "canonicalization_multihop"
 
@@ -92,7 +93,7 @@ class TestMultiStepChain:
     @pytest.mark.asyncio
     async def test_two_hop_path_resolves_to_definition(self, analyzer: JediAnalyzer) -> None:
         """package.Config -> package.subpkg.Config -> package._impl.config.Config."""
-        result = await resolve_canonical("package.Config", analyzer)
+        result = canonical_handle("package.Config", analyzer)
         assert result is not None, "Expected a Handle for package.Config, got None"
         assert result == Handle(
             "package._impl.config.Config"
@@ -101,7 +102,7 @@ class TestMultiStepChain:
     @pytest.mark.asyncio
     async def test_one_hop_path_resolves_to_definition(self, analyzer: JediAnalyzer) -> None:
         """package.subpkg.Config is one hop from the definition site."""
-        result = await resolve_canonical("package.subpkg.Config", analyzer)
+        result = canonical_handle("package.subpkg.Config", analyzer)
         assert result is not None, "Expected a Handle for package.subpkg.Config, got None"
         assert result == Handle(
             "package._impl.config.Config"
@@ -110,7 +111,7 @@ class TestMultiStepChain:
     @pytest.mark.asyncio
     async def test_definition_path_is_idempotent(self, analyzer: JediAnalyzer) -> None:
         """The definition site itself is already canonical — must be idempotent."""
-        result = await resolve_canonical("package._impl.config.Config", analyzer)
+        result = canonical_handle("package._impl.config.Config", analyzer)
         assert result is not None
         assert result == Handle("package._impl.config.Config")
 
@@ -126,7 +127,7 @@ class TestAliasedReExport:
     @pytest.mark.asyncio
     async def test_aliased_3hop_resolves_to_definition(self, analyzer: JediAnalyzer) -> None:
         """LegacyConfig -> package.Config -> package.subpkg.Config -> definition."""
-        result = await resolve_canonical("package.legacy.LegacyConfig", analyzer)
+        result = canonical_handle("package.legacy.LegacyConfig", analyzer)
         assert result is not None, "Expected a Handle for package.legacy.LegacyConfig, got None"
         assert result == Handle(
             "package._impl.config.Config"
@@ -144,7 +145,7 @@ class TestSiblingAliasCollision:
     @pytest.mark.asyncio
     async def test_direct_import_resolves_to_definition(self, analyzer: JediAnalyzer) -> None:
         """alias_pkg.sibling.foo (from ... import foo) -> canonical."""
-        result = await resolve_canonical("alias_pkg.sibling.foo", analyzer)
+        result = canonical_handle("alias_pkg.sibling.foo", analyzer)
         assert result is not None, "Expected a Handle for sibling.foo, got None"
         assert result == Handle(
             "alias_pkg.source_mod.definitions.foo"
@@ -153,7 +154,7 @@ class TestSiblingAliasCollision:
     @pytest.mark.asyncio
     async def test_aliased_import_resolves_to_definition(self, analyzer: JediAnalyzer) -> None:
         """alias_pkg.sibling.f (from ... import foo as f) -> canonical."""
-        result = await resolve_canonical("alias_pkg.sibling.f", analyzer)
+        result = canonical_handle("alias_pkg.sibling.f", analyzer)
         assert result is not None, "Expected a Handle for sibling.f, got None"
         assert result == Handle(
             "alias_pkg.source_mod.definitions.foo"
@@ -162,8 +163,8 @@ class TestSiblingAliasCollision:
     @pytest.mark.asyncio
     async def test_both_aliases_yield_same_canonical(self, analyzer: JediAnalyzer) -> None:
         """Both import forms must resolve to the identical canonical handle."""
-        foo_result = await resolve_canonical("alias_pkg.sibling.foo", analyzer)
-        f_result = await resolve_canonical("alias_pkg.sibling.f", analyzer)
+        foo_result = canonical_handle("alias_pkg.sibling.foo", analyzer)
+        f_result = canonical_handle("alias_pkg.sibling.f", analyzer)
         assert foo_result is not None
         assert f_result is not None
         assert (
@@ -187,7 +188,7 @@ class TestSelfReExportTermination:
     @pytest.mark.asyncio
     async def test_public_path_terminates(self, analyzer: JediAnalyzer) -> None:
         """self_reexport_pkg.Foo resolves to the definition site without looping."""
-        result = await resolve_canonical("self_reexport_pkg.Foo", analyzer)
+        result = canonical_handle("self_reexport_pkg.Foo", analyzer)
         assert result is not None, "Expected a Handle for self_reexport_pkg.Foo, got None"
         assert result == Handle(
             "self_reexport_pkg.submodule.Foo"
@@ -196,7 +197,7 @@ class TestSelfReExportTermination:
     @pytest.mark.asyncio
     async def test_definition_path_terminates(self, analyzer: JediAnalyzer) -> None:
         """The definition site resolves to itself (idempotent) without looping."""
-        result = await resolve_canonical("self_reexport_pkg.submodule.Foo", analyzer)
+        result = canonical_handle("self_reexport_pkg.submodule.Foo", analyzer)
         assert result is not None
         assert result == Handle("self_reexport_pkg.submodule.Foo")
 
