@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 
 import aiofiles
 
@@ -119,32 +120,27 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     """
     from .constants import EXCLUDED_DIRS
 
-    # A single scan revisits the same ancestor directories thousands of
-    # times; probe each one once.
-    is_worktree_root: dict[Path, bool] = {}
+    def _excluded(name: str) -> bool:
+        return name in EXCLUDED_DIRS or name.endswith(".egg-info")
 
-    def _under_nested_worktree(candidate: Path) -> bool:
-        for parent in candidate.parents:
-            if parent == path:
-                return False
-            cached = is_worktree_root.get(parent)
-            if cached is None:
-                cached = _is_linked_worktree(parent)
-                is_worktree_root[parent] = cached
-            if cached:
-                return True
-        return False
-
-    results = []
-    for p in path.rglob(pattern):
-        # Test only components below the scan root: an ancestor named e.g.
-        # ``build`` must not exclude the whole project (#515).
-        rel_parts = p.relative_to(path).parts
-        if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in rel_parts):
-            continue
-        if _under_nested_worktree(p):
-            continue
-        results.append(p)
+    # Excluded directories are PRUNED, never descended into (#738): on a repo
+    # with a ``.venv`` that is ~30x cheaper than walking everything and
+    # filtering after, with the same result. Only names BELOW the scan root are
+    # tested, so an ancestor named e.g. ``build`` doesn't exclude the project
+    # (#515); ``path`` itself is never tested as a worktree.
+    results: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        here = Path(dirpath)
+        dirnames[:] = [
+            d for d in dirnames if not _excluded(d) and not _is_linked_worktree(here / d)
+        ]
+        for name in (*dirnames, *filenames):
+            if _excluded(name):
+                continue
+            candidate = here / name
+            # ``rglob(pattern)`` semantics: *pattern* matches the path's tail at any depth.
+            if PurePosixPath(candidate.relative_to(path).as_posix()).match(pattern):
+                results.append(candidate)
     return results
 
 
