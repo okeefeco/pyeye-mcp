@@ -603,7 +603,7 @@ class JediAnalyzer:
         self,
         name: str,
         fuzzy: bool = False,
-        include_import_paths: bool = True,
+        include_import_paths: bool = False,
         scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
         """Find symbol definitions across all configured scopes.
@@ -615,6 +615,8 @@ class JediAnalyzer:
             name: Symbol name to search for (supports compound symbols like "Model.__init__")
             fuzzy: Enable fuzzy matching
             include_import_paths: Include alternative import paths for re-exported symbols
+                (runs the regex ``find_reexports`` scan per match; no production
+                caller reads it, so it is off by default, #628)
             scope: Search scope - "main", "all", "namespace:name", etc.
                    Defaults to "all" (searches everything configured).
 

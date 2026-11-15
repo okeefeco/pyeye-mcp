@@ -130,18 +130,31 @@ N.1 ``found`` is REQUIRED at the top level and is exactly ``True`` or ``False``
     (a plain bool, not truthy).  Absence is rejected: a consumer must be able to
     branch on the value, never on key presence.
 N.2 ``found: False`` ⇒ the response is EXACTLY the not-found shape
-    ``{found, handle, reason, detail}`` (plus ``edge`` for ``expand``):
-    single-line str ``handle``/``detail``/``edge``, ``reason`` ∈
-    {``unresolved``}.  No node / tree / stubs fields may bleed in — a fabricated
-    answer alongside ``found: False`` is the #545 failure.  The operation's
-    structural floor (B / E / O) is skipped for this branch.
+    ``{found, <lookup echo>, reason, detail}`` for its operation (#626):
+
+    ==========  ===========================  =====================================
+    operation   echo keys                    reasons
+    ==========  ===========================  =====================================
+    inspect     ``handle``                   ``unresolved``
+    outline     ``handle``                   ``unresolved``
+    expand      ``handle``, ``edge``         ``unresolved``
+    resolve     ``identifier``               ``unresolved``, ``file_not_found``,
+                                             ``no_symbol_at_position``
+    resolve_at  ``file``, ``line``,          the same three as resolve
+                ``column``
+    ==========  ===========================  =====================================
+
+    String echoes and ``detail`` are non-empty single-line str; ``line`` and
+    ``column`` are plain ints.  ``handle`` appears ONLY where the input is a
+    handle.  No node / tree / stubs fields may bleed in — a fabricated answer
+    alongside ``found: False`` is the #545 failure.  The operation's structural
+    floor (B / E / O) is skipped for this branch.
 N.3 ``found`` appears only on the ROOT of an outline response, never on a
     nested ``children`` tree (it is a response-level fact, not per-node).
-N.4 Ratchet (#615): ``resolve`` / ``resolve_at`` still return the legacy
-    ``{found: False, reason}`` shape.  Each ``(operation, reason)`` pair is
-    allow-listed in ``_LEGACY_NOT_FOUND_SHAPES`` against #626, which settles the
-    shared shape for all five primitives.  Only that exact two-key shape with a
-    listed pair is exempt; anything else is checked against N.2.
+N.4 Ratchet (#615): an exact ``{found: False, reason}`` legacy shape is exempt
+    only for an ``(operation, reason)`` pair listed in ``_LEGACY_NOT_FOUND_SHAPES``.
+    #626 moved resolve / resolve_at onto the N.2 shape, so the list is empty and
+    stays as a guard: any legacy shape now fails N.2.
 
 Check K — closed kind vocabulary (#623)
 ---------------------------------------
@@ -1657,34 +1670,30 @@ _FOUND_DISCRIMINATED_OPERATIONS: frozenset[str] = frozenset(
     {"inspect", "outline", "expand", "resolve", "resolve_at"}
 )
 
-# N.2 — Valid reason values for a not-found response.  Deliberately hardcoded
-# (not imported from the implementation) so the linter stays an independent
-# oracle, like ``_VALID_UNSUPPORTED_REASONS``.
-_VALID_NOT_FOUND_REASONS: frozenset[str] = frozenset({"unresolved"})
-
-# N.2 — The exact key set of a not-found response, per operation.
-_NOT_FOUND_KEYS: frozenset[str] = frozenset({"found", "handle", "reason", "detail"})
-_NOT_FOUND_KEYS_BY_OPERATION: dict[str, frozenset[str]] = {
-    "inspect": _NOT_FOUND_KEYS,
-    "outline": _NOT_FOUND_KEYS,
-    "expand": _NOT_FOUND_KEYS | {"edge"},
-    "resolve": _NOT_FOUND_KEYS,
-    "resolve_at": _NOT_FOUND_KEYS,
+# N.2 — Per operation: the lookup-argument echo keys and the closed reason set
+# of a not-found response (#626).  Deliberately hardcoded (not imported from
+# ``pyeye.mcp.operations.not_found``) so the linter stays an independent oracle,
+# like ``_VALID_UNSUPPORTED_REASONS``.
+_HANDLE_REASONS: frozenset[str] = frozenset({"unresolved"})
+_POSITION_REASONS: frozenset[str] = frozenset(
+    {"unresolved", "file_not_found", "no_symbol_at_position"}
+)
+_NOT_FOUND_ECHO_BY_OPERATION: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "inspect": (frozenset({"handle"}), _HANDLE_REASONS),
+    "outline": (frozenset({"handle"}), _HANDLE_REASONS),
+    "expand": (frozenset({"handle", "edge"}), _HANDLE_REASONS),
+    "resolve": (frozenset({"identifier"}), _POSITION_REASONS),
+    "resolve_at": (frozenset({"file", "line", "column"}), _POSITION_REASONS),
 }
+#: Echo keys whose value is a plain int; every other echo key is a str.
+_INT_ECHO_KEYS: frozenset[str] = frozenset({"line", "column"})
 
 # N.4 — Ratchet (#615): legacy ``{found: False, reason}`` not-found responses
 # still emitted today, keyed ``(operation, reason)`` → the #629 child issue that
 # removes them.  ``tests/test_decision_invariants_fitness.py`` fails when an
 # entry is no longer produced, so fixing one forces deleting it here.
 _LEGACY_NOT_FOUND_KEYS: frozenset[str] = frozenset({"found", "reason"})
-_LEGACY_NOT_FOUND_SHAPES: dict[tuple[str, str], str] = {
-    ("resolve", "unresolved"): "#626",
-    ("resolve", "file_not_found"): "#626",
-    ("resolve", "no_symbol_at_position"): "#626",
-    ("resolve_at", "unresolved"): "#626",
-    ("resolve_at", "file_not_found"): "#626",
-    ("resolve_at", "no_symbol_at_position"): "#626",
-}
+_LEGACY_NOT_FOUND_SHAPES: dict[tuple[str, str], str] = {}
 
 
 def _check_found_discriminator(
@@ -1729,7 +1738,8 @@ def _check_found_discriminator(
     ):
         return True  # N.4 — allow-listed legacy shape (#615 ratchet, owned by #626).
 
-    expected_keys = _NOT_FOUND_KEYS_BY_OPERATION[operation]
+    echo_keys, reasons = _NOT_FOUND_ECHO_BY_OPERATION[operation]
+    expected_keys = {"found", "reason", "detail"} | echo_keys
     actual_keys = set(response)
     if actual_keys != expected_keys:
         extra = sorted(actual_keys - expected_keys)
@@ -1740,20 +1750,24 @@ def _check_found_discriminator(
             "A fabricated answer alongside found: false is the #545 failure."
         )
 
-    for key in ("handle", "detail", "edge"):
-        if key not in response or key not in expected_keys:
-            continue
+    for key in sorted((echo_keys | {"detail"}) & actual_keys):
         value = response[key]
-        if not isinstance(value, str) or not value or "\n" in value:
+        if key in _INT_ECHO_KEYS:
+            if not _is_plain_int(value):
+                violations.append(
+                    f"[N.2 not-found field] '{key}' must be a plain int; "
+                    f"got {_truncate(value)} (type={type(value).__name__!r})."
+                )
+        elif not isinstance(value, str) or not value or "\n" in value:
             violations.append(
                 f"[N.2 not-found field] '{key}' must be a non-empty single-line str; "
                 f"got {_truncate(value)} (type={type(value).__name__!r})."
             )
 
-    if "reason" in response and response["reason"] not in _VALID_NOT_FOUND_REASONS:
+    if "reason" in response and response["reason"] not in reasons:
         violations.append(
             f"[N.2 not-found reason] 'reason' {_truncate(response['reason'])} is not "
-            f"recognised. Must be one of {sorted(_VALID_NOT_FOUND_REASONS)}."
+            f"recognised for {operation!r}. Must be one of {sorted(reasons)}."
         )
 
     return True
@@ -1764,7 +1778,7 @@ def _check_found_discriminator(
 # ---------------------------------------------------------------------------
 
 # K.1 — The documented kind vocabulary (``docs/api-redesign.md``).  Deliberately
-# hardcoded, not imported from ``pyeye.kinds``, like ``_VALID_NOT_FOUND_REASONS``.
+# hardcoded, not imported from ``pyeye.kinds``, like ``_NOT_FOUND_ECHO_BY_OPERATION``.
 _VALID_KINDS: frozenset[str] = frozenset(
     {"class", "function", "method", "module", "variable", "attribute", "property"}
 )

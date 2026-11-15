@@ -671,7 +671,12 @@ class TestLinterAcceptsValidResponses:
 
     def test_valid_resolve_not_found_response_passes(self) -> None:
         """A well-formed resolve not-found response passes all checks."""
-        good = {"found": False, "reason": "unresolved"}
+        good = {
+            "found": False,
+            "identifier": "Thing",
+            "reason": "unresolved",
+            "detail": "'Thing' did not resolve to a symbol.",
+        }
         lint_response(good, "resolve")  # must not raise
 
     def test_valid_resolve_ambiguous_response_passes(self) -> None:
