@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -494,3 +495,74 @@ class TestWatcherStartFailure:
             for r in caplog.records
         )
         m.cleanup_all()
+
+
+# ---------------------------------------------------------------------------
+# TypeRef cache (#620/#652): cleared per project on a watched change
+# ---------------------------------------------------------------------------
+
+
+def _typeref_key(root: Path, n: int) -> tuple[str, str, int, int, int, int, int, str]:
+    return (root.resolve().as_posix(), f"{root.as_posix()}/m.py", n, 0, 0, 0, 0, "X")
+
+
+class TestTypeRefInvalidation:
+    def test_watched_change_clears_only_that_projects_typerefs(self, tmp_path: Path) -> None:
+        from pyeye.mcp.operations import typeref
+
+        a, b = tmp_path / "a", tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        typeref.invalidate_all()
+        typeref._typeref_cache[_typeref_key(a, 1)] = {"raw": "A"}
+        typeref._typeref_cache[_typeref_key(b, 1)] = {"raw": "B"}
+        m = ProjectManager(max_projects=10)
+        m._watch_users[a.resolve()] = {a.resolve()}
+
+        m._on_files_changed(a.resolve(), [(a / "m.py").as_posix()])
+
+        assert list(typeref._typeref_cache) == [_typeref_key(b, 1)]
+        typeref.invalidate_all()
+
+    def test_invalidate_project_survives_concurrent_inserts(self, tmp_path: Path) -> None:
+        """The watcher thread invalidates while analysis inserts: no 'mutated during iteration'."""
+        import threading
+
+        from pyeye.mcp.operations import typeref
+
+        typeref.invalidate_all()
+        # A full cache and a tiny switch interval make the unlocked iteration
+        # reliably see a concurrent insert ("OrderedDict mutated during iteration").
+        for n in range(3000):
+            typeref._store_typeref(_typeref_key(tmp_path, -n - 1), {"raw": "x"})
+        old_interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        stop = threading.Event()
+        errors: list[BaseException] = []
+
+        def insert() -> None:
+            n = 0
+            try:
+                while not stop.is_set():
+                    typeref._store_typeref(_typeref_key(tmp_path, n), {"raw": "x"})
+                    typeref._cached_typeref(_typeref_key(tmp_path, n))
+                    n += 1
+            except BaseException as e:  # noqa: BLE001 - the failure under test
+                errors.append(e)
+
+        inserter = threading.Thread(target=insert)
+        inserter.start()
+        try:
+            for _ in range(300):
+                try:
+                    typeref.invalidate_project(tmp_path / "elsewhere")
+                except BaseException as e:  # noqa: BLE001 - the failure under test
+                    errors.append(e)
+                    break
+        finally:
+            stop.set()
+            inserter.join()
+            sys.setswitchinterval(old_interval)
+            typeref.invalidate_all()
+
+        assert errors == []

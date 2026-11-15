@@ -487,7 +487,8 @@ class ProjectManager:
 
         For each such project: its ``GranularCache`` entries for each path, its
         name index (``project_graph.invalidate`` keyed on that project only),
-        and its analyzer's ``scoped_cache`` (file lists and lookup results).
+        its TypeRef cache (``typeref.invalidate_project``), and its analyzer's
+        ``scoped_cache`` (file lists and lookup results).
         Each path's ``file_artifact_cache`` entries are dropped once. Projects
         that don't read from *root* keep their caches.
 
@@ -497,6 +498,7 @@ class ProjectManager:
         """
         from pyeye import file_artifact_cache
         from pyeye.analyzers import project_graph
+        from pyeye.mcp.operations import typeref
 
         with self._watch_lock:
             projects = sorted(self._watch_users.get(Path(root).resolve(), set()))
@@ -512,6 +514,9 @@ class ProjectManager:
                 for path in paths:
                     cache.invalidate_file(Path(path))
             project_graph.invalidate(project.as_posix())
+            # A referenced type can move to another file, which the TypeRef key
+            # (keyed on the annotation's own file) can't see (#620).
+            typeref.invalidate_project(project)
             analyzer = self.analyzers.get(project)
             if analyzer is not None:
                 analyzer.scoped_cache.invalidate_all()

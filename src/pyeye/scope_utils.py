@@ -352,6 +352,8 @@ class ScopedCache:
         # from its own thread. Invalidation swaps in fresh dicts rather than
         # mutating them, and every read below is one atomic dict.get on a dict
         # reference taken once, so a concurrent clear can't raise KeyError.
+        # This relies on single dict operations being atomic under the GIL:
+        # revisit (add a lock) before running on free-threaded Python.
         entries = self.caches.get(scope_key)
         value = entries.get(key, _MISSING) if entries is not None else _MISSING
         if value is _MISSING:
