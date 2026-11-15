@@ -332,9 +332,11 @@ class TestProjectManagerIntegration:
         """Test get_analyzer configures namespaces correctly."""
         manager = ProjectManager()
 
-        # Register namespaces
+        # Register namespaces for this project (#748: registrations are per project)
         manager.namespace_resolver.register_namespace(
-            "company", [str(temp_project["auth_repo"]), str(temp_project["api_repo"])]
+            "company",
+            [str(temp_project["auth_repo"]), str(temp_project["api_repo"])],
+            project=temp_project["main_project"],
         )
 
         # Get configured analyzer
@@ -352,9 +354,11 @@ class TestProjectManagerIntegration:
         main_path = str(temp_project["main_project"])
         manager.register_project(main_path, [str(temp_project["lib_package"])])
 
-        # Register namespaces
+        # Register namespaces for this project (#748)
         manager.namespace_resolver.register_namespace(
-            "company", [str(temp_project["auth_repo"]), str(temp_project["api_repo"])]
+            "company",
+            [str(temp_project["auth_repo"]), str(temp_project["api_repo"])],
+            project=main_path,
         )
 
         # Get configured analyzer

@@ -541,7 +541,7 @@ def configure_packages(
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
-        manager.namespace_resolver.register_namespace(namespace, ns_paths)
+        manager.namespace_resolver.register_namespace(namespace, ns_paths, project=root)
 
     # Invalidate cached analyzers for all paths so the next get_analyzer call
     # rebuilds with the updated package paths, namespaces, and standalone
@@ -697,7 +697,9 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
-        - attribute/property/variable: type?, default? (simple literals only)
+        - attribute/property/variable/enum_member: type?, default? (simple literals only).
+          A class-body binding is ``attribute``; a member of an ``enum.Enum``
+          subclass is ``enum_member`` (its ``default`` is the member's value).
 
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
