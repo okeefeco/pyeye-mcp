@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 import jedi
 
 from .. import file_artifact_cache, settings
-from ..async_utils import read_file_async
+from .._jedi_project import make_project
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
@@ -25,8 +25,11 @@ from ..project_layout import (
 from ..resolver import Resolved, resolve_handle
 from ..scope_utils import (
     ScopedCache,
+    ScopeLayout,
     SmartScopeResolver,
+    namespace_directory_structure,
     parallel_search,
+    resolve_scope_paths,
 )
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
 from . import project_graph
@@ -83,6 +86,12 @@ def _scope_key(scope: Scope | None) -> str:
     if scope is None or isinstance(scope, str):
         return str(scope)
     return "|".join(scope)
+
+
+def _dotted_prefixes(dotted: str) -> list[str]:
+    """``a.b.c`` -> ``["a", "a.b", "a.b.c"]``: every module a dotted import names."""
+    parts = dotted.split(".")
+    return [".".join(parts[: i + 1]) for i in range(len(parts))]
 
 
 def _class_fact(node: ast.ClassDef, py_file: Path) -> project_graph.ClassFact:
@@ -238,13 +247,13 @@ class JediAnalyzer:
                 jedi_root = jedi_root.parent
                 self._jedi_root_is_parent = True
 
-            if jedi_sys_path:
-                self.project = jedi.Project(
-                    path=jedi_root.as_posix(),
-                    added_sys_path=_jedi_sys_path(jedi_sys_path),
-                )
-            else:
-                self.project = jedi.Project(path=jedi_root.as_posix())
+            # #722: never jedi.Project directly; make_project drops Jedi's own
+            # subprocess directory from the base sys.path.  The root and
+            # added_sys_path are the RESOLVED, Jedi-facing spellings (#714).
+            self.project = make_project(
+                jedi_root,
+                added_sys_path=_jedi_sys_path(jedi_sys_path) if jedi_sys_path else (),
+            )
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -307,10 +316,7 @@ class JediAnalyzer:
             existing = list(self.project.added_sys_path or [])
             merged = _jedi_sys_path(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
-            self.project = jedi.Project(
-                path=Path(jedi_root).as_posix(),
-                added_sys_path=merged,
-            )
+            self.project = make_project(jedi_root, added_sys_path=merged)
             logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
@@ -497,8 +503,17 @@ class JediAnalyzer:
 
         return unique_files
 
+    def scope_layout(self) -> ScopeLayout:
+        """This analyzer's search-scope layout (the one :func:`resolve_scope_paths` reads)."""
+        return ScopeLayout.from_parts(
+            self.project_path,
+            self.additional_paths,
+            self.namespace_paths,
+            self.standalone_paths,
+        )
+
     async def _resolve_scope_to_paths(self, scope: Scope) -> set[Path]:
-        """Resolve scope specification to actual filesystem paths.
+        """Resolve a scope to filesystem paths through the one resolver (#690).
 
         Args:
             scope: Scope specification (string or list of strings)
@@ -506,119 +521,15 @@ class JediAnalyzer:
         Returns:
             Set of filesystem paths to search
         """
-        paths = set()
-
-        # Normalize to list for uniform processing
-        scopes = [scope] if isinstance(scope, str) else scope
-
-        for s in scopes:
-            if s == "main":
-                # Just the main project
-                paths.add(self.project_path)
-
-            elif s == "all":
-                # Everything: main + packages + namespaces + standalone
-                paths.add(self.project_path)
-                paths.update(self.additional_paths)
-                # Add all namespace paths
-                for ns_paths in self.namespace_paths.values():
-                    for ns_path in ns_paths:
-                        # For namespace packages, add the proper subdirectory
-                        paths.update(self._get_namespace_directory_structure(ns_path))
-                # Add standalone directories
-                paths.update(self.standalone_paths)
-
-            elif s == "packages":
-                # All configured packages excluding main
-                paths.update(self.additional_paths)
-
-            elif s == "standalone":
-                # Only standalone script directories
-                paths.update(self.standalone_paths)
-
-            elif s.startswith("namespace:"):
-                # Specific namespace or sub-namespace
-                ns_name = s[10:]  # Remove "namespace:" prefix
-                paths.update(self._resolve_namespace_scope(ns_name))
-
-            elif s.startswith("package:"):
-                # Specific package path
-                pkg_path = Path(s[8:])  # Remove "package:" prefix
-                if pkg_path.exists():
-                    paths.add(pkg_path)
-                else:
-                    logger.warning(f"Package path does not exist: {pkg_path.as_posix()}")
-
-            else:
-                logger.warning(f"Unknown scope specification: {s}")
-
-        return paths
+        return resolve_scope_paths(scope, self.scope_layout())
 
     def _resolve_namespace_scope(self, namespace: str) -> set[Path]:
-        """Resolve a namespace specification to paths.
-
-        Args:
-            namespace: Namespace name (e.g., "aac" or "aac.tools")
-
-        Returns:
-            Set of paths for this namespace
-        """
-        paths = set()
-
-        # Check for exact namespace match
-        if namespace in self.namespace_paths:
-            for ns_path in self.namespace_paths[namespace]:
-                paths.update(self._get_namespace_directory_structure(ns_path))
-
-        # Check for parent namespace (e.g., "aac" when looking for "aac.tools")
-        parts = namespace.split(".")
-        for i in range(len(parts)):
-            parent_ns = ".".join(parts[: i + 1])
-            if parent_ns in self.namespace_paths:
-                # Build the sub-namespace path
-                sub_parts = parts[i + 1 :]
-                for ns_path in self.namespace_paths[parent_ns]:
-                    # For namespace packages, the namespace name is typically a subdirectory
-                    base_path = self._get_namespace_base_path(ns_path, parent_ns)
-                    if sub_parts:
-                        full_path = base_path / Path(*sub_parts)
-                        if full_path.exists():
-                            paths.add(full_path)
-                    else:
-                        paths.add(base_path)
-
-        return paths
+        """The paths of *namespace* (e.g. ``"aac"`` or ``"aac.tools"``)."""
+        return resolve_scope_paths(f"namespace:{namespace}", self.scope_layout(), warn=False)
 
     def _get_namespace_directory_structure(self, ns_path: Path) -> set[Path]:
-        """Get the proper directory structure for a namespace package.
-
-        For a namespace "aac" with path "/path/to/aac-tools", this returns
-        the actual Python package directories like "/path/to/aac-tools/aac".
-
-        Args:
-            ns_path: Base path for the namespace package
-
-        Returns:
-            Set of actual package directories
-        """
-        paths = set()
-
-        # Check if the namespace path itself is a package
-        if (ns_path / "__init__.py").exists() or any(ns_path.glob("*.py")):
-            paths.add(ns_path)
-
-        # Look for subdirectories that are Python packages
-        for subdir in ns_path.iterdir():
-            if subdir.is_dir() and not subdir.name.startswith("."):
-                # Check if it's a Python package
-                if (subdir / "__init__.py").exists() or any(subdir.glob("*.py")):
-                    paths.add(subdir)
-
-        # If no packages found, return the base path as fallback
-        if not paths:
-            paths.add(ns_path)
-
-        return paths
+        """The package directories in namespace repository *ns_path*."""
+        return namespace_directory_structure(ns_path)
 
     def _get_import_path_for_file(self, py_file: Path) -> str | None:
         """Return the dotted module name for *py_file*, as Jedi's ``full_name`` spells it.
@@ -635,30 +546,6 @@ class JediAnalyzer:
             Import path string, or None if it can't be determined
         """
         return module_name_for_file(self, py_file)
-
-    def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
-        """Get the base path for a namespace within a repository.
-
-        Args:
-            ns_path: Repository path containing the namespace
-            namespace: Namespace name
-
-        Returns:
-            Path to the namespace directory
-        """
-        # Try to find the namespace directory within the repository
-        ns_parts = namespace.split(".")
-
-        # Check if namespace directory exists at the repository root
-        potential_path = ns_path / ns_parts[0]
-        if potential_path.exists() and potential_path.is_dir():
-            # Build the full namespace path
-            if len(ns_parts) > 1:
-                return potential_path / Path(*ns_parts[1:])
-            return potential_path
-
-        # Otherwise, assume the repository root is the namespace
-        return ns_path
 
     async def find_symbol(
         self,
@@ -870,9 +757,11 @@ class JediAnalyzer:
     ) -> Importers:
         """Find project files that import ``module_path`` (reverse import scan).
 
-        Scans every project file in *scope* for an import of the target module,
-        using a textual pre-filter followed by an authoritative AST check. This
-        backs the ``expand(handle, edge="imported_by")`` edge.
+        Looks the target up in the project's reverse import graph
+        (:func:`project_graph.get_import_graph`, #397), built once per
+        generation, layout and scope from every file's AST and reused by every
+        query. This backs the ``expand(handle, edge="imported_by")`` edge.
+        Imports anywhere in a file count, function bodies included (#619).
 
         The scan is purely AST-based (no Jedi reference resolution), which is
         what gives it breadth: standalone scripts and test files that import the
@@ -895,97 +784,89 @@ class JediAnalyzer:
             from such a file can't be anchored, so only its absolute imports
             count.
         """
-        target_root = module_path.split(".")[0]
+        root = self.project_path.as_posix()
+        # Snapshot before listing files, so a graph built from a listing that a
+        # watcher invalidation raced is never cached (#617).
+        generation = project_graph.generation(root)
+        py_files = sorted(
+            await self.get_project_files("*.py", scope),
+            key=lambda p: p.as_posix(),
+        )
+        graph = project_graph.get_import_graph(
+            root,
+            lambda: self._build_import_graph(py_files),
+            generation,
+            layout_key=self.layout_key,
+            scope_key=_scope_key(scope),
+        )
+
         importers: dict[str, Path] = {}
         unnamed: list[Path] = []
-
-        def record(importer: str | None, py_file: Path) -> None:
+        # Entries are in POSIX-sorted file order, one per file, so "first
+        # occurrence wins" is deterministic across runs and platforms.
+        for importer, py_file in graph.importers.get(module_path, ()):
+            if py_file == target_file:
+                continue  # a module never reports itself
             if importer is None:
                 unnamed.append(py_file)
             elif importer not in importers:
                 importers[importer] = py_file
 
-        py_files = sorted(
-            await self.get_project_files("*.py", scope),
-            key=lambda p: p.as_posix(),
+        return Importers(
+            named=[(module, importers[module]) for module in sorted(importers)],
+            unnamed=unnamed,
         )
-        for py_file in py_files:
-            if py_file == target_file:
-                continue
 
+    def _build_import_graph(self, py_files: list[Path]) -> project_graph.ImportGraph:
+        """Build the reverse import graph for *py_files* (#397; uncached).
+
+        Inverts the AST match ``find_importers`` used per target: for each file,
+        every module it imports is registered with every dotted prefix, so a
+        lookup of ``T`` finds exactly the files whose ``import`` names ``T`` or
+        a module under it, whose ``from`` clause resolves to ``T`` or below it,
+        or that do ``from <pkg> import <name>`` with ``<pkg>.<name> == T``
+        (#436; a from-import names a leaf, so that form is exact, never a
+        prefix). Relative imports resolve against the importer's module (#343);
+        a file with no module name can't anchor one, so only its absolute
+        imports count (#668). A file that can't be read or parsed is skipped
+        with a warning, as before.
+
+        Args:
+            py_files: The files in scope, in POSIX-sorted order.
+
+        Returns:
+            The :class:`~pyeye.analyzers.project_graph.ImportGraph`.
+        """
+        registry: dict[str, list[tuple[str | None, Path]]] = {}
+        for py_file in py_files:
             try:
                 importer_module = self._get_import_path_for_file(py_file)
-                # Pre-filter (avoids AST parse for unrelated files; the AST
-                # check below is authoritative).  Parse when ANY of:
-                #   - the absolute path appears textually (absolute imports);
-                #   - the file shares the target's top-level package — a
-                #     relative import (`from .x import y`) can resolve into the
-                #     target without ever spelling its absolute path (#343);
-                #   - the target's PARENT package appears textually — the
-                #     `from <parent> import <submodule>` idiom (#436) spells the
-                #     parent, never the submodule's dotted path, and may live in
-                #     a different top-level package than the target (so
-                #     `shares_package` does not cover it).
-                # Source is read but not cached or returned — a heuristic, not
-                # content.
-                source = await read_file_async(py_file)
-                shares_package = bool(
-                    importer_module and importer_module.split(".")[0] == target_root
-                )
-                parent_pkg = module_path.rsplit(".", 1)[0] if "." in module_path else None
-                if (
-                    module_path in source
-                    or module_path.replace(".", "/") in source
-                    or shares_package
-                    or (parent_pkg is not None and parent_pkg in source)
-                ):
-                    importer_is_package = py_file.name == "__init__.py"
-                    # Bucket 1: AST for the precise check comes from cache.
-                    tree = file_artifact_cache.get_ast(py_file)
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.Import):
-                            if any(
-                                alias.name == module_path
-                                or alias.name.startswith(module_path + ".")
-                                for alias in node.names
-                            ):
-                                record(importer_module, py_file)
-                                break
-                        elif isinstance(node, ast.ImportFrom):
-                            if node.level and importer_module is None:
-                                continue  # no module to anchor a relative import
-                            resolved = self._resolve_relative_import(
-                                node.level,
-                                node.module,
-                                importer_module or "",
-                                importer_is_package,
-                            )
-                            # The `from` clause names a package/module; an
-                            # imported NAME may itself be the target submodule
-                            # (`from <pkg> import <submodule>`, #436).  Match
-                            # both: the from-clause directly (dotted-path form
-                            # `from <pkg>.<sub> import <name>`), and each name
-                            # normalized to `<resolved>.<name>` (submodule form).
-                            # A from-import names a leaf, so the submodule match
-                            # is exact equality — never a `startswith` prefix.
-                            if resolved and (
-                                resolved == module_path
-                                or resolved.startswith(module_path + ".")
-                                or any(
-                                    f"{resolved}.{alias.name}" == module_path
-                                    for alias in node.names
-                                    if alias.name != "*"
-                                )
-                            ):
-                                record(importer_module, py_file)
-                                break
+                importer_is_package = py_file.name == "__init__.py"
+                tree = file_artifact_cache.get_ast(py_file)
+                targets: set[str] = set()
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            targets.update(_dotted_prefixes(alias.name))
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.level and importer_module is None:
+                            continue  # no module to anchor a relative import
+                        resolved = self._resolve_relative_import(
+                            node.level, node.module, importer_module or "", importer_is_package
+                        )
+                        if not resolved:
+                            continue
+                        targets.update(_dotted_prefixes(resolved))
+                        targets.update(
+                            f"{resolved}.{alias.name}" for alias in node.names if alias.name != "*"
+                        )
             except Exception as e:
                 logger.warning(f"Could not analyze {py_file} for imports: {e}")
                 continue
-
-        return Importers(
-            named=[(module, importers[module]) for module in sorted(importers)],
-            unnamed=unnamed,  # files were walked in POSIX-sorted order
+            for target in targets:
+                registry.setdefault(target, []).append((importer_module, py_file))
+        return project_graph.ImportGraph(
+            importers={target: tuple(entries) for target, entries in registry.items()}
         )
 
     async def _serialize_name(

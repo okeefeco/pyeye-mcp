@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from pyeye._jedi_project import is_jedi_private_path
 from pyeye.analyzers import project_graph
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import AnalysisError
@@ -23,7 +24,11 @@ class TestJediAnalyzer:
             # collapses symlinks (macOS /var -> /private/var) and expands Windows
             # short paths (RUNNER~1 -> runneradmin). Apply the same canonicalization
             # to the expected value so the assertion is platform-independent.
-            mock_project.assert_called_once_with(path=temp_project_dir.resolve().as_posix())
+            mock_project.assert_called_once()
+            kwargs = mock_project.call_args.kwargs
+            assert kwargs["path"] == temp_project_dir.resolve().as_posix()
+            # #722: an explicit base sys_path, without Jedi's own directory.
+            assert not any(is_jedi_private_path(p) for p in kwargs["sys_path"])
 
     @pytest.mark.asyncio
     async def test_find_symbol(self, temp_project_dir):
