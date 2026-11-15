@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "parso's in-memory parse cache is never garbage-collected (#684)"
 issues: [684, 457, 650]
 anchors: ["pyeye._parso_cache.disable_parso_cache_gc", "pyeye.__init__", "parso.cache._CACHED_SIZE_TRIGGER", "jedi.parser_utils.get_parso_cache_node"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-713-parso-s-parse-cache-is-bounded-eviction-is-made-harmless-by.md"]
 superseded_by: []
 ---
 

@@ -216,32 +216,6 @@ class InputValidator:
 
         return col_num
 
-    @staticmethod
-    def sanitize_string(text: str, max_length: int = 10000) -> str:
-        """Sanitize a string for safe use.
-
-        Args:
-            text: The string to sanitize
-            max_length: Maximum allowed length
-
-        Returns:
-            The sanitized string
-        """
-        if not text:
-            return ""
-
-        # Remove null bytes
-        text = text.replace("\x00", "")
-
-        # Truncate if too long
-        if len(text) > max_length:
-            text = text[:max_length]
-
-        # Remove control characters except common ones (tab, newline, etc.)
-        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-
-        return text
-
 
 def validate_mcp_inputs(func: Any) -> Any:
     """Decorator to validate inputs for MCP tool functions.
