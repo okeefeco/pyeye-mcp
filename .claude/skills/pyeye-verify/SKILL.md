@@ -32,6 +32,7 @@ digraph pyeye_verify {
     "Pick scenario (pyeye-scenarios)" [shape=box];
     "Provision / confirm at pinned commit" [shape=box];
     "Run the probe suite" [shape=box];
+    "Run the round-trip probe" [shape=box];
     "Diff vs recorded baseline" [shape=box];
     "Divergence?" [shape=diamond];
     "Classify: fixed | regressed | env" [shape=box];
@@ -40,7 +41,8 @@ digraph pyeye_verify {
 
     "Pick scenario (pyeye-scenarios)" -> "Provision / confirm at pinned commit";
     "Provision / confirm at pinned commit" -> "Run the probe suite";
-    "Run the probe suite" -> "Diff vs recorded baseline";
+    "Run the probe suite" -> "Run the round-trip probe";
+    "Run the round-trip probe" -> "Diff vs recorded baseline";
     "Diff vs recorded baseline" -> "Divergence?";
     "Divergence?" -> "Classify: fixed | regressed | env" [label="yes"];
     "Divergence?" -> "Score agent-consumption rubric" [label="no"];
@@ -53,9 +55,10 @@ digraph pyeye_verify {
    commit (the scenarios skill has the commands). Note the **build under test** — the
    global server, or a delivery worktree's server — because baselines are build-tagged.
 2. **Run the probe suite** verbatim, with the scenario's `project_path`.
-3. **Diff vs the recorded baseline** (next section).
-4. **Score the agent-consumption rubric** (section after).
-5. **Report both verdicts** in the format below.
+3. **Run the round-trip probe** (section 1b) on the scenario's round-trip module.
+4. **Diff vs the recorded baseline** (next section). That includes the round-trip counts.
+5. **Score the agent-consumption rubric** (section after).
+6. **Report both verdicts** in the format below.
 
 ## 1. Regression check
 
@@ -77,6 +80,37 @@ regression.
 > A baseline row tied to an open issue is an **acceptance check**. When that issue's fix
 > lands, this is where you confirm it on real code — exactly what happened for #444/#454 in
 > the `namespace-jaraco` baseline.
+
+## 1b. Round-trip probe
+
+The hand-picked probes check single handles. The round-trip probe checks that
+**every handle pyeye emits can be fed back in**. It takes every stub from one
+`expand(<module>, "imports")` and runs each through `inspect` and `resolve`
+(#616).
+
+```bash
+uv run python scripts/roundtrip_probe.py <project_path> <round-trip module> 2>/dev/null
+# add --json for the full per-handle lists
+```
+
+- Run it from the checkout whose build you are verifying. It imports that
+  checkout's `pyeye` directly; the MCP server is not involved. The first run
+  builds the index, so allow about a minute.
+- It reports `stubs` and the number that **don't round-trip**, split into
+  `inspect miss`, `resolve miss`, `disagree` (one tool finds it, the other
+  doesn't) and `handle mismatch` (both find it under different handles).
+- Compare these to the scenario's round-trip baseline row in
+  [[pyeye-scenarios]]. Classify a change like any other divergence: **fewer**
+  is *fixed* (cite the PR, usually the #629 consolidation work such as #623),
+  **more** is *regressed* (file an issue), and a count that moves with the
+  build is *environment*.
+- A `disagree` or `handle mismatch` entry also fails the rubric's
+  **Cross-repo correctness** dimension. Cite it there.
+- Don't re-implement this check in pytest. `test_emitted_handles_round_trip`
+  (#614) is the in-suite sweep over fixtures and `src/pyeye`, with an
+  allow-list. This probe is its counterpart on real repos at pinned commits.
+  If a scenario reveals a miss that the fixtures don't cover, add a fixture case
+  to #614's test rather than a second copy of the check.
 
 ## 2. Agent-consumption rubric
 
@@ -110,6 +144,7 @@ the canonical example of the cross-primitive inconsistency this dimension catche
 ## pyeye verify — <scenario> on <build> (<date>)
 
 **Regressions:** none | <list: probe, expected, actual, classification>
+**Round-trip:** <module>: <n>/<stubs> don't round-trip (baseline <m>/<stubs>)
 **Fixed since baseline:** <list, with issue/PR>
 **Rubric:** <n>/8 PASS
   - <dimension>: PASS/FAIL — <one line of probe evidence>

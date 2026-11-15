@@ -93,6 +93,10 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 | 4 | `expand("django.core.signing", "imported_by")` | 10 module stubs incl. `django.http.request`, `django.contrib.sessions.backends.base`, and `tests.*` | reverse-static import graph (deterministic) |
 | 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333), plus a `report_issues` URL (**#458**, PR #460) | **honest-limit refusal** — not faked, not empty; refusal now carries the in-band report path |
 
+**Round-trip probe** ([[pyeye-verify]] §1b), module `django.db.models.base`:
+*no baseline recorded yet*. Record one the next time the scenario is
+provisioned, tagged with the build.
+
 > Probe 2's `members:68` is a count of *statically written* members. Reporting it as
 > "Model's complete attribute set" would be wrong — `_meta`, `objects`, `DoesNotExist`
 > are metaclass-injected and invisible to static analysis. The verify rubric treats
@@ -142,6 +146,20 @@ from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 | 5 | `outline("jaraco")` | `module`/`project` with 3 submodule children: `context` and `functools` `truncated:survey_leaf` (members, no submodules), `text` `truncated:max_depth`; no `children:[]` anywhere | ✅ **#444 / #423** depth-1 survey; **#596** (re-recorded 2026-11-08, PR for #596 — the 2026-06-22 capture's `children:[]` on `context`/`functools` was the #596 bug, mis-recorded as expected) |
 | 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ child handle resolves |
 | 7 | `expand("jaraco", "submodules")` | 3 stubs: `jaraco.context`, `jaraco.functools`, `jaraco.text` (all `project`) | ✅ **#423 / #444** namespace union across sibling repos |
+
+**Round-trip probe** ([[pyeye-verify]] §1b) *(captured 2026-11-15, build
+`2.0.1.dev10+gd615b3a5a` = main @ `d615b3a`)*, module `jaraco.text`:
+
+| Measure | Baseline | Tracking |
+|---------|----------|----------|
+| stubs from `expand("jaraco.text", "imports")` | 32 | |
+| don't round-trip | **22** | #623 (one canonical resolver), #602 |
+| inspect miss / resolve miss | 21 / 20 | all `scope: external` (stdlib and typing: `os`, `typing.Callable`, `__future__.annotations`, …) |
+| disagree | 1: `functools` (resolve finds it, inspect doesn't) | #602: the bare `functools` vs `jaraco.functools` shadowing |
+| handle mismatch | 1: `_typing.TypeVar` | #623 |
+
+All three `jaraco.*` stubs round-trip. Every miss is external. A drop toward 0 is
+the #623 acceptance signal. Any `project`-scoped miss is a regression.
 
 Rows 2–5 + 7 are the **#423 / #444 / #454** acceptance check, and now pass. Against the
 *earlier* stale build (the 2026-06-21 global server, pre-#423/#444/#454) row 2's `jaraco.*`

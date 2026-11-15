@@ -250,6 +250,22 @@ repos:
         always_run: true
         verbose: true
 
+  # Duplicate-code report (#616): near-identical AST token runs in the MCP
+  # operations and canonicalization. REPORT-ONLY: the script always exits 0
+  # (today's known copies are consolidated under #629 Phase 2), so it never
+  # blocks a commit or CI. verbose:true so the report shows despite passing.
+  # Making it blocking (--fail-on-findings) is a pending user decision; see
+  # docs/development/duplicate-code-check.md.
+  - repo: local
+    hooks:
+      - id: duplicate-code-report
+        name: Duplicate-code report (non-blocking)
+        entry: uv run --frozen python scripts/duplicate_code_report.py
+        language: system
+        files: ^(src/pyeye/mcp/operations/.*|src/pyeye/canonicalization)\.py$
+        pass_filenames: false
+        verbose: true
+
   # Refresh the setuptools_scm version file after the working tree's git state
   # changes (#462). _version.py is gitignored and only written at install time,
   # so the self-reported version (pyeye://about) drifts after a pull/merge or

@@ -3,12 +3,24 @@
 import ast
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ..async_utils import read_file_async
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
+
+
+def _str_value(node: ast.AST) -> str | None:
+    """Return the value of a string-literal node, else ``None``.
+
+    Uses ``ast.Constant`` only: the legacy string/number node classes were
+    removed in Python 3.14 (#622).
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
 
 
 class FlaskPlugin(AnalyzerPlugin):
@@ -74,6 +86,27 @@ class FlaskPlugin(AnalyzerPlugin):
             "find_cli_commands": self.find_cli_commands,
         }
 
+    async def _read_source(self, py_file: Path) -> str | None:
+        """Read a project file, or warn and return ``None`` if it cannot be read as text."""
+        try:
+            return await read_file_async(py_file)
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning(f"Error reading {py_file.as_posix()}: {e}")
+            return None
+
+    def _parse_source(self, py_file: Path, content: str) -> ast.Module | None:
+        """Parse user source, or warn and return ``None`` if it is not valid Python.
+
+        Only genuinely unparseable user code is skipped here. Errors raised while
+        walking a parsed tree propagate, so an AST-API change cannot masquerade as
+        "nothing found" (#622).
+        """
+        try:
+            return ast.parse(content, filename=py_file.as_posix())
+        except (SyntaxError, ValueError, RecursionError) as e:
+            logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
+            return None
+
     async def find_routes(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Flask routes in the project.
 
@@ -88,11 +121,10 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "@" in content and "route" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "@" in content and "route" in content:
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.FunctionDef):
                             # Check for route decorators
@@ -107,12 +139,8 @@ class FlaskPlugin(AnalyzerPlugin):
                                     and decorator.func.attr == "route"
                                 ):
                                     # Extract route path
-                                    if decorator.args and isinstance(
-                                        decorator.args[0], ast.Constant
-                                    ):
-                                        route_path = decorator.args[0].value
-                                    elif decorator.args and isinstance(decorator.args[0], ast.Str):
-                                        route_path = decorator.args[0].s
+                                    if decorator.args:
+                                        route_path = _str_value(decorator.args[0])
 
                                     # Extract methods if specified
                                     for keyword in decorator.keywords:
@@ -121,13 +149,9 @@ class FlaskPlugin(AnalyzerPlugin):
                                         ):
                                             methods = []
                                             for elt in keyword.value.elts:
-                                                if isinstance(elt, (ast.Str, ast.Constant)):
-                                                    if isinstance(elt, ast.Str):
-                                                        methods.append(elt.s)  # type: ignore[arg-type,unused-ignore]
-                                                    elif isinstance(
-                                                        elt, ast.Constant
-                                                    ) and isinstance(elt.value, str):
-                                                        methods.append(elt.value)
+                                                method = _str_value(elt)
+                                                if method is not None:
+                                                    methods.append(method)
 
                                 if route_path:
                                     routes.append(
@@ -140,9 +164,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                             "type": "route",
                                         }
                                     )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return routes
 
@@ -160,11 +181,10 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "Blueprint" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "Blueprint" in content:
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.Assign):
                             # Check for Blueprint instantiation
@@ -178,24 +198,13 @@ class FlaskPlugin(AnalyzerPlugin):
                                     url_prefix = None
 
                                     # Extract blueprint name from args
-                                    if node.value.args and isinstance(
-                                        node.value.args[0], (ast.Str, ast.Constant)
-                                    ):
-                                        bp_name = (
-                                            node.value.args[0].s
-                                            if isinstance(node.value.args[0], ast.Str)
-                                            else node.value.args[0].value
-                                        )
+                                    if node.value.args:
+                                        bp_name = _str_value(node.value.args[0])
 
                                     # Extract url_prefix if specified
                                     for keyword in node.value.keywords:
                                         if keyword.arg == "url_prefix":
-                                            if isinstance(keyword.value, (ast.Str, ast.Constant)):
-                                                url_prefix = (
-                                                    keyword.value.s
-                                                    if isinstance(keyword.value, ast.Str)
-                                                    else keyword.value.value
-                                                )
+                                            url_prefix = _str_value(keyword.value)
 
                                     blueprints.append(
                                         {
@@ -207,9 +216,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                             "type": "blueprint",
                                         }
                                     )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return blueprints
 
@@ -227,11 +233,10 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "flask" in content.lower():
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "flask" in content.lower():
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         # Find MethodView classes
                         if isinstance(node, ast.ClassDef):
@@ -250,9 +255,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                             "type": "method_view",
                                         }
                                     )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return views
 
@@ -297,11 +299,10 @@ class FlaskPlugin(AnalyzerPlugin):
         # Find render_template calls
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "render_template" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "render_template" in content:
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         if (
                             isinstance(node, ast.Call)
@@ -310,13 +311,8 @@ class FlaskPlugin(AnalyzerPlugin):
                                 and node.func.id == "render_template"
                             )
                             and node.args
-                            and isinstance(node.args[0], (ast.Str, ast.Constant))
+                            and (template_name := _str_value(node.args[0])) is not None
                         ):
-                            template_name = (
-                                node.args[0].s
-                                if isinstance(node.args[0], ast.Str)
-                                else node.args[0].value
-                            )
                             render_calls.append(
                                 {
                                     "template": template_name,
@@ -325,9 +321,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                     "type": "render_call",
                                 }
                             )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return [{"templates": templates, "render_calls": render_calls}]
 
@@ -359,12 +352,14 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                for ext in common_extensions:
-                    if f"from {ext}" in content or f"import {ext}" in content:
-                        # Parse to get more details
-                        tree = ast.parse(content)
+            content = await self._read_source(py_file)
+            if content is None:
+                continue
+            for ext in common_extensions:
+                if f"from {ext}" in content or f"import {ext}" in content:
+                    # Parse to get more details
+                    tree = self._parse_source(py_file, content)
+                    if tree is not None:
                         for node in ast.walk(tree):
                             if isinstance(node, (ast.Import, ast.ImportFrom)):
                                 if isinstance(node, ast.ImportFrom):
@@ -388,9 +383,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                                     "type": "import",
                                                 }
                                             )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         # Remove duplicates
         seen: set[str] = set()
@@ -426,11 +418,10 @@ class FlaskPlugin(AnalyzerPlugin):
         # Find app.config usage
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "app.config" in content or "current_app.config" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and ("app.config" in content or "current_app.config" in content):
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         # Look for config access patterns
                         if isinstance(node, ast.Attribute):
@@ -444,9 +435,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                         "type": "config_access",
                                     }
                                 )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return configs
 
@@ -464,11 +452,10 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "errorhandler" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "errorhandler" in content:
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.FunctionDef):
                             for decorator in node.decorator_list:
@@ -480,8 +467,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                             if decorator.args:
                                                 if isinstance(decorator.args[0], ast.Constant):
                                                     error_code = decorator.args[0].value
-                                                elif isinstance(decorator.args[0], ast.Num):
-                                                    error_code = decorator.args[0].n
                                                 elif isinstance(decorator.args[0], ast.Name):
                                                     error_code = decorator.args[0].id
 
@@ -494,9 +479,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                                     "type": "error_handler",
                                                 }
                                             )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return handlers
 
@@ -514,11 +496,10 @@ class FlaskPlugin(AnalyzerPlugin):
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
-            try:
-                content = await read_file_async(py_file)
-                if "@" in content and "cli" in content:
-                    tree = ast.parse(content)
-
+            content = await self._read_source(py_file)
+            if content is not None and "@" in content and "cli" in content:
+                tree = self._parse_source(py_file, content)
+                if tree is not None:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.FunctionDef):
                             for decorator in node.decorator_list:
@@ -531,17 +512,11 @@ class FlaskPlugin(AnalyzerPlugin):
                                                 if decorator.func.value.attr == "cli":
                                                     command_name = node.name
                                                     # Try to get custom command name
-                                                    if decorator.args and isinstance(
-                                                        decorator.args[0], (ast.Str, ast.Constant)
-                                                    ):
-                                                        if isinstance(decorator.args[0], ast.Str):
-                                                            command_name = decorator.args[0].s  # type: ignore[assignment,unused-ignore]
-                                                        elif isinstance(
-                                                            decorator.args[0], ast.Constant
-                                                        ) and isinstance(
-                                                            decorator.args[0].value, str
-                                                        ):
-                                                            command_name = decorator.args[0].value
+                                                    if decorator.args:
+                                                        command_name = (
+                                                            _str_value(decorator.args[0])
+                                                            or command_name
+                                                        )
 
                                                     commands.append(
                                                         {
@@ -564,9 +539,6 @@ class FlaskPlugin(AnalyzerPlugin):
                                                 "type": "cli_command",
                                             }
                                         )
-
-            except Exception as e:
-                logger.warning(f"Error parsing {py_file.as_posix()}: {e}")
 
         return commands
 
