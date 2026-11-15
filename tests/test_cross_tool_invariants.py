@@ -43,6 +43,7 @@ from typing import Any
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.mcp.jedi_worker import run_on_jedi_worker
 from pyeye.mcp.operations.edges import EDGE_RESOLVERS
 from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
@@ -644,14 +645,10 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
 #: (root, edge) pairs traced.  Covers project and stdlib imports, a namespace
 #: package, class hierarchies, callees, and wrong-kind edges on each kind.
 #:
-#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: an ``imports`` hop ON
-#: ``io``/``weakref`` recurses ~1500 frames deep in Jedi, which overflows the C
-#: stack and kills the process on Windows / CPython 3.11 (#650).  Since #621
-#: trace no longer walks ``logging`` (expand can't resolve it), but once #623
-#: makes stdlib modules resolvable the walk would reach ``io`` again.  #650
-#: guards that only at the server layer (a large-stack worker thread); this test
-#: calls ``trace`` directly on the main thread, so the case stays excluded.
-#: ``xpkg.text`` (``import textwrap``) stays shallow.
+#: Every case runs on the Jedi worker thread (#650), as the MCP tools do: an
+#: ``imports`` hop into the stdlib (``io``/``weakref`` under ``logging``)
+#: recurses ~1500 frames deep in Jedi, which overflows the default C stack on
+#: Windows / CPython 3.11.  So no case has to be excluded for the stack.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (
@@ -664,7 +661,6 @@ _TRACE_CASES = tuple(
         "xpkg.core.make_widget",
     )
     for edge in EDGE_RESOLVERS
-    if (root, edge) != ("xpkg.core", "imports")
 )
 
 
@@ -710,14 +706,8 @@ async def _trace_expand_violations(
     return out
 
 
-#: trace/expand roots in the #667 scenario: cross-repo hierarchy, calls and imports.
-#:
-#: The ``imports`` traces of modules that import the stdlib are EXCLUDED, like
-#: ``(xpkg.core, imports)`` above: trace walks into ``logging`` / ``pathlib`` /
-#: ``sys`` and Jedi's import following recurses deep enough to overflow the C
-#: stack on Windows / CPython 3.11.  The cross-repo import closure is covered by
-#: ``tests/integration/test_multirepo_namespace_scenario.py``, which traces with
-#: ``exclude_external``.
+#: trace/expand roots in the #667 scenario: cross-repo hierarchy, calls and imports
+#: (including the stdlib-importing roots, which need the worker's stack).
 _MULTIREPO_TRACE_CASES = tuple(
     (root, edge)
     for root in (
@@ -730,12 +720,6 @@ _MULTIREPO_TRACE_CASES = tuple(
         "corp.web.views.render",
     )
     for edge in EDGE_RESOLVERS
-    if (root, edge)
-    not in {
-        ("app.main", "imports"),
-        ("corp.core.models", "imports"),
-        ("corp.web.views", "imports"),
-    }
 )
 
 
@@ -752,7 +736,8 @@ async def test_trace_expand_agree(project: Path, cases: tuple[tuple[str, str], .
     roots = {root for root, _ in cases}
     observed: dict[tuple[str, ...], str] = {}
     for root, edge in cases:
-        observed.update(await _trace_expand_violations(root, edge, analyzer))
+        # On the large-stack Jedi worker, like the MCP tools (#650): see _TRACE_CASES.
+        observed.update(await run_on_jedi_worker(_trace_expand_violations(root, edge, analyzer)))
     owned = {k: v for k, v in KNOWN_GAPS.items() if k[0] == "trace_expand" and k[1] in roots}
     _assert_matches_allowlist(
         observed, ("trace_expand",), f"trace-expand[{project.name}]", allowed=owned
