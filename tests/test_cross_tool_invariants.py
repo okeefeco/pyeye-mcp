@@ -198,9 +198,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "_typing.ParamSpec",
         "_typing.TypeVar",
     ),
-    # #623 slice 4 (exact top-level module wins): bare `inspect` is ambiguous
-    # between stdlib `inspect` and pyeye's own `inspect` symbols.
-    **_round_trip("src/pyeye", _ISSUE_623, ("same_handle",), "inspect"),
     #
     # #667 multi-repo namespace scenario: the same classes of gap, no new ones.
     **_round_trip(

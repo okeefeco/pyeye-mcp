@@ -89,6 +89,9 @@ class TestPerformanceBaselines:
             stats["p50_ms"], CommonThresholds.SYMBOL_SEARCH_P50, "Symbol search p50"
         )
 
+    # Pure-Python microbenchmark: under coverage it would time the tracer, not
+    # the cache (#428/#486), so coverage is switched off for it.
+    @pytest.mark.no_cover
     def test_cache_lookup_performance(self):
         """Test that cache lookups are fast."""
         cache = ProjectCache()
@@ -108,10 +111,21 @@ class TestPerformanceBaselines:
 
         stats = collector.get_stats("cache_lookup")
 
-        # Cache lookups should be very fast
-        assert stats["p99_ms"] < 1, f"Cache lookup p99 ({stats['p99_ms']}ms) exceeds 1ms"
-        assert stats["p50_ms"] < 0.1, f"Cache lookup p50 ({stats['p50_ms']}ms) exceeds 0.1ms"
+        # Cache lookups should be very fast (#486: framework tiers, not bare asserts).
+        assert_performance_threshold(
+            stats["p99_ms"],
+            PerformanceThresholds(base=1.0, linux_ci=2.0, macos_ci=4.0, windows_ci=4.0),
+            "Cache lookup p99",
+        )
+        assert_performance_threshold(
+            stats["p50_ms"],
+            PerformanceThresholds(base=0.1, linux_ci=0.2, macos_ci=0.4, windows_ci=0.4),
+            "Cache lookup p50",
+        )
 
+    # Pure-Python microbenchmark: under coverage it would time the tracer, not
+    # the cache (#428/#486), so coverage is switched off for it.
+    @pytest.mark.no_cover
     def test_granular_cache_invalidation_performance(self):
         """Test that granular cache invalidation is efficient."""
         cache = GranularCache()
@@ -137,7 +151,11 @@ class TestPerformanceBaselines:
         stats = collector.get_stats("cache_invalidation")
 
         # Invalidation should be fast even with many entries
-        assert stats["p95_ms"] < 5, f"Cache invalidation p95 ({stats['p95_ms']}ms) exceeds 5ms"
+        assert_performance_threshold(
+            stats["p95_ms"],
+            PerformanceThresholds(base=5.0, linux_ci=10.0, macos_ci=20.0, windows_ci=20.0),
+            "Granular cache invalidation p95",
+        )
 
     def test_metrics_overhead(self):
         """Test that metrics collection itself has minimal overhead."""
@@ -313,6 +331,9 @@ class TestPerformanceUnderLoad:
         )
         assert_performance_threshold(stats["p99_ms"], warm_p99_threshold, "Warm find_symbol p99")
 
+    # Pure-Python microbenchmark: under coverage it would time the tracer, not
+    # the cache (#428/#486), so coverage is switched off for it.
+    @pytest.mark.no_cover
     def test_sustained_load_performance(self):
         """Test performance under sustained load."""
         collector = MetricsCollector()
@@ -340,7 +361,11 @@ class TestPerformanceUnderLoad:
 
         # Should maintain good performance under sustained load
         assert operations_count > 1000, f"Only {operations_count} ops in 2s (expected >1000)"
-        assert stats["p95_ms"] < 10, f"Sustained load p95 ({stats['p95_ms']}ms) exceeds 10ms"
+        assert_performance_threshold(
+            stats["p95_ms"],
+            PerformanceThresholds(base=10.0, linux_ci=20.0, macos_ci=40.0, windows_ci=40.0),
+            "Sustained load p95",
+        )
 
 
 # Performance baseline configuration for CI

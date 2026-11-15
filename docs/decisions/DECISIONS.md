@@ -2,6 +2,30 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-11-15 — Bare name: an exact top-level module wins (#623)
+
+**Friction:** `resolve` on a bare name searched only the project's name index, keyed by last segment. In a project with its own `functools` module (jaraco's `jaraco.functools`), `resolve("functools")` answered with the project module, silently and without `ambiguous`, though the bare name is exactly stdlib `functools` (#602 part b). In pyeye's own repo, `resolve("inspect")` was ambiguous between pyeye's `inspect` symbols while the `imports` edge emitted stdlib `inspect`, so the emitted handle didn't round-trip. #423's root-package promotion already applied "the exact top-level module wins" to the project's own package, but nowhere else.
+**Decision:** `pyeye.resolver.resolve_name(bare) -> Resolved | Ambiguous | NotFound` applies, first rule wins:
+
+1. **Shadow stays ambiguous** (#423): a top-level package or module of that name under more than one `TOP_LEVEL_PACKAGE` root (`<name>/` in the project and in `src/`).
+2. **An exact top-level module wins**: the bare name is itself a complete top-level module (the project's own package, a PEP 420 namespace root, or an external module such as `functools`, `inspect`, `os`). It wins even when project definitions share the name. Those are reached by their dotted handles (`jaraco.functools`; `pyeye.mcp.operations.inspect` in this repo).
+3. **Otherwise the name index**: every project definition named *bare*, each re-resolved through `resolve_handle`, so every candidate is canonical and an alias collapses onto its definition. One left is the answer; several are ambiguous.
+
+- Extends #423's root-package promotion to every top-level module, per the user's 2026-11-15 confirmation on #623 ("exact match wins").
+- Rejected: making `functools` ambiguous between stdlib and the project module, which leaves the obvious reading of the name unreachable by bare name; and preferring the project definition, which is the silent wrong answer this fixes.
+- Consequence in this repo: `resolve("inspect")` is stdlib `inspect`. The python-explore skill says to use the dotted handle for a same-named project symbol.
+
+**Anchor:** `pyeye.resolver.resolve_name` / `Ambiguous` / `_top_level_shadow`; `pyeye.mcp.operations.resolve._resolve_bare_name`; `tests/integration/test_resolve_name.py`; `tests/test_resolve_root_package.py`; #623, #602, #423.
+**Applies-to:** `resolve` on a bare (dot-free) identifier, its only bare-name entry point. Dotted handles go through `resolve_handle` (see the canonical-resolver entry below).
+**Verify:** gold. `uv run pytest tests/integration/test_resolve_name.py tests/test_resolve_root_package.py` passes:
+
+- `functools` (a project module shares the name), `inspect` (a project function shares it) and `os` resolve to the stdlib module, not ambiguous;
+- the project definitions stay reachable by dotted handle;
+- two project definitions stay ambiguous, and every candidate round-trips through `inspect`;
+- an alias and its definition collapse to one canonical answer;
+- a top-level package promotes over a deeper same-named symbol;
+- a shadow across two roots stays ambiguous.
+
 ## 2026-11-15 — One goto-disambiguation policy; inspect's superclasses field reads the edge (#624)
 
 **Friction:** Four call sites picked among Jedi `goto` results with four rules. Callees and imports took the first result with a `full_name`; superclasses (edge, plus a copy in inspect) preferred a class, then took the first; typeref required exactly one. A first-match guess is a confident answer to an ambiguous question: the same `.clear()` resolved to `collections.OrderedDict.clear` in one file and `typing.MutableMapping.clear` in another. inspect's `superclasses` field and the `superclasses` edge were separate implementations that already disagreed: declaration order versus sorted by handle, and raw text for an unresolved base versus a silent drop. typeref carried a byte-for-byte copy of `attr_target_position`.
@@ -95,12 +119,15 @@ Not covered: `trace` (`unresolved_roots`), and the error channel for invalid arg
 
 **Anchor:** `JediAnalyzer.find_importers` (whole-file `ast.walk`) vs `pyeye._module_scope.iter_module_scope_imports` (#360); the `expand` tool description in `pyeye.mcp.server`; `skills/python-explore/SKILL.md` edge table; `docs/superpowers/specs/2026-06-10-imported-by-edge-design.md` ceiling; #619, #360, #625.
 
+**Amended 2026-11-15 (#668):** `imported_by` must also never *drop* a dependent. A file that imports the target but has no module name (a path part that isn't a Python identifier: `my-script.py`, `tools-dir/x.py`) can't be a stub, so it used to vanish silently, a confident under-count of fan-in. It is now listed in `unresolved_importers` (POSIX paths; `[]` when every importer is named), on `expand` and per node on `trace`, mirroring `unresolved_imports` on `imports` (#494). The file↔module mapper (`project_layout.module_name_for_file`) returns `None` for such files rather than inventing a name, and no longer treats `root/../other/x.py` as under `root`. A relative import from an unnamed file can't be anchored, so only its absolute imports count. The root cause #668 reported (unnormalised `..` in configured namespace paths) is fixed once, in `ProjectConfig` (#676).
+
 **Applies-to:** both edges: `edges.resolve_imported_by` → `JediAnalyzer.find_importers`, and `edges.resolve_imports`.
 
 **Verify:** gold. `uv run pytest tests/test_imports_imported_by.py` passes:
 
 - the forward property over every `_SWEEP_CORPORA` fixture and over a project with every import form (plain, aliased, `from pkg import mod`, `from pkg.sub import mod`, relative, `TYPE_CHECKING`, try/except shim);
 - the asymmetry is pinned: a function-body importer (`app.lazy`) and a class-body importer (`app.class_body`) are in `imported_by` of their target but don't show it in their own `imports`.
+- #668: `tests/unit/mcp/operations/test_unresolved_importers.py` (expand, trace, find_importers, other edges never carry the field), the mapper cases in `tests/test_project_layout.py`, and linter rules E.6/T.10.
 
 ## 2026-11-15 — One canonical handle resolver; every tool echoes the canonical handle (#623)
 
@@ -136,12 +163,12 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
 - `outline` root;
 - `expand` source;
 - `trace` roots;
-- `resolve` dotted names, and bare names with no name-index hit (an exact top-level module);
+- `resolve` dotted names, and every bare-name candidate (`resolve_name`, see "Bare name: an exact top-level module wins");
 - `resolve_at` (the position's definition is canonicalized through the resolver).
 
 Scope: every `Resolved` and every edge stub (`scope_for`), and every `classify_scope` caller (the widened `SCOPE` boundary).
 
-Not yet moved (later #623 slices): the bare-name policy with index hits, where an exact top-level module wins (slice 4); trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
+Not yet moved (later #623 slices): trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
 **Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/integration/test_resolve_on_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py tests/test_cross_tool_invariants.py` passes:
 
 - each strategy resolves its case;

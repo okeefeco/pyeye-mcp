@@ -402,3 +402,33 @@ class TestRealTraceOutputConforms:
             "mypackage._core.widgets.Widget", ["members", "callers"], analyzer, max_depth=1
         )
         lint_response(result, "trace")  # must not raise
+
+
+class TestT10UnresolvedImporters:
+    """T.10 (#668) — ``unresolved_importers`` map, shaped like T.8."""
+
+    def test_absent_passes(self) -> None:
+        lint_response(_clone(), "trace")
+
+    def test_populated_map_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_importers"] = {"pkg.target": ["/proj/my-script.py"]}
+        lint_response(sg, "trace")
+
+    def test_must_be_dict(self) -> None:
+        sg = _clone()
+        sg["unresolved_importers"] = ["/proj/my-script.py"]
+        with pytest.raises(ConformanceViolation, match="T.10 trace unresolved_importers type"):
+            lint_response(sg, "trace")
+
+    def test_empty_list_value_rejected(self) -> None:
+        sg = _clone()
+        sg["unresolved_importers"] = {"pkg.target": []}
+        with pytest.raises(ConformanceViolation, match="T.10 trace unresolved_importers value"):
+            lint_response(sg, "trace")
+
+    def test_bad_entry_rejected(self) -> None:
+        sg = _clone()
+        sg["unresolved_importers"] = {"pkg.target": ["a\nb"]}
+        with pytest.raises(ConformanceViolation, match="T.10 trace unresolved_importers entry"):
+            lint_response(sg, "trace")
