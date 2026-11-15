@@ -785,6 +785,12 @@ _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
     {"max_depth", "max_nodes", "external", "survey_leaf"}
 )
 
+# O.5 — the BUDGET class of truncation reasons (#435): a cap was hit, so the node
+# says how much it withheld.  Hardcoded like the sets above (the linter is an
+# independent oracle); ``tests/test_completeness_registry.py`` checks these sets
+# equal ``pyeye.mcp.operations.completeness.TRUNCATION_REASONS``.
+_BUDGET_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
+
 # ---------------------------------------------------------------------------
 # Check S — Stub structural-floor helpers
 # ---------------------------------------------------------------------------
@@ -1509,32 +1515,33 @@ def _check_outline_counts(
     # ``submodules``) and mirrors ``inspect().edge_counts`` — the VALUE invariant
     # needs an analyzer, so it is a test-level check; the linter checks SHAPE and
     # PLACEMENT.  Where a count may appear is read from the node's state:
-    #   - a ``max_nodes`` truncation carries EXACTLY ONE count — the edge it
-    #     withheld (members in member mode, submodules in survey mode);
+    #   - a BUDGET truncation (``max_nodes`` / ``max_depth``, #435) carries
+    #     EXACTLY ONE count — the edge it withheld (members in member mode,
+    #     submodules in survey mode);
     #   - a walked node may carry ``member_count`` > 0 — members not in this view
     #     (a survey package, whose children are submodules); never
     #     ``submodule_count`` (submodules there ARE the children);
-    #   - any other truncation (max_depth / external / survey_leaf) carries none.
+    #   - a boundary or unmeasured truncation (external / survey_leaf / …)
+    #     carries none: see ``completeness.TRUNCATION_REASONS`` for the classes.
     count_keys = [k for k in _OUTLINE_COUNT_KEYS if k in tree]
     _check_outline_count_values(tree, path, count_keys, violations)
 
-    is_max_nodes_trunc = (
-        tree.get("truncated") is True and tree.get("truncation_reason") == "max_nodes"
-    )
-    if is_max_nodes_trunc:
+    reason = tree.get("truncation_reason")
+    is_budget_trunc = tree.get("truncated") is True and reason in _BUDGET_REASONS
+    if is_budget_trunc:
         if len(count_keys) != 1:
             violations.append(
-                f"[O.5 outline max_nodes count required] {path}: a 'max_nodes' truncation "
-                "must carry exactly one of 'member_count' / 'submodule_count' (the count "
-                f"of the edge it withheld); got {count_keys or 'none'}. See spec §4 "
-                "reserve-before-expand / §6.4 count-consistency."
+                f"[O.5 outline budget count required] {path}: a {reason!r} (budget) "
+                "truncation must carry exactly one of 'member_count' / 'submodule_count' "
+                f"(the count of the edge it withheld); got {count_keys or 'none'}. See "
+                "spec §4 reserve-before-expand / §6.4 count-consistency, and #435."
             )
     elif has_truncated:
         if count_keys:
             violations.append(
                 f"[O.6 outline count placement] {path}: {count_keys} on a "
-                f"{tree.get('truncation_reason')!r} truncation. Only 'max_nodes' "
-                "truncations count what they withheld."
+                f"{reason!r} truncation. Only budget truncations "
+                f"({sorted(_BUDGET_REASONS)}) count what they withheld."
             )
     elif has_children:
         if "submodule_count" in tree:
@@ -1693,6 +1700,50 @@ def _check_outline_structural_floor(
         violations: Mutable list to append violation messages to.
     """
     _check_outline_tree_node(response, "", violations)
+    _check_outline_summary(response, violations)
+
+
+def _outline_node_reasons(tree: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(path, node)`` for every OutlineTree node below the root."""
+    stack: list[tuple[str, Any]] = [("", tree)]
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        yield path, node
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend((f"{path}.children[{i}]", c) for i, c in enumerate(children))
+
+
+def _check_outline_summary(response: dict[str, Any], violations: list[str]) -> None:
+    """O.7 — the result-level ``truncation_reasons`` summary (#435).
+
+    Present on the root only, as the sorted set of every node's
+    ``truncation_reason`` (the root's included); absent when no node is
+    truncated, never ``[]``.
+    """
+    reasons: set[str] = set()
+    for path, node in _outline_node_reasons(response):
+        if path and "truncation_reasons" in node:
+            violations.append(
+                f"[O.7 outline summary placement] {path}: 'truncation_reasons' belongs on "
+                "the root only (the per-node field is 'truncation_reason')."
+            )
+        if node.get("truncated") is True and isinstance(node.get("truncation_reason"), str):
+            reasons.add(node["truncation_reason"])
+    summary = response.get("truncation_reasons")
+    if not reasons:
+        if summary is not None:
+            violations.append(
+                f"[O.7 outline summary] 'truncation_reasons' is {summary!r} but no node is "
+                "truncated; absent when nothing was cut, never an empty list."
+            )
+    elif summary != sorted(reasons):
+        violations.append(
+            f"[O.7 outline summary] 'truncation_reasons' is {summary!r}; expected the sorted "
+            f"set of node reasons {sorted(reasons)} (absent means nothing was truncated)."
+        )
 
 
 # O.5 — ``<edge>_count`` keys an outline node may carry (#599), in a stable order.

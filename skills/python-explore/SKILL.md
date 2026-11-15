@@ -387,9 +387,14 @@ outline("myapp.cache", max_depth=2)  -> module + each class's members in one cal
 
 `outline` defaults to **direct members only** (`max_depth=1`) for every root.
 A nested container that has members comes back `truncated: max_depth` with no
-`children`. That means "not walked yet", not "empty": `outline` its handle to
-drill in, or pass a larger `max_depth` (`None` = unbounded, still capped by
-`max_nodes`).
+`children`, plus `member_count` saying how many it holds. That means "not walked
+yet", not "empty": `outline` its handle to drill in, or pass a larger `max_depth`
+(`None` = unbounded, still capped by `max_nodes`).
+
+Check the root's `truncation_reasons` first: it lists every reason any node was
+cut for (absent when nothing was). `max_depth` / `max_nodes` are budget cuts, so
+raise the limit, and the node's count says how much is missing. `external` /
+`survey_leaf` are boundaries by design, so outline that node instead.
 
 **Cold start: "what's in this package / project?"** — orient top-down, drill on
 demand. `outline` on a *package* surveys its child modules/subpackages (depth-1

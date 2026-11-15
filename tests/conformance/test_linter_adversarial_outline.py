@@ -95,12 +95,14 @@ class TestOutlineAcceptsValid:
         lint_response({"found": True, "node": _STUB_MODULE, "children": []}, "outline")
 
     def test_truncated_node_passes(self) -> None:
-        """A node cut off by max_depth with truncation_reason and no children passes."""
+        """A node cut off by max_depth, with its count and the summary, passes (#435)."""
         tree = {
             "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_depth",
+            "member_count": 4,
+            "truncation_reasons": ["max_depth"],
         }
         lint_response(tree, "outline")
 
@@ -112,6 +114,7 @@ class TestOutlineAcceptsValid:
             "truncated": True,
             "truncation_reason": "max_nodes",
             "member_count": 7,
+            "truncation_reasons": ["max_nodes"],
         }
         lint_response(tree, "outline")
 
@@ -122,6 +125,7 @@ class TestOutlineAcceptsValid:
             "node": {**_STUB_CLASS, "scope": "external"},
             "truncated": True,
             "truncation_reason": "external",
+            "truncation_reasons": ["external"],
         }
         lint_response(tree, "outline")
 
@@ -220,15 +224,17 @@ class TestOutlineStructuralFloor:
         with pytest.raises(ConformanceViolation, match="member_count"):
             lint_response(tree, "outline")
 
-    def test_max_depth_truncation_needs_no_member_count(self) -> None:
-        """O.5 is scoped to max_nodes — a max_depth truncation needs no member_count."""
+    def test_max_depth_truncation_needs_its_count(self) -> None:
+        """O.5 (#435) — max_depth is a budget cut, so it must count what it withheld."""
         tree = {
             "found": True,
             "node": _STUB_CLASS,
             "truncated": True,
             "truncation_reason": "max_depth",
+            "truncation_reasons": ["max_depth"],
         }
-        lint_response(tree, "outline")
+        with pytest.raises(ConformanceViolation, match="O.5 outline budget count required"):
+            lint_response(tree, "outline")
 
     def test_truncation_reason_without_truncated_rejected(self) -> None:
         """O.3 — truncation_reason present without truncated is rejected."""
@@ -294,6 +300,7 @@ class TestOutlineTruncationReasonEnum:
             "node": {**_STUB_CLASS, "scope": "external"},
             "truncated": True,
             "truncation_reason": "external",
+            "truncation_reasons": ["external"],
         }
         lint_response(tree, "outline")  # must not raise
 
@@ -415,6 +422,7 @@ class TestOutlineSurveyDisclosure:
             "node": _STUB_MODULE,
             "truncated": True,
             "truncation_reason": "survey_leaf",
+            "truncation_reasons": ["survey_leaf"],
         }
         lint_response(tree, "outline")
 
@@ -461,6 +469,7 @@ class TestOutlineSurveyDisclosure:
             "truncated": True,
             "truncation_reason": "max_nodes",
             "submodule_count": 6,
+            "truncation_reasons": ["max_nodes"],
         }
         lint_response(tree, "outline")
 
@@ -474,7 +483,7 @@ class TestOutlineSurveyDisclosure:
             "member_count": 1,
             "submodule_count": 6,
         }
-        with pytest.raises(ConformanceViolation, match="O.5 outline max_nodes count required"):
+        with pytest.raises(ConformanceViolation, match="O.5 outline budget count required"):
             lint_response(tree, "outline")
 
     @pytest.mark.parametrize("key", ["member_count", "submodule_count"])
@@ -491,10 +500,10 @@ class TestOutlineSurveyDisclosure:
         with pytest.raises(ConformanceViolation, match=f"O.5 outline {key}"):
             lint_response(tree, "outline")
 
-    @pytest.mark.parametrize("reason", ["max_depth", "external", "survey_leaf"])
+    @pytest.mark.parametrize("reason", ["external", "survey_leaf"])
     @pytest.mark.parametrize("key", ["member_count", "submodule_count"])
     def test_count_on_non_budget_truncation_rejected(self, reason: str, key: str) -> None:
-        """O.6 — only a max_nodes truncation counts what it withheld."""
+        """O.6 — only a budget truncation (#435) counts what it withheld."""
         tree = {
             "found": True,
             "node": _STUB_MODULE,
@@ -503,4 +512,50 @@ class TestOutlineSurveyDisclosure:
             key: 2,
         }
         with pytest.raises(ConformanceViolation, match="O.6 outline count placement"):
+            lint_response(tree, "outline")
+
+
+class TestOutlineSummary:
+    """O.7 (#435) — the result-level ``truncation_reasons`` summary."""
+
+    def test_untruncated_tree_has_no_summary(self) -> None:
+        lint_response(_clone(), "outline")
+
+    def test_empty_summary_rejected(self) -> None:
+        tree = {**_clone(), "truncation_reasons": []}
+        with pytest.raises(ConformanceViolation, match="O.7 outline summary"):
+            lint_response(tree, "outline")
+
+    def test_missing_summary_rejected(self) -> None:
+        tree = _clone()
+        tree["children"][0] = {
+            "node": _STUB_CLASS,
+            "truncated": True,
+            "truncation_reason": "max_depth",
+            "member_count": 1,
+        }
+        with pytest.raises(ConformanceViolation, match="O.7 outline summary"):
+            lint_response(tree, "outline")
+
+    def test_summary_is_the_sorted_union_of_node_reasons(self) -> None:
+        tree = _clone()
+        tree["children"] = [
+            {"node": _STUB_CLASS, "truncated": True, "truncation_reason": "survey_leaf"},
+            {
+                "node": _STUB_CLASS,
+                "truncated": True,
+                "truncation_reason": "max_nodes",
+                "member_count": 2,
+            },
+        ]
+        tree["truncation_reasons"] = ["max_nodes", "survey_leaf"]
+        lint_response(tree, "outline")
+        tree["truncation_reasons"] = ["survey_leaf"]
+        with pytest.raises(ConformanceViolation, match="O.7 outline summary"):
+            lint_response(tree, "outline")
+
+    def test_summary_below_the_root_rejected(self) -> None:
+        tree = _clone()
+        tree["children"][0]["truncation_reasons"] = ["max_depth"]
+        with pytest.raises(ConformanceViolation, match="O.7 outline summary placement"):
             lint_response(tree, "outline")
