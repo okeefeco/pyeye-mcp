@@ -286,14 +286,14 @@ Performance settings are configured through environment variables:
 | Environment Variable | Default | Description | Valid Range |
 |---------------------|---------|-------------|-------------|
 | `PYEYE_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
-| `PYEYE_CACHE_TTL` | 300 | Cache time-to-live in seconds | 0-86400 (24h) |
+| `PYEYE_CACHE_TTL` | 300 | Seconds a cached scope file list or lookup result lives (file changes also clear it) | 0-86400 (24h) |
 | `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; the main memory lever | 1-1000000 |
 | `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
 | `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
-| **Connection Pooling** | | **Optimize multi-project workflows** | |
-| `PYEYE_ENABLE_CONNECTION_POOLING` | true | Enable connection pooling for multiple projects | true/false |
-| `PYEYE_POOL_MAX_CONNECTIONS` | 10 | Maximum pooled project connections | 1-100 |
-| `PYEYE_POOL_TTL` | 3600 | Connection time-to-live in seconds | 60-86400 |
+| **Deprecated** | | **No effect; removed in v3.0** | |
+| `PYEYE_ENABLE_CONNECTION_POOLING` | true | Deprecated, no effect: the connection pool was removed (#628) | |
+| `PYEYE_POOL_MAX_CONNECTIONS` | 10 | Deprecated, no effect: the connection pool was removed (#628) | |
+| `PYEYE_POOL_TTL` | 3600 | Deprecated, no effect: the connection pool was removed (#628) | |
 | **Logging** | | | |
 | `PYEYE_LOG_LEVEL` | INFO | `DEBUG`, `INFO`, `WARNING` or `ERROR` | |
 | `PYEYE_LOG_FILE` | unset | Append logs to this file (otherwise stderr only) | |
@@ -485,7 +485,6 @@ PyEye
 │   └── MCP tools (primitives + auto-activated framework plugins)
 ├── Project Manager
 │   ├── Multi-project support (LRU cache, max 10)
-│   ├── Connection pooling (optional optimization)
 │   ├── Namespace resolver
 │   └── Configuration loader (multiple sources)
 ├── Analysis Engine
@@ -540,34 +539,22 @@ class MyProjectPlugin(AnalyzerPlugin):
 
 The server includes comprehensive performance monitoring to help identify bottlenecks and optimize performance for large-scale deployments.
 
-### Connection Pooling for Multi-Project Workflows
+### Connection Pooling (deprecated)
 
-Connection pooling is enabled by default to optimize performance when working with multiple projects. You can customize the pooling behavior:
+The connection pool was removed in #628: it built `jedi.Project` objects that
+nothing used. Its three settings are deprecated and have no effect; setting one
+logs a warning at startup, and they will be removed in v3.0:
 
 ```bash
-# Customize connection pooling (already enabled by default)
-export PYEYE_POOL_MAX_CONNECTIONS=20  # Increase pool size for many projects
-export PYEYE_POOL_TTL=7200            # Increase TTL to 2 hours
-
-# Or disable pooling if needed
-export PYEYE_ENABLE_CONNECTION_POOLING=false
-
-# Start the server (normally your MCP client starts it for you)
-python -m pyeye.mcp
+PYEYE_ENABLE_CONNECTION_POOLING   # deprecated, no effect
+PYEYE_POOL_MAX_CONNECTIONS        # deprecated, no effect
+PYEYE_POOL_TTL                    # deprecated, no effect
 ```
-
-Connection pooling provides significant performance improvements:
-
-- **Reduced initialization time** for frequently accessed projects
-- **Shared connections** across multiple analysis operations
-- **Automatic eviction** of idle connections based on TTL
-- **Memory-efficient** pooling with configurable limits
 
 ### Metrics Tracked
 
 - **Operation Latencies**: p50, p95, p99 percentiles for all MCP tools
 - **Cache Performance**: Hit rate, miss rate, evictions
-- **Connection Pool Stats**: Pool size, hits, misses, evictions, reuse rate
 - **Memory Usage**: RSS, VMS, percentage used
 - **Error Rates**: Track failures per operation
 - **Throughput**: Operations per second

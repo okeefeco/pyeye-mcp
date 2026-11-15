@@ -8,7 +8,7 @@ Public API
 ----------
 .. code-block:: python
 
-    node = await inspect("pyeye.cache.GranularCache", analyzer)
+    node = await inspect("pyeye.project_manager.ProjectManager", analyzer)
     # → {handle, kind, scope, location, docstring, edge_counts: {...}, ...}
 
 Design notes

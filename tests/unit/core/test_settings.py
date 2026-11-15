@@ -1,9 +1,12 @@
 """Tests for performance settings configuration."""
 
+import logging
 import os
 from unittest.mock import patch
 
-from pyeye.settings import PerformanceSettings
+import pytest
+
+from pyeye.settings import DEPRECATED_ENV_VARS, PerformanceSettings
 
 
 class TestPerformanceSettings:
@@ -152,11 +155,10 @@ class TestPerformanceSettings:
         assert "max_projects: 10" in summary
         assert "cache_ttl: 300s" in summary
         assert "watcher_debounce: 0.5s" in summary
-        assert "max_file_size: 1048576 bytes (1.00 MB)" in summary
-        assert "max_workers: 4" in summary
-        assert "analysis_timeout: 30.0s" in summary
-        assert "enable_memory_profiling: False" in summary
         assert "enable_performance_metrics: False" in summary
+        # Deprecated settings have no effect, so the summary doesn't list them.
+        for attr in ("max_file_size", "max_workers", "analysis_timeout", "pool_ttl"):
+            assert attr not in summary
 
     def test_performance_tuning_scenarios(self):
         """Test different performance tuning scenarios from documentation."""
@@ -223,3 +225,43 @@ class TestPerformanceSettings:
             with patch.dict(os.environ, {"PYEYE_ENABLE_PERFORMANCE_METRICS": value}):
                 settings = PerformanceSettings()
                 assert settings.enable_performance_metrics is True, f"Failed for value: {value}"
+
+
+class TestDeprecatedSettings:
+    """#592 / #628: settings that still parse but do nothing warn when set."""
+
+    def test_deprecated_names(self):
+        assert set(DEPRECATED_ENV_VARS) == {
+            "PYEYE_MAX_WORKERS",
+            "PYEYE_ANALYSIS_TIMEOUT",
+            "PYEYE_MAX_FILE_SIZE",
+            "PYEYE_ENABLE_MEMORY_PROFILING",
+            "PYEYE_ENABLE_CONNECTION_POOLING",
+            "PYEYE_POOL_MAX_CONNECTIONS",
+            "PYEYE_POOL_TTL",
+        }
+
+    @pytest.mark.parametrize("name", sorted(DEPRECATED_ENV_VARS))
+    def test_setting_a_deprecated_variable_warns(self, name, caplog):
+        with patch.dict(os.environ, {name: "1"}), caplog.at_level(logging.WARNING):
+            PerformanceSettings()
+        messages = [
+            m
+            for m in (r.getMessage() for r in caplog.records)
+            if m.startswith(f"{name} is deprecated and has no effect")
+        ]
+        assert len(messages) == 1, [r.getMessage() for r in caplog.records]
+        assert "v3.0" in messages[0]
+
+    def test_unset_deprecated_variables_are_silent(self, caplog):
+        env = {k: v for k, v in os.environ.items() if k not in DEPRECATED_ENV_VARS}
+        with patch.dict(os.environ, env, clear=True), caplog.at_level(logging.WARNING):
+            PerformanceSettings()
+        assert not [r for r in caplog.records if "deprecated" in r.getMessage()]
+
+    def test_deprecated_attributes_are_kept(self):
+        """v2.x removes no setting: the attributes still exist with their defaults."""
+        settings = PerformanceSettings()
+        assert settings.enable_connection_pooling is True
+        assert settings.pool_max_connections == 10
+        assert settings.pool_ttl == 3600
