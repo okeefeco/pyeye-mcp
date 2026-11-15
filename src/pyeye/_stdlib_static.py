@@ -181,32 +181,35 @@ def public_reexporter(private_module: str, name: str) -> str | None:
             data = file.read_bytes()
         except OSError:
             continue
-        if not any(needle in data for needle in needles):
-            continue
-        tree = _parse(file)
-        if tree is None:
-            continue
-        if _star_exports(private_module, name):
-            # ``import _X`` + ``sub = _X`` in a package: ``pkg.sub`` IS ``_X``
-            # (3.13+ ``collections/__init__.py``: ``abc = _collections_abc``).
-            package = module if file.name == "__init__.py" else None
-            for sub, target in _private_module_aliases(tree).items():
-                if package is not None and target == private_module:
-                    found.add(f"{package}.{sub}")
-        exported = _dunder_all(tree)
-        for node in _unguarded_from_imports(tree):
-            if node.module != private_module:
-                continue
-            for alias in node.names:
-                if (
-                    alias.name == "*"
-                    and _star_exports(private_module, name)
-                    or alias.name == name
-                    and alias.asname in (None, name)
-                    and name in exported
-                ):
-                    found.add(module)
+        tree = _parse(file) if any(needle in data for needle in needles) else None
+        if tree is not None:
+            found |= _reexporters_in(tree, file, module, private_module, name)
     return next(iter(found)) if len(found) == 1 else None
+
+
+def _reexporters_in(
+    tree: ast.Module, file: Path, module: str, private_module: str, name: str
+) -> set[str]:
+    """The public module(s) in one file that re-export *name* from *private_module*."""
+    found: set[str] = set()
+    star = _star_exports(private_module, name)
+    if star and file.name == "__init__.py":
+        # ``import _X`` + ``sub = _X`` in a package: ``pkg.sub`` IS ``_X``
+        # (3.13+ ``collections/__init__.py``: ``abc = _collections_abc``).
+        found |= {
+            f"{module}.{sub}"
+            for sub, target in _private_module_aliases(tree).items()
+            if target == private_module
+        }
+    exported = _dunder_all(tree)
+    for node in _unguarded_from_imports(tree):
+        if node.module != private_module:
+            continue
+        for alias in node.names:
+            explicit = alias.name == name and alias.asname in (None, name) and name in exported
+            if (alias.name == "*" and star) or explicit:
+                found.add(module)
+    return found
 
 
 @functools.cache
@@ -275,16 +278,20 @@ def _find_definition(
         if not (node.module and is_stdlib(node.module) and _is_private(node.module)):
             continue
         for alias in node.names:
-            if alias.name == "*" and _star_exports(node.module, name):
-                original = name
-            elif (alias.asname or alias.name) == name:
-                original = alias.name
-            else:
-                continue
-            found = _find_definition(node.module, original, hops=hops + 1)
+            original = _imported_as(alias, node.module, name)
+            found = (
+                None if original is None else _find_definition(node.module, original, hops=hops + 1)
+            )
             if found is not None:
                 return found
     return None
+
+
+def _imported_as(alias: ast.alias, module: str, name: str) -> str | None:
+    """The name in *module* that ``from module import <alias>`` binds as *name*."""
+    if alias.name == "*":
+        return name if _star_exports(module, name) else None
+    return alias.name if (alias.asname or alias.name) == name else None
 
 
 def _unguarded_from_imports(tree: ast.Module) -> list[ast.ImportFrom]:
