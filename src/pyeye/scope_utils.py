@@ -378,7 +378,9 @@ class ScopedCache:
         # Check TTL
         stamps = self.timestamps.get(scope_key)
         stamp = stamps.get(key) if stamps is not None else None
-        if stamp is not None and time.time() - stamp > self.ttl:
+        # >= so a TTL of 0 disables caching even when set() and get() land on
+        # the same clock tick (Windows' clock is coarse, ~15 ms).
+        if stamp is not None and time.time() - stamp >= self.ttl:
             # Expired
             entries.pop(key, None)  # type: ignore[union-attr]
             if stamps is not None:

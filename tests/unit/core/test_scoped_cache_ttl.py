@@ -45,6 +45,32 @@ def test_zero_ttl_disables_scoped_caching(tmp_path: Path, cache_ttl) -> None:
     assert cache.get("key", "main") is None
 
 
+def test_zero_ttl_expires_within_the_same_clock_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: on a coarse clock (Windows) set and get share a timestamp."""
+    from pyeye import scope_utils
+
+    cache = scope_utils.ScopedCache(ttl_seconds=0)
+    monkeypatch.setattr(scope_utils.time, "time", lambda: 1000.0)
+
+    cache.set("key", "value", "main")
+
+    assert cache.get("key", "main") is None
+
+
+def test_positive_ttl_keeps_an_entry_until_it_elapses(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pyeye import scope_utils
+
+    now = [1000.0]
+    monkeypatch.setattr(scope_utils.time, "time", lambda: now[0])
+    cache = scope_utils.ScopedCache(ttl_seconds=10)
+    cache.set("key", "value", "main")
+
+    now[0] = 1009.9
+    assert cache.get("key", "main") == "value"
+    now[0] = 1010.0
+    assert cache.get("key", "main") is None
+
+
 def test_analyzer_no_longer_builds_unused_scope_helpers(tmp_path: Path) -> None:
     analyzer = JediAnalyzer(tmp_path.as_posix())
 
