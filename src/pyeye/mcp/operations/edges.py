@@ -68,13 +68,14 @@ imports fell into ``members`` while being missing from ``imports``.
 from __future__ import annotations
 
 import ast
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
+from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
@@ -232,54 +233,6 @@ def edge_status(edge: str) -> str:
     if edge in _DEFERRED_REFERENCE_BACKEND_EDGES:
         return STATUS_DEFERRED_REFERENCE_BACKEND
     return STATUS_UNKNOWN_EDGE
-
-
-# ---------------------------------------------------------------------------
-# module-scope import walk (#360) — shared by members (subtract) and imports (emit)
-# ---------------------------------------------------------------------------
-
-#: AST nodes that open a NEW binding scope.  An ``import`` inside one of these
-#: binds a local variable or a class attribute — NOT a module-scope name — so the
-#: walk below must never descend into them.
-_SCOPE_BOUNDARY_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
-
-
-def _iter_module_scope_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportFrom]:
-    """Yield every import statement that binds a MODULE-scope name, in source order.
-
-    "Module scope" is a BINDING question, not a nesting question: an import
-    nested in top-level control flow still binds its name in the module
-    namespace.  So this walk descends through every statement-bearing construct
-    (``if``/``elif``/``else``, ``try``/``except``/``else``/``finally``, ``with``,
-    ``for``, ``while``, ``match``) and stops only at :data:`_SCOPE_BOUNDARY_NODES`
-    — the constructs that open a new namespace.
-
-    Guard forms are therefore handled UNIFORMLY rather than case by case; the
-    common ones this reaches are ``if TYPE_CHECKING:`` type-only imports, the
-    ``try``/``except ImportError`` optional-dependency shim, and
-    ``sys.version_info`` branches.  Both branches of a shim are yielded: each is
-    a statically-present dependency, and which one runs is a runtime fact.
-
-    Two callers share this walk so they cannot drift apart (#360): ``members``
-    SUBTRACTS these names, ``imports`` EMITS them, which is what keeps the two
-    edges disjoint yet jointly complete over a module's bound names.
-
-    Args:
-        tree: Parsed module AST.
-
-    Yields:
-        Each :class:`ast.Import` / :class:`ast.ImportFrom` node at module scope,
-        in source order.
-    """
-
-    def _walk(nodes: Iterable[ast.AST]) -> Iterator[ast.Import | ast.ImportFrom]:
-        for node in nodes:
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                yield node
-            elif not isinstance(node, _SCOPE_BOUNDARY_NODES):
-                yield from _walk(ast.iter_child_nodes(node))
-
-    yield from _walk(tree.body)
 
 
 # ---------------------------------------------------------------------------

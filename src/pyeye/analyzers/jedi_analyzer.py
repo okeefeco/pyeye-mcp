@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer, resolve_relative_import
-from ..project_layout import file_for_module, module_name_for_file
+from ..project_layout import detect_src_layout, file_for_module, module_name_for_file
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -41,6 +42,24 @@ logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
 Scope = str | list[str]
+
+
+def _jedi_sys_path(paths: Iterable[str | Path]) -> list[str]:
+    """Spell *paths* the way Jedi compares them: OS-native strings, deduped.
+
+    Jedi names a module by ``str(module_path).startswith(sys_path_entry)``
+    (``jedi.inference.sys_path.transform_path_to_dotted``), where the module
+    path is OS-native. A forward-slash entry never matches a backslash path on
+    Windows, so Jedi fell back to the project root and named src-layout
+    modules ``src.<pkg>…`` there (#625). This is an OS operation, so the
+    native form is right here; our own attributes stay ``Path``/posix.
+    """
+    out: list[str] = []
+    for raw in paths:
+        native = os.fspath(Path(raw))
+        if native not in out:
+            out.append(native)
+    return out
 
 
 class JediAnalyzer:
@@ -105,9 +124,9 @@ class JediAnalyzer:
         try:
             # Get additional sys paths from config (e.g., src/ layout, sibling packages)
             added_sys_path: list[str] = []
+            resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
-                resolved_project = self.project_path.resolve()
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
                     if pkg != resolved_project and pkg.exists():
@@ -119,6 +138,24 @@ class JediAnalyzer:
                         for p in added_sys_path
                         if self._is_subpath(Path(p), resolved_project)
                     ]
+            else:
+                # No config: apply the same src-layout rule ProjectConfig's
+                # auto-discovery uses, so an analyzer built without config names
+                # files the way a configured one does (#625).  Only src/ is
+                # detected here: sibling/venv discovery and global config stay
+                # config-only.
+                #
+                # The root keeps project_path's spelling, NOT a resolved one.
+                # project_path is deliberately unresolved (#603), and files are
+                # enumerated under it, so a resolved src root (a symlink target,
+                # a Windows long name for an 8.3 path) would never match them:
+                # every module would fall back to the project root and be
+                # named ``src.<pkg>…``.
+                src = detect_src_layout(self.project_path)
+                if src is not None:
+                    added_sys_path.append(src.as_posix())
+                    self.source_roots = [src]
+                    logger.info(f"Adding {src.as_posix()} to Jedi sys path (src layout)")
 
             # Add namespace repo roots to Jedi's sys_path so full_name values
             # include the namespace prefix from the first query.
@@ -146,7 +183,7 @@ class JediAnalyzer:
             if added_sys_path:
                 self.project = jedi.Project(
                     path=jedi_root.as_posix(),
-                    added_sys_path=added_sys_path,
+                    added_sys_path=_jedi_sys_path(added_sys_path),
                 )
             else:
                 self.project = jedi.Project(path=jedi_root.as_posix())
@@ -204,7 +241,7 @@ class JediAnalyzer:
         if ns_sys_paths:
             # Merge with existing added_sys_path and recreate the Jedi project
             existing = list(self.project.added_sys_path or [])
-            merged = list(set(existing) | ns_sys_paths)
+            merged = _jedi_sys_path(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
             self.project = jedi.Project(
                 path=Path(jedi_root).as_posix(),
