@@ -1,6 +1,6 @@
 """File artifact cache for shared AST and ``jedi.Script`` objects.
 
-This module provides a process-level cache keyed by ``(resolved_path, mtime_ns)``
+This module provides a process-level cache keyed by ``(resolved_path, (mtime_ns, size))``
 (and additionally by project path for Script objects).  It serves as the
 foundation of the lookup-performance overhaul (Task 1.2 / 1.5).
 
@@ -16,12 +16,14 @@ cache boundary.
 Key design decisions
 --------------------
 * **Single LRU count cap** on AST/Script entries (combined).  Defaults to 500.
-* **mtime-based invalidation**: every ``get_*`` call checks ``os.stat()`` for
-  the current mtime and treats a changed mtime as a cache miss.
+* **Version-based invalidation**: every ``get_*`` call checks ``os.stat()`` for
+  the current ``(mtime_ns, size)`` and treats any change as a cache miss. The
+  size catches a rewrite inside the filesystem's mtime resolution (#731); a
+  same-size rewrite inside that window is still a hit.
 * **Thread safety**: a single ``threading.RLock`` guards all mutations, making
   the cache safe when watchdog callbacks fire from a background thread and
   asyncio tasks run ``get_*`` calls concurrently via ``run_in_executor``.
-* **Project-keyed Scripts**: ``get_script`` keys on ``(path, mtime_ns,
+* **Project-keyed Scripts**: ``get_script`` keys on ``(path, version,
   project_path)`` rather than ``id(project)`` so two distinct
   ``jedi.Project`` instances rooted at the same directory correctly share an
   entry.
@@ -63,11 +65,15 @@ logger = logging.getLogger(__name__)
 # Type aliases
 # ---------------------------------------------------------------------------
 
-# Key for the AST store: (resolved_posix_path, mtime_ns)
-_FileKey = tuple[str, int]
+# A file's version: (mtime_ns, size) from one ``os.stat``. The size catches a
+# rewrite inside the filesystem's mtime resolution (2 s on FAT/exFAT, #731).
+_Version = tuple[int, int]
 
-# Key for Script store: (resolved_posix_path, mtime_ns, project_posix_path)
-_ScriptKey = tuple[str, int, str]
+# Key for the AST store: (resolved_posix_path, version)
+_FileKey = tuple[str, _Version]
+
+# Key for Script store: (resolved_posix_path, version, project_posix_path)
+_ScriptKey = tuple[str, _Version, str]
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +81,10 @@ _ScriptKey = tuple[str, int, str]
 # ---------------------------------------------------------------------------
 
 
-def _stat_mtime_ns(path: Path) -> int:
-    """Return nanosecond mtime for *path* via ``os.stat``."""
-    return os.stat(path).st_mtime_ns
+def _stat_version(path: Path) -> _Version:
+    """Return *path*'s ``(st_mtime_ns, st_size)`` from one ``os.stat`` (#731)."""
+    st = os.stat(path)
+    return st.st_mtime_ns, st.st_size
 
 
 def _resolve_posix(path: Path | str) -> str:
@@ -158,7 +165,7 @@ class FileArtifactCache:
     # -----------------------------------------------------------------------
 
     def get_ast(self, path: Path | str) -> ast.Module:
-        """Return the parsed AST for *path*, rebuilding on cache miss or mtime change.
+        """Return the parsed AST for *path*, rebuilding on a cache miss or a version change.
 
         On a miss the source is read from disk, parsed, and the source is then
         discarded — only the resulting :class:`ast.Module` is retained.  This
@@ -176,8 +183,7 @@ class FileArtifactCache:
             Parsed abstract syntax tree.
         """
         resolved = _resolve_posix(path)
-        mtime_ns = _stat_mtime_ns(Path(path))
-        key: _FileKey = (resolved, mtime_ns)
+        key: _FileKey = (resolved, _stat_version(Path(path)))
 
         with self._lock:
             if key in self._ast_store:
@@ -201,7 +207,7 @@ class FileArtifactCache:
     def get_script(self, path: Path | str, project: jedi.Project) -> jedi.Script:
         """Return a ``jedi.Script`` for *path* under *project*, caching by project path.
 
-        The cache key is ``(resolved_path, mtime_ns, project_root_path)`` so
+        The cache key is ``(resolved_path, (mtime_ns, size), project_root_path)`` so
         two distinct ``jedi.Project`` instances rooted at the same directory
         share a cached entry, while projects at different roots do not.
 
@@ -223,9 +229,9 @@ class FileArtifactCache:
             Constructed jedi Script object.
         """
         resolved = _resolve_posix(path)
-        mtime_ns = _stat_mtime_ns(Path(path))
+        version = _stat_version(Path(path))
         proj_key = _project_key(project)
-        key: _ScriptKey = (resolved, mtime_ns, proj_key)
+        key: _ScriptKey = (resolved, version, proj_key)
 
         with self._lock:
             if key in self._script_store:
@@ -295,7 +301,7 @@ class FileArtifactCache:
     # -----------------------------------------------------------------------
 
     def _evict_stale_ast(self, resolved: str, current_key: _FileKey) -> None:
-        """Remove AST entries for *resolved* whose mtime differs from *current_key*."""
+        """Remove AST entries for *resolved* whose version differs from *current_key*."""
         stale = [k for k in self._ast_store if k[0] == resolved and k != current_key]
         for k in stale:
             del self._ast_store[k]
