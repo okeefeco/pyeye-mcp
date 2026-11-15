@@ -366,21 +366,26 @@ where = ["src"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
-    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path, symbol: str):
-        """find_symbol reports 'mypackage.core.<symbol>', never 'src.mypackage.core.<symbol>'."""
+    async def test_symbol_is_addressable_by_package_path(self, real_src_project: Path, symbol: str):
+        """Symbols resolve as 'mypackage.core.<symbol>', never 'src.mypackage.core.<symbol>'.
+
+        This used to check ``find_symbol``'s ``import_paths``, which #628 removed. The
+        live surface for the same property is ``resolve``, whose handle comes from
+        pyeye's module mapper. Jedi's raw ``full_name`` can still carry ``src.``
+        (seen on macOS/Windows CI), so it isn't asserted here.
+        """
         config = ProjectConfig(str(real_src_project))
         analyzer = JediAnalyzer(str(real_src_project), config=config)
 
-        results = await analyzer.find_symbol(symbol)
+        result = await resolve_impl(symbol, analyzer)
 
-        assert len(results) == 1, f"Should find exactly one {symbol}; got {results}"
-        result = results[0]
-        assert result["full_name"] == f"mypackage.core.{symbol}", (
-            f"Expected full_name 'mypackage.core.{symbol}', got: {result['full_name']!r}. "
+        assert result.get("found") is True, f"Should resolve {symbol}; got {result}"
+        assert result["handle"] == f"mypackage.core.{symbol}", (
+            f"Expected handle 'mypackage.core.{symbol}', got: {result['handle']!r}. "
             "The 'src.' prefix should not appear."
         )
         expected_file = (real_src_project / "src" / "mypackage" / "core.py").resolve()
-        assert Path(result["file"]).resolve().as_posix() == expected_file.as_posix()
+        assert Path(result["location"]["file"]).resolve().as_posix() == expected_file.as_posix()
 
     @pytest.mark.asyncio
     async def test_module_is_addressable_by_package_path(self, real_src_project: Path):
