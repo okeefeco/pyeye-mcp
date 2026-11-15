@@ -262,16 +262,16 @@ repos:
         always_run: true
         verbose: true
 
-  # Duplicate-code report (#616): near-identical AST token runs in the MCP
-  # operations and canonicalization. REPORT-ONLY: the script always exits 0
-  # (today's known copies are consolidated under #629 Phase 2), so it never
-  # blocks a commit or CI. verbose:true so the report shows despite passing.
-  # Making it blocking (--fail-on-findings) is a pending user decision; see
-  # docs/development/duplicate-code-check.md.
+  # Duplicate-code ratchet (#616, blocking since #636): near-identical AST token
+  # runs in the MCP operations and canonicalization. Fails on a clone site not
+  # in the script's BASELINE, and on a baselined site that has gone (delete its
+  # entry). verbose:true so the report shows when it passes. pytest runs the
+  # same ratchet (tests/test_duplicate_code_report.py), so it is enforced even
+  # when this file filter skips the hook. See docs/development/duplicate-code-check.md.
   - repo: local
     hooks:
       - id: duplicate-code-report
-        name: Duplicate-code report (non-blocking)
+        name: Duplicate-code ratchet
         entry: uv run --frozen python scripts/duplicate_code_report.py
         language: system
         files: ^(src/pyeye/mcp/operations/.*|src/pyeye/canonicalization)\.py$
