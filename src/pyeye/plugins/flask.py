@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..async_utils import filtered_rglob
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class FlaskPlugin(AnalyzerPlugin):
                     return True
 
         # Check for Flask imports in any Python files
-        for py_file in self.project_path.glob("**/*.py"):
+        for py_file in filtered_rglob("*.py", self.project_path):
             if py_file.is_file():
                 content = self._read_text_or_skip(py_file)
                 if content is not None and (
@@ -526,33 +527,33 @@ class FlaskPlugin(AnalyzerPlugin):
         }
 
         # Find route files
-        for py_file in self.project_path.rglob("*.py"):
+        for py_file in filtered_rglob("*.py", self.project_path):
             content = self._read_text_or_skip(py_file)
             if content is not None and "@" in content and "route" in content:
                 components["routes"].append(py_file.as_posix())
 
         # Find blueprint files
-        for py_file in self.project_path.rglob("*.py"):
+        for py_file in filtered_rglob("*.py", self.project_path):
             content = self._read_text_or_skip(py_file)
             if content is not None and "Blueprint" in content:
                 components["blueprints"].append(py_file.as_posix())
 
         # Find template directories
-        for template_dir in self.project_path.glob("**/templates"):
+        for template_dir in filtered_rglob("templates", self.project_path):
             if template_dir.is_dir():
                 components["templates"].append(template_dir.as_posix())
 
         # Find static directories
-        for static_dir in self.project_path.glob("**/static"):
+        for static_dir in filtered_rglob("static", self.project_path):
             if static_dir.is_dir():
                 components["static"].append(static_dir.as_posix())
 
         # Find models (SQLAlchemy)
-        for models_file in self.project_path.rglob("models.py"):
+        for models_file in filtered_rglob("models.py", self.project_path):
             components["models"].append(models_file.as_posix())
 
         # Find forms (WTForms)
-        for forms_file in self.project_path.rglob("forms.py"):
+        for forms_file in filtered_rglob("forms.py", self.project_path):
             components["forms"].append(forms_file.as_posix())
 
         return components
