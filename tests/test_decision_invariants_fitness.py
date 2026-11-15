@@ -297,13 +297,10 @@ def _patches_project_search(unit: ast.AST) -> bool:
 # ---------------------------------------------------------------------------
 
 # 1. Synthetic-import inference: ``jedi.Script(code=...)`` in exactly ONE
-#    function, the resolver's (#623 slice 2).  The two copies left go when
-#    ``resolve`` and ``canonicalization`` move onto the resolver (slice 3).
+#    function, the resolver's (#623).  Empty allow-list since slice 3 removed
+#    the ``resolve`` and ``canonicalization`` copies; kept so a new copy fails.
 SYNTHETIC_IMPORT_SANCTIONED: Site | None = ("resolver.py", "_synthetic_import")
-SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {
-    ("canonicalization.py", "_resolve_via_external_inference"): "#623",
-    ("mcp/operations/resolve.py", "_resolve_external_dotted_name"): "#623",
-}
+SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {}
 
 # 2. ``project.search(`` appears nowhere (#457: use the AST name-index).
 PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {
@@ -326,23 +323,15 @@ MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {}
 
 # 4. Project-roots lists come from ONE helper: ``project_layout.project_roots``
 #    (#625), which names each boundary's subset (SCOPE, TOP_LEVEL_PACKAGE,
-#    MODULE_LOOKUP, NAMESPACE_PORTIONS).  Only the dead legacy copies remain.
+#    MODULE_LOOKUP, NAMESPACE_PORTIONS).  The legacy copies were deleted (#628).
 PROJECT_ROOTS_SANCTIONED: Site | None = ("project_layout.py", "project_roots")
-PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {
-    # Legacy methods unreachable from any MCP tool.
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.find_imports"): "#628",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_modules"): "#628",
-}
+PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {}
 
 # 5. Package-ness is decided from a ``module_path`` in ONE predicate:
 #    ``project_layout.package_kind`` (#625).  ``None`` is "unknown"; each caller
 #    states what unknown means for it.
 PACKAGE_PREDICATE_SANCTIONED: Site | None = ("project_layout.py", "package_kind")
-PACKAGE_PREDICATE_ALLOWLIST: dict[Site, str] = {
-    # Legacy method unreachable from any MCP tool.
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
-}
+PACKAGE_PREDICATE_ALLOWLIST: dict[Site, str] = {}
 
 _EPIC_CHILDREN = frozenset({"#623", "#624", "#625", "#626", "#628", "#630"})
 _ALL_ALLOWLISTS: dict[str, dict[Site, str]] = {

@@ -26,6 +26,7 @@ is then supported or unsupported, distinguished by the presence of
       "stubs": [Stub, ...],         # [] means MEASURED, none found
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
       "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
+      "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
       "unresolved_importers": [file, ...] }  # imported_by ONLY (#668) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
@@ -274,6 +275,10 @@ async def expand_resolved(
     # import that goto missed is surfaced, never silently dropped.
     if edge_result.unresolved_imports is not None:
         result["unresolved_imports"] = edge_result.unresolved_imports
+    # unresolved_superclasses (#624): superclasses ONLY — the declared bases
+    # whose goto named no single class, by source text ([] when all resolved).
+    if edge_result.unresolved_superclasses is not None:
+        result["unresolved_superclasses"] = edge_result.unresolved_superclasses
     # unresolved_importers (#668): the same mechanic for imported_by — an
     # importing file with no module name has no handle, so it is listed here
     # ([] when every importer has one) instead of silently missing.

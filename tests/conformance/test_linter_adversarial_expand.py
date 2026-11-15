@@ -715,6 +715,50 @@ class TestExpandUnresolvedImportsRule:
         lint_response(good, "expand")  # [] = measured, none failed
 
 
+class TestExpandUnresolvedSuperclassesRule:
+    """E.6 (#624) — ``unresolved_superclasses`` is superclasses-only and well-typed."""
+
+    @staticmethod
+    def _superclasses() -> dict:
+        good = _clone(_VALID_EXPAND_MEMBERS)
+        good["edge"] = "superclasses"
+        good["unresolved_superclasses"] = []
+        return good
+
+    def test_empty_list_passes(self) -> None:
+        lint_response(self._superclasses(), "expand")  # [] = measured, all resolved
+
+    def test_listed_base_text_passes(self) -> None:
+        good = self._superclasses()
+        good["unresolved_superclasses"] = ["_dynamic.Missing", "Generic[T]"]
+        lint_response(good, "expand")
+
+    def test_on_non_superclasses_edge_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["unresolved_superclasses"] = ["Base"]
+        with pytest.raises(ConformanceViolation, match="E.6"):
+            lint_response(bad, "expand")
+
+    def test_on_unsupported_branch_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
+        bad["unresolved_superclasses"] = ["Base"]
+        with pytest.raises(ConformanceViolation, match="E.6"):
+            lint_response(bad, "expand")
+
+    def test_must_be_list(self) -> None:
+        bad = self._superclasses()
+        bad["unresolved_superclasses"] = "Base"
+        with pytest.raises(ConformanceViolation, match="E.6"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("entry", [3, "  ", "a\nb"])
+    def test_entry_must_be_single_line_text(self, entry: object) -> None:
+        bad = self._superclasses()
+        bad["unresolved_superclasses"] = [entry]
+        with pytest.raises(ConformanceViolation, match="E.6"):
+            lint_response(bad, "expand")
+
+
 class TestRealExpandOutputConforms:
     """Dogfood test: the REAL expand operation produces conformant output.
 
@@ -881,7 +925,7 @@ class TestImportedByRemainsInUnmeasuredEdges:
 
 
 # ---------------------------------------------------------------------------
-# E.6 — unresolved_importers placement (#668)
+# E.7 — unresolved_importers placement (#668)
 # ---------------------------------------------------------------------------
 
 _VALID_EXPAND_IMPORTED_BY: dict = {
@@ -894,7 +938,7 @@ _VALID_EXPAND_IMPORTED_BY: dict = {
 
 
 class TestE6UnresolvedImporters:
-    """E.6 (#668) — ``unresolved_importers`` is imported_by-only and well-typed."""
+    """E.7 (#668) — ``unresolved_importers`` is imported_by-only and well-typed."""
 
     def test_on_imported_by_passes(self) -> None:
         lint_response(_clone(_VALID_EXPAND_IMPORTED_BY), "expand")
@@ -907,24 +951,24 @@ class TestE6UnresolvedImporters:
     def test_on_other_edge_rejected(self) -> None:
         bad = _clone(_VALID_EXPAND_IMPORTS)
         bad["unresolved_importers"] = ["/proj/my-script.py"]
-        with pytest.raises(ConformanceViolation, match="E.6 unresolved_importers placement"):
+        with pytest.raises(ConformanceViolation, match="E.7 unresolved_importers placement"):
             lint_response(bad, "expand")
 
     def test_on_unsupported_branch_rejected(self) -> None:
         bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
         bad["unresolved_importers"] = ["/proj/my-script.py"]
-        with pytest.raises(ConformanceViolation, match="E.6 unresolved_importers placement"):
+        with pytest.raises(ConformanceViolation, match="E.7 unresolved_importers placement"):
             lint_response(bad, "expand")
 
     def test_must_be_list(self) -> None:
         bad = _clone(_VALID_EXPAND_IMPORTED_BY)
         bad["unresolved_importers"] = "/proj/my-script.py"
-        with pytest.raises(ConformanceViolation, match="E.6 unresolved_importers type"):
+        with pytest.raises(ConformanceViolation, match="E.7 unresolved_importers type"):
             lint_response(bad, "expand")
 
     @pytest.mark.parametrize("entry", ["", "  ", 3, "a\nb"])
     def test_entries_are_non_empty_single_line_str(self, entry: object) -> None:
         bad = _clone(_VALID_EXPAND_IMPORTED_BY)
         bad["unresolved_importers"] = [entry]
-        with pytest.raises(ConformanceViolation, match="E.6 unresolved_importers entry"):
+        with pytest.raises(ConformanceViolation, match="E.7 unresolved_importers entry"):
             lint_response(bad, "expand")

@@ -38,7 +38,7 @@ _EXPECTED_CHILDREN = {"acme.auth", "acme.api", "acme.plugins", "acme.core"}
 # qualifies via the one-level-deep rule-(c) recursion of the importable-dir
 # filter.  This is the exact case where the anchoring filter must agree with the
 # `submodules` enumerator's filter — they share one predicate
-# (`canonicalization._dir_shallow_qualifies`) so a namespace can never enumerate
+# (`project_layout.dir_shallow_qualifies`) so a namespace can never enumerate
 # via `expand` yet fail to anchor via `resolve` (#444).
 _NS420_NESTED = Path(__file__).parent / "fixtures" / "ns420_nested"
 
@@ -121,7 +121,7 @@ class TestAnchorAndEnumerateShareOneFilter:
     """The anchoring filter and the submodules enumerator filter must agree (#444).
 
     Regression guard for the consolidation of the importable-dir predicate into a
-    single `canonicalization._dir_shallow_qualifies`.  Before consolidation the
+    single `project_layout.dir_shallow_qualifies`.  Before consolidation the
     anchoring copy only checked rules (a)/(b) plus a *direct* `*.py` in a child,
     so a namespace whose only content was a nested regular package
     (`widgets/sub/deep/__init__.py`) would ENUMERATE via `expand` (the enumerator

@@ -1404,7 +1404,7 @@ class TestInspectHelperUnits:
         """_attr_target_position returns start position for a plain ast.Name node."""
         import ast
 
-        from pyeye.mcp.operations.inspect import _attr_target_position
+        from pyeye._ast_targets import attr_target_position as _attr_target_position
 
         # Parse 'class X(Widget): pass' and extract the Name base node
         tree = ast.parse("class X(Widget): pass")
@@ -1421,7 +1421,7 @@ class TestInspectHelperUnits:
         """_attr_target_position returns position of the rightmost attr for ast.Attribute."""
         import ast
 
-        from pyeye.mcp.operations.inspect import _attr_target_position
+        from pyeye._ast_targets import attr_target_position as _attr_target_position
 
         # Parse 'class X(pkg.sub.Widget): pass' — base is an ast.Attribute chain
         tree = ast.parse("class X(pkg.sub.Widget): pass")

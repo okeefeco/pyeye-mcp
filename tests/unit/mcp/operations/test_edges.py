@@ -1018,7 +1018,9 @@ class TestResolveSuperclassesMeasuredEmpty:
     def test_measured_empty_is_not_none(self, superclasses_analyzer: JediAnalyzer) -> None:
         result = _superclasses_for(_BASE_HANDLE, superclasses_analyzer)
         assert result is not None
-        assert result == EdgeResult(adjacents=[])
+        assert result == EdgeResult(
+            adjacents=[], unresolved_superclasses=[]
+        )  # #624: measured, none unresolved
 
 
 class TestResolveSuperclassesNonClass:
@@ -1046,7 +1048,9 @@ class TestResolveSuperclassesNonClass:
         # signal, so expand.py's hardcoded module-only None branch stays correct.
         result = _superclasses_for(_FUNCTION_HANDLE, superclasses_analyzer)
         assert result is not None
-        assert result == EdgeResult(adjacents=[])
+        assert result == EdgeResult(
+            adjacents=[], unresolved_superclasses=[]
+        )  # #624: measured, none unresolved
 
 
 class TestResolveSuperclassesNeverReverseSearch:

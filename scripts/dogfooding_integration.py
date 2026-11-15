@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .constants import METRICS_DIR
-from .metrics import metrics as mcp_metrics
+from pyeye.constants import METRICS_DIR
+from pyeye.metrics import metrics as mcp_metrics
 
 logger = logging.getLogger(__name__)
 

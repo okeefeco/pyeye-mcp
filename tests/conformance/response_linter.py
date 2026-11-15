@@ -56,7 +56,10 @@ E.4 Each Stub in ``stubs`` passes the Stub structural floor (S.*) and the
     layering check (A.*).
 E.5 ``unresolved_imports`` (#494) placement — only allowed on the supported
     branch when ``edge == "imports"``; a list of non-empty single-line strs.
-E.6 ``unresolved_importers`` (#668) placement — only allowed on the supported
+E.6 ``unresolved_superclasses`` (#624) placement — only allowed on the supported
+    branch when ``edge == "superclasses"``; a list of non-empty single-line
+    strs (the unresolved bases' source text).
+E.7 ``unresolved_importers`` (#668) placement — only allowed on the supported
     branch when ``edge == "imported_by"``; a list of non-empty single-line strs
     (the POSIX paths of importing files that have no module name).
 
@@ -1036,7 +1039,7 @@ def _check_expand_structural_floor(
                 "when edge == 'callees'."
             )
 
-        # E.5 / E.6 — the per-edge loss lists must NOT be on the unsupported branch
+        # E.5–E.7 — the per-edge loss lists must NOT be on the unsupported branch
         for rule, key, edge_name in _EDGE_LOSS_LISTS:
             if key in response:
                 violations.append(
@@ -1081,7 +1084,7 @@ def _check_expand_structural_floor(
                     f"an int; got {type(ucs).__name__!r} ({_truncate(ucs)})."
                 )
 
-        # E.5 / E.6 — unresolved_imports (#494) / unresolved_importers (#668): if
+        # E.5–E.7 — unresolved_imports (#494) / _superclasses (#624) / _importers (#668): if
         # present, must be on their edge's supported branch and be a list of
         # non-empty single-line strings.
         for rule, key, edge_name in _EDGE_LOSS_LISTS:
@@ -1093,7 +1096,8 @@ def _check_expand_structural_floor(
 #: (rule, key, the one edge it may appear on).
 _EDGE_LOSS_LISTS = (
     ("E.5", "unresolved_imports", "imports"),  # #494
-    ("E.6", "unresolved_importers", "imported_by"),  # #668
+    ("E.6", "unresolved_superclasses", "superclasses"),  # #624
+    ("E.7", "unresolved_importers", "imported_by"),  # #668
 )
 #: The same losses carried onto a trace Subgraph, keyed by node: (rule, key).
 _TRACE_LOSS_MAPS = (
@@ -1105,7 +1109,7 @@ _TRACE_LOSS_MAPS = (
 def _check_edge_loss_list(
     value: Any, rule: str, key: str, edge_name: str, edge_val: Any, violations: list[str]
 ) -> None:
-    """E.5 / E.6 — a supported-branch loss list: right edge, list of single-line strs."""
+    """E.5–E.7 — a supported-branch loss list: right edge, list of single-line strs."""
     if not (isinstance(edge_val, str) and edge_val == edge_name):
         violations.append(
             f"[{rule} {key} placement] '{key}' is present but edge={edge_val!r} "
