@@ -65,6 +65,7 @@ from .operations.resolve import (
     resolve_at as _resolve_at_impl,
 )
 from .operations.trace import trace as _trace_impl
+from .tool_errors import tool_errors
 
 # Logger — configured by __main__.py or caller; fallback to basic stderr.
 logger = logging.getLogger(__name__)
@@ -379,7 +380,7 @@ def register_plugin_tools(
             # Plugin tools build jedi.Scripts and share the analyzers' caches,
             # so they run on the Jedi worker like the core tools (#650).
             server.tool(name=tool_name)(
-                on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver))
+                tool_errors(on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver)))
             )
             registered.append(tool_name)
     return registered
@@ -458,6 +459,7 @@ def filter_fields(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
 @track_mcp_operation("configure_packages")
@@ -478,6 +480,10 @@ def configure_packages(
             Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
         project_path: Project root to configure (default: current directory)
+
+    The call errors (an MCP tool error, not a response) only when it can't run:
+    an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+    or an unreadable file.
     """
     from pathlib import Path
 
@@ -560,6 +566,7 @@ def configure_packages(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve")
 @track_mcp_operation("resolve")
@@ -591,8 +598,9 @@ async def resolve(
           with reason "unresolved", "file_not_found" or "no_symbol_at_position".
           The identifier is echoed verbatim; it is never put in "handle".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
@@ -602,6 +610,7 @@ async def resolve(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("resolve_at")
 @track_mcp_operation("resolve_at")
@@ -630,8 +639,9 @@ async def resolve_at(
         "detail": str}, echoing the arguments as given, with reason
         "file_not_found", "no_symbol_at_position" or "unresolved".
 
-        A lookup miss never raises. The call errors (an MCP tool error, not a
-        response) only for invalid arguments or a project_path that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -639,6 +649,7 @@ async def resolve_at(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("inspect")
 @track_mcp_operation("inspect")
@@ -669,6 +680,9 @@ async def inspect(
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no node fields.  Call resolve() on the name to get a canonical handle.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -676,6 +690,7 @@ async def inspect(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("expand")
 @track_mcp_operation("expand")
@@ -821,7 +836,9 @@ async def expand(
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
-        A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         ``stubs: []`` always means "measured, none found" — it is never returned
         for an unresolvable handle.
     """
@@ -831,6 +848,7 @@ async def expand(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("trace")
 @track_mcp_operation("trace")
@@ -902,7 +920,9 @@ async def trace(
             common ``callees`` case).
 
     Returns:
-        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable root contributes no node but is listed in the always-present
         ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
         ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
@@ -926,6 +946,7 @@ async def trace(
 
 
 @mcp.tool()
+@tool_errors
 @validate_mcp_inputs
 @metrics.measure("outline")
 @track_mcp_operation("outline")
@@ -1027,7 +1048,9 @@ async def outline(
 
     Returns:
         ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
-        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
+        an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
+        or an unreadable file.
         An unresolvable handle yields
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no placeholder tree.  Children within each parent are in source order

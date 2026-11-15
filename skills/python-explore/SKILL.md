@@ -93,6 +93,11 @@ Notes that matter:
   - Only a `handle` key is ever a handle. Never pass `identifier` or `file` to `inspect`.
 
   By contrast, `expand`'s `stubs: []` with `found: true` *is* a measured zero.
+- **Errors vs misses:** a call that ran is always a response (found, `found: false`, or
+  unsupported). A miss is never an error. A call fails with an **MCP tool error** only
+  when it can't run: an invalid argument (e.g. `line=0`), a `project_path` that doesn't
+  exist, an unusable config, or an unreadable file. The error message names what to
+  fix, so fix that argument and call again; don't read a tool error as "not found".
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
