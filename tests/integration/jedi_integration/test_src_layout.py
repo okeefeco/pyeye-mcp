@@ -5,6 +5,7 @@ were not being passed to Jedi's added_sys_path, requiring users to use
 'src.package.*' instead of just 'package.*' for module paths.
 """
 
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -373,9 +374,14 @@ where = ["src"]
         live surface for the same property is ``resolve``, whose handle comes from
         pyeye's module mapper. Jedi's raw ``full_name`` can still carry ``src.``
         (seen on macOS/Windows CI), so it isn't asserted here.
+
+        The root is resolved first: macOS's temp dir is a symlink and Windows'
+        can be an 8.3 short name, and a symlinked root is #714 (covered by the
+        test below).
         """
-        config = ProjectConfig(str(real_src_project))
-        analyzer = JediAnalyzer(str(real_src_project), config=config)
+        root = real_src_project.resolve()
+        config = ProjectConfig(str(root))
+        analyzer = JediAnalyzer(str(root), config=config)
 
         result = await resolve_impl(symbol, analyzer)
 
@@ -386,6 +392,31 @@ where = ["src"]
         )
         expected_file = (real_src_project / "src" / "mypackage" / "core.py").resolve()
         assert Path(result["location"]["file"]).resolve().as_posix() == expected_file.as_posix()
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#714: resolve invents __main__.<name> when the root is a symlink",
+    )
+    @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
+    async def test_symbol_is_addressable_through_a_symlinked_root(
+        self, real_src_project: Path, tmp_path: Path, symbol: str
+    ):
+        """The same holds when the project root is reached through a symlink.
+
+        macOS's temp dir is ``/var/...``, a symlink to ``/private/var/...``, and
+        that is where the src-layout checks failed on CI. A symlinked root
+        reproduces the case on Linux.
+        """
+        link = tmp_path / "linked-root"
+        link.symlink_to(real_src_project, target_is_directory=True)
+        analyzer = JediAnalyzer(str(link), config=ProjectConfig(str(link)))
+
+        result = await resolve_impl(symbol, analyzer)
+
+        assert result.get("found") is True, f"Should resolve {symbol}; got {result}"
+        assert result["handle"] == f"mypackage.core.{symbol}", result
 
     @pytest.mark.asyncio
     async def test_module_is_addressable_by_package_path(self, real_src_project: Path):

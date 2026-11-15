@@ -47,6 +47,16 @@ class Product:
         assert result[0]["type"] == "function"
         assert result[0]["line"] == 3  # Line where User.__init__ is defined
 
+    async def test_single_component_falls_back_to_plain_search(self, tmp_path: Path) -> None:
+        """A one-part name given to the compound path is searched as a plain symbol."""
+        (tmp_path / "models.py").write_text("class User:\n    pass\n")
+        analyzer = JediAnalyzer(str(tmp_path))
+
+        result = await analyzer._find_compound_symbol("User", scope="all")
+
+        assert [r["name"] for r in result] == ["User"]
+        assert result == await analyzer.find_symbol("User", scope="all")
+
     async def test_find_class_instance_method(self, tmp_path: Path) -> None:
         """Test finding instance method of specific class."""
         test_file = tmp_path / "calculator.py"
