@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "v2.x release classification: contract-conforming corrections are `Fixed`, not breaking; a major is reserved for removals and renames (#629)"
 issues: [629, 623, 626, 627, 628, 594, 505]
 anchors: ["scripts/changelog.py", "_BREAKING", "prepare", "docs/RELEASE.md"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-15-628-v2-x-deprecate-documented-utilities-and-settings-mark-them.md"]
 superseded_by: []
 ---
 

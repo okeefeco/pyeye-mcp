@@ -33,6 +33,12 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
   - `project_layout.file_for_module` also searches a configured PEP 420 package's portion directories, so a namespace repo outside the project root is placeable. That fixes a slice-2 regression: those modules were in the boundary but had no file, so strategy 4 missed them. `find_namespace_package_dirs` / `dir_shallow_qualifies` moved down into `project_layout` (pure path logic) for it.
   - `resolve_at` is not-found when the resolver can't place the position's definition; returning Jedi's raw `full_name` is rejected (audit row 3).
   - `resolve_canonical`'s external branch calls the resolver through a lazy import, a temporary bridge removed with `resolve_canonical` in slice 5.
+- **Slice 5 amendment (closes #602):**
+  - **External definition placement.** Strategy 5 first takes Jedi's goto target, through the one picker `pyeye._goto.goto_target` (#624), when it is the definition at **exactly** the requested path and has a file. Only then does it fall back to the `name == leaf` guarded inference. This is #506's "placed by definition lookup" applied to externals: `typing.TYPE_CHECKING`, `typing.Dict`, `__future__.annotations` and `typing.ClassVar` are their own canonical handles (kind from the definition, so `typing.Dict` is a `variable`, not the inferred class `typing.dict`). A goto target at a different path is refused, so a re-export never becomes canonical this way: `collections.abc.Mapping` → `typing.Mapping` stays not-found, as the #506/#544 entry decided.
+  - **`imports` emits canonical targets.** An external target is re-resolved and emitted under its canonical handle (`_datetime.datetime` → `datetime.datetime`); a self-edge (`io` → `io`) is dropped; duplicates collapse. Other edges emit definition-site handles by construction (a project definition's Jedi `full_name`). That is enforced for every edge by the #614 round-trip test, not by per-edge canonicalisation, which would touch the edges `inspect.edge_counts` counts (#599). `imports` isn't one of them.
+  - **Typeref forward refs** resolve lexically: `<annotation's module>.<name>`, then `builtins.<name>`, then the name as an absolute path. So `x: "Foo"` names what `x: Foo` names, and a same-named class elsewhere in the project is never picked.
+  - **`JediAnalyzer.find_subclasses`** canonicalises bases through `resolve_handle`.
+  - **`canonicalization.resolve_canonical` is deleted**, with its chain walk, class-member and project-search fallbacks and the lazy bridge. `canonicalization` keeps re-export collection and `find_module_file`. It sits below the resolver, so it may not import `pyeye.resolver` (import-layer fitness).
 - Rejected:
   - keeping inspect's shorten-after-a-miss walk, which only inspect had (audit §4.2);
   - caching synthetic-import results to speed up a repeated inspect of an external class (~0.4 s warm), which would add cross-call state for a modest gain.
@@ -45,20 +51,24 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
 - `expand` source;
 - `trace` roots;
 - `resolve` dotted names, and every bare-name candidate (`resolve_name`, see "Bare name: an exact top-level module wins");
-- `resolve_at` (the position's definition is canonicalized through the resolver).
+- `resolve_at` (the position's definition is canonicalized through the resolver);
+- `trace` interior nodes (one hop = one `expand`, #621);
+- typeref forward-ref heads (`typeref._resolve_head_in_scope`);
+- `imports` edge targets outside the project (`edges._canonical_import_targets`);
+- `JediAnalyzer.find_subclasses` base canonicalisation.
 
 Scope: every `Resolved` and every edge stub (`scope_for`), and every `classify_scope` caller (the widened `SCOPE` boundary).
-
-Not yet moved (later #623 slices): trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
 **Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/integration/test_resolve_on_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py tests/test_cross_tool_invariants.py` passes:
 
 - each strategy resolves its case;
-- a project path never reaches inference, and a mismatched inference (`typing.TYPE_CHECKING` → `bool`) is not-found;
+- a project path never reaches inference; an external name is placed at its own definition (`typing.TYPE_CHECKING`), while a definition elsewhere or a mismatched inference (`collections.abc.Mapping`, `os.sep`) is not-found;
 - placement stops at the deepest module;
 - an alias and its canonical handle give identical `inspect` nodes;
 - inspect, outline, expand and trace all echo `pkg._impl.Thing` for `pkg.Thing`;
 - the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import`, and no `project.search` outside the #628 dead code;
-- `resolver` doesn't import `pyeye.mcp`, statically or at import time, and `canonicalization` imports it only lazily, in `_resolve_external`;
+- `resolver` doesn't import `pyeye.mcp`, and `canonicalization` doesn't import `pyeye.resolver`, statically or at import time;
+- `x: "Foo"` and `x: Foo` name the same class (`test_goto_policy.py::TestTyperefForwardRef`);
 - `resolve` finds `os`, `io`, `logging`, `os.path` and agrees with `inspect` on handle, kind and scope; `resolve_at` is not-found when the resolver misses;
 - a configured namespace repo outside the project root resolves in every tool with scope `project`, while site-packages under a configured root stays `external`;
-- the `xns_repo` cross-tool corpus round-trips and agrees with no allow-list entries.
+- the `xns_repo` cross-tool corpus round-trips and agrees with no allow-list entries;
+- `#614` KNOWN_GAPS hold no #602 / #623 entries for the default corpora.

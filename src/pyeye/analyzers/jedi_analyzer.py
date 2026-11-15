@@ -4,31 +4,26 @@ import ast
 import asyncio
 import logging
 import os
-import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, NamedTuple
 
 import jedi
 
-from .. import file_artifact_cache
+from .. import file_artifact_cache, settings
 from ..async_utils import read_file_async
-from ..canonicalization import resolve_canonical
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
 from ..project_layout import (
     detect_src_layout,
-    file_for_module,
     layout_key,
     module_name_for_file,
 )
+from ..resolver import Resolved, resolve_handle
 from ..scope_utils import (
-    LazyNamespaceLoader,
     ScopedCache,
-    ScopeDebugger,
-    ScopeValidator,
     SmartScopeResolver,
     parallel_search,
 )
@@ -123,12 +118,7 @@ class JediAnalyzer:
 
         # Initialize scope utilities
         self.smart_resolver = SmartScopeResolver(config)
-        self.scoped_cache = ScopedCache(ttl_seconds=300)
-        self.lazy_loader = LazyNamespaceLoader()
-        self.scope_debugger = ScopeDebugger(self._resolve_scope_to_paths)
-
-        # Validator will be initialized after paths are set
-        self.scope_validator: ScopeValidator | None = None
+        self.scoped_cache = ScopedCache(ttl_seconds=settings.settings.cache_ttl)
 
         # Validate project path exists
         if not self.project_path.exists():
@@ -234,7 +224,6 @@ class JediAnalyzer:
         """
         self.additional_paths = paths
         logger.info(f"Set {len(paths)} additional paths for {self.project_path}")
-        self._update_validator()
 
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
@@ -251,9 +240,6 @@ class JediAnalyzer:
         """
         self.namespace_paths = {ns: [Path(p) for p in paths] for ns, paths in namespaces.items()}
         logger.info(f"Set {len(self.namespace_paths)} namespace mappings for {self.project_path}")
-        self._update_validator()
-        # Invalidate lazy loader cache when namespaces change
-        self.lazy_loader.invalidate()
 
         # Add namespace repo roots to Jedi's sys_path so full_name values
         # include the namespace prefix.  The declared paths in .pyeye.json are
@@ -365,13 +351,6 @@ class JediAnalyzer:
                 seen.add(key)
                 results.append(r)
         return results
-
-    def _update_validator(self) -> None:
-        """Update the scope validator with current configuration."""
-        scope_aliases = self.config.get_scope_aliases() if self.config else {}
-        self.scope_validator = ScopeValidator(
-            self.namespace_paths, self.additional_paths, scope_aliases
-        )
 
     @staticmethod
     def _is_subpath(path: Path, parent: Path) -> bool:
@@ -620,7 +599,6 @@ class JediAnalyzer:
         self,
         name: str,
         fuzzy: bool = False,
-        include_import_paths: bool = False,
         scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
         """Find symbol definitions across all configured scopes.
@@ -631,18 +609,15 @@ class JediAnalyzer:
         Args:
             name: Symbol name to search for (supports compound symbols like "Model.__init__")
             fuzzy: Enable fuzzy matching
-            include_import_paths: Include alternative import paths for re-exported symbols
-                (runs the regex ``find_reexports`` scan per match; no production
-                caller reads it, so it is off by default, #628)
             scope: Search scope - "main", "all", "namespace:name", etc.
                    Defaults to "all" (searches everything configured).
 
         Returns:
-            List of symbol matches with location and optional import path information
+            List of symbol matches with location information
         """
         # Check if this is a compound symbol (e.g., "Model.__init__")
         if is_compound_symbol(name):
-            return await self._find_compound_symbol(name, include_import_paths, scope)
+            return await self._find_compound_symbol(name, scope)
 
         results = []
 
@@ -654,11 +629,7 @@ class JediAnalyzer:
                     continue
 
                 try:
-                    results.append(
-                        await self._serialize_name(
-                            result, include_import_paths=include_import_paths
-                        )
-                    )
+                    results.append(await self._serialize_name(result))
                 except Exception as e:
                     # Log but don't fail entire search for one bad result
                     logger.warning(f"Could not serialize result {result.name}: {e}")
@@ -692,14 +663,12 @@ class JediAnalyzer:
     async def _find_compound_symbol(
         self,
         name: str,
-        include_import_paths: bool = True,
         scope: Scope | None = None,
     ) -> list[dict[str, Any]]:
         """Find compound symbol definitions (e.g., "Model.__init__").
 
         Args:
             name: Compound symbol name (e.g., "Model.__init__", "module.Class.method")
-            include_import_paths: Include alternative import paths
             scope: Search scope - "main", "all", "namespace:name", etc.
 
         Returns:
@@ -715,9 +684,7 @@ class JediAnalyzer:
 
         if len(components) < 2:
             # Not actually a compound symbol
-            return await self.find_symbol(
-                name, include_import_paths=include_import_paths, scope=scope
-            )
+            return await self.find_symbol(name, scope=scope)
 
         try:
             # Get parent and member names
@@ -741,9 +708,7 @@ class JediAnalyzer:
                         if defined_name.name == member_name:
                             # Found the member in this parent
                             try:
-                                serialized = await self._serialize_name(
-                                    defined_name, include_import_paths=include_import_paths
-                                )
+                                serialized = await self._serialize_name(defined_name)
                                 # Ensure the full name reflects the compound nature
                                 if "full_name" in serialized:
                                     # Verify this is the right match
@@ -962,7 +927,6 @@ class JediAnalyzer:
         self,
         name: jedi.api.classes.Name,
         include_docstring: bool = False,
-        include_import_paths: bool = False,
     ) -> dict[str, Any]:
         """Serialize a Jedi Name object to a dictionary."""
         result = {
@@ -980,119 +944,7 @@ class JediAnalyzer:
         if include_docstring:
             result["docstring"] = name.docstring()
 
-        # Add import paths if requested and we have module information
-        if include_import_paths and name.full_name:
-            # Use our _get_import_path_for_file to get correct module path
-            # This properly handles src-layout by using source_roots
-            if name.module_path:
-                module_path = self._get_import_path_for_file(Path(name.module_path))
-            else:
-                # Fall back to extracting from full_name if no file path
-                parts = name.full_name.split(".")
-                module_path = ".".join(parts[:-1]) if len(parts) > 1 else None
-
-            if module_path:
-                file_path = Path(name.module_path).as_posix() if name.module_path else None
-                import_paths = await self.find_reexports(name.name, module_path, file_path)
-                if import_paths:
-                    result["import_paths"] = import_paths
-
         return result
-
-    # LIVE (not deprecated): called by ``_serialize_name`` to populate ``import_paths``,
-    # and surfaced as ``inspect(handle).re_exports``. Do not remove.
-    async def find_reexports(
-        self, symbol_name: str, original_module: str, file_path: str | None = None
-    ) -> list[str]:
-        """Find re-export paths for a symbol.
-
-        **Live, not deprecated.** This is the implementation *behind*
-        ``inspect(handle).re_exports``: ``_serialize_name`` calls it to populate
-        ``import_paths``. An earlier docstring described that surfacing as a
-        replacement that would remove this method; it is the same code path.
-
-        Args:
-            symbol_name: Name of the symbol to find re-exports for
-            original_module: The module path where the symbol is originally defined
-            file_path: Optional file path to help determine full module path
-
-        Returns:
-            List of import paths where the symbol can be imported from
-        """
-        import_paths = []
-
-        # Determine the full module path
-        if original_module:
-            # If we have a file path, try to determine the full module path
-            # using our _get_import_path_for_file which handles src-layout
-            if file_path and self.project_path:
-                try:
-                    file_path_obj = Path(file_path)
-                    module_from_file = self._get_import_path_for_file(file_path_obj)
-                    # Use the module from file if it's more complete.  It is
-                    # already the module's full name (#625: one mapper, which
-                    # carries the root-package prefix), so use it whole.
-                    if module_from_file and len(module_from_file.split(".")) > len(
-                        original_module.split(".")
-                    ):
-                        original_module = module_from_file
-                except (ValueError, Exception):
-                    pass  # Keep original module if conversion fails
-
-            module_parts = original_module.split(".")
-            direct_import = f"from {original_module} import {symbol_name}"
-            import_paths.append(direct_import)
-
-            # Check for re-exports in parent __init__.py files
-            for i in range(len(module_parts) - 1, 0, -1):
-                parent_module = ".".join(module_parts[:i])
-                init_file = self._find_init_file(parent_module)
-
-                if init_file and await self._check_symbol_in_init(
-                    init_file, symbol_name, module_parts[i]
-                ):
-                    shorter_import = f"from {parent_module} import {symbol_name}"
-                    # Insert at beginning as shorter imports are preferred
-                    import_paths.insert(0, shorter_import)
-
-        return import_paths
-
-    def _find_init_file(self, module_path: str) -> Path | None:
-        """Find the ``__init__.py`` for a package via the one module → file mapper (#625)."""
-        found = file_for_module(self, module_path)
-        return found if found is not None and found.name == "__init__.py" else None
-
-    async def _check_symbol_in_init(
-        self, init_file: Path, symbol_name: str, submodule: str
-    ) -> bool:
-        """Check if a symbol is re-exported in an __init__.py file."""
-        try:
-            content = await read_file_async(init_file)
-
-            # Check for direct import: from .submodule import symbol
-            import_patterns = [
-                f"from .{submodule} import {symbol_name}",
-                f"from .{submodule} import .*{symbol_name}",  # Handle multi-imports
-                f"from .{submodule} import .*\\bas {symbol_name}\\b",  # Handle aliased imports
-            ]
-
-            for pattern in import_patterns:
-                if re.search(pattern, content):
-                    return True
-
-            # Check if symbol is in __all__
-            all_match = re.search(r"__all__\s*=\s*\[([^\]]+)\]", content, re.DOTALL)
-            if all_match:
-                all_content = all_match.group(1)
-                if f'"{symbol_name}"' in all_content or f"'{symbol_name}'" in all_content:
-                    # Verify the symbol is actually imported
-                    if f"import {symbol_name}" in content or f"from .{submodule}" in content:
-                        return True
-
-        except Exception as e:
-            logger.debug(f"Error checking symbol in {init_file}: {e}")
-
-        return False
 
     # LIVE (not deprecated): the AST class-graph walk backing ``expand(handle,
     # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts`` (#392,
@@ -1101,10 +953,8 @@ class JediAnalyzer:
         self,
         base_class: str,
         scope: Scope | None = None,
-        include_indirect: bool = True,
-        show_hierarchy: bool = False,
     ) -> dict[str, Any]:
-        """Find all classes that inherit from a given base class.
+        """Find the classes that inherit *directly* from a given base class.
 
         **Live, not deprecated.** This is the AST class-graph walk *behind*
         ``expand(handle, edge="subclasses")``; the MCP tool wrapper of the same
@@ -1121,8 +971,14 @@ class JediAnalyzer:
 
         Uses a hybrid Jedi + AST approach for performance:
         1. Single-pass AST parsing of scoped files (no double-read)
-        2. Builds a parent->children graph for efficient indirect lookups
+        2. Builds a parent->children graph (simple-name input) or a resolved
+           definition-site index (FQN input)
         3. Uses Jedi Script.goto() to resolve aliased imports
+
+        Direct subclasses only, matching the ``subclasses`` edge (symmetric with
+        ``superclasses``). The transitive walk and ``inheritance_chain`` behind
+        the old ``include_indirect`` / ``show_hierarchy`` flags had no
+        production caller and were removed (#628).
 
         Determinism ceiling (#419): bases are resolved AST-first
         (:func:`base_resolution.resolve_base` — deterministic) with a Jedi
@@ -1143,8 +999,6 @@ class JediAnalyzer:
                 - "namespace:name": Specific namespace
                 - ["main", "namespace:x"]: Multiple scopes
                 - None: Use smart default ("all" for this method)
-            include_indirect: Include indirect inheritance (grandchildren, etc.)
-            show_hierarchy: Show the full inheritance chain
 
         Returns:
             Discriminated-union dict:
@@ -1177,11 +1031,9 @@ class JediAnalyzer:
             }
 
             # Single pass: parse each file once, extract all class info
-            # Maps class simple name -> list of (node, tree, file) for cross-file lookups
-            classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]] = {}
             # Maps full_name -> (node, tree, file) for deduplication
             classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
-            # Maps parent name -> set of child full_names (for indirect traversal)
+            # Maps parent name -> set of child full_names (simple-name lookups)
             parent_to_children: dict[str, set[str]] = {}
 
             for py_file in py_files:
@@ -1201,7 +1053,6 @@ class JediAnalyzer:
                         )
 
                         classes_by_fqn[fqn] = (node, tree, py_file)
-                        classes_by_name.setdefault(node.name, []).append((node, tree, py_file))
 
                         # Record parent->child edges for all bases
                         for base in node.bases:
@@ -1243,9 +1094,9 @@ class JediAnalyzer:
             # -------------------------------------------------------------------
             direct_fqns: set[str] = set()
 
-            # Caches shared across the direct resolution AND every indirect
-            # (grandchild) traversal step.  Keyed by source position / identifier
-            # so repeated Jedi goto() and canonicalization work is done once.
+            # Caches shared across the index build and the direct lookup.  Keyed
+            # by source position / identifier so repeated Jedi goto() and
+            # canonicalization work is done once.
             resolved_cache: dict[tuple[str, int, int], str | None] = {}
             canonical_cache: dict[str, Handle | None] = {}
 
@@ -1258,16 +1109,15 @@ class JediAnalyzer:
             # fallback only when the AST cannot commit; both routes yield the
             # same definition-site key.
             #
-            # Only the FQN-input path and the indirect-traversal path consult
-            # this index; the simple-name + non-indirect path uses
-            # parent_to_children (+ aliased-base goto) alone, so it skips the
-            # build — and the expensive, non-deterministic Jedi goto fallbacks
-            # the build runs — entirely (#421 item 1).
+            # Only the FQN-input path consults this index; the simple-name path
+            # uses parent_to_children (+ aliased-base goto) alone, so it skips
+            # the build — and the expensive, non-deterministic Jedi goto
+            # fallbacks the build runs — entirely (#421 item 1).
             import_tables: dict[str, dict[str, str]] = {}
             module_defines: dict[str, dict[str, str]] = {}
             star_sources: dict[str, list[str]] = {}
             resolved_index: dict[str, set[str]] = {}
-            if is_fqn_input or include_indirect:
+            if is_fqn_input:
                 import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
                     py_files, file_to_module
                 )
@@ -1325,37 +1175,13 @@ class JediAnalyzer:
                     )
                 )
 
-            # Collect indirect subclasses via graph traversal.
-            #
-            # Issue #335 Bug B: each grandchild step re-resolves children against
-            # the *FQN* (definition-site key) of the current subclass, so two
-            # unrelated classes that share a simple name never cross-contaminate
-            # each other's (in)direct subclass sets.
-            if include_indirect:
-                all_matching_fqns = set(direct_fqns)
-                queue = list(direct_fqns)
-                while queue:
-                    current_fqn = queue.pop()
-                    if current_fqn not in classes_by_fqn:
-                        continue
-                    for child_fqn in await direct_children(current_fqn):
-                        if child_fqn not in all_matching_fqns:
-                            all_matching_fqns.add(child_fqn)
-                            queue.append(child_fqn)
-            else:
-                all_matching_fqns = direct_fqns
-
             # Build result list
-            for fqn in all_matching_fqns:
+            for fqn in direct_fqns:
                 if fqn in processed_classes or fqn not in classes_by_fqn:
                     continue
                 processed_classes.add(fqn)
 
-                node, tree, py_file = classes_by_fqn[fqn]
-                is_direct = fqn in direct_fqns
-
-                # Determine direct parent name
-                direct_parent = self._find_direct_parent_name(node, leaf_name, is_direct)
+                node, _, py_file = classes_by_fqn[fqn]
 
                 subclass_info: dict[str, Any] = {
                     "name": node.name,
@@ -1368,14 +1194,9 @@ class JediAnalyzer:
                     # to lineno keeps line_end >= line_start.
                     "end_line": node.end_lineno or node.lineno,
                     "column": node.col_offset,
-                    "direct_parent": direct_parent,
-                    "is_direct": is_direct,
+                    "direct_parent": leaf_name,
+                    "is_direct": True,
                 }
-
-                if show_hierarchy:
-                    subclass_info["inheritance_chain"] = self._build_inheritance_chain(
-                        node, classes_by_name
-                    )
 
                 subclasses.append(subclass_info)
 
@@ -1391,14 +1212,20 @@ class JediAnalyzer:
     async def _canonical_cached(
         self, identifier: str, canonical_cache: dict[str, Handle | None]
     ) -> Handle | None:
-        """Memoised :func:`resolve_canonical` keyed by identifier.
+        """The canonical handle for *identifier*, memoised per ``find_subclasses`` call.
 
-        Canonicalisation walks import chains via Jedi and can be repeated many
+        Canonicalisation goes through the one resolver
+        (:func:`pyeye.resolver.resolve_handle`, #623), so a base class is named
+        exactly as ``resolve`` / ``inspect`` name it.  It can be repeated many
         times during an indirect-subclass traversal, so results are cached for
         the lifetime of a single ``find_subclasses`` call.  Never raises.
         """
         if identifier not in canonical_cache:
-            canonical_cache[identifier] = await resolve_canonical(identifier, self)
+            resolved = resolve_handle(identifier, self)
+            # A Resolved handle is always a valid dotted path (the resolver checks).
+            canonical_cache[identifier] = (
+                Handle(resolved.handle) if isinstance(resolved, Resolved) else None
+            )
         return canonical_cache[identifier]
 
     def _build_ast_resolution_tables(
@@ -1585,23 +1412,6 @@ class JediAnalyzer:
 
         return resolved_fqns
 
-    def _find_direct_parent_name(
-        self,
-        node: ast.ClassDef,
-        base_class: str,
-        is_direct: bool,
-    ) -> str:
-        """Determine the direct parent class name for a subclass result."""
-        if is_direct:
-            return base_class
-
-        # For indirect subclasses, find which base is in the inheritance chain
-        for base in node.bases:
-            parent_name = self._get_base_name_from_ast(base)
-            if parent_name:
-                return parent_name
-        return "unknown"
-
     @staticmethod
     def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:
         """Get the source position of the leaf name in a base class AST node.
@@ -1635,39 +1445,3 @@ class JediAnalyzer:
                 parts.append(node.id)
             return ".".join(reversed(parts))
         return None
-
-    @staticmethod
-    def _build_inheritance_chain(
-        class_node: ast.ClassDef,
-        classes_by_name: dict[str, list[tuple[ast.ClassDef, ast.Module, Path]]],
-    ) -> list[str]:
-        """Build the inheritance chain using the pre-built class map."""
-        chain = [class_node.name]
-        visited = {class_node.name}
-
-        current_bases = class_node.bases
-
-        while current_bases:
-            next_bases: list[Any] = []
-            for base in current_bases:
-                base_name: str | None = None
-                if isinstance(base, ast.Name):
-                    base_name = base.id
-                elif isinstance(base, ast.Attribute):
-                    base_name = base.attr
-
-                if base_name and base_name not in visited:
-                    chain.append(base_name)
-                    visited.add(base_name)
-
-                    # Look up parent class in the cross-file map
-                    if base_name in classes_by_name:
-                        for parent_node, _, _ in classes_by_name[base_name]:
-                            next_bases.extend(parent_node.bases)
-
-            current_bases = next_bases
-
-        if "object" not in chain:
-            chain.append("object")
-
-        return chain

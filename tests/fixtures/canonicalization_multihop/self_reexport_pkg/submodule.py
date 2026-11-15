@@ -2,8 +2,8 @@
 
 Canonical handle: self_reexport_pkg.submodule.Foo
 
-The __all__ here causes _check_symbol_in_init's __all__ fallback to fire
-when checking whether self_reexport_pkg/__init__.py re-exports Foo.
+The __all__ here is an extra re-export signal for Foo alongside the
+explicit import in self_reexport_pkg/__init__.py.
 But because the __init__.py also has "from self_reexport_pkg.submodule import Foo",
 Jedi's full_name for Foo in __init__.py will be self_reexport_pkg.submodule.Foo.
 """

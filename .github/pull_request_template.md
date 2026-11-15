@@ -44,7 +44,7 @@ Fixes #
 ### Code Clarity
 
 - [ ] No magic numbers or strings - use named constants (run `ruff check --select PLR2004 <changed_files>`)
-- [ ] No code duplication (check the non-blocking `duplicate-code-report` pre-commit output; see `docs/development/duplicate-code-check.md`)
+- [ ] No code duplication (the `duplicate-code-report` ratchet passes: it fails on a new copy; see `docs/development/duplicate-code-check.md`)
 - [ ] Clear variable and function names
 - [ ] Appropriate abstractions used
 

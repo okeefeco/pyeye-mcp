@@ -1,239 +1,196 @@
 """Tests for ProjectManager component."""
 
-import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from pyeye.project_manager import ProjectManager
 
-from pyeye.project_manager import ProjectManager  # noqa: E402
+
+@pytest.fixture(autouse=True)
+def fake_watchers():
+    """Replace CodebaseWatcher so no test starts a real observer thread."""
+    with patch("pyeye.project_manager.CodebaseWatcher") as watcher_class:
+        watcher_class.side_effect = lambda *_a, **_k: Mock()
+        yield watcher_class
+
+
+def _dirs(base: Path, *names: str) -> list[Path]:
+    out = []
+    for name in names:
+        d = base / name
+        d.mkdir()
+        out.append(d)
+    return out
 
 
 class TestProjectManager:
     """Test the ProjectManager class."""
-
-    @pytest.fixture(autouse=True)
-    def disable_pooling(self, monkeypatch):
-        """Disable connection pooling for tests that depend on direct project management.
-
-        These tests verify the internal LRU behavior of ProjectManager which works
-        differently when pooling is enabled (pool handles its own eviction).
-        """
-        monkeypatch.setenv("PYEYE_ENABLE_CONNECTION_POOLING", "false")
-
-        # Re-initialize settings with pooling disabled
-        from pyeye import settings as settings_module
-
-        settings_module.settings = settings_module.PerformanceSettings()
-
-        yield
-
-        # Restore settings after test
-        settings_module.settings = settings_module.PerformanceSettings()
 
     def test_initialization(self):
         """Test ProjectManager initialization."""
         manager = ProjectManager(max_projects=5)
 
         assert manager.max_projects == 5
-        assert len(manager.projects) == 0
         assert len(manager.watchers) == 0
-        assert len(manager.caches) == 0
         assert len(manager.access_order) == 0
         assert len(manager.dependencies) == 0
+        assert len(manager.analyzers) == 0
 
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_get_project_creates_new(self, mock_jedi_project, temp_project_dir):
-        """Test creating a new project."""
+    def test_dead_pool_and_cache_api_is_gone(self):
+        """#628: the never-read caches, the pool and the pooled jedi.Project are gone."""
         manager = ProjectManager()
-        mock_project = Mock()
-        mock_jedi_project.return_value = mock_project
+        for name in (
+            "projects",
+            "caches",
+            "connection_pool",
+            "get_project",
+            "get_cache",
+            "search_all_projects",
+            "get_pool_stats",
+        ):
+            assert not hasattr(manager, name), name
 
-        project = manager.get_project(str(temp_project_dir))
-
-        assert project == mock_project
-        assert Path(temp_project_dir).resolve() in manager.projects
-        assert Path(temp_project_dir).resolve() in manager.access_order
-        mock_jedi_project.assert_called_once()
-
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_get_project_with_dependencies(self, mock_jedi_project, temp_project_dir):
-        """Test creating project with additional dependencies."""
+    def test_register_project_records_it(self, temp_project_dir):
         manager = ProjectManager()
-        mock_project = Mock()
-        mock_jedi_project.return_value = mock_project
 
-        dep1 = temp_project_dir / "dep1"
-        dep2 = temp_project_dir / "dep2"
-        dep1.mkdir()
-        dep2.mkdir()
+        assert manager.register_project(str(temp_project_dir)) is None
 
-        project = manager.get_project(str(temp_project_dir), include_paths=[str(dep1), str(dep2)])
-
-        assert project == mock_project
         main_path = Path(temp_project_dir).resolve()
-        assert main_path in manager.dependencies
-        assert len(manager.dependencies[main_path]) == 2
+        assert manager.dependencies[main_path] == set()
+        assert main_path in manager.access_order
 
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_lru_cache_eviction(self, mock_jedi_project, temp_project_dir):
-        """Test that old projects are evicted when max_projects is reached."""
-        manager = ProjectManager(max_projects=3)
-        mock_jedi_project.return_value = Mock()
-
-        # Create 4 project directories
-        projects = []
-        for i in range(4):
-            proj_dir = temp_project_dir / f"project{i}"
-            proj_dir.mkdir()
-            projects.append(proj_dir)
-
-        # Access first 3 projects
-        for i in range(3):
-            manager.get_project(str(projects[i]))
-
-        assert len(manager.projects) == 3
-        assert len(manager.access_order) == 3
-
-        # Access 4th project - should evict the first
-        manager.get_project(str(projects[3]))
-
-        assert len(manager.projects) == 3
-        assert len(manager.access_order) == 3
-        assert Path(projects[0]).resolve() not in manager.projects
-        assert Path(projects[3]).resolve() in manager.projects
-
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_lru_access_order_update(self, mock_jedi_project, temp_project_dir):
-        """Test that accessing a project updates its position in LRU."""
-        manager = ProjectManager(max_projects=3)
-        mock_jedi_project.return_value = Mock()
-
-        # Create 3 projects
-        projects = []
-        for i in range(3):
-            proj_dir = temp_project_dir / f"project{i}"
-            proj_dir.mkdir()
-            projects.append(proj_dir)
-            manager.get_project(str(proj_dir))
-
-        # Access order should be [0, 1, 2]
-        assert manager.access_order[-1] == Path(projects[2]).resolve()
-
-        # Access project 0 again
-        manager.get_project(str(projects[0]))
-
-        # Access order should now be [1, 2, 0]
-        assert manager.access_order[-1] == Path(projects[0]).resolve()
-        assert manager.access_order[0] == Path(projects[1]).resolve()
-
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_needs_update_detects_changes(self, mock_jedi_project, temp_project_dir):
-        """Test that dependency changes are detected."""
+    def test_register_project_with_dependencies(self, temp_project_dir):
         manager = ProjectManager()
-        mock_jedi_project.return_value = Mock()
+        dep1, dep2 = _dirs(temp_project_dir, "dep1", "dep2")
 
-        dep1 = temp_project_dir / "dep1"
-        dep1.mkdir()
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1), str(dep2)])
 
-        # Create project with one dependency
-        manager.get_project(str(temp_project_dir), include_paths=[str(dep1)])
+        main_path = Path(temp_project_dir).resolve()
+        assert manager.dependencies[main_path] == {dep1.resolve(), dep2.resolve()}
+
+    def test_register_project_watches_root_and_dependencies(self, temp_project_dir):
+        manager = ProjectManager()
+        (dep1,) = _dirs(temp_project_dir, "dep1")
+
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1)])
+
+        main_path = Path(temp_project_dir).resolve()
+        assert set(manager.watchers) == {main_path, dep1.resolve()}
+        for watcher in manager.watchers.values():
+            watcher.start.assert_called_once()
+        assert manager._watch_users[dep1.resolve()] == {main_path}
+
+    def test_registered_dependencies_reach_the_analyzer(self, temp_project_dir):
+        """The live side effect: get_analyzer passes registered paths to the analyzer."""
+        manager = ProjectManager()
+        (dep1,) = _dirs(temp_project_dir, "dep1")
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1)])
+
+        analyzer = manager.get_analyzer(str(temp_project_dir))
+
+        assert [Path(p).resolve() for p in analyzer.additional_paths] == [dep1.resolve()]
+
+    def test_lru_eviction(self, temp_project_dir):
+        """Old projects are evicted when max_projects is reached."""
+        manager = ProjectManager(max_projects=3)
+        projects = _dirs(temp_project_dir, "p0", "p1", "p2", "p3")
+
+        for proj in projects[:3]:
+            manager.register_project(str(proj))
+        assert len(manager.dependencies) == 3
+
+        manager.register_project(str(projects[3]))
+
+        assert len(manager.dependencies) == 3
+        assert len(manager.access_order) == 3
+        assert projects[0].resolve() not in manager.dependencies
+        assert projects[3].resolve() in manager.dependencies
+
+    def test_eviction_counts_registered_projects_and_analyzers_together(self, temp_project_dir):
+        manager = ProjectManager(max_projects=2)
+        a, b, c = _dirs(temp_project_dir, "a", "b", "c")
+
+        manager.register_project(str(a))
+        manager.get_analyzer(str(b))
+        manager.register_project(str(c))
+
+        known = set(manager.dependencies) | set(manager.analyzers)
+        assert known == {b.resolve(), c.resolve()}
+
+    def test_lru_access_order_update(self, temp_project_dir):
+        """Re-registering a project moves it to the most-recent end."""
+        manager = ProjectManager(max_projects=3)
+        projects = _dirs(temp_project_dir, "p0", "p1", "p2")
+        for proj in projects:
+            manager.register_project(str(proj))
+
+        manager.register_project(str(projects[0]))
+
+        assert manager.access_order[-1] == projects[0].resolve()
+        assert manager.access_order[0] == projects[1].resolve()
+
+    def test_needs_update_detects_changes(self, temp_project_dir):
+        manager = ProjectManager()
+        dep1, dep2 = _dirs(temp_project_dir, "dep1", "dep2")
+
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1)])
 
         main_path = Path(temp_project_dir).resolve()
         assert not manager._needs_update(main_path, [str(dep1)])
-
-        # Check with different dependencies
-        dep2 = temp_project_dir / "dep2"
-        dep2.mkdir()
         assert manager._needs_update(main_path, [str(dep1), str(dep2)])
 
-    @patch("pyeye.project_manager.CodebaseWatcher")
-    @patch("pyeye.project_manager.GranularCache")
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_watcher_and_cache_creation(
-        self, mock_jedi_project, mock_cache_class, mock_watcher_class, temp_project_dir
-    ):
-        """Test that watchers and caches are created for projects."""
+    def test_changed_paths_tear_down_the_old_registration(self, temp_project_dir):
         manager = ProjectManager()
-        mock_jedi_project.return_value = Mock()
-        mock_watcher = Mock()
-        mock_cache = Mock()
-        mock_watcher_class.return_value = mock_watcher
-        mock_cache_class.return_value = mock_cache
-
-        manager.get_project(str(temp_project_dir))
-
+        (dep1,) = _dirs(temp_project_dir, "dep1")
+        manager.register_project(str(temp_project_dir))
         main_path = Path(temp_project_dir).resolve()
+        old_watcher = manager.watchers[main_path]
+        analyzer = manager.get_analyzer(str(temp_project_dir))
+
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1)])
+
+        old_watcher.stop.assert_called_once()
+        assert manager.dependencies[main_path] == {dep1.resolve()}
         assert main_path in manager.watchers
-        assert main_path in manager.caches
-        mock_watcher.start.assert_called_once()
+        assert manager.watchers[main_path] is not old_watcher
+        # The stale analyzer was dropped, so the next one sees the new path.
+        assert manager.get_analyzer(str(temp_project_dir)) is not analyzer
 
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_cleanup_old_project(self, mock_jedi_project, temp_project_dir):
-        """Test that old projects are properly cleaned up."""
+    def test_unchanged_paths_keep_the_registration(self, temp_project_dir):
         manager = ProjectManager()
-        mock_jedi_project.return_value = Mock()
-
-        # Create project
-        manager.get_project(str(temp_project_dir))
+        manager.register_project(str(temp_project_dir))
         main_path = Path(temp_project_dir).resolve()
+        watcher = manager.watchers[main_path]
 
-        # Mock watcher for cleanup test
-        mock_watcher = Mock()
-        manager.watchers[main_path] = mock_watcher
+        manager.register_project(str(temp_project_dir))
 
-        # Update project (should cleanup old one)
-        dep1 = temp_project_dir / "dep1"
-        dep1.mkdir()
-        manager.get_project(str(temp_project_dir), include_paths=[str(dep1)])
+        watcher.stop.assert_not_called()
+        assert manager.watchers[main_path] is watcher
 
-        # Watcher should be stopped
-        mock_watcher.stop.assert_called_once()
-
-    @patch("pyeye.project_manager.jedi.Project")
-    def test_nonexistent_dependency_ignored(self, mock_jedi_project, temp_project_dir):
-        """Test that non-existent dependencies are ignored."""
+    def test_nonexistent_dependency_ignored(self, temp_project_dir):
         manager = ProjectManager()
-        mock_jedi_project.return_value = Mock()
 
-        # Try to add non-existent dependencies
-        manager.get_project(
+        manager.register_project(
             str(temp_project_dir), include_paths=["/nonexistent/path1", "/nonexistent/path2"]
         )
 
-        main_path = Path(temp_project_dir).resolve()
-        # No dependencies should be added
-        assert len(manager.dependencies[main_path]) == 0
+        assert manager.dependencies[Path(temp_project_dir).resolve()] == set()
 
-    def test_get_cache_for_project(self, temp_project_dir):
-        """Test retrieving cache for a project."""
+    def test_cleanup_all(self, temp_project_dir):
         manager = ProjectManager()
+        (dep1,) = _dirs(temp_project_dir, "dep1")
+        manager.register_project(str(temp_project_dir), include_paths=[str(dep1)])
+        watchers = list(manager.watchers.values())
 
-        with patch("pyeye.project_manager.jedi.Project"):
-            manager.get_project(str(temp_project_dir))
+        manager.cleanup_all()
 
-            main_path = Path(temp_project_dir).resolve()
-            cache = manager.get_cache(main_path)
-
-            assert cache is not None
-            assert main_path in manager.caches
-
-    @pytest.mark.skip(reason="ProjectManager doesn't have invalidate_cache method yet")
-    def test_invalidate_cache(self, temp_project_dir):
-        """Test cache invalidation."""
-        manager = ProjectManager()
-
-        with patch("pyeye.project_manager.jedi.Project"):
-            manager.get_project(str(temp_project_dir))
-
-            main_path = Path(temp_project_dir).resolve()
-            mock_cache = Mock()
-            manager.caches[main_path] = mock_cache
-
-            manager.invalidate_cache(main_path)
-            mock_cache.invalidate.assert_called_once()
+        assert not manager.dependencies
+        assert not manager.watchers
+        assert not manager.access_order
+        for watcher in watchers:
+            watcher.stop.assert_called_once()
 
     def test_namespace_resolver_integration(self, temp_project_dir):
         """Test namespace resolver is available."""
@@ -241,7 +198,6 @@ class TestProjectManager:
 
         assert manager.namespace_resolver is not None
 
-        # Test namespace registration through manager
         manager.namespace_resolver.register_namespace("test.namespace", [str(temp_project_dir)])
 
         assert "test.namespace" in manager.namespace_resolver.namespace_paths

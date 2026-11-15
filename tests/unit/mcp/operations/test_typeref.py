@@ -254,18 +254,16 @@ class TestForwardRefRecursion:
         """
         services = _FIXTURE / "mypackage" / "services.py"
         # Synthesise an annotation node ``"CustomModel"`` situated *inside* the
-        # services file (so resolve_canonical can find CustomModel via the
-        # fixture's import wiring).
+        # services file, which imports CustomModel: the forward ref resolves
+        # lexically in that module (#623).
         ann = ast.parse('x: "CustomModel"\n').body[0]
         assert isinstance(ann, ast.AnnAssign)
         result = await build_typeref(ann.annotation, services, analyzer)
         # The forward-ref content is "CustomModel"
         assert result["raw"] == "CustomModel"
-        # resolve_canonical resolves bare "CustomModel" via project search
-        # (no scoping context); accept either a populated handle pointing at
-        # the project class, or an absent handle if Jedi can't disambiguate.
-        if "handle" in result:
-            assert result["handle"] == "mypackage.models.CustomModel"
+        # Resolved in the services module's scope, where CustomModel is imported,
+        # so the handle is the definition site (the same as unquoted).
+        assert result["handle"] == "mypackage.models.CustomModel"
 
     @pytest.mark.asyncio
     async def test_malformed_forward_ref_string_degrades_to_raw(

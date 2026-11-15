@@ -41,16 +41,6 @@ Create a `.pyeye.json` file in your project root:
          "../internal-tools",
          "../internal-shared"
        ]
-     },
-     "cache": {
-       "enabled": true,
-       "ttl_seconds": 300,
-       "max_entries": 10000
-     },
-     "analysis": {
-       "max_workers": 4,
-       "timeout_seconds": 30,
-       "include_tests": false
      }
    }
 
@@ -72,16 +62,6 @@ Add configuration to your `pyproject.toml`:
      "~/repos/company-auth",
      "~/repos/company-api"
    ]
-
-   [tool.pyeye.cache]
-   enabled = true
-   ttl_seconds = 300
-   max_entries = 10000
-
-   [tool.pyeye.analysis]
-   max_workers = 4
-   timeout_seconds = 30
-   include_tests = false
 
 Environment Variables
 --------------------
@@ -117,28 +97,13 @@ Create a global configuration file at `~/.config/pyeye/config.json`:
 .. code-block:: json
 
    {
-     "default_packages": [
+     "packages": [
        "~/common-libraries/utils",
        "~/common-libraries/shared"
-     ],
-     "cache": {
-       "enabled": true,
-       "ttl_seconds": 600,
-       "max_memory_mb": 500,
-       "persistence": "file"
-     },
-     "performance": {
-       "max_workers": 6,
-       "connection_pool_size": 10,
-       "file_watcher_enabled": true
-     },
-     "logging": {
-       "level": "INFO",
-       "file": "~/.cache/pyeye/server.log",
-       "max_size_mb": 10,
-       "backup_count": 5
-     }
+     ]
    }
+
+It takes the same keys as a project config; a project config overrides it.
 
 Configuration Options
 --------------------
@@ -160,84 +125,26 @@ Package Configuration
   - Supports the same path formats as packages
   - Namespace resolution follows Python's namespace package rules
 
-Cache Configuration
-~~~~~~~~~~~~~~~~~~
+**standalone.dirs**
+  Directories of standalone scripts (not packages); every ``.py`` file under them
+  is analysed.
 
-**cache.enabled**
-  Enable/disable result caching (default: `true`)
+**scope_defaults** / **scope_aliases**
+  Default scopes for the framework plugin tools, and named scope shortcuts.
 
-**cache.ttl_seconds**
-  Time-to-live for cache entries in seconds (default: `300`)
+Deprecated Keys (No Effect)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**cache.max_entries**
-  Maximum number of cache entries to maintain (default: `10000`)
+Earlier versions of this page documented these top-level keys, but pyeye has
+never read them. They are deprecated: a config that sets one still loads, a
+warning names it, and ``configure_packages`` reports it under ``warnings`` (#581).
 
-**cache.max_memory_mb**
-  Maximum memory usage for cache in megabytes (default: `500`)
-
-**cache.persistence**
-  Cache persistence strategy: `"memory"` (default), `"file"`, or `"redis"`
-
-Analysis Configuration
-~~~~~~~~~~~~~~~~~~~~~
-
-**analysis.max_workers**
-  Maximum number of worker threads for concurrent analysis (default: `4`)
-
-**analysis.timeout_seconds**
-  Timeout for individual analysis operations in seconds (default: `30`)
-
-**analysis.include_tests**
-  Include test files in analysis (default: `false`)
-
-**analysis.exclude_patterns**
-  Glob patterns for files/directories to exclude:
-
-  .. code-block:: json
-
-     "exclude_patterns": [
-       "**/__pycache__/**",
-       "**/.*/**",
-       "**/venv/**",
-       "**/node_modules/**"
-     ]
-
-Performance Configuration
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-**performance.connection_pool_size**
-  Size of Jedi connection pool (default: `10`)
-
-**performance.file_watcher_enabled**
-  Enable file system watching for cache invalidation (default: `true`)
-
-**performance.preload_common_symbols**
-  Preload frequently used symbols on startup (default: `false`)
-
-**performance.batch_size**
-  Batch size for concurrent operations (default: `50`)
-
-Plugin Configuration
-~~~~~~~~~~~~~~~~~~~
-
-**plugins.enabled**
-  List of plugins to enable explicitly:
-
-  .. code-block:: json
-
-     "plugins": {
-       "enabled": ["pydantic", "django", "flask"],
-       "disabled": ["custom_plugin"]
-     }
-
-**plugins.pydantic.include_private_fields**
-  Include private fields in Pydantic model analysis (default: `false`)
-
-**plugins.django.include_migrations**
-  Include migration files in Django analysis (default: `true`)
-
-**plugins.flask.blueprint_prefix_resolution**
-  Resolve blueprint URL prefixes (default: `true`)
+* Deprecated, no effect: ``cache`` (``ttl_seconds``, ``enabled``, ``max_entries``, ``max_memory_mb``, ``persistence``). Use ``PYEYE_CACHE_TTL`` and ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES``.
+* Deprecated, no effect: ``analysis`` (``max_workers``, ``timeout_seconds``, ``include_tests``, ``exclude_patterns``).
+* Deprecated, no effect: ``exclude`` and ``exclude_patterns``. There is no file-exclusion setting.
+* Deprecated, no effect: ``performance`` (``connection_pool_size``, ``file_watcher_enabled``, ``preload_common_symbols``, ``batch_size``).
+* Deprecated, no effect: ``plugins`` (``enabled``, ``disabled`` and per-plugin options). Plugins activate when they detect their framework.
+* Deprecated, no effect: ``default_packages`` (use ``packages``), ``logging`` (use ``PYEYE_LOG_LEVEL`` / ``PYEYE_LOG_FILE``) and ``watch_exclude``.
 
 Runtime Configuration
 --------------------
@@ -357,11 +264,6 @@ Common Patterns
          "~/company/services/billing-api",
          "~/company/services/billing-workers"
        ]
-     },
-     "cache": {
-       "persistence": "redis",
-       "ttl_seconds": 1800,
-       "max_memory_mb": 2048
      }
    }
 
@@ -397,9 +299,9 @@ Common Issues
   - Check file permissions on configuration files
 
 **Performance issues**
-  - Reduce `max_workers` if system is overloaded
-  - Increase `ttl_seconds` for more aggressive caching
-  - Disable file watching if it's causing issues
+  - Include fewer packages and namespaces
+  - Raise ``PYEYE_CACHE_TTL`` or ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES`` (see Environment Variables)
+  - Raise ``PYEYE_WATCHER_DEBOUNCE`` if file watching is noisy
 
 Validation Commands
 ~~~~~~~~~~~~~~~~~~

@@ -272,9 +272,20 @@ class TestWireFormatRatio:
     # If the ratio approaches 0.3×, source content is likely leaking.
     INSPECT_RATIO_FLOOR = 0.30
 
+    # The baseline was measured on GranularCache, which #628 deleted (it was
+    # never used). JediAnalyzer is a large live class: inspect's response size
+    # depends on the class's structure, not its line count, so the 0.3× floor
+    # still applies.
+    TARGET = "pyeye.analyzers.jedi_analyzer.JediAnalyzer"
+
+    @staticmethod
+    def _assert_found(result: dict) -> None:
+        # A not-found response is tiny and would pass the floor vacuously.
+        assert result.get("found") is not False and result.get("kind") == "class", result
+
     @pytest.mark.asyncio
-    async def test_inspect_granularcache_is_under_floor(self) -> None:
-        """inspect response on GranularCache must be ≤ 0.3× LSP-bridge baseline.
+    async def test_inspect_large_class_is_under_floor(self) -> None:
+        """inspect response on a large class must be ≤ 0.3× LSP-bridge baseline.
 
         Actual measurement is expected to be much smaller (~0.02–0.10×) because
         pyeye ships no source content.  The 0.3× floor is intentionally
@@ -282,29 +293,29 @@ class TestWireFormatRatio:
         approaches 0.3×, content is leaking somewhere — check the layering
         linter (Phase 7.1) and the spec's layering principle.
 
-        GranularCache is at pyeye.cache.GranularCache (src/pyeye/cache.py).
-        It is a large class (~234 lines) chosen to match the 2026-05-02
-        baseline measurement.
+        The target is ``TARGET`` (see the class attribute for why it is no
+        longer GranularCache, the 2026-05-02 baseline's class).
         """
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
         from pyeye.mcp.operations.inspect import inspect
 
         # Use the actual pyeye-mcp project as the analyzer root.
         analyzer = JediAnalyzer(".")
-        result = await inspect("pyeye.cache.GranularCache", analyzer)
+        result = await inspect(self.TARGET, analyzer)
+        self._assert_found(result)
 
         wire_bytes = len(json.dumps(result).encode("utf-8"))
         ratio = wire_bytes / self.LSP_BRIDGE_BASELINE_BYTES
 
         assert ratio <= self.INSPECT_RATIO_FLOOR, (
-            f"inspect response on GranularCache is {wire_bytes} bytes "
+            f"inspect response on {self.TARGET} is {wire_bytes} bytes "
             f"({ratio:.3f}× the {self.LSP_BRIDGE_BASELINE_BYTES}-byte LSP-bridge baseline). "
             f"Floor is {self.INSPECT_RATIO_FLOOR}×. If you're hitting this, content is leaking; "
             f"check the layering linter (Phase 7.1) and the spec's layering principle."
         )
 
     @pytest.mark.asyncio
-    async def test_inspect_granularcache_ratio_observability(self) -> None:
+    async def test_inspect_large_class_ratio_observability(self) -> None:
         """Print the actual ratio for visibility (informational; never fails alone).
 
         Running the conformance suite with ``-s`` / ``--capture=no`` shows the
@@ -318,15 +329,16 @@ class TestWireFormatRatio:
         from pyeye.mcp.operations.inspect import inspect
 
         analyzer = JediAnalyzer(".")
-        result = await inspect("pyeye.cache.GranularCache", analyzer)
+        result = await inspect(self.TARGET, analyzer)
+        self._assert_found(result)
 
         wire_bytes = len(json.dumps(result).encode("utf-8"))
         ratio = wire_bytes / self.LSP_BRIDGE_BASELINE_BYTES
 
         print(
-            f"\ninspect/LSP-bridge ratio for GranularCache: "
+            f"\ninspect/LSP-bridge ratio for {self.TARGET}: "
             f"{ratio:.3f}× ({wire_bytes} bytes vs "
             f"{self.LSP_BRIDGE_BASELINE_BYTES}-byte baseline)"
         )
         # No assertion — purely informational.  The strict floor is in
-        # test_inspect_granularcache_is_under_floor above.
+        # test_inspect_large_class_is_under_floor above.

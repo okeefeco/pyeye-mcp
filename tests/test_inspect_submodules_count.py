@@ -56,3 +56,31 @@ class TestSubmodulesCount:
         # submodules == 0 (a measured zero, PRESENT — distinct from absent).
         node = await inspect("emptypkg", analyzer)
         assert node["edge_counts"]["submodules"] == 0
+
+
+class TestNonImportableFilesExcluded:
+    """A ``.py`` file whose stem is not an identifier is not a submodule (#597).
+
+    ``jaraco.text`` ships hyphenated scripts (``show-newlines.py``) beside its
+    modules. They cannot be imported as submodules, so neither the count nor the
+    ``submodules`` edge may include them, and the two must agree.
+    """
+
+    @pytest.mark.asyncio
+    async def test_count_matches_expand_with_non_importable_files(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "scriptpkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "layouts.py").write_text("X = 1\n")
+        (pkg / "show-newlines.py").write_text("print('hi')\n")
+        (pkg / "to-dvorak.py").write_text("print('hi')\n")
+        (pkg / "2fast.py").write_text("print('hi')\n")
+        (pkg / "not-a-pkg").mkdir()
+        (pkg / "not-a-pkg" / "__init__.py").write_text("")
+        analyzer = JediAnalyzer(str(tmp_path))
+
+        node = await inspect("scriptpkg", analyzer)
+        expanded = await expand("scriptpkg", "submodules", analyzer)
+
+        assert [s["handle"] for s in expanded["stubs"]] == ["scriptpkg.layouts"]
+        assert node["edge_counts"]["submodules"] == len(expanded["stubs"]) == 1

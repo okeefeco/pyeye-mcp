@@ -46,10 +46,10 @@ if __name__ == "__main__":
 
         manager = ProjectManager(max_projects=config.config.get("max_projects", 10))
 
-        # Step 4: Get project and analyzer
-        with patch("pyeye.project_manager.jedi.Project"):
-            project = manager.get_project(str(temp_project_dir))
-            assert project is not None
+        # Step 4: Register the project
+        with patch("pyeye.project_manager.CodebaseWatcher"):
+            manager.register_project(str(temp_project_dir))
+            assert Path(temp_project_dir).resolve() in manager.dependencies
 
         # Step 5: Perform analysis
         analyzer = JediAnalyzer(str(temp_project_dir))
@@ -75,31 +75,25 @@ if __name__ == "__main__":
             (proj_dir / "main.py").write_text(f"# Project {i}")
             projects.append(proj_dir)
 
-        # Load all projects
-        with patch("pyeye.project_manager.jedi.Project") as mock_project:
-            # Return unique mock for each call to avoid issues with object identity
-            mock_project.side_effect = lambda *_, **__: Mock()
+        # Mock the watcher to prevent file system events during test
+        with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
+            mock_watcher.side_effect = lambda *_, **__: Mock()
 
-            # Mock the watcher to prevent file system events during test
-            with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
-                mock_watcher_instance = Mock()
-                mock_watcher.return_value = mock_watcher_instance
+            for proj in projects:
+                manager.register_project(str(proj))
 
-                for proj in projects:
-                    manager.get_project(str(proj))
+            assert len(manager.dependencies) == 3
 
-                assert len(manager.projects) == 3
-
-                # Access projects again - should use cache
-                for proj in projects:
-                    cached_project = manager.get_project(str(proj))
-                    assert cached_project is not None
+            # Registering again keeps every project (still within max_projects)
+            for proj in projects:
+                manager.register_project(str(proj))
+            assert {p.resolve() for p in projects} == set(manager.dependencies)
 
     def test_file_change_cache_invalidation(self, temp_project_dir):
         """Test that file changes trigger cache invalidation."""
         import time
 
-        from pyeye.cache import CodebaseWatcher, ProjectCache
+        from pyeye.cache import CodebaseWatcher
         from pyeye.settings import settings
 
         # Create project with file
@@ -107,11 +101,10 @@ if __name__ == "__main__":
         test_file.write_text("def original(): pass")
 
         # Setup cache and watcher
-        cache = ProjectCache(ttl_seconds=300)
-        cache.set("test_key", "cached_value")
+        cache = {"test_key": "cached_value"}
 
         def on_change(filepath):  # noqa: ARG001
-            cache.invalidate()
+            cache.clear()
 
         watcher = CodebaseWatcher(str(temp_project_dir), on_change)
 
@@ -206,14 +199,12 @@ class User(BaseModel):
         # Test handling non-existent project
         nonexistent = temp_project_dir / "nonexistent"
 
-        with patch("pyeye.project_manager.jedi.Project") as mock_project:
-            mock_project.side_effect = Exception("Project creation failed")
+        with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
+            mock_watcher.return_value.start.side_effect = OSError("inotify limit")
 
-            # Should handle error gracefully
-            try:
-                manager.get_project(str(nonexistent))
-            except Exception as e:
-                assert "Project creation failed" in str(e)
+            # A watcher that can't start degrades freshness only; no exception
+            manager.register_project(str(nonexistent))
+            assert nonexistent.resolve() in manager.dependencies
 
         # Test handling invalid configuration
         bad_config = temp_project_dir / ".pyeye.json"
@@ -236,24 +227,17 @@ class User(BaseModel):
             # Store resolved path to match what ProjectManager uses
             projects.append(proj_dir.resolve())
 
-        with (
-            patch("pyeye.project_manager.jedi.Project"),
-            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
-        ):
+        with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
             # Mock the watcher to prevent file system issues on macOS
-            mock_watcher_instance = Mock()
-            mock_watcher_instance.start = Mock()
-            mock_watcher_instance.stop = Mock()
-            mock_watcher.return_value = mock_watcher_instance
+            mock_watcher.side_effect = lambda *_, **__: Mock()
 
             # Rapidly access all projects
             for _ in range(3):  # Multiple rounds
                 for proj in projects:
-                    project = manager.get_project(str(proj))
-                    assert project is not None
+                    manager.register_project(str(proj))
 
-            # All should still be in cache (max_projects=10)
-            assert len(manager.projects) == 10
+            # All should still be registered (max_projects=10)
+            assert set(manager.dependencies) == set(projects)
 
         # Ensure cleanup
         manager.cleanup_all()
@@ -336,15 +320,13 @@ class User:
         # Configure project with dependencies
         manager = ProjectManager()
 
-        with (
-            patch("pyeye.project_manager.jedi.Project"),
-            patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher,
-        ):
+        with patch("pyeye.project_manager.CodebaseWatcher") as mock_watcher:
             # Mock the watcher to prevent file system interference
-            mock_watcher_instance = Mock()
-            mock_watcher.return_value = mock_watcher_instance
+            mock_watcher.side_effect = lambda *_, **__: Mock()
 
-            _ = manager.get_project(str(main_proj), include_paths=[str(lib_repo), str(shared_repo)])
+            manager.register_project(
+                str(main_proj), include_paths=[str(lib_repo), str(shared_repo)]
+            )
 
             # Verify dependencies are tracked
             main_path = main_proj.resolve()

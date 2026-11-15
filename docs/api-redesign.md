@@ -243,6 +243,21 @@ attributes, properties) therefore get an empty `edge_counts: {}` today.
 This is the **absence-vs-zero invariant**. It lets agents distinguish "we
 measured zero" from "we don't yet measure this edge type."
 
+It is one case of a general rule that applies to every response, not only to
+`edge_counts`:
+
+> A value pyeye returns is a measured claim over a stated scope. Anything it
+> doesn't return, or can't resolve, is unknown, not absent.
+
+- **`found: false`** is a resolution miss. It does not show that the symbol is
+  missing from the code: an instance attribute assigned in `__init__`
+  (`self.project_path = ...`) is real and does not resolve.
+- **A returned list** is complete only over its stated scope. A class's
+  `members` (and so its `outline`) are its class-body definitions; instance
+  attributes assigned in methods are not measured, and runtime-injected members
+  are not seen. A name missing from the list is unknown outside that scope.
+- **An optional field** that is absent means "not measured", as above.
+
 Examples:
 
 ```json

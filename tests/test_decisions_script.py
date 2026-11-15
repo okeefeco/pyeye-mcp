@@ -30,6 +30,7 @@ def _entry(
     issues: list[int] | None = None,
     anchors: list[str] | None = None,
     status: str = "active",
+    applies_to: str | None = "`pkg.mod.Thing` and `pkg.mod.Other`",
     **links: list[str],
 ) -> Path:
     date = date or name[:10]
@@ -45,6 +46,9 @@ def _entry(
         "superseded_by": links.get("superseded_by", []),
     }
     body = f"## {date} — {title}\n\n**Friction:** x\n**Decision:** y\n**Anchor:** `pkg.mod.Thing`\n"
+    if applies_to is not None:
+        body += f"**Applies-to:** {applies_to}\n"
+    body += "**Verify:** unverifiable — test fixture.\n"
     path = directory / name
     path.write_text(decisions.render(meta, body), encoding="utf-8", newline="\n")
     return path
@@ -64,6 +68,7 @@ def test_the_repository_log_is_valid() -> None:
     entries, errors = decisions.load()
     assert not errors
     assert not decisions.check(entries)
+    assert not decisions.stale_grandfathered(entries)
     assert len(entries) >= 53
 
 
@@ -244,6 +249,7 @@ _LOG_ENTRY = """## 2026-03-02 — Second rule; amends the first (#9)
 **Friction:** a
 **Decision:** b, amending the 2026-03-01 entry.
 **Anchor:** `pkg.second` ; #9
+**Applies-to:** `pkg.second`
 **Verify:** c
 
 """
@@ -268,7 +274,9 @@ def test_migrate_splits_verifies_and_is_idempotent(tmp_path: Path) -> None:
     second = decisions.parse(names[1], (entries / names[1]).read_text(encoding="utf-8"))
     assert second.body == _LOG_ENTRY.rstrip("\n") + "\n"  # verbatim
     assert second.meta["issues"] == [9] and second.meta["anchors"] == ["pkg.second"]
-    assert _problems(entries) == []
+    # A migrated entry is new to this log, so it needs Applies-to too (#636).
+    (problem,) = _problems(entries)
+    assert problem.startswith("2026-03-01-8-first-rule.md: missing '**Applies-to:**'")
 
     # Re-running, or re-running after a merge brings the same entries back, changes nothing.
     log.write_text(decisions.STATIC_HEADER + "\n" + _LOG_ENTRY_2, encoding="utf-8", newline="\n")
@@ -341,3 +349,127 @@ def test_written_entries_use_lf_line_endings(tmp_path: Path) -> None:
     decisions.migrate(log, tmp_path / "entries")
     for path in [log, *(tmp_path / "entries").iterdir()]:
         assert b"\r\n" not in path.read_bytes(), path.name
+
+
+# ---------------------------------------------------------------------------
+# Applies-to is mandatory for new entries (#636)
+# ---------------------------------------------------------------------------
+
+
+def _applies_problems(directory: Path, grandfathered: frozenset[str] = frozenset()) -> list[str]:
+    entries, errors = decisions.load(directory)
+    assert not errors
+    return [p for p in decisions.check(entries, grandfathered) if "Applies-to" in p]
+
+
+def test_a_new_entry_without_applies_to_fails(tmp_path: Path) -> None:
+    _entry(tmp_path, "2026-12-01-9-new.md", applies_to=None)
+
+    (problem,) = _applies_problems(tmp_path)
+    assert "2026-12-01-9-new.md: missing '**Applies-to:**' (#636)" in problem
+    assert "none (<why>)" in problem
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "`pkg.mod.Thing`",
+        "none (policy decision)",
+        "None (a release-process rule; no code site)",
+        "every caller of `resolve_handle`; see the fitness test",
+    ],
+)
+def test_valid_applies_to_values_pass(tmp_path: Path, value: str) -> None:
+    _entry(tmp_path, "2026-12-01-9-new.md", applies_to=value)
+
+    assert not _applies_problems(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", "says nothing"),
+        ("n/a", "says nothing"),
+        ("N/A.", "says nothing"),
+        ("none", "says nothing"),
+        ("TBD", "says nothing"),
+        ("none — policy", "must read 'none (<why>)'"),
+        ("none ()", "must read 'none (<why>)'"),
+    ],
+)
+def test_empty_or_placeholder_applies_to_fails(tmp_path: Path, value: str, expected: str) -> None:
+    _entry(tmp_path, "2026-12-01-9-new.md", applies_to=value)
+
+    (problem,) = _applies_problems(tmp_path)
+    assert expected in problem
+
+
+def test_a_list_on_the_following_lines_counts(tmp_path: Path) -> None:
+    path = _entry(tmp_path, "2026-12-01-9-new.md", applies_to=None)
+    text = path.read_text(encoding="utf-8").replace(
+        "**Verify:**", "**Applies-to:**\n\n- `pkg.a`\n- `pkg.b`\n\n**Verify:**"
+    )
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+    assert not _applies_problems(tmp_path)
+    entries, _ = decisions.load(tmp_path)
+    assert decisions.applies_to(entries[0].body) == "- `pkg.a` - `pkg.b`"
+
+
+def test_an_empty_label_followed_by_the_next_field_fails(tmp_path: Path) -> None:
+    path = _entry(tmp_path, "2026-12-01-9-new.md", applies_to=None)
+    text = path.read_text(encoding="utf-8").replace("**Verify:**", "**Applies-to:**\n**Verify:**")
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+    (problem,) = _applies_problems(tmp_path)
+    assert "says nothing" in problem
+
+
+def test_a_grandfathered_entry_may_lack_applies_to(tmp_path: Path) -> None:
+    _entry(tmp_path, "2026-01-01-1-old.md", applies_to=None)
+
+    assert not _applies_problems(tmp_path, frozenset({"2026-01-01-1-old.md"}))
+
+
+def test_a_grandfathered_entry_that_gains_applies_to_must_leave_the_list(tmp_path: Path) -> None:
+    _entry(tmp_path, "2026-01-01-1-old.md")
+
+    (problem,) = _applies_problems(tmp_path, frozenset({"2026-01-01-1-old.md"}))
+    assert "delete it from APPLIES_TO_GRANDFATHERED" in problem
+
+
+def test_a_grandfathered_name_with_no_file_is_stale(tmp_path: Path) -> None:
+    _entry(tmp_path, "2026-01-01-1-old.md", applies_to=None)
+    entries, _ = decisions.load(tmp_path)
+
+    stale = decisions.stale_grandfathered(
+        entries, frozenset({"2026-01-01-1-old.md", "2026-01-01-1-gone.md"})
+    )
+    assert stale == [
+        "APPLIES_TO_GRANDFATHERED lists '2026-01-01-1-gone.md', which doesn't exist; delete it"
+    ]
+
+
+def test_the_grandfather_list_holds_only_entries_without_applies_to() -> None:
+    """The real list: every name exists, and none of them has Applies-to."""
+    entries, _ = decisions.load()
+    by_name = {e.name: e for e in entries}
+    for name in decisions.APPLIES_TO_GRANDFATHERED:
+        assert name in by_name, name
+        assert decisions.applies_to(by_name[name].body) is None, name
+
+
+def test_check_cli_fails_a_new_entry_without_applies_to(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    entries = tmp_path / "entries"
+    entries.mkdir()
+    _entry(entries, "2026-12-01-9-new.md", applies_to=None)
+
+    code = decisions.main(["--dir", str(entries), "--log", str(tmp_path / "none.md"), "check"])
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "missing '**Applies-to:**'" in err
+    # The real grandfather list is stale against this toy directory, and says so.
+    assert "APPLIES_TO_GRANDFATHERED lists" in err

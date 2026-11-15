@@ -46,6 +46,7 @@ except ImportError:
         return "default_session"
 
 
+from ..plugins import handles as plugin_handles
 from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
@@ -127,8 +128,9 @@ def initialize_plugins(project_path: str = ".") -> None:
         - Django: Checks for Django imports and settings.py
         - Flask: Scans for Flask app creation patterns
     """
-    global _plugins
-    _plugins = []
+    # Clear in place: PLUGINS aliases this list, and rebinding it left PLUGINS
+    # pointing at the old one (#627).
+    _plugins.clear()
 
     # Load configuration for namespace support
     config = ProjectConfig(project_path)
@@ -234,6 +236,11 @@ def _plugin_tool(
         result = func(*bound.args, **bound.kwargs)
         if _isawaitable(result):
             result = await result
+        # Canonical handles, scope and absolute locations on every record (#627),
+        # before the envelope, so the bare list and `results` carry the same.
+        result = plugin_handles.enrich(
+            tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
+        )
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
@@ -438,7 +445,7 @@ def configure_packages(
 
     if len(all_paths) > 1:
         # Configure with all paths
-        manager.get_project(all_paths[0], all_paths[1:])
+        manager.register_project(all_paths[0], all_paths[1:])
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
@@ -472,10 +479,16 @@ def configure_packages(
         "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
     # Report config keys that are present but ignored rather than letting them
-    # read as live (#513). Absent — not [] — when there are none.
+    # read as live (#513, #581). Absent — not [] — when there are none.
+    warnings = []
     ignored = config.get_ignored_standalone_keys()
     if ignored:
-        result["warnings"] = [ProjectConfig.ignored_standalone_keys_message(ignored)]
+        warnings.append(ProjectConfig.ignored_standalone_keys_message(ignored))
+    ignored_top = config.get_ignored_top_level_keys()
+    if ignored_top:
+        warnings.append(ProjectConfig.ignored_top_level_keys_message(ignored_top))
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
@@ -618,11 +631,14 @@ async def expand(
     Supported edges (the complete static/outbound set):
       - ``members``  — class/module → direct members (attributes, methods, nested
         classes).  ``stubs: []`` means the class/module was found but has no
-        members; that is NOT the same as unsupported.  Static-surface ceiling:
-        members are read from source; runtime-injected members (metaclass /
-        ``setattr`` / ``__getattr__`` / ``type()`` / ``__init_subclass__``) are
-        NOT captured — e.g. a Django ``Model`` shows none of its metaclass-injected
-        ``_meta`` / ``objects`` / ``DoesNotExist``.
+        members; that is NOT the same as unsupported.  Measured scope: a class's
+        members are its class-body definitions; instance attributes assigned in
+        methods (``self.x = ...``) are NOT measured.  A module's members are its
+        module-level definitions.  Static-surface ceiling: runtime-injected
+        members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+        ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` shows
+        none of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.
+        A name missing from ``stubs`` is unknown outside that scope, not absent.
       - ``callees``  — function/method → forward static call targets.  Includes
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
@@ -876,11 +892,14 @@ async def outline(
     node's handle, or pass a larger ``max_depth`` (``None`` = unbounded).
 
     **Static-surface ceiling.** The tree walks the ``members`` edge, so it is
-    complete over what is *statically defined in source* but not over runtime.
-    Runtime-injected members (metaclass / ``setattr`` / ``__getattr__`` /
-    ``type()`` / ``__init_subclass__``) are NOT captured — e.g. ``outline`` of a
+    complete only over that edge's measured scope: class-body definitions for a
+    class (instance attributes assigned in methods, ``self.x = ...``, are NOT
+    measured) and module-level definitions for a module.  Runtime-injected
+    members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
+    ``__init_subclass__``) are NOT captured either — e.g. ``outline`` of a
     Django ``Model`` omits its metaclass-injected ``_meta`` / ``objects`` /
-    ``DoesNotExist``.  An absent member is "not in source," not "not at runtime."
+    ``DoesNotExist``.  An absent member is unknown outside the measured scope,
+    not absent from the code.
 
     **Absence contracts — an agent MUST read these before consuming the tree.**
 
