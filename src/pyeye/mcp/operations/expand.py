@@ -171,9 +171,32 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
     if isinstance(resolved, NotFound):
         return not_found(handle, edge=edge)
-    jedi_name = resolved.anchor
-    source = resolved.handle
 
+    return await expand_resolved(resolved.anchor, resolved.handle, edge, analyzer)
+
+
+async def expand_resolved(
+    jedi_name: Any, source: str, edge: str, analyzer: JediAnalyzer
+) -> dict[str, Any]:
+    """Walk one *edge* from an ALREADY-resolved source — expand minus resolution.
+
+    This is the whole of :func:`expand` after the source resolved (through
+    :func:`pyeye.resolver.resolve_handle`): the edge-status check, the
+    resolver's wrong-kind (``None``) signal, and the stub build.  ``trace``
+    calls it for every hop (#621) so that it walks exactly what ``expand``
+    would answer found + supported for, with the same unsupported
+    ``reason``/``detail`` — one copy of the expandability logic, not two.
+
+    Args:
+        jedi_name: The resolved anchor (Jedi ``Name`` or sentinel) for the source.
+        source: The source's canonical handle, as the resolver reported it.
+        edge: The traversal edge to walk.
+        analyzer: Configured ``JediAnalyzer`` for the project.
+
+    Returns:
+        The supported or unsupported branch of :func:`expand` (always
+        ``found: True``).
+    """
     # ------------------------------------------------------------------
     # Unsupported edge — the mapped reason, independent of the source's kind.
     # ------------------------------------------------------------------

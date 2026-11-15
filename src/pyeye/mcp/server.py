@@ -746,7 +746,15 @@ async def trace(
     ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in
     ``follow`` (deferred reference edges, unknown names) is reported in
     ``unsupported_edges`` rather than silently dropped — a silent drop would
-    falsely read as "no such neighbours".
+    falsely read as "no such neighbours".  So is an implemented edge that does
+    not apply to a node's kind (e.g. ``imports`` on a class), with ``expand``'s
+    own reason and detail (#621).
+
+    Every hop is exactly what ``expand(node, edge)`` would return: a node
+    ``expand`` cannot resolve is not walked and is listed in
+    ``unresolved_nodes``; a hop's adjacents are added all together or not at
+    all, so a walked hop is never partial — a hop cut by ``max_depth`` or
+    ``max_nodes`` records no edges and sets the matching truncation reason.
 
     Response shape — ``Subgraph``::
 
@@ -756,8 +764,9 @@ async def trace(
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
           "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
-          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
-          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
+          "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
+          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
+          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are

@@ -371,7 +371,7 @@ where = ["src"]
         analyzer = JediAnalyzer(str(real_src_project), config=config)
 
         # Find the class
-        results = await analyzer.find_symbol("MyClass")
+        results = await analyzer.find_symbol("MyClass", include_import_paths=True)
 
         assert len(results) >= 1, "Should find MyClass"
 
@@ -394,7 +394,7 @@ where = ["src"]
         config = ProjectConfig(str(real_src_project))
         analyzer = JediAnalyzer(str(real_src_project), config=config)
 
-        results = await analyzer.find_symbol("my_function")
+        results = await analyzer.find_symbol("my_function", include_import_paths=True)
 
         assert len(results) >= 1, "Should find my_function"
 
