@@ -17,6 +17,9 @@ Rule tags enforced here:
     T.8  unresolved_imports (#494), when present, is a {handle: [target, ...]}
          dict (non-empty single-line keys, non-empty target-string lists);
          optional (absent = imports not traced)
+    T.9  unresolved_nodes (#621) is a REQUIRED list of non-empty single-line
+         handle strings, each one a key of ``nodes`` ([] = every interior node
+         resolved; absence rejected)
     A.*  No source content anywhere in the Subgraph (layering)
 """
 
@@ -62,11 +65,52 @@ _VALID_SUBGRAPH: dict = {
     "truncation_reasons": [],
     "unsupported_edges": [],
     "unresolved_roots": [],
+    "unresolved_nodes": [],
 }
 
 
 def _clone() -> dict:
     return copy.deepcopy(_VALID_SUBGRAPH)
+
+
+class TestTraceUnresolvedNodes:
+    """T.9 (#621) — ``unresolved_nodes`` honesty field.
+
+    An interior node ``expand`` cannot resolve is never walked; it stays in
+    ``nodes`` (it was emitted as an adjacent) and is listed here, so it never
+    reads as a measured leaf.  Always present, like ``unresolved_roots``.
+    """
+
+    def test_missing_unresolved_nodes_rejected(self) -> None:
+        sg = _clone()
+        del sg["unresolved_nodes"]
+        with pytest.raises(ConformanceViolation, match="T.9"):
+            lint_response(sg, "trace")
+
+    def test_listed_node_passes(self) -> None:
+        sg = _clone()
+        sg["unresolved_nodes"] = ["mypackage._core.widgets.Widget.render"]
+        lint_response(sg, "trace")  # must not raise
+
+    def test_must_be_list(self) -> None:
+        sg = _clone()
+        sg["unresolved_nodes"] = "mypackage._core.widgets.Widget.render"
+        with pytest.raises(ConformanceViolation, match="T.9"):
+            lint_response(sg, "trace")
+
+    @pytest.mark.parametrize("bad", [123, "   ", "a\nb"])
+    def test_entry_must_be_a_single_line_handle(self, bad: object) -> None:
+        sg = _clone()
+        sg["unresolved_nodes"] = [bad]
+        with pytest.raises(ConformanceViolation, match="T.9"):
+            lint_response(sg, "trace")
+
+    def test_entry_must_be_a_node(self) -> None:
+        # An unresolved node was discovered as an adjacent, so it has a stub.
+        sg = _clone()
+        sg["unresolved_nodes"] = ["io"]
+        with pytest.raises(ConformanceViolation, match="T.9"):
+            lint_response(sg, "trace")
 
 
 class TestTraceAcceptsValid:
