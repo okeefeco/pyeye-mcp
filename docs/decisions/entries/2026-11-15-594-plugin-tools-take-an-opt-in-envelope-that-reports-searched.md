@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "Plugin tools take an opt-in `envelope` that reports searched and unsearched scopes by path (#594)"
 issues: [594, 644, 559]
 anchors: ["pyeye.mcp.server._plugin_tool", "register_plugin_tools", "pyeye.plugins.base.AnalyzerPlugin.describe_scope", "configured_scopes", "_scope_paths", "tests/test_plugin_envelope.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-690-one-scope-to-paths-resolver-standalone-dirs-are-project.md"]
 superseded_by: []
 ---
 
