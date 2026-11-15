@@ -108,33 +108,6 @@ class TestPathValidator:
         PathValidator.validate_path(".git/config")
         assert "potentially sensitive" in caplog.text.lower()
 
-    def test_is_safe_to_read(self):
-        """Test file safety checks."""
-        with tempfile.NamedTemporaryFile(suffix=".py") as tmpfile:
-            # Write some content
-            tmpfile.write(b"print('hello')")
-            tmpfile.flush()
-
-            # Should be safe to read
-            assert PathValidator.is_safe_to_read(tmpfile.name)
-
-            # Non-existent file
-            assert not PathValidator.is_safe_to_read("/nonexistent/file.py")
-
-            # Directory (not a file)
-            assert not PathValidator.is_safe_to_read(Path(tmpfile.name).parent)
-
-    def test_large_file_warning(self, caplog):
-        """Test warning for large files."""
-        with tempfile.NamedTemporaryFile(suffix=".py") as tmpfile:
-            # Write large content
-            tmpfile.write(b"x" * (11 * 1024 * 1024))  # 11MB
-            tmpfile.flush()
-
-            # Should not be safe to read
-            assert not PathValidator.is_safe_to_read(tmpfile.name)
-            assert "too large" in caplog.text.lower()
-
 
 class TestInputValidator:
     """Test general input validation."""

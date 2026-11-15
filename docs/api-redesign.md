@@ -526,10 +526,12 @@ Callers and references have no replacement until the Pyright reference backend
 `configure_packages` and the framework plugin tools are orthogonal to the
 navigation redesign and are kept.
 
-The underlying `JediAnalyzer` methods of the same name (e.g.
-`analyzer.find_symbol`, `analyzer.list_modules`) are internal implementation
-and remain — they back the new operations. Only the MCP tool wrappers were
-removed.
+The underlying `JediAnalyzer` methods are internal implementation, not API.
+Those that back the new operations remain (e.g. `analyzer.find_symbol`,
+`analyzer.find_importers`, `analyzer.find_subclasses`). Those that only served
+the removed tools (e.g. `find_imports`, `list_modules`, `list_packages`,
+`get_type_info`, `goto_definition`) were deleted in #628, because nothing
+reachable from an MCP tool called them.
 
 ---
 
