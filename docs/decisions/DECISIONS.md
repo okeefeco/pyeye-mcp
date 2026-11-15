@@ -2,6 +2,35 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-11-15 — One goto-disambiguation policy; inspect's superclasses field reads the edge (#624)
+
+**Friction:** Four call sites picked among Jedi `goto` results with four rules. Callees and imports took the first result with a `full_name`; superclasses (edge, plus a copy in inspect) preferred a class, then took the first; typeref required exactly one. A first-match guess is a confident answer to an ambiguous question: the same `.clear()` resolved to `collections.OrderedDict.clear` in one file and `typing.MutableMapping.clear` in another. inspect's `superclasses` field and the `superclasses` edge were separate implementations that already disagreed: declaration order versus sorted by handle, and raw text for an unresolved base versus a silent drop. typeref carried a byte-for-byte copy of `attr_target_position`.
+
+**Decision:** `pyeye._goto.goto_target(script, line, col, prefer=None)` is the only picker: exactly one distinct `full_name`, or, with `prefer`, exactly one of that kind; otherwise `None`.
+
+- Every caller reports `None` honestly: `unresolved_call_sites`, `unresolved_imports`, the new `unresolved_superclasses`, or a typeref without a handle. No heuristic was added.
+- Measured before deciding, over the #614 corpora and src/pyeye: 10 of 3,752 call sites and 1 of 500 imports changed from a guess to unresolved; no superclass did. Every case was a real ambiguity: union receivers, `try`/`except ImportError` fallback bindings, and inference splits.
+- `edges.superclass_bases` is the one walk over a class's declared bases. The edge keeps the resolved bases in DECLARATION order (the start of the MRO; previously sorted by handle) and lists the rest in `unresolved_superclasses`, by source text, mirroring #494's `unresolved_imports`. inspect's field is built from the same walk: handles where resolved, text where not, so it is unchanged for clients. `inspect._resolve_base_class_via_jedi` and typeref's `_attribute_target_position` are deleted.
+- Rejected: keeping a smarter tie-break (prefer project scope, or prefer the first `try` branch), which would be a guess presented as an answer; and leaving the field independent of the edge (the #330 drift).
+- Not changed here: typeref forward refs (`x: "Foo"`) still use a project-wide bare-name search and can disagree with `x: Foo`. #623 slice 5 moves them onto the shared resolver; a strict xfail pins the gap.
+- Noted, not changed: a base written as a call (`class C(make_base())`) resolves to the factory function's handle, in both the field and the edge, because goto lands on the call's name.
+
+**Anchor:** `pyeye._goto.goto_target` / `pick_target`; `pyeye.mcp.operations.edges.superclass_bases`; response_linter rule E.6.
+**Applies-to:** every place that picks a `goto` result for an edge or a type:
+
+- `edges._resolve_call_target` (the callees and imports edges);
+- `edges.superclass_bases` (the superclasses edge, `edge_counts.superclasses`, and inspect's `superclasses` field);
+- `typeref._resolve_head_via_jedi`.
+
+Out of scope: `resolve.py`'s position goto and `resolver.py` (#623), and the dead `JediAnalyzer` goto paths (#628).
+
+**Verify:** gold. `uv run pytest tests/unit/mcp/operations/test_goto_policy.py tests/test_cross_tool_invariants.py::test_superclasses_field_is_the_edge tests/conformance/test_linter_adversarial_expand.py::TestExpandUnresolvedSuperclassesRule tests/test_import_layers_fitness.py` passes:
+
+- the no-guess rule on synthetic `goto` results, and the regression fixture (union receiver, `try`/`except` fallback binding) now reports unresolved;
+- an AST scan finds no direct `.goto(` call in `edges.py`, `inspect.py` or `typeref.py`, and no attr-position copy in typeref;
+- the field equals the edge (declaration order, plus unresolved text) for every class in every #614 corpus;
+- `_goto` imports neither `jedi` nor `pyeye.mcp`.
+
 ## 2026-11-15 — trace walks exactly what expand supports: one hop = one `expand` (#621)
 
 **Friction:** `trace` and `expand` walked the same edges under different contracts. trace queued the Jedi `Name` each edge carried, so it walked interior handles `expand` refuses as unresolved (`logging`, `io`; #602). That walk reached Jedi's ~1500-frame `follow_imports` recursion on `io`/`weakref`, which killed the process on Windows/CPython 3.11 (#650). A resolver's wrong-kind `None` became `[]`, so `trace(SomeClass, ["imports"])` answered `unresolved_imports: {}, unsupported_edges: []`: "measured, all resolved" for something never measured. And `max_nodes` filled one adjacent at a time, so a hop could silently keep 2 of 7 members.
