@@ -261,6 +261,10 @@ def _plugin_tool(
             result = plugin_handles.enrich(
                 tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
             )
+        # The caller's spelling of the project root, as the core tools give it
+        # (#717): enrich's locations come from the analyzer, which is resolved.
+        # Before the envelope, so the bare list and `results` carry the same.
+        result = respell_paths(result, [absolute_path(plugin.project_path)])
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])

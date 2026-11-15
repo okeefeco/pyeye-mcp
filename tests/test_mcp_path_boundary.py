@@ -304,14 +304,26 @@ def walk_has_paths(obj: Any) -> bool:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("opened_as", ["plain", "symlink"])
 @pytest.mark.parametrize("envelope", [True, False])
-async def test_plugin_tool_responses_obey_the_path_contract(tmp_path: Path, envelope: bool) -> None:
-    main = tmp_path / "main"
+async def test_plugin_tool_responses_obey_the_path_contract(
+    tmp_path: Path, envelope: bool, opened_as: str
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    if opened_as == "symlink":
+        if sys.platform == "win32":
+            pytest.skip("creating symlinks needs privileges on Windows")
+        (tmp_path / "link").symlink_to(real, target_is_directory=True)
+        base = tmp_path / "link"
+    else:
+        base = real
+    main = base / "main"
     (main / "app").mkdir(parents=True)
     (main / "app" / "models.py").write_text(
         "from pydantic import BaseModel\n\n\nclass MainModel(BaseModel):\n    x: int\n"
     )
-    shared = tmp_path / "shared"
+    shared = base / "shared"
     (shared / "lib").mkdir(parents=True)
     (shared / "lib" / "models.py").write_text(
         "from pydantic import BaseModel\n\n\nclass SharedModel(BaseModel):\n    x: int\n"
@@ -326,4 +338,10 @@ async def test_plugin_tool_responses_obey_the_path_contract(tmp_path: Path, enve
         assert not result.is_error, (tool, result.content)
         payloads = [json.loads(c.text) for c in result.content if getattr(c, "text", None)]
         problems += [f"{tool}: {p}" for p in walk(payloads)]
+        # #717: in-project paths keep the caller's spelling of the project root.
+        problems += [
+            f"{tool}: not spelled under {main.as_posix()}: {f}"
+            for f in _in_project_files(payloads)
+            if _in_project(f, main) and not _spelled_under(f, main)
+        ]
     assert not problems, "\n".join(problems[:40])
