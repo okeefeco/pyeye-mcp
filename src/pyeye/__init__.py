@@ -21,9 +21,11 @@ except ImportError:
 
 __all__ = ["__version__"]
 
-# The ONE place pyeye sets parso's cache policy (#684). Package import runs it
-# before any pyeye module touches Jedi, on every thread (the setting is
-# module-global, so the Jedi worker thread is covered too).
-from ._parso_cache import disable_parso_cache_gc  # noqa: E402
+# The ONE place pyeye sets parso's cache policy (#684, #713): eviction-safe
+# recovery plus an LRU bound. Package import runs it before any pyeye module
+# touches Jedi, on every thread (everything it patches is module-global, so the
+# Jedi worker thread is covered too).
+from ._parso_cache import apply_parso_cache_policy  # noqa: E402
+from .settings import settings as _settings  # noqa: E402
 
-disable_parso_cache_gc()
+apply_parso_cache_policy(_settings.parso_cache_max_entries)

@@ -361,6 +361,24 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
     return {"found": True, **answer}
 
 
+def _wrap_like_core_tool(tool_name: str, func: Callable[..., Any]) -> Callable[..., Any]:
+    """Give a plugin tool the decorator stack every core tool has, in the same order (#627).
+
+    Outermost first, as on ``resolve``:
+
+    - ``tool_errors``: any exception becomes an MCP tool error (#626 slice C);
+    - ``validate_mcp_inputs``: arguments it knows by name are validated;
+    - ``metrics.measure`` and ``track_mcp_operation``, under the MCP tool name;
+    - ``on_jedi_worker``: plugin tools build jedi.Scripts and share the
+      analyzers' caches, so they run on the Jedi worker like the core tools (#650).
+    """
+    return tool_errors(
+        validate_mcp_inputs(
+            metrics.measure(tool_name)(track_mcp_operation(tool_name)(on_jedi_worker(func)))
+        )
+    )
+
+
 def register_plugin_tools(
     server: MCPServer,
     plugins: list[AnalyzerPlugin],
@@ -395,10 +413,10 @@ def register_plugin_tools(
                     f"Plugin {plugin.name()} declares tool {tool_name!r}, "
                     "which another plugin already registered"
                 )
-            # Plugin tools build jedi.Scripts and share the analyzers' caches,
-            # so they run on the Jedi worker like the core tools (#650).
             server.tool(name=tool_name)(
-                tool_errors(on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver)))
+                _wrap_like_core_tool(
+                    tool_name, _plugin_tool(tool_name, tool_func, plugin, resolver)
+                )
             )
             registered.append(tool_name)
     return registered
@@ -751,7 +769,8 @@ async def expand(
         module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
         importer appears only here.  A file that imports it but has no module
         name (``my-script.py``, ``tools-dir/x.py``) can't be a stub; it is listed
-        in ``unresolved_importers`` (#668), never dropped.  Non-module handles
+        in ``unresolved_importers`` (#668), never dropped; a file the server's
+        Python can't parse is listed in ``unparseable_files`` (#729).  Non-module handles
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
         Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
@@ -826,7 +845,8 @@ async def expand(
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
-          "unresolved_importers": [file, ...] }  # imported_by ONLY (#668); [] when all named
+          "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
+          "unparseable_files": [file, ...] }  # subclasses / imported_by ONLY (#729); [] when all parsed
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -921,6 +941,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
@@ -1029,7 +1050,10 @@ async def outline(
 
     - ``"max_depth"`` — at the depth frontier; ``resolve_members`` was peeked
       once and found members (a genuine empty container at the frontier gets
-      ``children: []`` instead).
+      ``children: []`` instead).  Like ``max_nodes`` it is a budget cut, so it
+      carries ``member_count`` (or, in survey mode, ``submodule_count``): how
+      many children it withheld (#435).  Recover with a larger ``max_depth`` or
+      by outlining that node.
     - ``"max_nodes"`` — node-budget reserve-before-expand: a container is
       expanded only if the budget admits ALL its direct members, else it is cut
       off whole.  Such a node ALSO carries ``member_count`` — the count of
@@ -1047,6 +1071,15 @@ async def outline(
 
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
+
+    **Result-level summary (#435).** The root also carries
+    ``truncation_reasons``: the sorted set of every node's
+    ``truncation_reason`` (absent when nothing was cut), named like
+    ``trace``'s.  Check it first: it shows a real ``max_nodes`` cut that would
+    otherwise hide among many ``survey_leaf`` nodes.  Budget reasons
+    (``max_depth``, ``max_nodes``) mean "raise the limit" and always carry a
+    count; boundary reasons (``external``, ``survey_leaf``) mean "outline that
+    node" and carry none.
 
     **Package survey mode.** When *handle* is a package that has submodules, the
     tree walks the ``submodules`` edge instead of ``members``: children are its

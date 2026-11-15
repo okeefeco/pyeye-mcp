@@ -982,15 +982,15 @@ class TestResolveBareNameErrorPaths:
     """Error-path coverage for _resolve_bare_name."""
 
     @pytest.mark.asyncio
-    async def test_find_symbol_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
-        """When find_symbol raises, _resolve_bare_name returns not-found."""
+    async def test_find_symbol_raises_propagates(self, analyzer: JediAnalyzer) -> None:
+        """An index failure is internal, not a miss: it propagates (#704)."""
         from pyeye.mcp.operations.resolve import _resolve_bare_name
 
-        with patch.object(analyzer, "find_symbol", side_effect=RuntimeError("boom")):
-            result = await _resolve_bare_name("Config", analyzer)
-
-        assert result["found"] is False
-        assert result["reason"] == "unresolved"
+        with (
+            patch.object(analyzer, "find_symbol", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await _resolve_bare_name("Config", analyzer)
 
     @pytest.mark.asyncio
     async def test_matches_without_full_name_returns_not_found(
@@ -1032,16 +1032,28 @@ class TestResolveFileLineErrorPaths:
         assert result["reason"] == "file_not_found"
 
     @pytest.mark.asyncio
-    async def test_goto_raises_returns_not_found(self, analyzer: JediAnalyzer) -> None:
-        """When script.goto() raises, returns no_symbol_at_position."""
+    async def test_goto_raises_propagates(self, analyzer: JediAnalyzer) -> None:
+        """A goto failure at a valid position is internal, not "no symbol" (#704)."""
         import jedi
 
         from pyeye.mcp.operations.resolve import _resolve_file_line
 
         widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
 
-        with patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")):
-            result = await _resolve_file_line(widgets_path, 21, analyzer)
+        with (
+            patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")),
+            pytest.raises(RuntimeError, match="jedi fail"),
+        ):
+            await _resolve_file_line(widgets_path, 21, analyzer)
+
+    @pytest.mark.asyncio
+    async def test_position_past_the_end_is_still_a_miss(self, analyzer: JediAnalyzer) -> None:
+        """Out of range is the caller's miss, checked before Jedi (which raises on it)."""
+        from pyeye.mcp.operations.resolve import _resolve_file_line
+
+        widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+
+        result = await _resolve_file_line(widgets_path, 99999, analyzer)
 
         assert result["found"] is False
         assert result["reason"] == "no_symbol_at_position"

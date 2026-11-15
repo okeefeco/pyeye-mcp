@@ -49,6 +49,8 @@ Truncation reasons (spec §5.4)
 - ``"max_depth"`` — node is at the depth frontier and has non-empty members
   (detected by a single peek call to ``resolve_members``).  Genuine empty
   containers at the frontier receive ``children: []`` instead of truncation.
+  A budget cut, so the node carries the peek's count, ``member_count`` (or
+  ``submodule_count`` in survey mode), as ``max_nodes`` does (#435).
 - ``"max_nodes"`` — the node budget cannot admit ALL of the container's direct
   members, so it is **reserved-before-expand**: rather than expand partway and
   silently drop the rest (the #358 bug), the whole container is cut off.  A
@@ -94,6 +96,13 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from pyeye.mcp.operations.completeness import (
+    EXTERNAL,
+    MAX_DEPTH,
+    MAX_NODES,
+    SURVEY_LEAF,
+    UNPARSEABLE,
+)
 from pyeye.mcp.operations.edges import (
     EDGE_APPLIES_TO,
     UnparseableSource,
@@ -113,11 +122,12 @@ if TYPE_CHECKING:
 # Truncation reason constants (single string per node — not a list; see spec §5.4)
 # ---------------------------------------------------------------------------
 
-_REASON_MAX_DEPTH: str = "max_depth"
-_REASON_MAX_NODES: str = "max_nodes"
-_REASON_EXTERNAL: str = "external"
-_REASON_SURVEY_LEAF: str = "survey_leaf"
-_REASON_UNPARSEABLE: str = "unparseable"
+# Reason names come from the one completeness table (#435).
+_REASON_MAX_DEPTH: str = MAX_DEPTH
+_REASON_MAX_NODES: str = MAX_NODES
+_REASON_EXTERNAL: str = EXTERNAL
+_REASON_SURVEY_LEAF: str = SURVEY_LEAF
+_REASON_UNPARSEABLE: str = UNPARSEABLE
 
 # ``<edge>_count`` keys (#599): each count is named for the edge it measures and
 # mirrors ``inspect(handle).edge_counts[<edge>]``.  Whether a count was WITHHELD by
@@ -270,6 +280,27 @@ def _disclose_unlisted_members(
         return
     if unlisted:
         tree_node[_MEMBER_COUNT] = unlisted
+
+
+def _summarise_truncation(root_tree: dict[str, Any]) -> None:
+    """Add the result-level ``truncation_reasons`` summary to the root (#435).
+
+    The sorted set of every node's ``truncation_reason``, so a real ``max_nodes``
+    cut isn't hidden among hundreds of ``survey_leaf`` nodes.  It is named and
+    shaped like ``trace``'s.  Absent when no node was truncated: leave out, never
+    an empty list (the #435 rule).  There is no result-level ``truncated`` on
+    ``outline``: the root's own ``truncated`` key already means "the root node
+    was cut off".
+    """
+    reasons: set[str] = set()
+    stack = [root_tree]
+    while stack:
+        node = stack.pop()
+        if node.get("truncated"):
+            reasons.add(node["truncation_reason"])
+        stack.extend(node.get("children", ()))
+    if reasons:
+        root_tree["truncation_reasons"] = sorted(reasons)
 
 
 def _mark_unparseable(tree_node: dict[str, Any]) -> None:
@@ -464,9 +495,12 @@ async def outline(
                     # (survey mode — classified by its members, #596).
                     _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
                 else:
-                    # Has children but cannot be walked — cut off.
+                    # Has children but cannot be walked — cut off.  A budget cut
+                    # says how much it withheld (#435): the peek already counted
+                    # it, named for the edge walked, as on a max_nodes cut (#599).
                     tree_node["truncated"] = True
                     tree_node["truncation_reason"] = _REASON_MAX_DEPTH
+                    tree_node[_SUBMODULE_COUNT if survey_mode else _MEMBER_COUNT] = len(adjacents)
                 continue
 
             # --- Expand: reserve-before-expand (spec §4, #358). ---
@@ -511,4 +545,5 @@ async def outline(
             # admitted, so no child of this node is in the tree or the queue.
             _mark_unparseable(tree_node)
 
+    _summarise_truncation(root_tree)
     return root_tree

@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "One error channel: a call that couldn't run is an MCP tool error, a lookup miss is a response (#626)"
 issues: [626, 629]
 anchors: ["pyeye.mcp.tool_errors.tool_errors", "pyeye.mcp.tool_errors.CALLER_ERRORS", "pyeye.mcp.server.register_plugin_tools"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-704-an-internal-failure-is-a-crash-or-an-item-s-unknown-never.md"]
 superseded_by: []
 ---
 
