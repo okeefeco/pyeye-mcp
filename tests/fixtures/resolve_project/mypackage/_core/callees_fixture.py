@@ -62,7 +62,7 @@ def orchestrate(cb: Callable[[], object]) -> float:
 class Processor:
     """A class whose method exercises callees from a METHOD source (spec §5.2).
 
-    Verifies that ``_normalise_kind`` returning ``"function"`` for a method
+    Verifies that ``normalise_kind`` returning ``"function"`` for a method
     means the ``"function"`` gate in ``resolve_callees`` INCLUDES methods, not
     just module-level functions.
     """

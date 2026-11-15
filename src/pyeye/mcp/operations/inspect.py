@@ -59,6 +59,7 @@ from pyeye.canonicalization import (
     resolve_canonical,
 )
 from pyeye.handle import Handle
+from pyeye.kinds import normalise_kind_from_name
 from pyeye.mcp.operations.edges import (
     _enumerate_submodule_paths,
     resolve_members,
@@ -68,7 +69,6 @@ from pyeye.mcp.operations.edges import (
 # Kind normalisation + method detection live in resolve (the lower-level module)
 # so resolve, inspect, and stubs share one source of truth (#406).
 from pyeye.mcp.operations.not_found import not_found
-from pyeye.mcp.operations.resolve import _normalise_kind_from_name
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.scope import classify_scope
 
@@ -1060,7 +1060,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     scope = classify_scope(file_str, analyzer) if file_str else "external"
 
     # Normalise kind, promoting class-enclosed functions to "method" (#406).
-    kind = _normalise_kind_from_name(jedi_name)
+    kind = normalise_kind_from_name(jedi_name)
 
     location = location_from_name(file_str, jedi_name)
 

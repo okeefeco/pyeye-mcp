@@ -55,7 +55,7 @@ Reuse policy (#330)
 -------------------
 All helpers come from existing modules — no second implementation:
 
-- Kind + method:      ``pyeye.mcp.operations.resolve._normalise_kind_from_name``
+- Kind + method:      ``pyeye.kinds.normalise_kind_from_name``
 - Signature:          ``pyeye.mcp.operations.inspect._build_signature``
 - Scope:              ``pyeye.scope.classify_scope``
 - Span:               ``pyeye._jedi_location.get_end_line``
@@ -75,8 +75,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from pyeye._jedi_location import get_end_line
+from pyeye.kinds import normalise_kind_from_name
 from pyeye.mcp.operations.inspect import _build_signature
-from pyeye.mcp.operations.resolve import _normalise_kind_from_name
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
     # ------------------------------------------------------------------
     # 1. Kind — normalise, promoting function → method when applicable (#406)
     # ------------------------------------------------------------------
-    kind = _normalise_kind_from_name(jedi_name)
+    kind = normalise_kind_from_name(jedi_name)
 
     # ------------------------------------------------------------------
     # 2. Scope — pure path comparison via classify_scope

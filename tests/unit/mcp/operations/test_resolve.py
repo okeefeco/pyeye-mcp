@@ -1010,32 +1010,6 @@ class TestIdentifierFormParserEdgeCases:
 # ---------------------------------------------------------------------------
 
 
-class TestNormaliseKind:
-    """Unit tests for the _normalise_kind helper."""
-
-    def test_none_returns_variable(self) -> None:
-        """None jedi_type maps to 'variable'."""
-        from pyeye.mcp.operations.resolve import _normalise_kind
-
-        assert _normalise_kind(None) == "variable"
-
-    def test_unknown_type_returns_itself(self) -> None:
-        """An unknown type string is passed through unchanged."""
-        from pyeye.mcp.operations.resolve import _normalise_kind
-
-        assert _normalise_kind("some_new_jedi_type") == "some_new_jedi_type"
-
-    def test_class_maps_correctly(self) -> None:
-        from pyeye.mcp.operations.resolve import _normalise_kind
-
-        assert _normalise_kind("class") == "class"
-
-    def test_statement_maps_to_variable(self) -> None:
-        from pyeye.mcp.operations.resolve import _normalise_kind
-
-        assert _normalise_kind("statement") == "variable"
-
-
 class TestResolveBareNameErrorPaths:
     """Error-path coverage for _resolve_bare_name."""
 
