@@ -316,6 +316,12 @@ jobs:
         run: |
           python scripts/changelog.py check
 
+      - name: Validate decision log
+        # One file per decision (#679): front matter, names, symmetric
+        # amend/supersede links, and no entries left in DECISIONS.md. Stdlib only.
+        run: |
+          python scripts/decisions.py check
+
   security:
     # Always run security checks, even for docs
     runs-on: ubuntu-latest
