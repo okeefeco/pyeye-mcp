@@ -1773,6 +1773,69 @@ _OUTLINE_COUNT_KEYS: tuple[str, ...] = ("member_count", "submodule_count")
 
 
 # ---------------------------------------------------------------------------
+# Check C — static-surface ceilings (#417)
+# ---------------------------------------------------------------------------
+
+# C.1 — each edge's ceiling id.  Hardcoded (an independent oracle, like the reason
+# sets); ``tests/test_static_ceiling.py`` pins it to ``edges.EDGE_CEILINGS``.
+_EDGE_CEILINGS: dict[str, str] = {
+    "members": "static_definitions",
+    "subclasses": "literal_subclassing",
+    "superclasses": "declared_bases",
+    "imports": "static_imports",
+    "imported_by": "static_imports",
+    "callees": "static_calls",
+    "submodules": "on_disk_modules",
+    "re_exports": "package_reexports",
+}
+
+
+def _check_ceilings(response: dict[str, Any], operation: str, violations: list[str]) -> None:
+    """C.1–C.3 — the ``ceiling`` / ``ceilings`` fields (#417).
+
+    C.1 expand: ``ceiling``, when present, is on the supported branch and equals
+        the edge's id (so never on an exact edge).  Its presence on live
+        responses is pinned by ``tests/test_static_ceiling.py``.
+    C.2 outline: ``ceiling`` only on the root, and the id of ``members`` or
+        ``submodules`` (the two edges outline walks).
+    C.3 trace: ``ceilings`` is a non-empty ``{edge: id}`` map whose every value
+        is that edge's id (absent when no walked edge has one, never ``{}``).
+    """
+    if operation == "expand":
+        edge = response.get("edge")
+        supported = isinstance(response.get("stubs"), list)
+        expected = _EDGE_CEILINGS.get(edge) if supported and isinstance(edge, str) else None
+        if "ceiling" in response and response["ceiling"] != expected:
+            violations.append(
+                f"[C.1 expand ceiling] 'ceiling' is {response.get('ceiling')!r}; expected "
+                f"{expected!r} for edge {edge!r} on the "
+                f"{'supported' if supported else 'unsupported'} branch."
+            )
+    elif operation == "outline":
+        for path, node in _outline_node_reasons(response):
+            if path and "ceiling" in node:
+                violations.append(f"[C.2 outline ceiling placement] {path}: root only.")
+        ceiling = response.get("ceiling")
+        allowed = {_EDGE_CEILINGS["members"], _EDGE_CEILINGS["submodules"]}
+        if ceiling is not None and ceiling not in allowed:
+            violations.append(f"[C.2 outline ceiling] {ceiling!r} is not one of {sorted(allowed)}.")
+    elif operation == "trace" and "ceilings" in response:
+        ceilings = response["ceilings"]
+        if not isinstance(ceilings, dict) or not ceilings:
+            violations.append(
+                f"[C.3 trace ceilings] must be a non-empty dict; got {_truncate(ceilings)} "
+                "(absent when no walked edge has a ceiling)."
+            )
+            return
+        for edge, ceiling in ceilings.items():
+            if _EDGE_CEILINGS.get(edge) != ceiling:
+                violations.append(
+                    f"[C.3 trace ceilings] {edge!r}: {ceiling!r}; expected "
+                    f"{_EDGE_CEILINGS.get(edge)!r}."
+                )
+
+
+# ---------------------------------------------------------------------------
 # Check N — found discriminator (#545)
 # ---------------------------------------------------------------------------
 
@@ -1988,6 +2051,9 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
     is_not_found = operation in _FOUND_DISCRIMINATED_OPERATIONS and _check_found_discriminator(
         response, operation, violations
     )
+
+    if not is_not_found and operation in ("expand", "trace", "outline"):
+        _check_ceilings(response, operation, violations)
 
     if is_not_found:
         pass  # N.2 already validated the whole (field-free) not-found shape.

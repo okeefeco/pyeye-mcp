@@ -20,6 +20,7 @@ superseded_by: []
 - **The stub is the re-exporting MODULE, plus `bindings`.** A re-export path such as `pkg.api.X` is an alias of the symbol, not a handle of its own: resolving it canonicalises back to the definition. The module is a real handle. A module can bind the symbol under several names, and adjacents are deduplicated by handle, so `bindings` is a sorted LIST. This is the one place an edge stub carries an edge-specific field (`EdgeResult.stub_extras`).
 - **"Public" is #712's definition**, from one scan shared by the edge and the field.
 - **#729's shape for parse gaps.** The edge sets `unparseable_files` (`[]` when clean) and still lists every re-export found in the files that parsed. On `trace`, the edge joins the `{handle: [files]}` map. Only `SyntaxError` counts as unparseable (#704).
+- **Ceiling `package_reexports` (#417).** The scan covers import bindings written in source in the public modules of the symbol's own package. Re-exports from other packages, and names a module's `__getattr__` provides lazily, are outside it.
 - **The field: user option A.** Keep `inspect.re_exports` eager, deprecate it for removal in v3.0 (tracker #749), and serve it from the same cache, so a repeat call is free and the field and the edge never disagree. It stays absent on a parse gap, as before.
 - **Cache.** The key is (project root, layout key, handle), bounded LRU, cleared per project by the file watcher and by `configure_packages`.
 - Rejected: dropping the field now. v2.x removes nothing (#629).

@@ -52,6 +52,7 @@ async def test_one_module_stub_per_reexporter_with_its_bindings(tmp_path: Path) 
     assert stubs["pkg"]["bindings"] == ["pkg.X"]
     assert stubs["pkg.api"]["bindings"] == ["pkg.api.X", "pkg.api.Y"]
     assert result["unparseable_files"] == []
+    assert result["ceiling"] == "package_reexports"  # #417
 
 
 @pytest.mark.asyncio

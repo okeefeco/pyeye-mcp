@@ -105,6 +105,7 @@ from pyeye.mcp.operations.completeness import (
 )
 from pyeye.mcp.operations.edges import (
     EDGE_APPLIES_TO,
+    EDGE_CEILINGS,
     UnparseableSource,
     edge_applies,
     resolve_members,
@@ -431,6 +432,12 @@ async def outline(
     # response-level field, so only the root tree carries it (#545).
     # ------------------------------------------------------------------
     root_tree: dict[str, Any] = {"found": True, "node": root_stub}
+    # #417: the ceiling of the edge this outline walks, on the root only (it is
+    # one constant for the whole tree).  Absent for a non-container root, which
+    # walks nothing.
+    walked_edge = "submodules" if survey_mode else "members"
+    if survey_mode or edge_applies("members", root_jedi_name):
+        root_tree["ceiling"] = EDGE_CEILINGS[walked_edge]
 
     # node_count tracks every node added to the tree (root + all children).
     # The root always counts as node 1.

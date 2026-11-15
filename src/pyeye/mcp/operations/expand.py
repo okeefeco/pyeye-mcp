@@ -88,6 +88,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import (
+    EDGE_CEILINGS,
     EDGE_RESOLVERS,
     STATUS_DEFERRED_REFERENCE_BACKEND,
     STATUS_IMPLEMENTED,
@@ -284,6 +285,9 @@ async def expand_resolved(
     ]
 
     result: dict[str, Any] = {"found": True, "source": source, "edge": edge, "stubs": stubs}
+    # #417: the scope the list is complete over, as data (absent for an exact edge).
+    if edge in EDGE_CEILINGS:
+        result["ceiling"] = EDGE_CEILINGS[edge]
     # unresolved_call_sites: int for callees → key present; None for members →
     # key absent.  This automatically yields the callees-only field.
     if edge_result.unresolved_call_sites is not None:

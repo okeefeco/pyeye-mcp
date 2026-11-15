@@ -108,7 +108,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
 from pyeye.mcp.operations.completeness import MAX_DEPTH, MAX_NODES
-from pyeye.mcp.operations.edges import STATUS_IMPLEMENTED, edge_status
+from pyeye.mcp.operations.edges import EDGE_CEILINGS, STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.resolver import NotFound, resolve_item
@@ -388,4 +388,9 @@ async def trace(
     # and absent entirely when nothing was unsupported (no noise on clean traces).
     if unsupported_edges:
         result["report_issues"] = meta.issues_url()
+    # #417: the ceiling of each edge actually walked, as data.  Absent when no
+    # walked edge has one (leave out, never ``{}``).
+    ceilings = {e: EDGE_CEILINGS[e] for e in sorted(walked_edges) if e in EDGE_CEILINGS}
+    if ceilings:
+        result["ceilings"] = ceilings
     return result
