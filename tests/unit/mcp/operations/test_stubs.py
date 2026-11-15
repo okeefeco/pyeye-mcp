@@ -86,10 +86,10 @@ def analyzer() -> JediAnalyzer:
 
 def _get_stub(handle: str, analyzer: JediAnalyzer) -> dict:
     """Fetch the Jedi name for *handle* and call build_stub."""
-    from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
     from pyeye.mcp.operations.stubs import build_stub
+    from tests.utils.resolver_helpers import anchor_for
 
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return build_stub(jedi_name, handle, analyzer)
 
