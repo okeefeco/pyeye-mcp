@@ -287,7 +287,7 @@ Performance settings are configured through environment variables:
 |---------------------|---------|-------------|-------------|
 | `PYEYE_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
 | `PYEYE_CACHE_TTL` | 300 | Seconds a cached scope file list or lookup result lives (file changes also clear it) | 0-86400 (24h) |
-| `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; the main memory lever | 1-1000000 |
+| `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; see [Sizing the parsed-file cache](#sizing-the-parsed-file-cache) | 1-1000000 |
 | `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | Parse trees kept in Jedi's parse cache (least recently used are dropped first; answers are unaffected) | 1-1000000 |
 | `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` | 200 | Jedi scripts kept in memory (each keeps the modules it inferred alive, so this bounds parse-tree memory; answers are unaffected) | 1-1000000 |
 | `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
@@ -311,6 +311,31 @@ Packages and namespaces are not configured through environment variables. Use
 `.pyeye.json`, `pyproject.toml`, the global config file, or the
 `configure_packages` tool (see [Configuration](#configuration)).
 
+#### Sizing the parsed-file cache
+
+pyeye walks every `.py` file in a project to build its name index and its
+subclass and import graphs, and rebuilds them after every file change.
+`PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` decides how many of those parsed files stay
+in memory between walks. Answers are the same at any value; only speed and
+memory change.
+
+- **Set it at or above your project's `.py` file count** (the default 2000
+  covers most projects). Each rebuild after an edit then re-parses only what
+  changed.
+- **Don't set it just below that count.** The cache then evicts files during
+  each walk and parses them again in the same walk, so it is both slower *and*
+  uses more memory than the default.
+- **To save memory, go well below it (about 250)** and accept slower rebuilds.
+
+Measured on a 1,167-file project (#768), including a rebuild after one edit:
+
+| Value | Resident memory | Rebuild after an edit |
+|-------|-----------------|-----------------------|
+| 2000 (default) | +1,224 MB | 133–151 s |
+| 1000 | +1,353–1,374 MB | 176–178 s |
+| 500 | +1,092–1,096 MB | 179–191 s |
+| 250 | +1,002–1,006 MB | 178–195 s |
+
 #### Performance Tuning Examples
 
 **Large codebase with stable files:**
@@ -333,7 +358,7 @@ export PYEYE_WATCHER_DEBOUNCE=0.1   # Near real-time updates
 
 ```bash
 export PYEYE_MAX_PROJECTS=3                 # Minimal project cache
-export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500  # Fewer parsed files in memory
+export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=250  # Fewer parsed files: less memory, slower rebuilds
 ```
 
 This file is automatically ignored by git and takes precedence over all other configuration sources.
