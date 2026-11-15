@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "One goto-disambiguation policy; inspect's superclasses field reads the edge (#624)"
 issues: [624]
 anchors: ["pyeye._goto.goto_target", "pick_target", "pyeye.mcp.operations.edges.superclass_bases"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-15-544-stdlib-private-definitions-get-public-handles-os-path-is-located.md"]
 superseded_by: []
 ---
 

@@ -177,6 +177,23 @@ def _is_under_stdlib(path: Path) -> bool:
     return any(_is_subpath(resolved, root) for root in _STDLIB_ROOTS)
 
 
+def is_stdlib_source(file_path: Path | str) -> bool:
+    """Whether *file_path* is a standard-library ``.py`` source file (#544).
+
+    Rule 3 of :func:`classify_scope` (under a stdlib root), excluding anything
+    in ``site-packages`` / ``dist-packages`` and typeshed ``.pyi`` stubs. Used
+    to decide where the running interpreter is the authority on a name.
+    """
+    path = Path(file_path)
+    if path.suffix != ".py":
+        return False
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    return _is_under_stdlib(resolved) and not _has_site_packages_segment(resolved)
+
+
 def _is_subpath(path: Path, parent: Path) -> bool:
     """Return True if *path* is at or below *parent*.
 
