@@ -207,6 +207,53 @@ class TestInstallOrder:
         assert out.stdout.strip() == "False", out.stderr
 
 
+class TestImportHook:
+    """The hook itself, in process (the fresh-interpreter tests can't be measured)."""
+
+    def test_registered_when_jedi_is_not_yet_imported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delitem(sys.modules, "jedi")
+        monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+
+        apply_parso_cache_policy(settings.parso_cache_max_entries)
+        apply_parso_cache_policy(settings.parso_cache_max_entries)
+
+        hooks = [f for f in sys.meta_path if isinstance(f, _parso_cache._RecoverAfterJediImport)]
+        assert len(hooks) == 1  # registered once, never twice
+
+    def test_installs_recovery_after_the_package_executes_then_removes_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "fakejedi713").mkdir()
+        (tmp_path / "fakejedi713" / "__init__.py").write_text("EXECUTED = True\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        calls: list[bool] = []
+        monkeypatch.setattr(
+            _parso_cache,
+            "_install_recovery",
+            lambda: calls.append(bool(getattr(sys.modules.get("fakejedi713"), "EXECUTED", False))),
+        )
+        hook = _parso_cache._RecoverAfterJediImport("fakejedi713")
+        monkeypatch.setattr(sys, "meta_path", [hook, *sys.meta_path])
+
+        assert hook.find_spec("something_else", None) is None
+        importlib.import_module("fakejedi713")
+
+        assert calls == [True]  # ran once, after the package's own code
+        assert hook not in sys.meta_path
+        monkeypatch.delitem(sys.modules, "fakejedi713")
+
+    def test_a_missing_package_is_left_to_the_import_system(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hook = _parso_cache._RecoverAfterJediImport("no_such_package_713")
+        monkeypatch.setattr(sys, "meta_path", [hook, *sys.meta_path])
+
+        assert hook.find_spec("no_such_package_713", None) is None
+        assert hook not in sys.meta_path
+
+
 class TestRecovery:
     def test_a_missing_entry_gives_the_filter_none(self) -> None:
         filters = importlib.import_module(_parso_cache._FILTER_MODULE)

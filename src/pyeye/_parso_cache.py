@@ -85,7 +85,14 @@ def apply_parso_cache_policy(max_entries: int) -> None:
 
 
 class _RecoverAfterJediImport(importlib.abc.MetaPathFinder):
-    """Install recovery right after the top-level ``jedi`` package executes. One-shot."""
+    """Install recovery right after the top-level ``jedi`` package executes. One-shot.
+
+    *package* is the watched top-level package; only tests pass anything but
+    ``"jedi"``.
+    """
+
+    def __init__(self, package: str = "jedi") -> None:
+        self._package = package
 
     def find_spec(
         self,
@@ -93,10 +100,10 @@ class _RecoverAfterJediImport(importlib.abc.MetaPathFinder):
         path: Sequence[str] | None,  # noqa: ARG002 (MetaPathFinder signature)
         target: ModuleType | None = None,  # noqa: ARG002
     ) -> ModuleSpec | None:
-        if fullname != "jedi":
+        if fullname != self._package:
             return None
         sys.meta_path.remove(self)  # one-shot, and lets the real finders run below
-        spec = importlib.util.find_spec("jedi")
+        spec = importlib.util.find_spec(fullname)
         if spec is None or spec.loader is None:
             return spec
         loader = spec.loader
