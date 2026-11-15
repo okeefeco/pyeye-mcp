@@ -26,6 +26,7 @@ Usage::
 
     decisions.py index [--symbol S] [--issue N] [--active] [--status STATUS]
     decisions.py check
+    decisions.py migrate     # split entries still in DECISIONS.md into files
 
 Stdlib only, so CI can run it with a bare ``python``.
 """
@@ -40,7 +41,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-ENTRIES_DIR = Path(__file__).resolve().parents[1] / "docs" / "decisions" / "entries"
+DECISIONS_DIR = Path(__file__).resolve().parents[1] / "docs" / "decisions"
+ENTRIES_DIR = DECISIONS_DIR / "entries"
+LOG_FILE = DECISIONS_DIR / "DECISIONS.md"
 
 #: Front-matter keys, in the order they are written.
 KEYS = (
@@ -60,6 +63,10 @@ LINK_PAIRS = (("amends", "amended_by"), ("supersedes", "superseded_by"))
 NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:-(\d+))?-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 HEADING_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (.+)$")
+LOG_HEADING_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (.+)$", re.M)
+
+#: What ``DECISIONS.md`` holds: a static header, never an entry.
+STATIC_HEADER = "# Decision Log\n\nContract- or invariant-significant, friction-driven decisions. Each one is a small, verifiable fact: **Friction · Decision · Anchor** (stable references) **· Applies-to** (every governed site; recommended) **· Verify** (checkable, or honestly labelled).\n\n**One file per decision** lives in [`entries/`](entries/), named `YYYY-MM-DD-<issue>-<slug>.md`. There is no committed index (#679). List and filter the entries from their front matter instead:\n\n```bash\npython scripts/decisions.py index                     # every entry, newest first\npython scripts/decisions.py index --active            # hide superseded entries\npython scripts/decisions.py index --symbol resolve_handle\npython scripts/decisions.py index --issue 626\npython scripts/decisions.py check                     # validate (also runs in CI)\n```\n\nRead the index first, then open the one to three entries that matter. An entry's `status` is `active`, `amended` or `superseded`. Its `amends` / `supersedes` / `amended_by` / `superseded_by` front matter links to the related entry files.\n\nNew entries are written with the `decision-log` skill (`skills/decision-log/SKILL.md`). This file is a static header and should almost never change.\n"
 
 
 class EntryError(ValueError):
@@ -197,6 +204,120 @@ def check(entries: list[Entry]) -> list[str]:
     return problems
 
 
+def entries_in_log(text: str) -> list[tuple[str, str, str]]:
+    """``(date, title, body)`` for every entry heading still in ``DECISIONS.md``."""
+    starts = [m.start() for m in LOG_HEADING_RE.finditer(text)]
+    if not starts:
+        return []
+    chunks = [text[a:b] for a, b in zip(starts, [*starts[1:], len(text)], strict=True)]
+    out = []
+    for chunk in chunks:
+        m = LOG_HEADING_RE.match(chunk)
+        assert m is not None
+        out.append((m.group(1), m.group(2), chunk.rstrip("\n") + "\n"))
+    return out
+
+
+def _slug(title: str) -> str:
+    text = re.sub(r"\([^()]*#\d+[^()]*\)\s*$", "", title).replace("`", "")
+    words = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-").split("-")
+    kept: list[str] = []
+    for word in words:
+        if len("-".join([*kept, word])) > 60:
+            break
+        kept.append(word)
+    return "-".join(kept) or "entry"
+
+
+def entry_from_log(date: str, title: str, body: str) -> tuple[str, dict[str, Any]]:
+    """Derive the file name and front matter for an entry split out of the log."""
+    trailing = re.search(r"\(([^()]*#\d+[^()]*)\)\s*$", title)
+    title_issues = [int(n) for n in re.findall(r"#(\d+)", title)]
+    anchor = re.search(r"^\*\*Anchor:\*\*(.*)$", body, re.M)
+    anchor_text = anchor.group(1) if anchor else ""
+    issues: list[int] = []
+    for n in title_issues + [int(n) for n in re.findall(r"#(\d+)", anchor_text)]:
+        if n not in issues:
+            issues.append(n)
+    trailing_issues = [int(n) for n in re.findall(r"#(\d+)", trailing.group(1))] if trailing else []
+    primary = (trailing_issues or title_issues or issues or [None])[0]
+    anchors: list[str] = []
+    for token in re.findall(r"`([^`]+)`", anchor_text):
+        token = token.strip()
+        if re.fullmatch(r"[A-Za-z_][\w./:]*(?:\(\))?", token) and token not in anchors:
+            anchors.append(token)
+    name = f"{date}-{primary}-{_slug(title)}.md" if primary else f"{date}-{_slug(title)}.md"
+    meta: dict[str, Any] = {
+        "date": date,
+        "title": title,
+        "issues": issues,
+        "anchors": anchors,
+        "status": "active",
+        "amends": [],
+        "supersedes": [],
+        "amended_by": [],
+        "superseded_by": [],
+    }
+    return name, meta
+
+
+def render(meta: dict[str, Any], body: str) -> str:
+    """An entry file: front matter in :data:`KEYS` order, a blank line, the body."""
+    lines = ["---", *(f"{k}: {json.dumps(meta[k], ensure_ascii=False)}" for k in KEYS), "---"]
+    return "\n".join(lines) + "\n\n" + body.rstrip("\n") + "\n"
+
+
+def migrate(log_file: Path = LOG_FILE, directory: Path = ENTRIES_DIR) -> list[str]:
+    """Split every entry still in *log_file* into its own file (#679).
+
+    Re-runnable and idempotent: an entry whose file already exists with the same
+    body is skipped; one whose existing body differs is an error, and nothing is
+    changed. Each written body is verified on disk before *log_file* is reset to
+    :data:`STATIC_HEADER`. Amend/supersede links aren't guessed: entries whose
+    text mentions amending or superseding are reported for the author to link.
+
+    Returns human-readable notes; raises EntryError if anything would be lost.
+    """
+    found = entries_in_log(log_file.read_text(encoding="utf-8")) if log_file.exists() else []
+    existing, errors = load(directory)
+    if errors:
+        raise EntryError("; ".join(errors))
+    by_key = {(e.date, e.title): e for e in existing}
+    plan: list[tuple[str, dict[str, Any], str]] = []
+    notes: list[str] = []
+    for date, title, body in found:
+        have = by_key.get((date, title))
+        if have is not None:
+            if have.body.rstrip("\n") != body.rstrip("\n"):
+                raise EntryError(
+                    f"{have.name}: already exists with a different body than the "
+                    f"DECISIONS.md entry '{date} — {title}'; reconcile by hand"
+                )
+            notes.append(f"unchanged: {have.name}")
+            continue
+        name, meta = entry_from_log(date, title, body)
+        if (directory / name).exists() or any(name == p[0] for p in plan):
+            raise EntryError(f"{name}: name collision; rename one entry's slug")
+        plan.append((name, meta, body))
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, meta, body in plan:
+        (directory / name).write_text(render(meta, body), encoding="utf-8")
+        written = parse(name, (directory / name).read_text(encoding="utf-8"))
+        if written.body.rstrip("\n") != body.rstrip("\n"):
+            raise EntryError(f"{name}: body changed on the round trip")
+        notes.append(f"created: {name}")
+        if re.search(r"\b(amend|supersed)", body, re.I):
+            notes.append(f"  link it: {name} mentions amending/superseding another entry")
+    if log_file.exists() and log_file.read_text(encoding="utf-8") != STATIC_HEADER:
+        log_file.write_text(STATIC_HEADER, encoding="utf-8")
+        notes.append(f"reset {log_file.name} to the static header")
+    notes.append(
+        f"{len(found)} entr{'y' if len(found) == 1 else 'ies'} in DECISIONS.md, "
+        f"{len(plan)} split out"
+    )
+    return notes
+
+
 def select(
     entries: list[Entry],
     *,
@@ -244,11 +365,30 @@ def main(argv: list[str] | None = None) -> int:
     index.add_argument("--active", action="store_true", help="hide superseded entries")
     index.add_argument("--status", choices=STATUSES, help="only entries with this status")
     sub.add_parser("check", help="validate every entry (run in CI)")
+    sub.add_parser("migrate", help="split entries still in DECISIONS.md into files")
+    parser.add_argument("--log", type=Path, default=LOG_FILE, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    if args.command == "migrate":
+        try:
+            for note in migrate(args.log, args.dir):
+                print(note)
+        except EntryError as exc:
+            print(f"decisions: {exc}", file=sys.stderr)
+            return 1
+        return 0
 
     entries, errors = load(args.dir)
     if args.command == "check":
         problems = errors + check(entries)
+        if args.log.exists():
+            left = entries_in_log(args.log.read_text(encoding="utf-8"))
+            if left:
+                problems.append(
+                    f"{args.log.name}: found {len(left)} entr{'y' if len(left) == 1 else 'ies'} "
+                    "in DECISIONS.md; decisions are one file each now (#679). "
+                    "Run `python scripts/decisions.py migrate`."
+                )
         for problem in problems:
             print(problem, file=sys.stderr)
         if problems:

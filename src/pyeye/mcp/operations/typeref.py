@@ -83,6 +83,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
+from pyeye._ast_targets import attr_target_position
+from pyeye._goto import goto_target
 from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
 
@@ -428,32 +430,6 @@ def _collect_union_alternatives(node: ast.expr, out: list[ast.expr]) -> None:
         out.append(node)
 
 
-def _attribute_target_position(node: ast.expr) -> tuple[int, int]:
-    """Return ``(line, col)`` of the rightmost identifier in a head expression.
-
-    For ``ast.Name`` (e.g. ``Dict``): the name's own start position.
-    For ``ast.Attribute`` (e.g. ``typing.Dict``): the position of the rightmost
-    attribute name, so that ``goto`` lands on ``Dict`` rather than the
-    ``typing`` module receiver.
-
-    The returned ``(line, col)`` is **file-AST-absolute** — only meaningful
-    for nodes parsed from the source file (the file-scope head resolver,
-    :func:`_resolve_head_via_jedi`, feeds these positions to ``script.goto``).
-    The forward-ref re-parse path (:func:`_resolve_head_via_canonical`)
-    deliberately ignores this output: re-parsed AST positions live inside the
-    forward-ref string, not the source file, so ``script.goto`` would land
-    nowhere useful.
-
-    Mirrors :func:`pyeye._ast_targets.attr_target_position`, which ``inspect``
-    and ``edges`` use for base classes.
-    """
-    if isinstance(node, ast.Attribute):
-        end_line = node.end_lineno or node.lineno
-        end_col = node.end_col_offset or 0
-        return end_line, max(0, end_col - len(node.attr))
-    return node.lineno, node.col_offset
-
-
 # ---------------------------------------------------------------------------
 # Head resolvers
 # ---------------------------------------------------------------------------
@@ -466,31 +442,27 @@ def _resolve_head_via_jedi(
 ) -> Handle | None:
     """Resolve the head of a TypeRef expression to a canonical handle via Jedi goto.
 
-    Calls ``jedi.Script.goto`` at the head's annotation-site position. Per
-    the no-guess rule, returns a handle only when ``goto`` produces exactly
-    one definition (after deduping by ``full_name``). Any other outcome —
-    zero results, multiple distinct ``full_name`` values, malformed handle —
-    yields ``None``.
+    Calls ``goto`` at the head's annotation-site position through the one
+    goto policy (:func:`pyeye._goto.goto_target`, #624): a handle only when
+    ``goto`` names exactly one distinct target. Any other outcome — zero
+    results, several distinct targets, malformed handle — yields ``None``.
     """
     if not isinstance(head_node, (ast.Name, ast.Attribute)):
         # Heads inside e.g. nested Subscripts aren't handled here; recursion
         # picks them up via the Subscript branch in _build_with_resolver.
         return None
 
-    line, col = _attribute_target_position(head_node)
+    line, col = attr_target_position(head_node)
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
-        defs = script.goto(line, col, follow_imports=True)
     except Exception as exc:
-        logger.debug("typeref._resolve_head_via_jedi: goto failed at (%d,%d): %s", line, col, exc)
+        logger.debug("typeref._resolve_head_via_jedi: no script for %s: %s", file_path, exc)
+        return None
+    target = goto_target(script, line, col)
+    if target is None:
         return None
 
-    # Dedupe by full_name; require exactly one distinct candidate.
-    full_names = {d.full_name for d in defs if d.full_name}
-    if len(full_names) != 1:
-        return None
-
-    full_name = next(iter(full_names))
+    full_name = target.full_name
     try:
         return Handle(full_name)
     except ValueError:
