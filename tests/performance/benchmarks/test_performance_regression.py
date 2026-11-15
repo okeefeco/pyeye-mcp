@@ -12,6 +12,7 @@ from pyeye.cache import GranularCache, ProjectCache
 from pyeye.metrics import MetricsCollector
 from tests.utils.performance import (
     CommonThresholds,
+    PerformanceThresholds,
     assert_performance_threshold,
 )
 
@@ -298,25 +299,52 @@ class TestPerformanceUnderLoad:
 
     @pytest.mark.asyncio
     async def test_burst_load_handling(self, temp_project):
-        """Test handling of burst requests."""
+        """A burst of concurrent requests completes, and warm calls stay fast (#486).
+
+        Two separate measurements, because the old single ``p99 < 500ms`` assert
+        measured neither:
+
+        * **Cold burst, whole.** 50 ``find_symbol`` calls are gathered on a fresh
+          analyzer. They run one after another on one event loop, so each call's
+          own latency includes waiting behind the others; the p99 of that set is
+          really the time for the whole cold burst (index build included). This
+          asserts that total under a ``PerformanceThresholds`` budget set from CI
+          numbers (about 700-740 ms on ubuntu 3.11 with coverage).
+        * **Warm per-call latency.** With the index built, calls are timed one at
+          a time, so p99 is a real per-request latency.
+        """
         analyzer = JediAnalyzer(str(temp_project))
+
+        # Cold burst: total wall time for 50 concurrent requests.
+        start = time.perf_counter()
+        results = await asyncio.gather(*(analyzer.find_symbol("test_function") for _ in range(50)))
+        burst_ms = (time.perf_counter() - start) * 1000
+        assert all(results), "every burst request must find test_function"
+        cold_burst_threshold = PerformanceThresholds(
+            base=1000.0,  # ~100-150 ms locally
+            linux_ci=2500.0,  # ~700-740 ms observed on ubuntu 3.11 CI with coverage
+            macos_ci=5000.0,
+            windows_ci=5000.0,
+        )
+        assert_performance_threshold(burst_ms, cold_burst_threshold, "Cold burst of 50 requests")
+
+        # Warm per-call latency: sequential, so no call waits behind another.
         collector = MetricsCollector()
 
-        @collector.measure("burst_operation")
+        @collector.measure("warm_find_symbol")
         async def operation():
             return await analyzer.find_symbol("test_function")
 
-        # Simulate burst of 50 requests
-        start = time.perf_counter()
-        tasks = [operation() for _ in range(50)]
-        await asyncio.gather(*tasks)
-        burst_time = time.perf_counter() - start
-
-        stats = collector.get_stats("burst_operation")
-
-        # Should handle burst efficiently
-        assert burst_time < 5.0, f"Burst of 50 requests took {burst_time}s (exceeds 5s)"
-        assert stats["p99_ms"] < 500, f"Burst p99 ({stats['p99_ms']}ms) exceeds 500ms"
+        for _ in range(50):
+            await operation()
+        stats = collector.get_stats("warm_find_symbol")
+        warm_p99_threshold = PerformanceThresholds(
+            base=50.0,  # ~2-3 ms locally
+            linux_ci=100.0,
+            macos_ci=200.0,
+            windows_ci=200.0,
+        )
+        assert_performance_threshold(stats["p99_ms"], warm_p99_threshold, "Warm find_symbol p99")
 
     def test_sustained_load_performance(self):
         """Test performance under sustained load."""
