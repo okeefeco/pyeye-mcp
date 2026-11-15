@@ -307,18 +307,20 @@ class PydanticPlugin(AnalyzerPlugin):
                 continue
 
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    for decorator in node.decorator_list:
-                        if self._is_computed_field_decorator(decorator):
-                            computed_fields.append(
-                                {
-                                    "name": node.name,
-                                    "file": py_file.as_posix(),
-                                    "line": node.lineno,
-                                    "type": "computed_field",
-                                    "return_type": self._get_return_type(node),
-                                }
-                            )
+                # One record per field (#672): the standard Pydantic v2 spelling
+                # stacks @computed_field over @property, and both match.
+                if isinstance(node, ast.FunctionDef) and any(
+                    self._is_computed_field_decorator(d) for d in node.decorator_list
+                ):
+                    computed_fields.append(
+                        {
+                            "name": node.name,
+                            "file": py_file.as_posix(),
+                            "line": node.lineno,
+                            "type": "computed_field",
+                            "return_type": self._get_return_type(node),
+                        }
+                    )
 
         return computed_fields
 
@@ -494,6 +496,9 @@ class PydanticPlugin(AnalyzerPlugin):
             return decorator.id in ["computed_field", "property"]
         if isinstance(decorator, ast.Attribute):
             return decorator.attr in ["computed_field", "property"]
+        if isinstance(decorator, ast.Call):
+            # The called form, e.g. @computed_field(repr=False) (#672).
+            return self._is_computed_field_decorator(decorator.func)
         return False
 
     def _get_return_type(self, node: ast.FunctionDef) -> str | None:
