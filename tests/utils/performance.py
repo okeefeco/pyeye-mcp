@@ -97,12 +97,16 @@ def format_threshold_message(
 class CommonThresholds:
     """Common performance thresholds used across tests."""
 
-    # Metrics overhead per operation
-    METRICS_OVERHEAD = PerformanceThresholds(
-        base=5.0,  # 5ms for local development
-        linux_ci=7.0,  # 7ms for Linux CI
-        macos_ci=15.0,  # 15ms for macOS CI (very lenient)
-        windows_ci=15.0,  # 15ms for Windows CI (very lenient)
+    # Metrics overhead per call, in MICROSECONDS (#741): MetricsCollector.measure
+    # around a no-op, minus the bare no-op.  Calibrated against
+    # METRICS_OVERHEAD_BASELINE_US, so a 10x slower decorator (~19us) fails
+    # every limit below.
+    METRICS_OVERHEAD_BASELINE_US = 1.9
+    METRICS_OVERHEAD_US = PerformanceThresholds(
+        base=8.0,
+        linux_ci=10.0,
+        macos_ci=15.0,
+        windows_ci=15.0,
     )
 
     # Symbol search performance.
