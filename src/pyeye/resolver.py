@@ -58,6 +58,7 @@ from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
     find_namespace_package_dirs,
+    module_name_for_file,
     project_roots,
 )
 from pyeye.scope import classify_scope
@@ -342,7 +343,8 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             # nothing in this scope (#567).
             if name.full_name == path and not is_attribute_target(name):
                 anchor = _anchor_on_definition(name, path)
-                return _canonical_of(anchor, path), anchor
+                placed = _canonical_of(anchor, path, analyzer)
+                return (placed, anchor) if placed is not None else None
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
     return None
 
@@ -376,7 +378,9 @@ def _follow_alias(
         target = _goto_definition(name)
         if target is None or not target.full_name or not _is_dotted_path(target.full_name):
             continue
-        canonical_head = target.full_name
+        canonical_head = _canonical_of(target, target.full_name, analyzer)
+        if canonical_head is None:
+            continue  # a project file the mapper can't place (#714)
         if len(rest) == 1:
             return canonical_head, target
         if canonical_head == f"{module_dotted}.{head}":
@@ -518,9 +522,44 @@ def _anchor_on_definition(name: Any, handle: str) -> Any:
     return name
 
 
-def _canonical_of(anchor: Any, fallback: str) -> str:
+#: Jedi's module name for a file it can't place on its own roots (#714).
+_JEDI_UNPLACED_MODULE = "__main__"
+
+
+def handle_for_anchor(anchor: Any, full_name: str, analyzer: JediAnalyzer) -> str | None:
+    """The canonical handle for *anchor*, named *full_name* by Jedi, or ``None`` (#714).
+
+    The one project-anchor rule, shared by the resolver and every edge handle
+    (``edges._handle_for_name``). A definition in a file the one file -> module
+    mapper can name takes its module part from the mapper, with Jedi's qualname
+    after it. Jedi's own module guess is wrong when the file's spelling differs
+    from its roots (``src.pkg.mod.X``, or ``__main__.X`` for a file it can't
+    place at all). Elsewhere (stdlib, site-packages) *full_name* stands. A
+    ``__main__.*`` name is never a handle: such a definition is ``None``, which
+    callers report as not found or skip.
+    """
+    module_path = getattr(anchor, "module_path", None)
+    module = module_name_for_file(analyzer, Path(module_path)) if module_path else None
+    if module is not None:
+        if normalise_kind_from_name(anchor) == "module":
+            return module
+        jedi_module = getattr(anchor, "module_name", None) or ""
+        if full_name.startswith(f"{module}."):
+            return full_name
+        if jedi_module and full_name.startswith(f"{jedi_module}."):
+            return f"{module}.{full_name[len(jedi_module) + 1 :]}"
+        return None
+    if full_name == _JEDI_UNPLACED_MODULE or full_name.startswith(f"{_JEDI_UNPLACED_MODULE}."):
+        return None
+    return full_name
+
+
+def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
+    """:func:`handle_for_anchor` of *anchor*'s ``full_name``, or of *fallback* if it has none."""
     full_name = getattr(anchor, "full_name", None)
-    return full_name if full_name and _is_dotted_path(full_name) else fallback
+    if not (full_name and _is_dotted_path(full_name)):
+        full_name = fallback
+    return handle_for_anchor(anchor, full_name, analyzer)
 
 
 # ---------------------------------------------------------------------------

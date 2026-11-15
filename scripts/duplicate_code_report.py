@@ -52,13 +52,7 @@ DEFAULT_MIN_TOKENS = 35
 #: pair of ``file::qualname`` for the innermost function/class enclosing each
 #: region (see :func:`site`). Shrinks to empty as #629 Phase 2 lands; delete an
 #: entry when its copy goes, or the ratchet fails.
-BASELINE: dict[tuple[str, str], str] = {
-    # The same skip-seen / build-full-name / _try_handle / append loop.
-    (
-        "src/pyeye/mcp/operations/edges.py::_class_members",
-        "src/pyeye/mcp/operations/edges.py::_module_members",
-    ): "#686",
-}
+BASELINE: dict[tuple[str, str], str] = {}
 
 _SKIP = (ast.expr_context, ast.Load, ast.Store, ast.Del)
 
