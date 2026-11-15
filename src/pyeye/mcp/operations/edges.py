@@ -309,13 +309,17 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     - **non-container** (function / method / variable / attribute / property /
       …) → ``[]`` (measured: genuinely no members).
 
+    Measured scope: a class's members are its class-body definitions; instance
+    attributes assigned in methods (``self.x = ...``) are NOT measured.  A
+    module's members are its module-level definitions.
+
     Static-surface ceiling: members are enumerated from source.  Runtime-injected
     members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
     ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` returns none
     of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.  This is
     the same static-only boundary ``resolve_imported_by`` carries for dynamic
-    imports; ``[]`` therefore means "no statically-defined members," not "no
-    members at runtime."
+    imports; ``[]`` therefore means "no members in the measured scope," not "no
+    members at runtime" (nor "no instance attributes").
 
     Synchronous: Jedi ``get_names`` + AST walk + ``Handle`` construction are all
     sync, so the resolver is sync (a sync resolver called from async ``expand``
