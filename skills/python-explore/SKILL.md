@@ -285,11 +285,18 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   they can't be stubs. They are still dependents: count them when sizing fan-in.
   `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
   list (`[]` when every importer has a handle).
+- **`unparseable_files`** (present only when you traced `subclasses` or `imported_by`): a
+  `{handle: [file, …]}` map of project files the server's Python **couldn't parse** (often
+  newer syntax than its interpreter), so the reverse scan never read them. A subclass or
+  importer defined there is **unknown, not absent**. `expand(handle, "subclasses" |
+  "imported_by")` carries the same flat `unparseable_files: [file, …]` list (`[]` when every
+  file parsed). Read those files, or run pyeye on a newer Python, before concluding.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
 claim from `imports` likewise requires the node absent from `unresolved_imports`, and a
-"nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`.
+"nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`
+— and, for `imported_by` and `subclasses`, an empty `unparseable_files`.
 
 ### Framework plugin tools — always pass `envelope=true`
 

@@ -142,6 +142,10 @@ A miss is never dressed up as an answer:
   "measured, none". ``trace`` keeps unresolved roots and interior callees in
   always-present fields (#488) rather than dropping them, and ``imports`` /
   ``imported_by`` list what they couldn't resolve or name (#494, #668).
+- A file the server's interpreter can't parse is never silently skipped: a
+  source whose own file fails reports ``unparseable`` (#703), and the reverse
+  scans ``subclasses`` / ``imported_by`` list such files in
+  ``unparseable_files`` (#729).
 
 Where the details live
 ----------------------

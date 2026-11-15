@@ -258,3 +258,30 @@ def test_member_index_is_built_and_invalidated_with_the_name_index(tmp_path: Pat
     rebuilt = project_graph.get_member_index(str(tmp_path), [g], {g: "n"})
     assert rebuilt is not first
     assert set(rebuilt) == {"other"}
+
+
+# ---------------------------------------------------------------------------
+# Unparseable files (#729): disclosed by the index build, cached with it
+# ---------------------------------------------------------------------------
+
+
+def test_index_records_unparseable_files_and_keeps_the_rest(tmp_path: Path) -> None:
+    good = _write(tmp_path, "good.py", "class Field:\n    pass\n")
+    bad = _write(tmp_path, "bad.py", "class Broken:\n    x = = 1\n")
+    project_graph.invalidate()
+    files = [good, bad]
+    mods = {good: "good", bad: "bad"}
+    assert "Field" in project_graph.get_name_index(str(tmp_path), files, mods)
+    assert project_graph.get_index_unparseable(str(tmp_path), files, mods) == (
+        bad.resolve().as_posix(),
+    )
+
+
+def test_index_unparseable_is_cached_and_invalidated_with_the_index(tmp_path: Path) -> None:
+    bad = _write(tmp_path, "bad.py", "x = = 1\n")
+    project_graph.invalidate()
+    first = project_graph.get_index_unparseable(str(tmp_path), [bad], {bad: "bad"})
+    assert first and project_graph.get_index_unparseable(str(tmp_path), [], {}) == first
+    project_graph.invalidate(str(tmp_path))
+    good = _write(tmp_path, "good.py", "X = 1\n")
+    assert project_graph.get_index_unparseable(str(tmp_path), [good], {good: "good"}) == ()

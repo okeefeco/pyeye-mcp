@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 
@@ -116,6 +117,8 @@ class _Miss(TypedDict, total=False):
     reason: Required[str]
     #: Overrides the default ``detail`` when the miss has a better next step.
     detail: str
+    #: Appended to whichever ``detail`` is used: a known limit on the miss (#729).
+    note: str
 
 
 def _miss(reason: str, detail: str | None = None) -> _Miss:
@@ -361,13 +364,35 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult
     result = await resolve_name(name, analyzer)
     if isinstance(result, NotFound):
         # A bare dunder is never a member candidate (#508): say where to look.
-        return _miss("unresolved", result.detail if _is_dunder(name) else None)
+        miss = _miss("unresolved", result.detail if _is_dunder(name) else None)
+        note = await _unparseable_note(analyzer)
+        if note:
+            miss["note"] = note
+        return miss
     if isinstance(result, Ambiguous):
         candidates = sorted(
             (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
         )
         return _AmbiguousResult(found=True, ambiguous=True, candidates=candidates)
     return _success_from_resolved(result)
+
+
+async def _unparseable_note(analyzer: JediAnalyzer) -> str | None:
+    """Say how much of the project a bare-name miss couldn't see (#729), or ``None``."""
+    try:
+        files = await analyzer.index_unparseable_files()
+    except Exception as exc:  # never fail a miss over its explanation
+        logger.debug("resolve: unparseable-file lookup failed: %s", exc)
+        return None
+    if not files:
+        return None
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    count = f"{len(files)} project file{'' if len(files) == 1 else 's'}"
+    return (
+        f"Note: {count} can't be parsed by the server's Python {version} (e.g. "
+        f"{files[0]}), so a definition there is invisible to a bare-name search; "
+        "Read it, or run pyeye on a newer Python."
+    )
 
 
 def _is_dunder(name: str) -> bool:
@@ -479,9 +504,12 @@ async def resolve(
     """
     result = await _resolve_identifier(identifier, analyzer)
     if result["found"] is False:
-        return not_found_for(
+        response = not_found_for(
             "resolve", {"identifier": identifier}, result["reason"], result.get("detail")
         )
+        if result.get("note"):
+            response["detail"] = f"{response['detail']} {result['note']}"
+        return response
     return result
 
 

@@ -734,7 +734,8 @@ async def expand(
         module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
         importer appears only here.  A file that imports it but has no module
         name (``my-script.py``, ``tools-dir/x.py``) can't be a stub; it is listed
-        in ``unresolved_importers`` (#668), never dropped.  Non-module handles
+        in ``unresolved_importers`` (#668), never dropped; a file the server's
+        Python can't parse is listed in ``unparseable_files`` (#729).  Non-module handles
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
         Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
@@ -809,7 +810,8 @@ async def expand(
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
-          "unresolved_importers": [file, ...] }  # imported_by ONLY (#668); [] when all named
+          "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
+          "unparseable_files": [file, ...] }  # subclasses / imported_by ONLY (#729); [] when all parsed
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -904,6 +906,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
