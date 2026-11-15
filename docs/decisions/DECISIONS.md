@@ -2,6 +2,46 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-11-15 — One canonical handle resolver; every tool echoes the canonical handle (#623)
+
+**Friction:** Turning a handle into a definition was implemented about four times, each with its own strategy order and acceptance check. inspect's `_find_jedi_name_for_handle` (shared by inspect, outline, expand and trace roots) had 5 strategies, including the banned capped `project.search` (#457), plus an anchor post-step (#429) and a retry wrapper (#431). It kept a synthetic-import copy whose `full_name == handle` check rejected legitimate external re-exports, while the other two copies checked `name == leaf` (#546, #566). inspect and outline echoed an alias input while expand and trace echoed the canonical handle, and inspect couldn't find an external module such as `logging` (#602).
+**Decision:** `pyeye.resolver.resolve_handle(path) -> Resolved | NotFound` is the one exact-path resolver. It sits below `pyeye.mcp` and is never ambiguous; bare-name search (`resolve_name`) comes later in #623. Strategy order, first hit wins:
+
+1. project module (`project_layout.file_for_module`);
+2. PEP 420 namespace directory (#444's anchoring, now in the resolver);
+3. external module, through a Jedi module import;
+4. definition placement in the **deepest** project module along the path, matching `full_name`, else matching the head by name and following it with `goto` (this covers both a re-export alias and a flaky `full_name` match). There is no fallback to shallower modules after a miss;
+5. guarded inference, last and only for handles outside the project boundary (#506). It accepts a result only when its name equals the leaf.
+
+Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only file-less `jedi.Script`).
+
+- On success, callers echo `Resolved.handle`, the canonical definition-site handle. On not-found they echo the input (#545).
+- Supersedes the #431 alias-retry wrapper: aliases are followed inside placement.
+- Amends the 2026-10-29 #506/#544 entry: inference lives only in the resolver, with the `name == leaf` check. inspect's `full_name == handle` check is dropped.
+- Amends the #444 entry: namespace anchoring is strategy 2.
+- Rejected:
+  - keeping inspect's shorten-after-a-miss walk, which only inspect had (audit §4.2);
+  - caching synthetic-import results to speed up a repeated inspect of an external class (~0.4 s warm), which would add cross-call state for a modest gain.
+
+**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; #623, #602, #431, #429, #457.
+**Applies-to:** every exact-path handle lookup in `src/pyeye`:
+
+- `inspect`;
+- `outline` root;
+- `expand` source;
+- `trace` roots.
+
+Not yet moved (later #623 slices): `resolve` / `resolve_at` (slice 3, which also moves scope ownership and #454 into the resolver and amends this entry), bare-name search (slice 4), trace interior nodes and typeref forward refs (slice 5). Still separate today: `canonicalization._resolve_via_external_inference` and `resolve._resolve_external_dotted_name`.
+**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py` passes:
+
+- each strategy resolves its case;
+- a project path never reaches inference, and a mismatched inference (`typing.TYPE_CHECKING` → `bool`) is not-found;
+- placement stops at the deepest module;
+- an alias and its canonical handle give identical `inspect` nodes;
+- inspect, outline, expand and trace all echo `pkg._impl.Thing` for `pkg.Thing`;
+- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import` plus the two slice-3 copies, and no `project.search` outside the #628 dead code;
+- `resolver` doesn't import `pyeye.mcp`, statically or at import time.
+
 ## 2026-11-15 — One project-roots policy and one file↔module mapper, both named after Jedi's `full_name` (#625)
 
 **Friction:** Project roots were assembled in seven places with five different subsets, and files were mapped to module names by four helpers with different rules. The shared `_get_import_path_for_file` left out the root-package prefix and returned `None` for additional-package files. Only the name index's `_index_module_name` matched Jedi. As a result, in a project whose root is itself a package, `imported_by` and `resolve(<file>)` returned `b` instead of `rootpkg.b`, and `find_module_file("rootpkg.a")` found nothing. Importers in configured additional packages were silently dropped from `imported_by` (#619). The re-export scan named files from source roots and the project only, so it dropped re-exports inside additional packages.
