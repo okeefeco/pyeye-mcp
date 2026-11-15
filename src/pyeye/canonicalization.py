@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyeye import file_artifact_cache
-from pyeye._module_scope import iter_module_scope_imports
+from pyeye.analyzers.base_resolution import build_import_table
 from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
 from pyeye.import_analyzer import resolve_relative_import
@@ -203,23 +203,26 @@ async def _scan_package_for_handle(
     py_files = sorted(filtered_rglob("*.py", package_root))
 
     for py_file in py_files:
-        script = file_artifact_cache.get_script(py_file, analyzer.project)
-        names = script.get_names(all_scopes=False)
+        # Derive the module dotted path for this file (one mapper, #625:
+        # additional-package and root-package files are named too).
+        mod_path = module_name_for_file(analyzer, py_file)
+        if mod_path is None:
+            continue
+        # Each module-scope binding's immediate source, from the shared AST
+        # import table (relative imports resolved, aliases under their alias).
+        # Jedi's full_name followed only ABSOLUTE imports: a package __init__'s
+        # ``from .core import X`` came back as ``pkg.X`` and was never matched
+        # (#712).
+        tree = file_artifact_cache.get_ast(py_file)
+        is_package = py_file.name == "__init__.py"
+        table = build_import_table(tree, mod_path, resolve_relative_import, is_package)
 
-        for name in names:
-            if name.full_name != target_full_name:
+        for surface, source in table.items():
+            if source != target_full_name:
                 continue
-
-            # Derive the module dotted path for this file (one mapper, #625:
-            # additional-package and root-package files are named too).
-            mod_path = module_name_for_file(analyzer, py_file)
-            if mod_path is None:
-                continue
-
-            # Build the re-export handle: module_path.symbol_name
-            re_export_handle = f"{mod_path}.{name.name}"
+            re_export_handle = f"{mod_path}.{surface}"
             if re_export_handle != target_full_name:
-                public = _is_public_binding(py_file, mod_path, name.name)
+                public = _is_public_binding(py_file, mod_path, surface, tree, table)
                 results.append((re_export_handle, public))
 
     return results
@@ -259,21 +262,9 @@ def _static_all(tree: ast.Module) -> set[str]:
     return names
 
 
-def _imported_from(tree: ast.Module, binding: str, module: str, is_package: bool) -> str | None:
-    """The absolute source module of the module-scope ``from X import`` that binds *binding*."""
-    for node in iter_module_scope_imports(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        for alias in node.names:
-            if (alias.asname or alias.name) != binding:
-                continue
-            if node.level:
-                return resolve_relative_import(module, node.module, node.level, is_package)
-            return node.module
-    return None
-
-
-def _is_public_binding(py_file: Path, module: str, binding: str) -> bool:
+def _is_public_binding(
+    py_file: Path, module: str, binding: str, tree: ast.Module, table: dict[str, str]
+) -> bool:
     """Whether binding *binding* in *module* (file *py_file*) is a re-export (#712).
 
     The user's definition, one of:
@@ -288,13 +279,12 @@ def _is_public_binding(py_file: Path, module: str, binding: str) -> bool:
     """
     if py_file.name == "__init__.py":
         return True
-    tree = file_artifact_cache.get_ast(py_file)
     if binding in _static_all(tree):
         return True
     if _is_private_module(module):
         return False
-    source = _imported_from(tree, binding, module, is_package=False)
-    return source is not None and _is_private_module(source)
+    source = table.get(binding)
+    return source is not None and _is_private_module(source.rsplit(".", 1)[0])
 
 
 def _is_valid_handle(value: str) -> bool:
