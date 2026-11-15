@@ -40,10 +40,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
 from pyeye._module_sentinel import ModuleSentinel
-from pyeye.canonicalization import find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.project_layout import file_for_module
+from pyeye.project_layout import file_for_module, find_namespace_package_dirs
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -99,10 +98,11 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
-        kind=normalise_kind_from_name(anchor),
-        scope=_scope_of(anchor, analyzer),
+        kind=kind,
+        scope=scope_for(anchor, canonical, kind, analyzer),
         anchor=anchor,
     )
 
@@ -318,7 +318,62 @@ def _canonical_of(anchor: Any, fallback: str) -> str:
     return full_name if full_name and _is_dotted_path(full_name) else fallback
 
 
-def _scope_of(anchor: Any, analyzer: JediAnalyzer) -> Literal["project", "external"]:
-    file_path: Path | None = getattr(anchor, "module_path", None)
-    file_str = file_path.as_posix() if file_path else ""
-    return classify_scope(file_str, analyzer) if file_str else "external"
+# ---------------------------------------------------------------------------
+# Scope (the one rule, shared with edge stubs)
+# ---------------------------------------------------------------------------
+
+
+def scope_for(
+    anchor: Any, handle: str, kind: str, analyzer: JediAnalyzer
+) -> Literal["project", "external"]:
+    """Classify a resolved symbol as ``"project"`` or ``"external"`` (#623).
+
+    The one scope rule, used by :func:`resolve_handle` and by every edge stub
+    (``stubs.build_stub``), so a symbol reports the same scope wherever it
+    appears:
+
+    * a symbol with a file is classified by :func:`pyeye.scope.classify_scope`,
+      whose project boundary includes configured namespace roots;
+    * a file-less module (a PEP 420 namespace package Jedi didn't anchor) is
+      ``project`` when its directory is inside the boundary;
+    * #454: an external classification is reconciled back to ``project`` when
+      the canonical handle names a project module (Jedi followed an installed
+      copy of a package that is also registered as a project / sibling root).
+    """
+    module_path: Path | None = getattr(anchor, "module_path", None)
+    if module_path is None:
+        if kind == "module":
+            dirs = find_namespace_package_dirs(handle, analyzer)
+            if dirs and classify_scope(dirs[0].as_posix(), analyzer) == "project":
+                return "project"
+        return "external"
+    scope = classify_scope(module_path.as_posix(), analyzer)
+    # Perf short-circuit (#454): the split needs the SAME package importable from
+    # a registered sibling root AND an installed copy that wins Jedi's
+    # precedence, which is only possible with sibling roots registered.  Without
+    # them, skip the per-symbol filesystem probe, keeping stdlib-heavy edge
+    # expansion free of I/O.
+    if (
+        scope == "external"
+        and getattr(analyzer, "additional_paths", None)
+        and _names_project_module(handle, kind, analyzer)
+    ):
+        return "project"
+    return scope
+
+
+def _names_project_module(handle: str, kind: str, analyzer: JediAnalyzer) -> bool:
+    """Whether *handle*'s module portion is a project-boundary module file (#454).
+
+    The module portion is the whole handle for a ``module`` kind, else the
+    handle minus its trailing symbol component.  A stdlib / pure-external
+    handle has no project module file, so it is never reconciled.
+    """
+    if kind == "module":
+        module_dotted = handle
+    else:
+        parts = handle.split(".")
+        if len(parts) < 2:
+            return False
+        module_dotted = ".".join(parts[:-1])
+    return file_for_module(analyzer, module_dotted) is not None

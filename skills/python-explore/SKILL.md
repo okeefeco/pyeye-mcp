@@ -71,13 +71,19 @@ Notes that matter:
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
   dotted handle.
-- **Not found:** check `found` on every `resolve`/`inspect`/`outline`/`expand` result.
-  An unresolvable handle returns `{found: false, reason: "unresolved", …}` — for
-  `inspect`/`outline`/`expand` also the echoed `handle` (plus `edge` for `expand`) and a
-  `detail` naming the next step, with **no** node, tree, or stubs. That is "this handle
-  doesn't exist as written" (often the right name under the wrong module path) — not an
-  empty symbol. Re-`resolve` the bare name to get the canonical handle. By contrast,
-  `expand`'s `stubs: []` with `found: true` *is* a measured zero.
+- **Not found:** check `found` on every `resolve`/`resolve_at`/`inspect`/`outline`/`expand`
+  result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
+  node, tree, or stubs, and `detail` naming the next step:
+  - `inspect`/`outline`/`expand` echo `handle` (plus `edge` for `expand`), with
+    `reason: "unresolved"`. That means "this handle doesn't exist as written" (often the
+    right name under the wrong module path), not an empty symbol. Re-`resolve` the bare
+    name to get the canonical handle.
+  - `resolve` echoes `identifier`, and `resolve_at` echoes `file`/`line`/`column`. Their
+    `reason` is `unresolved`, `file_not_found` or `no_symbol_at_position`. A missing file
+    is not a spelling problem, so don't retry `resolve` with other names for it.
+  - Only a `handle` key is ever a handle. Never pass `identifier` or `file` to `inspect`.
+
+  By contrast, `expand`'s `stubs: []` with `found: true` *is* a measured zero.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
@@ -98,7 +104,7 @@ reliably today:
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
-| `superclasses` | class → its bases | the class's direct base classes |
+| `superclasses` | class → its bases | the class's direct base classes, in declaration order; bases that don't resolve are listed in `unresolved_superclasses` |
 | `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
 | `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
 

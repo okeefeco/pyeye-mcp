@@ -25,6 +25,7 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
+from pyeye.project_manager import ProjectManager
 from tests.test_cross_tool_invariants import _SWEEP_CORPORA, _module_seeds, _sweep
 
 
@@ -48,10 +49,17 @@ def _project_module_stubs(result: dict[str, Any]) -> list[str]:
 @pytest.mark.parametrize("corpus", sorted(_SWEEP_CORPORA))
 async def test_imports_implies_imported_by_over_fixtures(corpus: str) -> None:
     sweep = await _sweep(corpus)
+    analyzer = ProjectManager().get_analyzer(str(_SWEEP_CORPORA[corpus]))
     missing = []
     for module in _module_seeds(_SWEEP_CORPORA[corpus]):
         for target in _project_module_stubs(sweep.expanded[module]["imports"]):
-            importers = _handles(sweep.expanded.get(target, {}).get("imported_by") or {})
+            if target in sweep.expanded:
+                importers = _handles(sweep.expanded[target]["imported_by"])
+            else:
+                # Not a sweep seed: a PEP 420 namespace package has no .py file
+                # of its own, so ``_module_seeds`` never lists it.  Expand it
+                # here rather than reading "never measured" as "no importers".
+                importers = _handles(await expand(target, "imported_by", analyzer))
             if module not in importers:
                 missing.append(f"{module} -> {target}: imported_by={importers}")
     assert not missing, "\n".join(missing)
