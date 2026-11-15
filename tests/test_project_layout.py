@@ -308,7 +308,7 @@ async def test_reexport_scan_keeps_additional_package_reexports(
     analyzer = JediAnalyzer(str(project))
     analyzer.set_additional_paths([shared])
     found = await _scan_package_for_handle("relib.impl.Thing", shared / "relib", analyzer)
-    assert "relib.Thing" in found
+    assert ("relib.Thing", True) in found  # (handle, is_public): a package __init__ (#712)
 
 
 # ---------------------------------------------------------------------------
