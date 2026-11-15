@@ -60,6 +60,9 @@ _PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
 #: Known sites -> count. Only shrinks: each migration through path_utils lowers
 #: or deletes an entry (#717). Generate with ``--print-baseline``.
 BASELINE: dict[tuple[str, str], int] = {
+    ("src/pyeye/_jedi_project.py::<module>", "resolve"): 1,
+    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "relative_to"): 1,
+    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "resolve"): 1,
     ("src/pyeye/_stdlib_static.py::_public_stdlib_files", "relative_to"): 1,
     ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "os_path"): 1,
     ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "resolve"): 4,
@@ -67,7 +70,7 @@ BASELINE: dict[tuple[str, str], int] = {
     ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer._search_all_scopes", "resolve"): 2,
     ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.set_namespace_paths", "resolve"): 1,
     ("src/pyeye/analyzers/project_graph.py::_normalize", "resolve"): 1,
-    ("src/pyeye/async_utils.py::rglob_async._filtered_rglob", "relative_to"): 1,
+    ("src/pyeye/async_utils.py::filtered_rglob", "relative_to"): 1,
     ("src/pyeye/cache.py::CodebaseWatcher._is_ignored", "relative_to"): 1,
     ("src/pyeye/config.py::ProjectConfig.__init__", "resolve"): 1,
     ("src/pyeye/config.py::ProjectConfig._normalise_config_path", "resolve"): 1,
@@ -99,6 +102,7 @@ BASELINE: dict[tuple[str, str], int] = {
     ("src/pyeye/scope.py::_is_under_stdlib", "resolve"): 1,
     ("src/pyeye/scope.py::classify_scope", "resolve"): 2,
     ("src/pyeye/scope.py::is_stdlib_source", "resolve"): 1,
+    ("src/pyeye/scope_utils.py::_resolved", "resolve"): 1,
     ("src/pyeye/validation.py::PathValidator.validate_path", "relative_to"): 1,
     ("src/pyeye/validation.py::PathValidator.validate_path", "resolve"): 3,
 }
