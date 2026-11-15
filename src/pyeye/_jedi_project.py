@@ -23,8 +23,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import jedi
+from jedi.api.environment import get_cached_default_environment
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +52,20 @@ def make_project(path: str | Path, added_sys_path: Iterable[str] = ()) -> jedi.P
             packages and namespace roots), passed through unchanged.
 
     Returns:
-        The project.  If the environment's path can't be read, Jedi's default
-        (unfiltered) base path is kept rather than failing analysis.
+        The project, built with one ``jedi.Project`` call.  If the
+        environment's path can't be read, Jedi's default (unfiltered) base path
+        is kept rather than failing analysis.
     """
-    root = Path(path).as_posix()
+    kwargs: dict[str, Any] = {"path": Path(path).as_posix()}
     added = list(added_sys_path)
-    project = jedi.Project(path=root, added_sys_path=added)
+    if added:  # Jedi's own default otherwise; it doesn't accept None
+        kwargs["added_sys_path"] = added
     try:
-        base = [p for p in project.get_environment().get_sys_path() if p]
+        # What jedi.Project.get_environment() returns when no environment_path
+        # is given, which pyeye never gives.
+        base = get_cached_default_environment().get_sys_path()
     except Exception as exc:  # never fail analysis over the filter
         logger.debug("make_project: environment sys.path unavailable: %s", exc)
-        return project
-    filtered = [p for p in base if not is_jedi_private_path(p)]
-    return jedi.Project(path=root, added_sys_path=added, sys_path=filtered)
+    else:
+        kwargs["sys_path"] = [p for p in base if p and not is_jedi_private_path(p)]
+    return jedi.Project(**kwargs)
