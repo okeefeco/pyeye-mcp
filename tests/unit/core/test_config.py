@@ -578,3 +578,36 @@ class TestProcessPathPosixOutput:
             "producer must emit the POSIX form (validated.as_posix()), not "
             f"str(validated); got {result!r}"
         )
+
+
+class TestNamespacePathsAreNormalised:
+    """#668/#669: namespace paths are normalised where every consumer reads them.
+
+    ``get_namespaces()`` is the one source for ``ProjectManager``, plugins and
+    ``configure_packages``.  A relative entry such as ``../corp-tools`` used to
+    come back raw, so each consumer resolved it differently (or against the
+    server's CWD), and ``app/../corp-tools`` defeated the file↔module mapper.
+    Package paths were already resolved against the project; namespaces now
+    match them.
+    """
+
+    def _config(self, project: Path, namespaces: dict) -> ProjectConfig:
+        project.mkdir(parents=True, exist_ok=True)
+        (project / ".pyeye.json").write_text(json.dumps({"namespaces": namespaces}))
+        return ProjectConfig(str(project))
+
+    def test_relative_path_resolves_against_the_project(self, tmp_path: Path) -> None:
+        (tmp_path / "corp-tools").mkdir()
+        config = self._config(tmp_path / "app", {"corp": ["../corp-tools"]})
+        assert config.get_namespaces() == {"corp": [(tmp_path / "corp-tools").resolve().as_posix()]}
+
+    def test_absolute_path_is_normalised(self, tmp_path: Path) -> None:
+        (tmp_path / "corp-core").mkdir()
+        raw = (tmp_path / "app" / ".." / "corp-core").as_posix()
+        config = self._config(tmp_path / "app", {"corp": [raw]})
+        assert config.get_namespaces() == {"corp": [(tmp_path / "corp-core").resolve().as_posix()]}
+
+    def test_package_paths_include_the_resolved_namespace_path(self, tmp_path: Path) -> None:
+        (tmp_path / "corp-tools").mkdir()
+        config = self._config(tmp_path / "app", {"corp": ["../corp-tools"]})
+        assert (tmp_path / "corp-tools").resolve().as_posix() in config.get_package_paths()

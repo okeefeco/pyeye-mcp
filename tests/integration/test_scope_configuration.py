@@ -93,7 +93,11 @@ development = ["main", "namespace:company"]
         config = ProjectConfig(str(tmp_path))
 
         # Check configuration was loaded
-        assert config.get_namespaces()["company"] == ["../company-core", "../company-utils"]
+        # Relative entries come back normalised against the project (#668).
+        assert config.get_namespaces()["company"] == [
+            (tmp_path / ".." / "company-core").resolve().as_posix(),
+            (tmp_path / ".." / "company-utils").resolve().as_posix(),
+        ]
 
         defaults = config.get_scope_defaults()
         assert defaults["global"] == "namespace:company"
