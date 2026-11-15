@@ -21,33 +21,62 @@ Development versions are automatically generated:
 
 A release is a pull request. Merging it tags the release and publishes it (#583).
 
-### 1. Keep `[Unreleased]` current
+### 1. Add a changelog fragment with each PR
 
-Every user-facing PR adds its entry under `## [Unreleased]` in `CHANGELOG.md`,
-in Keep a Changelog form (`### Added`, `### Changed`, `### Fixed`,
-`### Removed`, or `### BREAKING CHANGES` with a "Required action" note).
-Entries are written by hand, while the reasoning is fresh, and reviewed with the
-code.
+Every user-facing PR adds a **fragment** instead of editing `CHANGELOG.md`
+(#660): a file `changes/<issue>.<category>.md` holding one or more `-` bullets.
+A second PR for the same issue uses a suffix, `changes/<issue>-2.<category>.md`.
+The category picks the Keep a Changelog heading: `breaking`
+(`### BREAKING CHANGES`, with a "Required action" note), `added`, `changed`,
+`deprecated`, `removed`, `fixed` or `security`. `changes/README.md` has the
+table. Because no two PRs edit the same lines, parallel PRs no longer conflict
+over `CHANGELOG.md`.
+
+Entries are still written by hand, while the reasoning is fresh, and reviewed
+with the code. Nothing generates them from commits (#210).
+
+Bullets already under `[Unreleased]` from before fragments existed stay where
+they are; `prepare` releases them together with the fragments.
+
+While 2.x is current, no change may be breaking. Check with:
+
+```bash
+python scripts/changelog.py no-breaking   # prints the count; exits 1 if any
+```
+
+It counts a `### BREAKING CHANGES` heading under `[Unreleased]` and every
+`*.breaking.md` fragment.
 
 ### 2. Open the release PR
 
 ```bash
 git checkout -b release/v2.0.0 origin/main
 
-# Promote [Unreleased] to "## [2.0.0] - <today>" and start a fresh [Unreleased]
+# Collect [Unreleased] and the changes/ fragments into "## [2.0.0] - <today>",
+# leave a fresh [Unreleased], and delete the fragments
 python scripts/changelog.py prepare 2.0.0
 
-git commit -am "chore(release): v2.0.0"
+git add -A CHANGELOG.md changes/
+git commit -m "chore(release): v2.0.0"
 git push -u origin release/v2.0.0
 gh pr create --title "chore(release): v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
 ```
 
+`prepare` builds the release section from the bullets already under
+`[Unreleased]` (kept verbatim, first) and then the fragments (by issue number).
+Headings come in a fixed order: BREAKING CHANGES, Added, Changed, Deprecated,
+Removed, Fixed, Security, then any other heading `[Unreleased]` had. Because it
+rewrites `CHANGELOG.md`, the release PR always touches it, which is what
+`tag-release.yml` triggers on.
+
 `prepare` refuses to:
 
-- release an empty `[Unreleased]`
+- release when `[Unreleased]` is empty and there are no fragments
+- run with an invalid fragment (it then changes nothing)
 - reuse or go below an existing version (section or tag)
-- under-bump: `### BREAKING CHANGES` needs a major bump (a minor one before
-  1.0), and `### Added` needs at least a minor one
+- under-bump: `### BREAKING CHANGES` (or a `breaking` fragment) needs a major
+  bump (a minor one before 1.0), and `### Added` (or an `added` fragment) needs
+  at least a minor one
 
 The commit subject and the PR title **must** both be `chore(release): vX.Y.Z`.
 It has to be a conventional commit, because the commitizen `commit-msg` hook
@@ -115,6 +144,9 @@ git push origin v2.0.1
 - released sections are dated, non-empty, unique and newest-first
 - every `v*` tag has a section
 - every section has a tag, except the newest, which may be a pending release
+- every file in `changes/` other than `README.md` is a valid fragment: a known
+  category, a `<issue>[-<n>].<category>.md` name, and content that starts with a
+  `-` bullet and has no headings
 
 ## How Versioning Works
 

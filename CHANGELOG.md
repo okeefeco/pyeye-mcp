@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `configure_packages` takes an optional `project_path` (default `"."`), like every other tool, to choose which project to configure (#618). It used to always configure the server's working directory.
 - Framework plugin tools (Pydantic, Django, Flask) take an opt-in `envelope` argument that reports what was searched (#594). By default a plugin tool returns a bare list: an empty answer is zero content items, and nothing says which scope was searched, so "these are all the models" looked the same as "these are the main repo's models". With `envelope=true` every plugin tool returns `{scope, searched, unsearched_scopes, results}`:
   - `scope` is the scope as requested or defaulted.
   - `searched` lists the configured scopes (`main`, `packages`, each `namespace:<name>`) whose paths were all searched.
@@ -21,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Two analyzers on the same project with different layouts no longer read each other's cached results (#618). The name index bakes module names in when it's built, and module names depend on the analyzer's source roots, packages and namespaces. But the index was keyed on the project root alone, so the first analyzer to build it fixed the names for every later one: a bare analyzer and a configured one on the same project could return each other's handles, or "not found", depending on which ran first. The index is now keyed on the effective layout as well, and so are cached Jedi `Script`s. Projects with different `added_sys_path` no longer share them.
-- `configure_packages` now takes effect without a restart (#618). Symbols in newly added packages were still "not found", because the name index survived the reconfiguration. The project's framework plugins also never got the new package and namespace paths. Now the project's caches are dropped and its active plugins are given the new paths. A framework used only by a newly added package still needs a restart to be detected (#659).
 - Code changes now reach pyeye's caches in a default setup (#617). Without a `.pyeye.json` that listed extra packages, no file watcher started, so `resolve` kept reporting a new or edited symbol as not found until restart. Even with a watcher, these were missed:
   - **Created, deleted and moved files:** only edits to existing files were handled.
   - **Batched changes:** only the first file of a batch was passed on.
