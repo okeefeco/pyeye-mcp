@@ -106,6 +106,11 @@ Notes that matter:
   when it can't run: an invalid argument (e.g. `line=0`), a `project_path` that doesn't
   exist, an unusable config, or an unreadable file. The error message names what to
   fix, so fix that argument and call again; don't read a tool error as "not found".
+- **Unparseable source:** if a file can't be parsed by the Python pyeye runs on (e.g.
+  the code uses newer syntax), its edges weren't measured. `expand` / `trace` say
+  `reason: "unparseable"` and `outline` marks the node `truncation_reason: "unparseable"`
+  with no `children`; `inspect` leaves the count out. That is unknown, not empty: `Read`
+  the file (the `detail` names the line), or run pyeye on a newer Python.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
@@ -185,6 +190,11 @@ editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 > cycle detection; `find_references` claimed "ALL usages" with no way to tell an empty
 > result from a failed search. If you remember them, they are gone — a confident wrong
 > answer is worse than an honest "not available."
+
+Why the line falls here: pyeye answers structural facts from the AST, semantic questions
+with bounded Jedi inference, and leaves the reverse queries Jedi gets wrong to a
+deterministic backend. The contract behind that split, and how a name becomes a canonical
+handle, is in [Resolution and Determinism](https://github.com/okeefeco/pyeye-mcp/blob/main/docs/source/architecture/resolution.rst).
 
 ### The reliable path: delegate to your LSP
 

@@ -61,6 +61,7 @@ imports fell into ``members`` while being missing from ``imports``.
 from __future__ import annotations
 
 import ast
+import sys
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -187,6 +188,56 @@ STATUS_UNKNOWN_EDGE = "unknown_edge"
 #: ``imports`` on a class.  Unlike the other statuses it depends on the handle,
 #: so :func:`edge_status` never returns it: see :func:`edge_applies`.
 STATUS_NOT_APPLICABLE = "not_applicable"
+#: The edge applies, but the source's own file can't be parsed by the server's
+#: interpreter (#703), e.g. code using newer syntax.  Like ``not_applicable`` it
+#: depends on the handle, so :func:`edge_status` never returns it: it comes from
+#: :class:`UnparseableSource`, raised by the resolver.
+STATUS_UNPARSEABLE = "unparseable"
+
+
+class UnparseableSource(Exception):
+    """The source's own file can't be parsed, so its edge wasn't measured (#703).
+
+    Raised (never swallowed) by a resolver whose answer needs the AST of the
+    source's own file, when parsing it raises :class:`SyntaxError`.  Callers
+    turn it into an honest non-answer: ``expand`` / ``trace`` report the edge as
+    unsupported with ``reason: "unparseable"``, ``outline`` truncates the node,
+    and ``inspect`` omits the count.  Never a measured ``[]`` / ``0``: "couldn't
+    parse" is not "has none".  Only parse failures map here; any other failure
+    keeps its existing handling (#704).
+    """
+
+    def __init__(self, path: Path | str, lineno: int | None, msg: str) -> None:
+        """Record the unparseable file (POSIX path), the failing line and the parser message."""
+        self.path = Path(path).as_posix()
+        self.lineno = lineno
+        self.msg = msg
+        super().__init__(self.detail())
+
+    def detail(self) -> str:
+        """The client-facing explanation, naming the file, the line and the next step."""
+        version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        where = f"SyntaxError at line {self.lineno}" if self.lineno else "SyntaxError"
+        return (
+            f"{self.path} can't be parsed by the server's Python {version} "
+            f"({where}: {self.msg}). The code may use newer syntax than the server's "
+            "interpreter; Read the file, or run pyeye on a newer Python."
+        )
+
+
+def parse_own_source(file_path: Path | str) -> ast.Module:
+    """Return the cached AST of a source's OWN file, or raise :class:`UnparseableSource`.
+
+    The one place a per-file resolver turns a parse failure into the #703
+    signal.  Only :class:`SyntaxError` (including ``IndentationError``) is
+    mapped; anything else propagates unchanged for the caller's existing
+    handling (#704).
+    """
+    try:
+        return file_artifact_cache.get_ast(file_path)
+    except SyntaxError as exc:
+        raise UnparseableSource(file_path, exc.lineno, exc.msg) from exc
+
 
 #: Edges with a working (or Phase-3-bound) resolver.
 _IMPLEMENTED_EDGES = frozenset(
@@ -436,13 +487,10 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-    # Parse failures keep their old answer until #703 marks them ``unparseable``;
-    # any other failure is internal and propagates, never a measured empty (#704).
-    except SyntaxError:
-        return []
+    # Jedi recovers from syntax errors, so a failure here is internal: it
+    # propagates, never a measured empty (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    names = script.get_names(all_scopes=True, definitions=True, references=False)
 
     selected = (
         (name, full_name)
@@ -497,20 +545,19 @@ def _module_members(
     if file_path is None:
         return []
 
-    try:
-        # Step 1: enumerate top-level definitions the same way the legacy counter
-        # does — this guarantees parity with inspect._count_module_members for
-        # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        names = script.get_names(all_scopes=False, definitions=True, references=False)
+    # A module whose own file doesn't parse has unknown members, not none:
+    # raised, never swallowed into [] (#703).  Parse first, so Jedi's error
+    # recovery can't produce a partial list for a file Python rejects. Any other
+    # failure is internal and propagates, never a measured empty (#704).
+    tree = parse_own_source(file_path)
+    # Step 1: enumerate top-level definitions the same way the legacy counter
+    # does — this guarantees parity with inspect._count_module_members for
+    # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    names = script.get_names(all_scopes=False, definitions=True, references=False)
 
-        # Step 2: build the set of names bound by module-scope import statements
-        # (guarded ones included — see _iter_module_scope_imports, #360).
-        tree = file_artifact_cache.get_ast(file_path)
-    # Parse failures keep their old answer until #703 marks them ``unparseable``;
-    # any other failure is internal and propagates, never a measured empty (#704).
-    except SyntaxError:
-        return []
+    # Step 2: the names bound by module-scope import statements (guarded ones
+    # included — see _iter_module_scope_imports, #360) come from *tree*.
 
     import_bound_names: set[str] = set()
     for node in _iter_module_scope_imports(tree):
@@ -656,12 +703,8 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     if func_node is None:
         return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    # Parse failures keep their old answer until #703 marks them ``unparseable``;
-    # any other failure is internal and propagates, never a measured empty (#704).
-    except SyntaxError:
-        return EdgeResult(adjacents=[], unresolved_call_sites=0)
+    # A failure here is internal: it propagates, never a measured empty (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
@@ -1097,13 +1140,9 @@ def superclass_bases(
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
         return None
-    try:
-        tree = file_artifact_cache.get_ast(file_path)
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    # Parse failures keep their old answer until #703 marks them ``unparseable``;
-    # any other failure is internal and propagates, never a measured empty (#704).
-    except SyntaxError:
-        return None
+    tree = parse_own_source(file_path)  # unparseable: raised, not "no bases" (#703)
+    # Any other failure is internal and propagates (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     class_node = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line),
@@ -1220,13 +1259,9 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     if file_path is None:
         return EdgeResult(adjacents=[])
 
-    try:
-        tree = file_artifact_cache.get_ast(file_path)
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-    # Parse failures keep their old answer until #703 marks them ``unparseable``;
-    # any other failure is internal and propagates, never a measured empty (#704).
-    except SyntaxError:
-        return EdgeResult(adjacents=[])
+    tree = parse_own_source(file_path)  # unparseable: raised, not "imports nothing" (#703)
+    # Any other failure is internal and propagates (#704).
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []

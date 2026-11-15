@@ -88,6 +88,8 @@ from pyeye.mcp.operations.edges import (
     STATUS_IMPLEMENTED,
     STATUS_NOT_APPLICABLE,
     STATUS_NOT_YET_IMPLEMENTED,
+    STATUS_UNPARSEABLE,
+    UnparseableSource,
     edge_applies,
     edge_kind,
     edge_status,
@@ -173,7 +175,9 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         ``None`` — the wrong-kind signal meaning the edge does not apply to
         this handle's kind (e.g. ``imported_by`` on a non-module).  That case
         is distinct from a measured-empty ``EdgeResult`` (resolver matched the
-        kind but found no adjacents → supported ``stubs: []``).  Never raises.
+        kind but found no adjacents → supported ``stubs: []``).  It is also
+        returned, with ``reason: "unparseable"`` (#703), when the source's own
+        file can't be parsed by the server's interpreter.  Never raises.
     """
     # ------------------------------------------------------------------
     # Resolve the source handle first.  A ghost handle is reported as not-found
@@ -249,8 +253,21 @@ async def expand_resolved(
     # without re-resolution (the load-bearing reason EdgeResult carries Names).
     # A resolver may be sync or async; await any awaitable result.
     # ------------------------------------------------------------------
-    raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
-    edge_result = await raw if isawaitable(raw) else raw
+    try:
+        raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
+        edge_result = await raw if isawaitable(raw) else raw
+    except UnparseableSource as exc:
+        # #703: the source's own file doesn't parse under the server's Python, so
+        # the edge wasn't measured.  Unsupported, never a measured ``stubs: []``.
+        return {
+            "found": True,
+            "source": source,
+            "edge": edge,
+            "unsupported": True,
+            "reason": STATUS_UNPARSEABLE,
+            "detail": exc.detail(),
+            "report_issues": meta.issues_url(),
+        }
 
     stubs = [
         build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents

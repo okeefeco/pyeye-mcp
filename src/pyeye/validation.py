@@ -1,10 +1,11 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from .exceptions import ValidationError
+from .path_utils import ensure_posix_path
 
 
 class PathValidator:
@@ -270,7 +271,13 @@ def validate_mcp_inputs(func: Any) -> Any:
             if param_name in ["file", "file_path", "path", "project_path"]:
                 try:
                     validated = PathValidator.validate_path(value)
-                    bound.arguments[param_name] = str(validated)
+                    # POSIX, never str(): str() gives native backslashes on
+                    # Windows, and the value is echoed back to the agent (#717).
+                    bound.arguments[param_name] = (
+                        validated.as_posix()
+                        if isinstance(validated, PurePath)
+                        else ensure_posix_path(str(validated))
+                    )
                 except ValidationError as e:
                     # Raise the error to be handled by the exception handler
                     raise ValidationError(

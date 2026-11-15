@@ -211,14 +211,15 @@ class TestValidateMCPInputsDecorator:
         valid_path = "C:\\valid\\path.py" if os.name == "nt" else "/valid/path.py"
 
         result = test_func(valid_path, "/project")
-        # The validation preserves paths that don't need resolution
-        # On Windows, paths without ".." are kept as-is if not absolute
+        # Tools receive the POSIX form, never native backslashes (#717): the
+        # value is echoed back to the agent. An absolute path is resolved.
         expected = (
-            str(Path(valid_path).resolve())
+            Path(valid_path).resolve().as_posix()
             if Path(valid_path).is_absolute()
-            else str(Path(valid_path))
+            else Path(valid_path).as_posix()
         )
         assert result["file"] == expected
+        assert "\\" not in result["file"]
 
         # Invalid path should raise ValidationError
         with pytest.raises(ValidationError) as exc_info:

@@ -9,5 +9,6 @@ This section provides detailed information about the PyEye Server architecture.
    overview
    plugin-system
    caching-strategy
+   resolution
    project-management
    performance

@@ -22,7 +22,7 @@ Map common requests to the right tool. Some operations use a subagent; most are 
 → Run the static checker, then apply the path-utils patterns:
 
 ```bash
-python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
+uv run python scripts/check_cross_platform_paths.py --report
 ```
 
 → Fix per the rules in `10-cross-platform.md` (use `.as_posix()` for display/storage; `path_to_key()` / `paths_equal()` for keys/comparison).
