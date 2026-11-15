@@ -381,7 +381,7 @@ async def trace(
         result["unresolved_imports"] = unresolved_imports
     if "imported_by" in walked_edges:
         result["unresolved_importers"] = unresolved_importers
-    if walked_edges & {"subclasses", "imported_by"}:  # #729
+    if walked_edges & {"subclasses", "imported_by", "re_exports"}:  # #729, #393
         result["unparseable_files"] = unparseable_files
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,

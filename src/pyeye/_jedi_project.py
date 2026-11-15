@@ -28,9 +28,11 @@ from typing import Any
 import jedi
 from jedi.api.environment import get_cached_default_environment
 
+from pyeye.path_utils import normalize_path, relative_within
+
 logger = logging.getLogger(__name__)
 
-_JEDI_DIR = Path(jedi.__file__).resolve().parent
+_JEDI_DIR = normalize_path(jedi.__file__).parent
 
 
 def is_jedi_private_path(entry: str) -> bool:
@@ -38,7 +40,7 @@ def is_jedi_private_path(entry: str) -> bool:
     if not entry:
         return False
     try:
-        return Path(entry).resolve().is_relative_to(_JEDI_DIR)
+        return relative_within(entry, _JEDI_DIR) is not None
     except (OSError, ValueError):
         return False
 

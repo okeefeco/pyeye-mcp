@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
+from pyeye.path_utils import normalize_path
 from pyeye.project_layout import module_name_for_file
 from pyeye.resolver import NotFound, resolve_item
 from pyeye.scope import classify_scope
@@ -148,7 +149,7 @@ def _enrich_record(
     if not isinstance(raw_file, str):
         return
     analyzer = analyzer_for()
-    path = Path(raw_file).resolve()
+    path = normalize_path(raw_file)
     location: dict[str, Any] = {"file": path.as_posix()}
     line = record.get("line")
     if isinstance(line, int):
