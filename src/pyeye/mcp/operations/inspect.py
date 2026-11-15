@@ -51,27 +51,17 @@ from pyeye._ast_targets import (
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
-from pyeye._module_sentinel import ModuleSentinel
-from pyeye.canonicalization import (
-    collect_re_exports,
-    find_module_file,
-    find_namespace_package_dirs,
-    resolve_canonical,
-)
+from pyeye.canonicalization import collect_re_exports
 from pyeye.handle import Handle
-from pyeye.kinds import normalise_kind_from_name
 from pyeye.mcp.operations.edges import (
     _enumerate_submodule_paths,
     resolve_members,
     resolve_superclasses,
 )
-
-# Kind normalisation + method detection live in resolve (the lower-level module)
-# so resolve, inspect, and stubs share one source of truth (#406).
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.project_layout import package_kind
-from pyeye.scope import classify_scope
+from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -526,183 +516,6 @@ def _resolve_base_class_via_jedi(
 # ---------------------------------------------------------------------------
 
 
-def _anchor_on_definition(name: Any, handle: str) -> Any:
-    """Anchor a matched Jedi ``Name`` on its definition site (issue #429).
-
-    A re-export import binding in an ``__init__.py`` reports the *same*
-    ``full_name`` as the class it re-exports — Jedi follows the import one hop —
-    and even reports ``type == "class"``. So the handle→``Name`` walk can match
-    that binding and land on the re-export line instead of the class body,
-    silently reporting ``members: 0`` for a real class. This happens whenever
-    the deepest (definition) module's pass fails to produce a ``full_name``
-    match (the #419-class non-determinism) and the walk falls through to a
-    shallower ``__init__``.
-
-    ``goto`` repairs this deterministically: it is idempotent on a true
-    definition (returns itself) and follows a re-export binding through to the
-    definition. It rides the same ``goto(follow_imports=True)`` path
-    ``resolve_at`` uses, so it does not depend on the flaky ``full_name`` match —
-    making ``inspect``/``expand``/``trace``/``outline`` agree with ``resolve_at``
-    (acceptance criterion #2). The ``full_name``/``module_path`` guard keeps a
-    genuine definition if ``goto`` ever wanders.
-
-    Args:
-        name: The matched Jedi ``Name`` (definition or re-export binding).
-        handle: The canonical dotted-name string being resolved.
-
-    Returns:
-        The definition-site ``Name`` when ``goto`` resolves it, else *name*.
-    """
-    try:
-        targets = name.goto(follow_imports=True)
-    except Exception:
-        return name
-    for target in targets:
-        if target.full_name == handle and target.module_path is not None:
-            return target
-    return name
-
-
-def _find_jedi_name_for_handle(handle: str, analyzer: JediAnalyzer) -> Any | None:
-    """Find the Jedi Name object that corresponds to *handle*.
-
-    For module handles (no leaf symbol), locates the module file and returns
-    a synthetic-ish Name by getting the module-level name object from Jedi.
-    For all other handles, splits into ``module.leaf``, locates the module
-    file, and searches ``get_names(all_scopes=True)`` for a Name whose
-    ``full_name`` matches.
-
-    For external symbols (e.g. ``pathlib.Path``), falls through to a Jedi
-    project-level search.
-
-    Args:
-        handle: Canonical dotted-name string.
-        analyzer: Active analyzer for the project.
-
-    Returns:
-        A Jedi ``Name`` object, or ``None`` if not found.
-    """
-    parts = handle.split(".")
-
-    # Case 1: bare module name or dotted module path (check if it's a module)
-    mod_file = find_module_file(handle, analyzer)
-    if mod_file is not None:
-        # handle is itself a module — return a module-level name from that file
-        try:
-            script = file_artifact_cache.get_script(mod_file, analyzer.project)
-            names = script.get_names(all_scopes=False, definitions=True, references=False)
-            # Prefer to find a module-type match
-            for name in names:
-                if name.type == "module" and name.full_name == handle:
-                    return name
-            # No explicit module name entry — return a synthetic by finding ANY name
-            # but we must ensure we return info for the module itself not a member.
-            # We'll return None here and handle module specially below.
-        except Exception:
-            pass
-        return ModuleSentinel(mod_file, handle, analyzer)
-
-    # Case 1.5: PEP 420 namespace package (#444) — no __init__.py, so
-    # find_module_file (Case 1) missed it and Jedi gives it no anchored Name.
-    # Anchor it to its on-disk directory as a dir-anchored ModuleSentinel (never
-    # byte-read), so inspect / outline / expand / trace — which all resolve
-    # through this function — can fire from the package handle.  Only a directory
-    # with importable content and no __init__.py matches, so plain modules,
-    # classes, and functions (which have no matching dir) are never hijacked.
-    ns_dirs = find_namespace_package_dirs(handle, analyzer)
-    if ns_dirs:
-        return ModuleSentinel(ns_dirs[0], handle, analyzer)
-
-    # Case 2: leaf symbol inside a module
-    if len(parts) < 2:
-        return None
-
-    # Try progressively shorter module paths
-    for split_at in range(len(parts) - 1, 0, -1):
-        module_dotted = ".".join(parts[:split_at])
-        mod_file = find_module_file(module_dotted, analyzer)
-        if mod_file is None:
-            continue
-        try:
-            script = file_artifact_cache.get_script(mod_file, analyzer.project)
-            for name in script.get_names(all_scopes=True, definitions=True, references=False):
-                if name.full_name == handle:
-                    # Anchor on the definition: a match here may be a re-export
-                    # import binding in an __init__ (issue #429) — goto-follow it.
-                    return _anchor_on_definition(name, handle)
-        except Exception:
-            continue
-
-    # Case 3: external symbol — try Jedi project-level search
-    leaf_name = parts[-1]
-    try:
-        results = list(analyzer.project.search(leaf_name))
-        for r in results:
-            if r.full_name == handle:
-                return r
-    except Exception:
-        pass
-
-    # Final fallback: synthetic-import inference for stdlib/third-party symbols
-    # (e.g. pathlib.Path) where project.search returns nothing.
-    # Tested by TestFindJediNameForHandleFallbacks.test_synthetic_import_fallback_for_external_symbol.
-    try:
-        import jedi
-
-        module_dotted = ".".join(parts[:-1])
-        leaf_sym = parts[-1]
-        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf_sym}"
-        script = jedi.Script(code=fake_code, project=analyzer.project)
-        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf_sym))
-        for n in inferred:
-            if n.full_name == handle:
-                return n
-    except Exception:
-        pass
-
-    return None
-
-
-async def _resolve_handle_to_jedi_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
-    """Resolve a handle to a Jedi ``Name``, canonicalizing re-export aliases (#431).
-
-    First tries the direct handle→``Name`` walk (:func:`_find_jedi_name_for_handle`).
-    A re-export *alias* path — a public import path such as
-    ``package.Thing`` rather than the canonical definition handle
-    ``package._impl.Thing`` — never matches any ``full_name``: Jedi reports the
-    re-export binding's ``full_name`` as the *canonical* handle, not the alias
-    string, so the direct walk misses and ``inspect`` would emit a not-found
-    ``kind: variable`` node.
-
-    On a miss, canonicalize via :func:`resolve_canonical` (which matches by
-    *name*, not ``full_name``, so it resolves the alias) and retry once with the
-    canonical handle. This is the shared entry point for
-    ``inspect``/``expand``/``trace``/``outline`` so all four agree with
-    ``resolve``/``resolve_at`` on alias inputs (issue #431, acceptance #2).
-
-    The canonicalization is paid only on a miss — the common case (a canonical
-    handle that resolves directly) returns from the first call with no extra
-    work.
-
-    Args:
-        handle: Any dotted-name handle (canonical or re-export alias).
-        analyzer: Active analyzer for the project.
-
-    Returns:
-        A Jedi ``Name`` object, or ``None`` if the handle cannot be resolved
-        even after canonicalization.
-    """
-    name = _find_jedi_name_for_handle(handle, analyzer)
-    if name is not None:
-        return name
-
-    canonical = await resolve_canonical(handle, analyzer)
-    if canonical is not None and str(canonical) != handle:
-        return _find_jedi_name_for_handle(str(canonical), analyzer)
-
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Edge-count helpers
 # ---------------------------------------------------------------------------
@@ -1044,24 +857,24 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         placeholder node (#545).
     """
     # ------------------------------------------------------------------
-    # Step 1 — Locate the symbol (canonicalizing re-export aliases, #431)
+    # Step 1 — Locate the symbol via the one canonical resolver (#623).  On
+    # success every field below describes, and echoes, the CANONICAL handle,
+    # so a re-export alias input reports its definition-site handle.
     # ------------------------------------------------------------------
-    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-
-    if jedi_name is None:
-        logger.debug("inspect(%r): symbol not found", handle)
+    resolved = resolve_handle(handle, analyzer)
+    if isinstance(resolved, NotFound):
+        logger.debug("inspect(%r): %s", handle, resolved.detail)
         return not_found(handle)
+    jedi_name = resolved.anchor
+    handle = resolved.handle
+    kind = resolved.kind
+    scope = resolved.scope
 
     # ------------------------------------------------------------------
     # Step 2 — Build universal fields
     # ------------------------------------------------------------------
     file_path: Path | None = jedi_name.module_path
     file_str: str = file_path.as_posix() if file_path else ""
-
-    scope = classify_scope(file_str, analyzer) if file_str else "external"
-
-    # Normalise kind, promoting class-enclosed functions to "method" (#406).
-    kind = normalise_kind_from_name(jedi_name)
 
     location = location_from_name(file_str, jedi_name)
 

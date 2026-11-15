@@ -7,7 +7,7 @@ Contract/invariant-significant, friction-driven decisions. Each entry is a small
 **Friction:** `trace` and `expand` walked the same edges under different contracts. trace queued the Jedi `Name` each edge carried, so it walked interior handles `expand` refuses as unresolved (`logging`, `io`; #602). That walk reached Jedi's ~1500-frame `follow_imports` recursion on `io`/`weakref`, which killed the process on Windows/CPython 3.11 (#650). A resolver's wrong-kind `None` became `[]`, so `trace(SomeClass, ["imports"])` answered `unresolved_imports: {}, unsupported_edges: []`: "measured, all resolved" for something never measured. And `max_nodes` filled one adjacent at a time, so a hop could silently keep 2 of 7 members.
 **Decision:** Every trace hop is `expand_resolved(name, handle, edge)`, the body of `expand` after source resolution. `expand` is now "resolve, then `expand_resolved`", so there is one copy of the expandability logic.
 
-- Roots keep their own resolution (#623 slice 2 owns that). Interior nodes are resolved by handle when popped, as `expand` resolves its source. A node that doesn't resolve is not walked and is listed in the new always-present `unresolved_nodes` (Added; it parallels `unresolved_roots`, because #545's not-found decision left trace's list shape in place).
+- Roots and interior nodes both resolve through `resolver.resolve_handle` (#623), the resolver `expand` uses; interior nodes are resolved when popped. A node that doesn't resolve is not walked and is listed in the new always-present `unresolved_nodes` (Added; it parallels `unresolved_roots`, because #545's not-found decision left trace's list shape in place).
 - A wrong-kind hop adds `{edge, reason, detail}` to `unsupported_edges` with `expand`'s own values, de-duplicated. In a mixed-kind walk an entry means "not walked for nodes of the kind named in `detail`", not "the edge is unsupported".
 - `unresolved_call_sites` / `unresolved_imports` are present iff their edge was actually walked on at least one node, not merely requested.
 - Hops are all-or-nothing (reserve before expand, the #358 outline rule). If any new adjacent would be cut by `max_depth` or `max_nodes`, the hop adds and records nothing (cycle edges included) and sets the truncation reason. A recorded hop is always complete; an unrecorded one is covered by `truncation_reasons`, within the existing fields.
@@ -21,10 +21,50 @@ Contract/invariant-significant, friction-driven decisions. Each entry is a small
 - linter rules T.4–T.9.
 - Out of scope: the single edge-applicability table (#626), which will replace the resolvers' `None` signal that `expand_resolved` reads.
 **Verify:** gold. `uv run pytest tests/unit/mcp/operations/test_trace.py tests/conformance/test_linter_adversarial_trace.py tests/test_cross_tool_invariants.py::test_trace_expand_agree` passes:
-- `TestTraceInteriorNodesFollowExpand`: `textwrap`/`logging` are nodes, are listed in `unresolved_nodes`, and the imports resolver is never run on `logging`/`io`/`weakref`;
+- `TestTraceInteriorNodesFollowExpand`: with the shared resolver rejecting `textwrap`, it is a node, is listed in `unresolved_nodes`, and the imports edge resolver is never run on it; a node the resolver finds is walked exactly as `expand` walks it;
 - `TestTraceWrongKindIsUnsupported`: the entry equals `expand`'s `{reason, detail}`, and `unresolved_imports` is absent;
 - `TestTraceHopBudgetIsAllOrNothing`: every recorded hop equals `expand`'s stub set for `max_nodes` ∈ {1, 2, 3, 4, 6, 9, 50};
 - the #614 fitness test has no `trace_expand` allow-list entries left.
+
+## 2026-11-15 — One canonical handle resolver; every tool echoes the canonical handle (#623)
+
+**Friction:** Turning a handle into a definition was implemented about four times, each with its own strategy order and acceptance check. inspect's `_find_jedi_name_for_handle` (shared by inspect, outline, expand and trace roots) had 5 strategies, including the banned capped `project.search` (#457), plus an anchor post-step (#429) and a retry wrapper (#431). It kept a synthetic-import copy whose `full_name == handle` check rejected legitimate external re-exports, while the other two copies checked `name == leaf` (#546, #566). inspect and outline echoed an alias input while expand and trace echoed the canonical handle, and inspect couldn't find an external module such as `logging` (#602).
+**Decision:** `pyeye.resolver.resolve_handle(path) -> Resolved | NotFound` is the one exact-path resolver. It sits below `pyeye.mcp` and is never ambiguous; bare-name search (`resolve_name`) comes later in #623. Strategy order, first hit wins:
+
+1. project module (`project_layout.file_for_module`);
+2. PEP 420 namespace directory (#444's anchoring, now in the resolver);
+3. external module, through a Jedi module import;
+4. definition placement in the **deepest** project module along the path, matching `full_name`, else matching the head by name and following it with `goto` (this covers both a re-export alias and a flaky `full_name` match). There is no fallback to shallower modules after a miss;
+5. guarded inference, last and only for handles outside the project boundary (#506). It accepts a result only when its name equals the leaf.
+
+Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only file-less `jedi.Script`).
+
+- On success, callers echo `Resolved.handle`, the canonical definition-site handle. On not-found they echo the input (#545).
+- Supersedes the #431 alias-retry wrapper: aliases are followed inside placement.
+- Amends the 2026-10-29 #506/#544 entry: inference lives only in the resolver, with the `name == leaf` check. inspect's `full_name == handle` check is dropped.
+- Amends the #444 entry: namespace anchoring is strategy 2.
+- Rejected:
+  - keeping inspect's shorten-after-a-miss walk, which only inspect had (audit §4.2);
+  - caching synthetic-import results to speed up a repeated inspect of an external class (~0.4 s warm), which would add cross-call state for a modest gain.
+
+**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; #623, #602, #431, #429, #457.
+**Applies-to:** every exact-path handle lookup in `src/pyeye`:
+
+- `inspect`;
+- `outline` root;
+- `expand` source;
+- `trace` roots.
+
+Not yet moved (later #623 slices): `resolve` / `resolve_at` (slice 3, which also moves scope ownership and #454 into the resolver and amends this entry), bare-name search (slice 4), trace interior nodes and typeref forward refs (slice 5). Still separate today: `canonicalization._resolve_via_external_inference` and `resolve._resolve_external_dotted_name`.
+**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py` passes:
+
+- each strategy resolves its case;
+- a project path never reaches inference, and a mismatched inference (`typing.TYPE_CHECKING` → `bool`) is not-found;
+- placement stops at the deepest module;
+- an alias and its canonical handle give identical `inspect` nodes;
+- inspect, outline, expand and trace all echo `pkg._impl.Thing` for `pkg.Thing`;
+- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import` plus the two slice-3 copies, and no `project.search` outside the #628 dead code;
+- `resolver` doesn't import `pyeye.mcp`, statically or at import time.
 
 ## 2026-11-15 — All Jedi work runs on one large-stack worker thread (#650)
 

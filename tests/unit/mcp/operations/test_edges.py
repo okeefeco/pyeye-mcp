@@ -59,7 +59,7 @@ from pyeye.mcp.operations.edges import (
     resolve_subclasses,
     resolve_superclasses,
 )
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
+from tests.utils.resolver_helpers import anchor_for
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
 
@@ -128,7 +128,7 @@ def _members_for(handle: str, analyzer: JediAnalyzer) -> list[Handle]:
     operate on the ``.handles`` list (its ``unresolved_call_sites`` is always
     ``None`` for the members edge — that notion is callees-only).
     """
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     result = resolve_members(jedi_name, analyzer)
     assert result.unresolved_call_sites is None, "members never reports call-site counts"
@@ -137,7 +137,7 @@ def _members_for(handle: str, analyzer: JediAnalyzer) -> list[Handle]:
 
 def _callees_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     """Resolve *handle* to a Jedi name and return its callees ``EdgeResult``."""
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return resolve_callees(jedi_name, analyzer)
 
@@ -558,7 +558,7 @@ async def _imported_by_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | 
     kind — a non-module handle) from ``EdgeResult([])`` (a module nobody
     imports — measured none).
     """
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return await resolve_imported_by(jedi_name, analyzer)
 
@@ -715,7 +715,7 @@ async def _subclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     subclassed, so ``[]`` for the wrong kind is true by definition, not the
     absence-vs-zero lie that forced imported_by's None path).
     """
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return await resolve_subclasses(jedi_name, analyzer)
 
@@ -906,7 +906,7 @@ def _superclasses_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     ``EdgeResult([])`` (only a class CAN have superclasses, so ``[]`` for the
     wrong kind is true by definition — the ``members``/``callees`` case).
     """
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return resolve_superclasses(jedi_name, analyzer)
 
@@ -1081,7 +1081,7 @@ class TestResolveSuperclassesCountConsistency:
         """``Child`` has one resolvable base: resolver count == 1."""
         from pyeye.mcp.operations.inspect import _count_superclasses
 
-        jedi_name = _find_jedi_name_for_handle(_CHILD_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_CHILD_HANDLE, superclasses_analyzer)
         assert jedi_name is not None
         resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
         counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
@@ -1096,7 +1096,7 @@ class TestResolveSuperclassesCountConsistency:
         """``MultiChild`` has two resolvable bases: resolver count == 2."""
         from pyeye.mcp.operations.inspect import _count_superclasses
 
-        jedi_name = _find_jedi_name_for_handle(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_MULTI_CHILD_HANDLE, superclasses_analyzer)
         assert jedi_name is not None
         resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
         counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
@@ -1109,7 +1109,7 @@ class TestResolveSuperclassesCountConsistency:
         """``Base`` has no superclasses: both resolver count and counter are 0."""
         from pyeye.mcp.operations.inspect import _count_superclasses
 
-        jedi_name = _find_jedi_name_for_handle(_BASE_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_BASE_HANDLE, superclasses_analyzer)
         assert jedi_name is not None
         resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
         counter_count = await _count_superclasses(jedi_name, superclasses_analyzer)
@@ -1190,7 +1190,7 @@ class TestResolveSuperclassesCountConsistencyViaInspect:
         """``Child`` has 1 direct base: inspect edge_counts and resolver agree."""
         from pyeye.mcp.operations.inspect import inspect
 
-        jedi_name = _find_jedi_name_for_handle(_CHILD_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_CHILD_HANDLE, superclasses_analyzer)
         assert jedi_name is not None
         resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
         node = await inspect(_CHILD_HANDLE, superclasses_analyzer)
@@ -1210,7 +1210,7 @@ class TestResolveSuperclassesCountConsistencyViaInspect:
         """``MultiChild`` has 2 direct bases: inspect edge_counts and resolver agree."""
         from pyeye.mcp.operations.inspect import inspect
 
-        jedi_name = _find_jedi_name_for_handle(_MULTI_CHILD_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_MULTI_CHILD_HANDLE, superclasses_analyzer)
         assert jedi_name is not None
         resolver_count = len(resolve_superclasses(jedi_name, superclasses_analyzer).handles)
         node = await inspect(_MULTI_CHILD_HANDLE, superclasses_analyzer)
@@ -1248,7 +1248,7 @@ class TestResolveSuperclassesUnresolvableBaseDivergence:
         Confirms that goto genuinely cannot resolve ``NotDefinedAnywhere`` in
         this fixture, making the test non-vacuous.
         """
-        jedi_name = _find_jedi_name_for_handle(_WEIRD_HANDLE, superclasses_analyzer)
+        jedi_name = anchor_for(_WEIRD_HANDLE, superclasses_analyzer)
         assert jedi_name is not None, f"Could not find Jedi name for {_WEIRD_HANDLE!r}"
         result = resolve_superclasses(jedi_name, superclasses_analyzer)
         assert result.handles == [], (
@@ -1312,7 +1312,7 @@ def _imports_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult | None:
     kind — a non-module handle) from ``EdgeResult([])`` (a module that has no
     top-level imports — measured none).
     """
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return resolve_imports(jedi_name, analyzer)
 
@@ -1503,7 +1503,7 @@ class TestResolveImportsMembersDisjoint:
         """No handle appears in BOTH the imports and members edge for the same module."""
         import_result = _imports_for(_IMPORTS_FIXTURE_HANDLE, analyzer)
         members_result = resolve_members(
-            _find_jedi_name_for_handle(_IMPORTS_FIXTURE_HANDLE, analyzer),
+            anchor_for(_IMPORTS_FIXTURE_HANDLE, analyzer),
             analyzer,
         )
         assert import_result is not None
@@ -1613,7 +1613,7 @@ def _enclosing_scope_for(handle: str, analyzer: JediAnalyzer) -> EdgeResult:
     """
     from pyeye.mcp.operations.edges import resolve_enclosing_scope
 
-    jedi_name = _find_jedi_name_for_handle(handle, analyzer)
+    jedi_name = anchor_for(handle, analyzer)
     assert jedi_name is not None, f"Could not find Jedi name for handle {handle!r}"
     return resolve_enclosing_scope(jedi_name, analyzer)
 
@@ -1720,7 +1720,7 @@ class TestResolveEnclosingScopeNeverReverseSearch:
         assert hasattr(jedi.Script, "get_references")
         spy = Mock(side_effect=AssertionError("get_references called on enclosing_scope path"))
         with patch.object(jedi.Script, "get_references", spy):
-            jedi_name = _find_jedi_name_for_handle(_OUTER_METHOD_HANDLE, nested_analyzer)
+            jedi_name = anchor_for(_OUTER_METHOD_HANDLE, nested_analyzer)
             assert jedi_name is not None
             result = resolve_enclosing_scope(jedi_name, nested_analyzer)
         # The resolver must have run (method → its class) and never touched reverse search.
@@ -1780,7 +1780,7 @@ class TestImportEdgeRoundTrip:
 
         async def _reverse_importers(module_handle: str) -> set[str]:
             if module_handle not in imported_by_cache:
-                jedi_name = _find_jedi_name_for_handle(module_handle, analyzer)
+                jedi_name = anchor_for(module_handle, analyzer)
                 if jedi_name is None:
                     imported_by_cache[module_handle] = set()
                 else:
@@ -1799,7 +1799,7 @@ class TestImportEdgeRoundTrip:
             n_handle = analyzer._get_import_path_for_file(py_file)
             if not n_handle:
                 continue
-            n_name = _find_jedi_name_for_handle(n_handle, analyzer)
+            n_name = anchor_for(n_handle, analyzer)
             if n_name is None:
                 continue
             forward = resolve_imports(n_name, analyzer)
@@ -1984,9 +1984,7 @@ class TestGuardedImportsIncludedInImports:
     def test_imports_and_members_stay_disjoint(self, analyzer: JediAnalyzer) -> None:
         """The #360 invariant: guarded names land in exactly ONE of the two edges."""
         import_result = _imports_for(_GUARDED_HANDLE, analyzer)
-        members_result = resolve_members(
-            _find_jedi_name_for_handle(_GUARDED_HANDLE, analyzer), analyzer
-        )
+        members_result = resolve_members(anchor_for(_GUARDED_HANDLE, analyzer), analyzer)
         assert import_result is not None
         import_handles = {str(h) for h in import_result.handles}
         member_handles = {str(h) for h in members_result.handles}

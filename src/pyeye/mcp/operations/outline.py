@@ -91,10 +91,10 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
-from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.project_layout import package_kind
+from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -336,10 +336,12 @@ async def outline(
     # ------------------------------------------------------------------
     # 1. Resolve root handle to a Jedi Name.
     # ------------------------------------------------------------------
-    root_jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-
-    if root_jedi_name is None:
+    # The one canonical resolver (#623); the tree echoes the CANONICAL handle.
+    resolved = resolve_handle(handle, analyzer)
+    if isinstance(resolved, NotFound):
         return not_found(handle)
+    root_jedi_name = resolved.anchor
+    handle = resolved.handle
 
     root_stub = build_stub(root_jedi_name, handle, analyzer)
 

@@ -98,8 +98,8 @@ from typing import TYPE_CHECKING, Any
 from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
-from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.stubs import build_stub
+from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -276,12 +276,13 @@ async def trace(
     unresolved_nodes: list[str] = []
 
     for root in starts:
-        jedi_name = await _resolve_handle_to_jedi_name(root, analyzer)
-        if jedi_name is None:
+        resolved = resolve_handle(root, analyzer)  # the one resolver (#623)
+        if isinstance(resolved, NotFound):
             if root not in unresolved_roots:
                 unresolved_roots.append(root)
             continue
-        canonical = getattr(jedi_name, "full_name", None) or root
+        jedi_name = resolved.anchor
+        canonical = resolved.handle
         if canonical not in nodes:
             nodes[canonical] = build_stub(jedi_name, canonical, analyzer)
             queue.append((canonical, jedi_name, 0))
@@ -289,10 +290,11 @@ async def trace(
     while queue:
         handle, jedi_name, depth = queue.popleft()
         if jedi_name is None:
-            jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-            if jedi_name is None:
+            resolved = resolve_handle(handle, analyzer)  # as expand resolves (#623)
+            if isinstance(resolved, NotFound):
                 unresolved_nodes.append(handle)
                 continue
+            jedi_name = resolved.anchor
         # Resolve a node's edges even at the depth frontier — peeking one hop past
         # the frontier is how truncation is detected (a reachable-but-unvisited
         # neighbour) and how cycle edges back into the closure stay visible.

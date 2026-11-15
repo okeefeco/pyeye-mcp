@@ -205,7 +205,7 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   **not** "this root has no neighbours." Retry, `resolve`/`inspect` the handle, or fall back
   to `Read`/your LSP — do not conclude the symbol calls/contains nothing.
 - **`unresolved_nodes`** (always present): interior nodes `trace` reached but could not
-  resolve (the same handles `expand` answers `found: false` for, e.g. some stdlib modules),
+  resolve (the same handles `expand` answers `found: false` for),
   so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
   node with no neighbours.
 - **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind

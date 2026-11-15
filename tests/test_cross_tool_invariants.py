@@ -88,27 +88,38 @@ _BOTH_MODES = ("bare", "get_analyzer")
 
 KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # == 1. round trip ======================================================
-    # #602/#623: stdlib/external modules and typing specials emitted by
-    # `imports` are dead ends for inspect and resolve.
-    **_round_trip("cross_tool", _ISSUE_602, _MISS, "logging", "textwrap"),
+    # #602/#623: typing specials and `__future__` features emitted by `imports`
+    # are dead ends for inspect and resolve (inference lands on their value's
+    # type, which the name == leaf check rightly refuses).
     **_round_trip("determinism_subclasses", _ISSUE_602, _MISS, "typing.TYPE_CHECKING"),
-    **_round_trip("lookup_project", _ISSUE_602, _MISS, "__future__.annotations", "enum"),
+    **_round_trip("lookup_project", _ISSUE_602, _MISS, "__future__.annotations"),
     **_round_trip(
         "resolve_project",
         _ISSUE_602,
         _MISS,
         "__future__.annotations",
-        "functools",
-        "math",
-        "os",
         "typing.Callable",
         "typing.ClassVar",
         "typing.Final",
         "typing.TYPE_CHECKING",
     ),
     **_round_trip("typeref_basic", _ISSUE_602, _MISS, "typing.Callable"),
-    # #602/#623: resolve finds typing.Dict/List (as typing.dict/list); inspect doesn't.
-    **_round_trip("typeref_basic", _ISSUE_602, ("inspect_found",), "typing.Dict", "typing.List"),
+    # #602/#623: inspect finds stdlib modules (#623 slice 2); resolve doesn't
+    # until it moves onto the resolver (slice 3).
+    **_round_trip("cross_tool", _ISSUE_602, ("resolve_found",), "logging", "textwrap"),
+    **_round_trip("lookup_project", _ISSUE_602, ("resolve_found",), "enum"),
+    **_round_trip("resolve_project", _ISSUE_602, ("resolve_found",), "functools", "math", "os"),
+    # #623 (slice 5, edges emit the canonical handle): `imports` emits the alias
+    # `typing.Dict` / `typing.List` as a variable stub; inspect and resolve both
+    # canonicalise it to the class `typing.dict` / `typing.list`.  Visible since
+    # slice 2 made inspect find it.
+    **_round_trip(
+        "typeref_basic",
+        _ISSUE_623,
+        ("same_handle", "stub_matches_inspect"),
+        "typing.Dict",
+        "typing.List",
+    ),
     #
     # #626: `submodules` applies to a NON-module symbol defined in a package
     # `__init__` (`pkg.__all__`, `pkg.init_fn`) and fabricates
@@ -166,17 +177,34 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # inspect says module/project.
     **_round_trip("cross_tool", _ISSUE_623, ("stub_matches_inspect",), "xns"),
     # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
-    # #602/#623: stdlib and third-party modules/symbols emitted by `imports`.
+    # #602/#623: stdlib and third-party symbols emitted by `imports` that no
+    # tool resolves (typing specials, and names inference can't place).
     **_round_trip(
         "src/pyeye",
         _ISSUE_602,
         _MISS,
         "__future__.annotations",
+        "filelock.FileLock",
+        "threading.Lock",
+        "typing.Awaitable",
+        "typing.Callable",
+        "typing.Iterable",
+        "typing.Iterator",
+        "typing.Literal",
+        "typing.Mapping",
+        "typing.TYPE_CHECKING",
+        "watchdog.observers.Observer",
+    ),
+    # #602/#623: modules inspect finds since #623 slice 2; resolve doesn't
+    # until slice 3.
+    **_round_trip(
+        "src/pyeye",
+        _ISSUE_602,
+        ("resolve_found",),
         "aiofiles",
         "ast",
         "asyncio",
         "contextlib",
-        "filelock.FileLock",
         "functools",
         "hashlib",
         "jedi",
@@ -190,18 +218,9 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "sys",
         "sysconfig",
         "threading",
-        "threading.Lock",
         "time",
         "traceback",
         "typing",
-        "typing.Awaitable",
-        "typing.Callable",
-        "typing.Iterable",
-        "typing.Iterator",
-        "typing.Literal",
-        "typing.Mapping",
-        "typing.TYPE_CHECKING",
-        "watchdog.observers.Observer",
     ),
     # #623: `imports` emits the typeshed private module (`_datetime.datetime`);
     # resolve canonicalises to the public one (`datetime.datetime`).
@@ -215,17 +234,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     ),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
-    # #623: inspect/outline echo the input alias; resolve/resolve_at/expand/trace
-    # return the canonical definition-site handle.
-    **_agree("cross_tool", "alias", "handle", _ISSUE_623, _BOTH_MODES),
-    # Same echo gap for a stdlib re-export: on 3.13+ `pathlib.Path` is defined in
-    # `pathlib._local`, so the input is an alias there (it is the definition
-    # site on 3.11/3.12, where all tools agree).
-    **(
-        _agree("cross_tool", "stdlib_class", "handle", _ISSUE_623, _BOTH_MODES)
-        if sys.version_info >= (3, 13)
-        else {}
-    ),
     # #602/#623: inspect/outline/expand/trace find `os.path`; resolve doesn't.
     **_agree("cross_tool", "stdlib_dotted_module", "found", _ISSUE_602, _BOTH_MODES),
     # #623: resolve_at on `import logging` returns found `logging`; every other

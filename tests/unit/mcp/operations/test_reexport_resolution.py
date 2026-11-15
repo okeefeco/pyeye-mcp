@@ -3,15 +3,13 @@ definition site, never to the package ``__init__`` re-export line.
 
 Background
 ----------
-``_find_jedi_name_for_handle`` maps an FQN handle back to a Jedi ``Name`` by
-walking progressively shorter module paths and accepting the first ``Name``
-whose ``full_name`` equals the handle. The deepest (definition) module is tried
-first, so this is *usually* correct. But for a grouped re-export, the import
+The handle→``Name`` lookup (now :func:`pyeye.resolver.resolve_handle`, #623)
+places an FQN in the deepest module file it can find and accepts the ``Name``
+whose ``full_name`` equals the handle. For a grouped re-export, the import
 binding in a shallower ``__init__.py`` *also* reports ``full_name == handle``
 (Jedi resolves the import one hop to the definition) and ``type == "class"``.
-Whenever the deepest-module pass fails to yield a match — the #419-class Jedi
-``full_name`` non-determinism — the loop falls through and returns that import
-binding. The result is silently wrong: ``inspect`` reports ``members: 0,
+Whenever the definition module can't be found — simulated below — the deepest
+module found is that ``__init__``, and the match is the import binding. The result is silently wrong: ``inspect`` reports ``members: 0,
 superclasses: 0`` at the ``__init__`` line for a real class.
 
 The fix anchors any match on its definition via ``goto`` (follow-through),
@@ -26,28 +24,21 @@ Fixture layout (``tests/fixtures/reexport_grouped``)
 (``from gp.sub.related import ( ... )``), each name on its own line — the
 Django ``db/models/__init__.py`` pattern.
 
-The deepest-module pass is simulated as "missing" by monkeypatching
-``find_module_file`` to return ``None`` for the definition module — the
-deterministic stand-in for the #419 flake that triggers the fall-through.
+The definition module is simulated as "missing" by monkeypatching the
+resolver's ``file_for_module`` to return ``None`` for it.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+from pyeye import resolver as resolver_mod
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle, inspect
-
-# NOTE: fetch the *module* via ``sys.modules`` — the ``operations`` package
-# ``__init__`` does ``from .inspect import inspect``, which rebinds the
-# ``inspect`` attribute to the *function*, so any attribute-based import
-# (``from ...operations import inspect`` or ``import ...operations.inspect``)
-# yields the function, not the module. Monkeypatching needs the real module.
-inspect_ops = sys.modules["pyeye.mcp.operations.inspect"]
+from pyeye.mcp.operations.inspect import inspect
+from tests.utils.resolver_helpers import anchor_for
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "reexport_grouped"
 
@@ -73,18 +64,17 @@ def analyzer() -> JediAnalyzer:
 def simulate_deepest_miss(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the definition-module lookup to miss (stand-in for the #419 flake).
 
-    Mirrors the production trigger: the deepest (definition) module pass fails
-    to yield a ``full_name`` match, so ``_find_jedi_name_for_handle`` falls
-    through to the shallower ``__init__`` whose grouped-import binding matches.
+    The deepest module the resolver then finds is the shallower ``__init__``,
+    whose grouped-import binding matches the handle's ``full_name``.
     """
-    real_find_module_file = inspect_ops.find_module_file
+    real_file_for_module = resolver_mod.file_for_module
 
-    def fake_find_module_file(module_dotted: str, az: JediAnalyzer) -> Path | None:
+    def fake_file_for_module(az: JediAnalyzer, module_dotted: str) -> Path | None:
         if module_dotted == _DEFINITION_MODULE:
             return None
-        return real_find_module_file(module_dotted, az)
+        return real_file_for_module(az, module_dotted)
 
-    monkeypatch.setattr(inspect_ops, "find_module_file", fake_find_module_file)
+    monkeypatch.setattr(resolver_mod, "file_for_module", fake_file_for_module)
 
 
 class TestReexportResolvesToDefinition:
@@ -99,7 +89,7 @@ class TestReexportResolvesToDefinition:
         Without the fix, the fall-through returns the ``__init__`` import
         binding (``__init__.py`` at the grouped-import line) instead.
         """
-        name = _find_jedi_name_for_handle(_HANDLE, analyzer)
+        name = anchor_for(_HANDLE, analyzer)
 
         assert name is not None
         assert name.module_path is not None
@@ -178,7 +168,7 @@ class _FakeTarget:
 
 
 class _FakeName:
-    """Minimal Jedi-Name stand-in for unit-testing ``_anchor_on_definition``."""
+    """Minimal Jedi-Name stand-in for unit-testing ``resolver._anchor_on_definition``."""
 
     def __init__(self, goto_result: Any) -> None:
         self._goto_result = goto_result
@@ -194,7 +184,7 @@ class TestAnchorOnDefinitionFallbacks:
 
     def test_returns_original_when_goto_raises(self) -> None:
         """If ``goto`` raises, keep the original matched name (never crash)."""
-        from pyeye.mcp.operations.inspect import _anchor_on_definition
+        from pyeye.resolver import _anchor_on_definition
 
         name = _FakeName(RuntimeError("jedi blew up"))
         assert _anchor_on_definition(name, _HANDLE) is name
@@ -205,7 +195,7 @@ class TestAnchorOnDefinitionFallbacks:
         Guards against ``goto`` wandering to an unrelated symbol — a genuine
         definition must not be discarded for a worse one.
         """
-        from pyeye.mcp.operations.inspect import _anchor_on_definition
+        from pyeye.resolver import _anchor_on_definition
 
         wrong = _FakeTarget(full_name="some.other.Symbol", module_path=Path("x.py"))
         no_path = _FakeTarget(full_name=_HANDLE, module_path=None)
@@ -214,7 +204,7 @@ class TestAnchorOnDefinitionFallbacks:
 
     def test_returns_definition_target_when_it_matches(self) -> None:
         """The matching, located target replaces the original (the repair)."""
-        from pyeye.mcp.operations.inspect import _anchor_on_definition
+        from pyeye.resolver import _anchor_on_definition
 
         target = _FakeTarget(full_name=_HANDLE, module_path=Path("related.py"))
         name = _FakeName([target])

@@ -640,41 +640,82 @@ def xtool_analyzer() -> JediAnalyzer:
 
 class TestTraceInteriorNodesFollowExpand:
     """An interior node is walked along an edge only when ``expand`` would
-    answer found + supported for it (#621 item 3).  A node ``expand`` refuses
-    stays an unexpanded leaf and is listed in ``unresolved_nodes`` — never a
-    silent leaf (which reads as "measured, no neighbours")."""
+    answer found + supported for it (#621 item 3).  A node the shared resolver
+    rejects stays an unexpanded leaf and is listed in ``unresolved_nodes`` —
+    never a silent leaf (which reads as "measured, no neighbours").
+
+    The resolver is made to reject one chosen handle (``textwrap``) so these
+    tests pin trace's contract whatever the resolver currently covers; that
+    trace and the real resolver agree is the #614 trace-vs-expand fitness test.
+    """
+
+    _REFUSED = "textwrap"
+
+    @pytest.fixture
+    def refuse_textwrap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pyeye import resolver
+        from pyeye.mcp.operations import (
+            expand as expand_mod,
+            trace as trace_mod,
+        )
+
+        real = resolver.resolve_handle
+
+        def rejecting(path, analyzer):  # type: ignore[no-untyped-def]
+            if path == self._REFUSED:
+                return resolver.NotFound(reason="unresolved", detail="rejected by test")
+            return real(path, analyzer)
+
+        # trace and expand both resolve through the one resolver (#623).
+        monkeypatch.setattr(trace_mod, "resolve_handle", rejecting)
+        monkeypatch.setattr(expand_mod, "resolve_handle", rejecting)
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("refuse_textwrap")
     async def test_interior_node_expand_refuses_is_not_walked(
         self, xtool_analyzer: JediAnalyzer
     ) -> None:
+        from pyeye.mcp.operations.expand import expand
+
+        assert (await expand(self._REFUSED, "imports", xtool_analyzer))["found"] is False
         result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
-        assert "textwrap" in result["nodes"]  # emitted as an adjacent stub...
+        assert self._REFUSED in result["nodes"]  # emitted as an adjacent stub...
         walked_from = {e["from"] for e in result["edges"]}
-        assert "textwrap" not in walked_from  # ...but never walked
-        assert result["unresolved_nodes"] == ["textwrap"]
+        assert self._REFUSED not in walked_from  # ...but never walked
+        assert result["unresolved_nodes"] == [self._REFUSED]
 
     @pytest.mark.asyncio
-    async def test_refused_interior_hop_never_runs_the_resolver(
+    @pytest.mark.usefixtures("refuse_textwrap")
+    async def test_refused_interior_hop_never_runs_the_edge_resolver(
         self, xtool_analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Spy on the imports resolver: running it ON logging / io / weakref is
-        # exactly the walk #621 forbids (and io/weakref's own imports are what
-        # recurse ~1500 frames in Jedi).  Raising here keeps the test shallow
-        # even if the guard regresses.
         from pyeye.mcp.operations import edges
 
         real = edges.EDGE_RESOLVERS["imports"]
 
         def spy(jedi_name, analyzer):  # type: ignore[no-untyped-def]
-            name = getattr(jedi_name, "full_name", None)
-            if name in {"logging", "io", "weakref"}:
-                raise AssertionError(f"trace walked {name!r}, which expand refuses")
+            if getattr(jedi_name, "full_name", None) == self._REFUSED:
+                raise AssertionError(f"trace walked {self._REFUSED!r}, which expand refuses")
             return real(jedi_name, analyzer)
 
         monkeypatch.setitem(edges.EDGE_RESOLVERS, "imports", spy)
-        result = await trace("xpkg.core", ["imports"], xtool_analyzer, max_depth=2)
-        assert "logging" in result["unresolved_nodes"]
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
+        assert self._REFUSED in result["unresolved_nodes"]
+
+    @pytest.mark.asyncio
+    async def test_resolvable_interior_node_is_walked(self, xtool_analyzer: JediAnalyzer) -> None:
+        # The converse: once the resolver finds a node (#623 resolves stdlib
+        # modules), trace walks it exactly as expand would.
+        from pyeye.mcp.operations.expand import expand
+
+        hop = await expand("textwrap", "imports", xtool_analyzer)
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
+        if hop.get("found") and not hop.get("unsupported"):
+            assert "textwrap" not in result["unresolved_nodes"]
+            walked = {e["to"] for e in result["edges"] if e["from"] == "textwrap"}
+            assert walked <= {s["handle"] for s in hop["stubs"]}
+        else:
+            assert "textwrap" in result["unresolved_nodes"]
 
     @pytest.mark.asyncio
     async def test_unresolved_nodes_always_present(self, analyzer: JediAnalyzer) -> None:
