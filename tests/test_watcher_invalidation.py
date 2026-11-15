@@ -360,6 +360,27 @@ WATCHER_DELIVERY = PerformanceThresholds(
 )
 
 
+async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path) -> None:
+    """Block until *watcher*'s observer delivers an event: proof it is watching (#715).
+
+    ``Observer.start()`` returns before the emitter thread is live. On macOS that
+    thread first snapshots the tree and only then starts the FSEvents stream,
+    which reports events from that moment on, and watchdog drops a "created"
+    event for a file already in the starting snapshot as historic. A file
+    written in that window is never delivered. watchdog has no ready signal,
+    so write a probe until one change comes through (event-driven, never a
+    fixed sleep).
+    """
+    before = watcher.last_change
+    deadline = time.monotonic() + WATCHER_DELIVERY.get_threshold() / 1000
+    n = 0
+    while watcher.last_change == before:
+        assert time.monotonic() < deadline, "the observer never came up"
+        probe.write_text(f"# probe {n}\n")
+        n += 1
+        await asyncio.sleep(0.2)
+
+
 class TestRealObserver:
     @pytest.mark.real_watcher
     async def test_created_file_reaches_the_name_index(self, tmp_path: Path) -> None:
@@ -367,6 +388,9 @@ class TestRealObserver:
         try:
             proj = _project(tmp_path / "proj")
             analyzer = m.get_analyzer(proj.as_posix())
+            await _wait_until_observer_is_live(
+                m.watchers[proj.resolve()], proj / "pkg" / "_probe.py"
+            )
             assert (await resolve("Gamma", analyzer))["found"] is False
             (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
 
