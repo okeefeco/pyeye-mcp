@@ -14,20 +14,32 @@ via :func:`_normalize` so build and eviction can never key it differently) and
 built **whole-project** (the
 union of all scope paths); scope narrowing happens at lookup time in the caller,
 never at build time (baking scope into a project-keyed cache poisons it). Cache
-mechanism is plain invalidate-and-rebuild (no generation counter): a file change
-or project eviction clears the project's entry and the next lookup rebuilds.
+mechanism is plain invalidate-and-rebuild: a file change or project eviction
+clears the project's entry and the next lookup rebuilds. A per-project
+:func:`generation` snapshot stops a build that raced an invalidation from being
+cached (#617).
 
-Phase B (#397) will add ``get_class_graph`` / ``get_import_graph`` to this same
-store and build pass; that work ships separately.
+Phase B (#397) adds the **resolved class graph** (:func:`get_class_graph`), which
+backs the ``subclasses`` edge: every class's facts plus its children bucketed
+under each base's definition site. It shares the name index's lifecycle
+(:func:`invalidate`, :func:`generation`, layout keying), but its build resolves
+bases with Jedi ``goto`` where the AST can't commit, so the analyzer supplies the
+build and runs it on its own (Jedi worker) thread. It is keyed on scope as well,
+because which modules' import tables are in the build decides which bases
+resolve. The import graph for ``imported_by`` follows separately.
 
-Thread-safety: a single module lock guards the cache dict and provides
-single-flight builds, so concurrent first-callers (e.g. via
-``asyncio.to_thread``) build the index once rather than racing.
+Thread-safety: a single module lock guards the cache dicts and provides
+single-flight name-index builds, so concurrent first-callers (e.g. via
+``asyncio.to_thread``) build the index once rather than racing. A class-graph
+build is single-flight under its own per-key lock, so a long build never blocks
+other projects' lookups.
 """
 
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from pyeye import file_artifact_cache
@@ -53,6 +65,48 @@ _name_indices: dict[str, dict[str, NameIndex]] = {}
 Generation = tuple[int, int]
 _generations: dict[str, int] = {}
 _epoch = 0
+
+
+@dataclass(frozen=True)
+class ClassFact:
+    """Where one project class is defined: the facts a ``subclasses`` stub needs."""
+
+    name: str
+    file: Path
+    line: int
+    end_line: int
+    column: int
+
+
+@dataclass(frozen=True)
+class ClassGraph:
+    """A project's resolved class graph for one layout and scope (#397).
+
+    Only strings and ints, never AST nodes or Jedi/parso objects, so a cached
+    graph pins neither the AST LRU nor parso's parse cache (#713). Treat every
+    field as read-only: the graph is shared by every query in its generation.
+
+    Attributes:
+        classes: Every class's dotted name -> its :class:`ClassFact`.
+        children_by_key: A base's definition-site key -> the classes that
+            directly subclass it.
+        import_tables: Per-module AST import tables, used to key a query target
+            the same way bases were keyed (:func:`base_resolution.resolve_base`).
+        module_defines: Per-module top-level definitions, for the same.
+        star_sources: Per-module ``import *`` sources, for the same.
+    """
+
+    classes: dict[str, ClassFact]
+    children_by_key: dict[str, frozenset[str]]
+    import_tables: dict[str, dict[str, str]]
+    module_defines: dict[str, dict[str, str]]
+    star_sources: dict[str, list[str]]
+
+
+#: root -> (layout key, scope key) -> class graph.
+_class_graphs: dict[str, dict[tuple[str, str], ClassGraph]] = {}
+#: (root, layout key, scope key) -> the lock that makes that graph's build single-flight.
+_class_graph_locks: dict[tuple[str, str, str], threading.Lock] = {}
 
 
 def _normalize(project_key: str) -> str:
@@ -218,12 +272,62 @@ def get_name_index(
         return index
 
 
+def get_class_graph(
+    project_key: str,
+    build: Callable[[], ClassGraph],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+    scope_key: str = "",
+) -> ClassGraph:
+    """Return the cached class graph, building it with *build* on first use (#397).
+
+    One build per project, layout and scope per generation; every later call
+    returns the same object until :func:`invalidate` drops it. A dropped graph
+    is rebuilt, never reported empty. Builds are single-flight per key, under
+    a lock of their own rather than the store lock, so a long build (Jedi
+    ``goto`` fallbacks across a large project) doesn't block other lookups.
+
+    *build* runs on the calling thread: it may call Jedi, which must stay on the
+    Jedi worker.
+
+    Args:
+        project_key: The project root, in any spelling (see :func:`_normalize`).
+        build: Builds the graph from the project's current files.
+        generation: The :func:`generation` taken before *build*'s files were
+            listed. If the project was invalidated since, the graph is returned
+            but not cached, because it may predate the change (#617).
+        layout_key: The analyzer's :func:`pyeye.project_layout.layout_key` (#618).
+        scope_key: The search scope the graph was built over.
+
+    Returns:
+        The class graph for that project, layout and scope.
+    """
+    key = _normalize(project_key)
+    sub = (layout_key, scope_key)
+    cached = _class_graphs.get(key, {}).get(sub)
+    if cached is not None:
+        return cached
+    with _lock:
+        build_lock = _class_graph_locks.setdefault((key, *sub), threading.Lock())
+    with build_lock:
+        cached = _class_graphs.get(key, {}).get(sub)  # built while we waited
+        if cached is not None:
+            return cached
+        graph = build()
+        with _lock:
+            if generation is None or generation == (_epoch, _generations.get(key, 0)):
+                _class_graphs.setdefault(key, {})[sub] = graph
+        return graph
+
+
 def invalidate(project_key: str | None = None) -> None:
     """Drop cached graph artifacts so the next lookup rebuilds.
 
     Wired into the file-change watcher path and project eviction. Whole-index
     invalidation is intentional: rebuilds are parse-bound and cheap relative to
-    the correctness cost of a stale or partial index.
+    the correctness cost of a stale or partial index. It drops the name index
+    and every class graph (#397) of the project.
 
     Args:
         project_key: The project to drop; ``None`` clears all projects.
@@ -232,8 +336,10 @@ def invalidate(project_key: str | None = None) -> None:
     with _lock:
         if project_key is None:
             _name_indices.clear()
+            _class_graphs.clear()
             _epoch += 1
         else:
             key = _normalize(project_key)
             _name_indices.pop(key, None)
+            _class_graphs.pop(key, None)
             _generations[key] = _generations.get(key, 0) + 1
