@@ -619,8 +619,10 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
 #: ``io``/``weakref`` recurses ~1500 frames deep in Jedi, which overflows the C
 #: stack and kills the process on Windows / CPython 3.11 (#650).  Since #621
 #: trace no longer walks ``logging`` (expand can't resolve it), but once #623
-#: makes stdlib modules resolvable the walk would reach ``io`` again — re-add
-#: the case when #650 lands.  ``xpkg.text`` (``import textwrap``) stays shallow.
+#: makes stdlib modules resolvable the walk would reach ``io`` again.  #650
+#: guards that only at the server layer (a large-stack worker thread); this test
+#: calls ``trace`` directly on the main thread, so the case stays excluded.
+#: ``xpkg.text`` (``import textwrap``) stays shallow.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (
