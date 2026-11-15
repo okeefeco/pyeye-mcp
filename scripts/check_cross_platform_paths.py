@@ -60,12 +60,6 @@ _PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
 #: Known sites -> count. Only shrinks: each migration through path_utils lowers
 #: or deletes an entry (#717). Generate with ``--print-baseline``.
 BASELINE: dict[tuple[str, str], int] = {
-    ("src/pyeye/_jedi_project.py::<module>", "resolve"): 1,
-    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "relative_to"): 1,
-    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "resolve"): 1,
-    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "os_path"): 1,
-    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "resolve"): 4,
-    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.set_namespace_paths", "resolve"): 1,
     ("src/pyeye/async_utils.py::filtered_rglob", "relative_to"): 1,
     ("src/pyeye/config.py::ProjectConfig.__init__", "resolve"): 1,
     ("src/pyeye/config.py::ProjectConfig._normalise_config_path", "resolve"): 1,

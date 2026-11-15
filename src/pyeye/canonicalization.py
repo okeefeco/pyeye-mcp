@@ -39,14 +39,17 @@ Conservative behavior: return whatever Jedi sees.
 
 from __future__ import annotations
 
+import ast
 import logging
 from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyeye import file_artifact_cache
+from pyeye._module_scope import build_import_table
 from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
+from pyeye.import_analyzer import resolve_relative_import
 from pyeye.project_layout import (
     file_for_module,
     module_name_for_file,
@@ -150,13 +153,18 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
     result: list[str] = []
     queue: deque[str] = deque([handle_str])
 
+    # The walk follows EVERY binding, but only public ones are reported (#712):
+    # a public re-export can be reached through an internal hop
+    # (pkg/b.py defines X; pkg/a.py: from .b import X; pkg/__init__.py:
+    # from .a import X -> pkg.X), so filtering the walk would lose it.
     while queue:
         current_target = queue.popleft()
         new_handles = await _scan_package_for_handle(current_target, package_root, analyzer)
-        for h in new_handles:
+        for h, public in new_handles:
             if h not in visited:
                 visited.add(h)
-                result.append(h)
+                if public:
+                    result.append(h)
                 queue.append(h)
 
     # Return sorted for deterministic ordering
@@ -169,11 +177,13 @@ async def _collect_re_exports_impl(handle: Handle, analyzer: JediAnalyzer) -> li
 
 async def _scan_package_for_handle(
     target_full_name: str, package_root: Path, analyzer: JediAnalyzer
-) -> list[str]:
+) -> list[tuple[str, bool]]:
     """Scan all Python files under *package_root* for names with ``full_name == target_full_name``.
 
-    Returns a list of module-qualified dotted names (``module_path.symbol_name``)
-    for each match, excluding the target itself (the definition site).
+    Returns ``(module_path.symbol_name, is_public)`` for each match, excluding
+    the target itself (the definition site). *is_public* is
+    :func:`_is_public_binding`: only those are re-exports (#712), but the
+    caller walks all of them.
 
     Args:
         target_full_name: The dotted name to search for in Jedi's ``full_name``.
@@ -181,9 +191,9 @@ async def _scan_package_for_handle(
         analyzer: The active ``JediAnalyzer`` instance.
 
     Returns:
-        List of dotted handle strings for re-exporting names found.
+        ``(dotted handle, is_public)`` pairs for every binding found.
     """
-    results: list[str] = []
+    results: list[tuple[str, bool]] = []
 
     # A file that can't be listed or read propagates (#704): skipping it would
     # return a re-export list that claims to be complete. ``re_exports`` has no
@@ -193,25 +203,88 @@ async def _scan_package_for_handle(
     py_files = sorted(filtered_rglob("*.py", package_root))
 
     for py_file in py_files:
-        script = file_artifact_cache.get_script(py_file, analyzer.project)
-        names = script.get_names(all_scopes=False)
+        # Derive the module dotted path for this file (one mapper, #625:
+        # additional-package and root-package files are named too).
+        mod_path = module_name_for_file(analyzer, py_file)
+        if mod_path is None:
+            continue
+        # Each module-scope binding's immediate source, from the shared AST
+        # import table (relative imports resolved, aliases under their alias).
+        # Jedi's full_name followed only ABSOLUTE imports: a package __init__'s
+        # ``from .core import X`` came back as ``pkg.X`` and was never matched
+        # (#712).
+        tree = file_artifact_cache.get_ast(py_file)
+        is_package = py_file.name == "__init__.py"
+        table = build_import_table(tree, mod_path, resolve_relative_import, is_package)
 
-        for name in names:
-            if name.full_name != target_full_name:
+        for surface, source in table.items():
+            if source != target_full_name:
                 continue
-
-            # Derive the module dotted path for this file (one mapper, #625:
-            # additional-package and root-package files are named too).
-            mod_path = module_name_for_file(analyzer, py_file)
-            if mod_path is None:
-                continue
-
-            # Build the re-export handle: module_path.symbol_name
-            re_export_handle = f"{mod_path}.{name.name}"
+            re_export_handle = f"{mod_path}.{surface}"
             if re_export_handle != target_full_name:
-                results.append(re_export_handle)
+                public = _is_public_binding(py_file, mod_path, surface, tree, table)
+                results.append((re_export_handle, public))
 
     return results
+
+
+def _is_private_module(module: str) -> bool:
+    """Whether a dotted module name has a ``_``-prefixed part (dunders aren't private)."""
+    return any(
+        part.startswith("_") and not (part.startswith("__") and part.endswith("__"))
+        for part in module.split(".")
+    )
+
+
+def _static_all(tree: ast.Module) -> set[str]:
+    """The names in a module's ``__all__``, read statically (``=`` and ``+=`` of a literal).
+
+    A dynamic ``__all__`` contributes nothing: it can't be read without running
+    the module, so its names aren't claimed.
+    """
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AugAssign | ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.List | ast.Tuple):
+            names.update(
+                e.value
+                for e in value.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)
+            )
+    return names
+
+
+def _is_public_binding(
+    py_file: Path, module: str, binding: str, tree: ast.Module, table: dict[str, str]
+) -> bool:
+    """Whether binding *binding* in *module* (file *py_file*) is a re-export (#712).
+
+    The user's definition, one of:
+
+    1. *py_file* is a package ``__init__.py``;
+    2. *binding* is listed in the module's ``__all__``;
+    3. *module* is public (no ``_``-prefixed part) and imports *binding* from a
+       module that is private (``pkg/api.py``: ``from ._impl import X``).
+
+    A plain internal import between public modules is not a re-export: the
+    ``imported_by`` edge reports it.
+    """
+    if py_file.name == "__init__.py":
+        return True
+    if binding in _static_all(tree):
+        return True
+    if _is_private_module(module):
+        return False
+    source = table.get(binding)
+    return source is not None and _is_private_module(source.rsplit(".", 1)[0])
 
 
 def _is_valid_handle(value: str) -> bool:
