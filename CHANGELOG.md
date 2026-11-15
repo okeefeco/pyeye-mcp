@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `trace` responses now include `unresolved_nodes` (#621), always present: the interior nodes `trace` reached but could not resolve, the same handles `expand` answers `found: false` for. They stay in `nodes` but are not walked, so a listed node is a dead end of the walk, not a node with no neighbours.
-
 - Framework plugin tools (Pydantic, Django, Flask) take an opt-in `envelope` argument that reports what was searched (#594). By default a plugin tool returns a bare list: an empty answer is zero content items, and nothing says which scope was searched, so "these are all the models" looked the same as "these are the main repo's models". With `envelope=true` every plugin tool returns `{scope, searched, unsearched_scopes, results}`:
   - `scope` is the scope as requested or defaulted.
   - `searched` lists the configured scopes (`main`, `packages`, each `namespace:<name>`) whose paths were all searched.
@@ -22,11 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `trace` now walks exactly what `expand` supports (#621). It used to expand interior nodes that `expand` refuses: before #623 it walked `logging` and `io` while `expand("logging", …)` answered not found. On Windows with CPython 3.11 that walk could reach a ~1500-frame Jedi recursion and crash the server. Now every hop is the same computation as `expand(node, edge)`, and a node `expand` can't resolve is listed in the new `unresolved_nodes` instead of being walked.
-  - An edge that doesn't apply to a node's kind, such as `trace(SomeClass, ["imports"])`, is now reported in `unsupported_edges` with `expand`'s reason and detail. It used to come back as a measured-empty walk with `unresolved_imports: {}`. `unresolved_imports` and `unresolved_call_sites` are now present only when their edge was actually walked.
-  - `max_nodes` no longer keeps part of a hop. A node's adjacents along an edge are added all together or not at all; a hop that doesn't fit records no edges and sets `truncation_reasons`. So `trace(module, ["members"], max_nodes=3)` returns only the module and reports `max_nodes`, instead of 2 of its 7 members.
-  - No field was removed or renamed. Clients that treated an empty `unsupported_edges` as "every edge applied to every node" should read the entries' `detail`.
-  - The recursion itself is guarded separately: the server now runs Jedi work on a large-stack thread (#650).
 - Code changes now reach pyeye's caches in a default setup (#617). Without a `.pyeye.json` that listed extra packages, no file watcher started, so `resolve` kept reporting a new or edited symbol as not found until restart. Even with a watcher, these were missed:
   - **Created, deleted and moved files:** only edits to existing files were handled.
   - **Batched changes:** only the first file of a batch was passed on.

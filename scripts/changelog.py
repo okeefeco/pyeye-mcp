@@ -2,15 +2,24 @@
 """Release tooling for the hand-curated CHANGELOG.md (#583).
 
 Versions come from git tags (setuptools_scm, #210); the CHANGELOG is written by
-hand. This script connects the two without generating any prose:
+hand. This script connects the two without generating any prose.
 
-* ``prepare X.Y.Z``: turn ``[Unreleased]`` into ``[X.Y.Z] - <today>`` for a
-  release PR, checking the bump level against the content.
+PRs don't edit ``[Unreleased]``; each adds a hand-written fragment,
+``changes/<issue>.<category>.md`` (``<issue>-<n>`` for a second PR on the same
+issue), holding one or more ``- `` bullets (#660). Categories map to headings:
+see :data:`CATEGORIES`.
+
+* ``prepare X.Y.Z``: collect the fragments and any bullets already under
+  ``[Unreleased]`` into ``[X.Y.Z] - <today>`` for a release PR, checking the
+  bump level against the result, then delete the fragments.
 * ``notes X.Y.Z``: print one version's section (the GitHub Release body).
 * ``latest``: print the newest released version.
 * ``pending-release``: print the version ``tag-release.yml`` should tag after a
   merge, or nothing.
-* ``check``: validate structure and tag consistency (CI).
+* ``check``: validate structure, tag consistency and fragment names (CI).
+* ``no-breaking``: print how many breaking changes are pending (an
+  ``[Unreleased]`` ``### BREAKING CHANGES`` heading or ``*.breaking.md``
+  fragments) and fail if any are: the v2.x guard.
 
 Stdlib only, so CI can run it with a bare ``python`` before any env is synced.
 """
@@ -27,6 +36,24 @@ from pathlib import Path
 
 CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
 UNRELEASED = "Unreleased"
+FRAGMENTS_DIRNAME = "changes"
+
+#: Fragment category -> CHANGELOG heading, in the order a release section lists
+#: them (Keep a Changelog, with breaking changes first as in 1.0.0 and 2.0.0).
+CATEGORIES: dict[str, str] = {
+    "breaking": "BREAKING CHANGES",
+    "added": "Added",
+    "changed": "Changed",
+    "deprecated": "Deprecated",
+    "removed": "Removed",
+    "fixed": "Fixed",
+    "security": "Security",
+}
+#: Files in ``changes/`` that aren't fragments.
+_NOT_FRAGMENTS = frozenset({"README.md", ".gitkeep"})
+_FRAGMENT_NAME = re.compile(r"^(?P<issue>\d+)(?:-(?P<n>\d+))?\.(?P<category>[^.]+)\.md$")
+_MD_HEADING = re.compile(r"^#{1,6}\s")
+_SUBHEADING = re.compile(r"^###\s+(?P<title>.+?)\s*$")
 
 _HEADING = re.compile(r"^## (?P<rest>.*)$")
 _SECTION = re.compile(
@@ -56,6 +83,136 @@ class Section:
     def released(self) -> bool:
         """Whether this is a versioned (not Unreleased) section."""
         return self.name != UNRELEASED
+
+
+@dataclass(frozen=True)
+class Fragment:
+    """One ``changes/<issue>[-<n>].<category>.md`` file."""
+
+    path: Path
+    issue: int
+    n: int
+    category: str
+    text: str
+
+
+def parse_fragment_name(name: str) -> tuple[int, int, str]:
+    """``(issue, n, category)`` for a fragment file name; raises if it isn't one."""
+    m = _FRAGMENT_NAME.match(name)
+    if not m:
+        raise ChangelogError(
+            f"{name}: not a fragment name (expected <issue>.<category>.md or "
+            "<issue>-<n>.<category>.md)"
+        )
+    if m["category"] not in CATEGORIES:
+        raise ChangelogError(
+            f"{name}: unknown category {m['category']!r} (one of: {', '.join(CATEGORIES)})"
+        )
+    return int(m["issue"]), int(m["n"] or 0), m["category"]
+
+
+def _content_problem(text: str) -> str | None:
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return "is empty"
+    if not lines[0].startswith("- "):
+        return "must start with a '- ' bullet"
+    if any(_MD_HEADING.match(line) for line in lines):
+        return "must not contain a heading (the category is in the file name)"
+    return None
+
+
+def fragment_problems(directory: Path) -> list[str]:
+    """Every problem with the fragments in *directory* (missing directory: none)."""
+    if not directory.is_dir():
+        return []
+    problems = []
+    for path in sorted(directory.iterdir(), key=lambda p: p.name):
+        if path.name in _NOT_FRAGMENTS:
+            continue
+        rel = f"{FRAGMENTS_DIRNAME}/{path.name}"
+        if not path.is_file():
+            problems.append(f"{rel}: not a file")
+            continue
+        try:
+            parse_fragment_name(path.name)
+        except ChangelogError as exc:
+            problems.append(f"{FRAGMENTS_DIRNAME}/{exc}")
+            continue
+        problem = _content_problem(path.read_text(encoding="utf-8"))
+        if problem:
+            problems.append(f"{rel} {problem}")
+    return problems
+
+
+def read_fragments(directory: Path) -> list[Fragment]:
+    """The fragments in *directory*, by issue then suffix; raises on any problem."""
+    problems = fragment_problems(directory)
+    if problems:
+        raise ChangelogError("invalid changelog fragments:\n  " + "\n  ".join(problems))
+    if not directory.is_dir():
+        return []
+    fragments = []
+    for path in directory.iterdir():
+        if path.name in _NOT_FRAGMENTS:
+            continue
+        issue, n, category = parse_fragment_name(path.name)
+        fragments.append(Fragment(path, issue, n, category, path.read_text(encoding="utf-8")))
+    return sorted(fragments, key=lambda f: (f.issue, f.n))
+
+
+def assemble(body: str, fragments: list[Fragment]) -> str:
+    """Merge *fragments* into an ``[Unreleased]`` *body*, ordered by :data:`CATEGORIES`.
+
+    Existing content under a heading is kept verbatim and comes first; each
+    fragment's bullets follow, in fragment order. Text before the first
+    ``###`` heading stays on top, and headings that aren't a category keep
+    their place after the known ones.
+    """
+    preamble: list[str] = []
+    blocks: dict[str, list[str]] = {}  # heading title -> content parts
+    current: list[str] = preamble
+    by_title = {title.lower(): title for title in CATEGORIES.values()}
+    for line in body.splitlines():
+        m = _SUBHEADING.match(line)
+        if m:
+            title = by_title.get(m["title"].lower(), m["title"])
+            current = blocks.setdefault(title, [])
+            current.append("")  # separates content from an earlier same-titled block
+            continue
+        current.append(line)
+    parts = {title: ["\n".join(lines).strip()] for title, lines in blocks.items()}
+    for fragment in fragments:
+        parts.setdefault(CATEGORIES[fragment.category], []).append(fragment.text.strip())
+
+    known = [t for t in CATEGORIES.values() if t in parts]
+    others = [t for t in parts if t not in CATEGORIES.values()]
+    out = ["\n".join(preamble).strip()]
+    for title in known + others:
+        content = "\n".join(part for part in parts[title] if part)
+        if content:
+            out.append(f"### {title}\n\n{content}")
+    return "\n\n".join(chunk for chunk in out if chunk)
+
+
+def breaking_pending(text: str, directory: Path) -> list[str]:
+    """What would make the next release breaking: the v2.x guard's findings.
+
+    An ``[Unreleased]`` ``### BREAKING CHANGES`` heading, and every
+    ``*.breaking.md`` file in *directory*, whether or not its name is otherwise
+    valid.
+    """
+    found = []
+    for section in parse(text):
+        if not section.released and _BREAKING.search(section.body):
+            found.append(f"[Unreleased] (line {section.line}) has '### BREAKING CHANGES'")
+    if directory.is_dir():
+        found += sorted(
+            f"{FRAGMENTS_DIRNAME}/{path.name}"
+            for path in directory.iterdir()
+            if path.name.endswith(".breaking.md")
+        )
+    return found
 
 
 def version_key(version: str) -> tuple[int, int, int, int, int]:
@@ -145,15 +302,29 @@ def bump_kind(previous: str, new: str) -> str:
 _BUMP_ORDER = {"patch": 0, "minor": 1, "major": 2}
 
 
-def prepare(text: str, version: str, tags: list[str], today: str) -> str:
-    """Return *text* with ``[Unreleased]`` promoted to ``[version] - today``."""
+def prepare(
+    text: str,
+    version: str,
+    tags: list[str],
+    today: str,
+    fragments: list[Fragment] | None = None,
+) -> str:
+    """Return *text* with ``[Unreleased]`` and *fragments* released as ``[version] - today``.
+
+    The new section is :func:`assemble`'s merge of the existing ``[Unreleased]``
+    body and the fragments; ``[Unreleased]`` is left empty. Deleting the
+    fragment files is the caller's job, after the result is written.
+    """
     sections = parse(text)
     unreleased = [s for s in sections if not s.released]
     if len(unreleased) != 1:
         raise ChangelogError("expected exactly one '## [Unreleased]' section")
-    body = unreleased[0].body
+    body = assemble(unreleased[0].body, fragments or [])
     if not body:
-        raise ChangelogError("[Unreleased] is empty; nothing to release")
+        raise ChangelogError(
+            f"[Unreleased] is empty and there are no {FRAGMENTS_DIRNAME}/ fragments; "
+            "nothing to release"
+        )
 
     known = [s.name for s in released(sections)] + tags
     if version in known:
@@ -166,14 +337,18 @@ def prepare(text: str, version: str, tags: list[str], today: str) -> str:
         if _BUMP_ORDER[got] < _BUMP_ORDER[need]:
             reason = "### BREAKING CHANGES" if _BREAKING.search(body) else "### Added"
             raise ChangelogError(
-                f"{previous} -> {version} is a {got} bump, but [Unreleased] has "
+                f"{previous} -> {version} is a {got} bump, but the release notes have "
                 f"'{reason}', which needs at least a {need} bump"
             )
 
     lines = text.splitlines(keepends=True)
-    idx = unreleased[0].line - 1
-    lines[idx] = f"## [{UNRELEASED}]\n\n## [{version}] - {today}\n"
-    return "".join(lines)
+    start = unreleased[0].line - 1
+    later = [s.line - 1 for s in sections if s.line > unreleased[0].line]
+    end = later[0] if later else len(lines)
+    new = f"## [{UNRELEASED}]\n\n## [{version}] - {today}\n\n{body}\n"
+    if later:
+        new += "\n"
+    return "".join(lines[:start]) + new + "".join(lines[end:])
 
 
 def notes(text: str, version: str) -> str:
@@ -288,21 +463,33 @@ def main(argv: list[str] | None = None) -> int:
     p_pend.add_argument(
         "--head-message", required=True, help="full message of the merge commit on main"
     )
-    p_check = sub.add_parser("check", help="validate CHANGELOG.md (CI)")
+    p_check = sub.add_parser("check", help="validate CHANGELOG.md and fragments (CI)")
     p_check.add_argument("--no-tags", action="store_true", help="skip tag consistency")
+    sub.add_parser(
+        "no-breaking",
+        help="print the number of pending breaking changes; fail if any (v2.x guard)",
+    )
     args = parser.parse_args(argv)
 
     path: Path = args.changelog
     text = path.read_text(encoding="utf-8")
     repo = path.resolve().parent
+    fragments_dir = repo / FRAGMENTS_DIRNAME
     try:
         if args.command == "prepare":
             version_key(args.version)
             today = args.date or _dt.datetime.now(_dt.UTC).date().isoformat()
+            fragments = read_fragments(fragments_dir)
             path.write_text(
-                prepare(text, args.version, git_tag_versions(repo), today), encoding="utf-8"
+                prepare(text, args.version, git_tag_versions(repo), today, fragments),
+                encoding="utf-8",
             )
-            print(f"Promoted [Unreleased] to [{args.version}] - {today} in {path.name}.")
+            for fragment in fragments:
+                fragment.path.unlink()
+            print(
+                f"Released [Unreleased] and {len(fragments)} fragment(s) as "
+                f"[{args.version}] - {today} in {path.name}."
+            )
             print(
                 f"Next: commit and open a PR, both titled '{release_title(args.version)}'. "
                 "Merging it tags and publishes."
@@ -319,12 +506,20 @@ def main(argv: list[str] | None = None) -> int:
                 raise ChangelogError(
                     "no v* tags found; fetch tags (fetch-depth: 0) or pass --no-tags"
                 )
-            problems = check(text, tags)
+            problems = [f"CHANGELOG.md: {p}" for p in check(text, tags)]
+            problems += fragment_problems(fragments_dir)
             for problem in problems:
-                print(f"CHANGELOG.md: {problem}", file=sys.stderr)
+                print(problem, file=sys.stderr)
             if problems:
                 return 1
             print(f"CHANGELOG.md OK ({len(released(parse(text)))} released versions)")
+        elif args.command == "no-breaking":
+            found = breaking_pending(text, fragments_dir)
+            print(len(found))
+            for item in found:
+                print(f"breaking change pending: {item}", file=sys.stderr)
+            if found:
+                return 1
     except ChangelogError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
