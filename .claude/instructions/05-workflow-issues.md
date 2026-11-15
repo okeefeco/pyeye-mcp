@@ -70,13 +70,15 @@ git checkout -b <branch-name>  # Create feature branch
 
 ### Our Approach
 
-This project uses **squash merge only** (#607). Each PR lands on `main` as ONE commit whose subject is the PR title. The repo enforces it: merge commits and rebase merges are disabled, the squash title is always the PR title, and merged head branches are deleted automatically.
+This project uses **squash merge only** (#607) **through GitHub's merge queue** (#649). Each PR lands on `main` as ONE commit whose subject is the PR title. The repo enforces it: merge commits and rebase merges are disabled, the squash title is always the PR title, and merged head branches are deleted automatically. The queue re-runs the required checks on each PR on top of the latest `main` before merging, so PRs no longer need to be brought up to date by hand.
 
 ### Consequences You MUST Account For
 
 - **The PR title IS the commit subject on `main`.** It MUST be a valid conventional commit (`type(scope): summary (#N)`). Release PRs MUST be titled exactly `chore(release): vX.Y.Z`, because `tag-release.yml` keys on it.
 - **Branch commits never reach `main`.** NEVER test "is it merged?" with commit ancestry (`git branch -r --contains`, `git merge-base --is-ancestor`, `git branch -d`). After a squash merge they report "not merged". Use the PR state instead (see `04-agent-triggers.md`).
 - **Branch commits are still the review history.** Keep them clean and logical; "fix" commits during review are fine, because they collapse on merge.
+- **Merging is asynchronous.** `gh pr merge --squash` only queues the PR. It is merged when `gh pr view <N> --json state` says `MERGED`. NEVER run `gh pr update-branch` (or merge `main` in) just to unblock a merge; the queue does that. Merge `main` in only to resolve a real conflict.
+- **Every required check must run on `merge_group`.** A new required check that reports only on `pull_request` leaves the queue waiting until it times out. `tests/test_ci_merge_group.py` enforces this for `ci.yml`; update it, and its `REQUIRED_CHECKS`, together with the ruleset.
 - **Never force push to shared branches** - Especially after others have reviewed or pulled
 
 ### Merging Process
@@ -84,7 +86,7 @@ This project uses **squash merge only** (#607). Each PR lands on `main` as ONE c
 When your PR is approved:
 
 ```bash
-gh pr merge <PR-NUMBER> --squash
+gh pr merge <PR-NUMBER> --squash   # queues it; poll `gh pr view <N> --json state` for MERGED
 
 # Disabled on this repo; don't use:
 # gh pr merge <PR-NUMBER> --merge   ❌
