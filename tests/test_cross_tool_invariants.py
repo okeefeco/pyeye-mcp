@@ -257,6 +257,9 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package", "found", _ISSUE_625, ("bare",)),
     **_agree("src_layout", "package_var", "found", _ISSUE_625, ("bare",)),
+    # #625: in a root-package project (root has `__init__.py`) resolve finds the
+    # root package itself; inspect/outline/expand/trace don't.
+    **_agree("root_package", "root_package", "found", _ISSUE_625, _BOTH_MODES),
     # == 4. trace vs expand =================================================
     # #621: trace expands `logging`, which expand refuses as unresolved.
     ("trace_expand", "xpkg.core", "imports", "logging", "expanded_but_refused"): _ISSUE_621,
@@ -541,10 +544,19 @@ _SRC_LAYOUT_ENTRIES = (
     _Entry("package_var", "mypackage.__version__", ("src/mypackage/__init__.py", 3, 0)),
 )
 
+#: A root-package project: the root directory itself has ``__init__.py``, so
+#: the project root IS the top-level package (``lookup_project``).
+_ROOT_PACKAGE_ENTRIES = (
+    _Entry("root_package", "lookup_project", None),
+    _Entry("module", "lookup_project.models", None),
+    _Entry("class", "lookup_project.models.ServiceConfig", ("models.py", 8, 6)),
+)
+
 #: corpus name -> (project root, entries)
 _AGREE_CORPORA: dict[str, tuple[Path, tuple[_Entry, ...]]] = {
     "cross_tool": (_XTOOL, _XTOOL_ENTRIES),
     "src_layout": (_FIXTURES / "added_sys_path_project", _SRC_LAYOUT_ENTRIES),
+    "root_package": (_FIXTURES / "lookup_project", _ROOT_PACKAGE_ENTRIES),
 }
 
 _FIELDS = ("found", "handle", "kind", "scope")
