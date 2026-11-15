@@ -348,6 +348,20 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
 
 
+def _own_source(jedi_name: Any) -> Path | None:
+    """The source file an edge reads for *jedi_name*, or ``None`` when it has none.
+
+    A PEP 420 namespace package is anchored on its DIRECTORY (#444): it has no
+    module body, so it has no members, imports or callees of its own. That is
+    a measured empty, decided here explicitly, not by catching the
+    ``IsADirectoryError`` a read would raise (#704 made that a crash).
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is None or Path(module_path).is_dir():
+        return None
+    return Path(module_path)
+
+
 def _handle_for_name(
     name: Any, analyzer: JediAnalyzer, full_name: str | None = None
 ) -> Handle | None:
@@ -416,7 +430,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     Returns:
         A list of ``(canonical Handle, Jedi Name)`` pairs for direct members.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return []
 
@@ -479,7 +493,7 @@ def _module_members(
         without re-resolving.  Dedup is by handle string, keeping the first
         ``Name``.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return []
 
@@ -633,7 +647,7 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """
     # Callers check edge_applies("callees", …) first (#626): functions and
     # methods (Jedi also reports @property getters as functions).
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
         return EdgeResult(adjacents=[], unresolved_call_sites=0)
@@ -1079,7 +1093,7 @@ def superclass_bases(
     # applicability table rather than a re-derived kind (#626).
     if not edge_applies("superclasses", jedi_name):
         return None
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
         return None
@@ -1202,7 +1216,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    file_path = getattr(jedi_name, "module_path", None)
+    file_path = _own_source(jedi_name)
     if file_path is None:
         return EdgeResult(adjacents=[])
 

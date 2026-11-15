@@ -284,3 +284,18 @@ class TestEdgeOwnFileLoads:
         result = await expand("pkg.mod.Thing", "enclosing_scope", JediAnalyzer(str(edge_project)))
 
         assert [s["handle"] for s in result["stubs"]] == ["pkg.mod"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("edge", ["members", "imports"])
+async def test_a_namespace_package_has_no_own_source_not_a_crash(tmp_path: Path, edge: str) -> None:
+    """A PEP 420 package is anchored on its directory: a measured empty, decided explicitly."""
+    from pyeye.mcp.operations.expand import expand
+
+    (tmp_path / "nspkg" / "sub").mkdir(parents=True)
+    (tmp_path / "nspkg" / "sub" / "__init__.py").write_text("X = 1\n")
+
+    result = await expand("nspkg", edge, JediAnalyzer(str(tmp_path)))
+
+    assert result["found"] is True
+    assert result["stubs"] == []
