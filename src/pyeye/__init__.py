@@ -20,3 +20,10 @@ except ImportError:
     __version_tuple__ = (0, 0, 0)
 
 __all__ = ["__version__"]
+
+# The ONE place pyeye sets parso's cache policy (#684). Package import runs it
+# before any pyeye module touches Jedi, on every thread (the setting is
+# module-global, so the Jedi worker thread is covered too).
+from ._parso_cache import disable_parso_cache_gc  # noqa: E402
+
+disable_parso_cache_gc()
