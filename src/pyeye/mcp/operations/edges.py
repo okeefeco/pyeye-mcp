@@ -74,6 +74,8 @@ from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
+from pyeye.resolver import Resolved, resolve_handle
+from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -668,6 +670,43 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
 # ---------------------------------------------------------------------------
 
 
+def _canonical_import_targets(
+    adjacents: list[tuple[Handle, Any]], source: str | None, analyzer: JediAnalyzer
+) -> list[tuple[Handle, Any]]:
+    """Emit each EXTERNAL import target under its canonical handle (#623, #602).
+
+    ``goto`` on an import lands where typeshed says the name lives, which is
+    sometimes a private module (``_datetime.datetime``, ``_typing.TypeVar``) or
+    the importing module itself (typeshed's ``io.pyi`` imports from ``_io``,
+    which Jedi reports back as ``io``).  An external target is re-resolved
+    through :func:`pyeye.resolver.resolve_handle`, so the emitted handle is the
+    one ``resolve`` and ``inspect`` report; a target equal to *source* (a
+    self-edge) is dropped; duplicates collapse.  A target the resolver can't
+    place keeps Goto's handle, so the miss stays visible to the round-trip
+    test rather than vanishing.
+
+    Only ``imports`` does this.  Project targets, and every other edge's
+    targets, are definition-site by construction (Jedi ``full_name`` of a
+    project definition), which ``tests/test_cross_tool_invariants.py``'s
+    round-trip test enforces for every edge.  ``imports`` is also not an
+    ``inspect.edge_counts`` edge, so this can't break count == expand (#599).
+    """
+    out: list[tuple[Handle, Any]] = []
+    seen: set[str] = set()
+    for handle, name in adjacents:
+        module_path = getattr(name, "module_path", None)
+        if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
+            resolved = resolve_handle(str(handle), analyzer)
+            if isinstance(resolved, Resolved) and resolved.handle != str(handle):
+                handle, name = Handle(resolved.handle), resolved.anchor
+        key = str(handle)
+        if key == source or key in seen:
+            continue
+        seen.add(key)
+        out.append((handle, name))
+    return out
+
+
 async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """Return the modules that import a target module as canonical handles.
 
@@ -750,7 +789,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
 
     The outbound-but-reliably-static ``subclasses`` edge for a **class** handle.
     Reuses :meth:`JediAnalyzer.find_subclasses` — an AST class-graph walk +
-    forward ``goto``/``resolve_canonical`` (NO ``Script.get_references``, the
+    forward ``goto``/``resolver.resolve_handle`` (NO ``Script.get_references``, the
     same load-bearing trust constraint as ``callees`` / ``imported_by``).
     ``subclasses`` is an **expand-only** edge: ``inspect``
     does NOT measure it (dropped in #392; a cheap direct count is gated on the
@@ -1150,6 +1189,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
                 seen.add(key)
                 adjacents.append((h, name))
 
+    adjacents = _canonical_import_targets(
+        adjacents, getattr(jedi_name, "full_name", None), analyzer
+    )
+
     # Sort by canonical handle string for deterministic order (mirrors
     # resolve_subclasses / resolve_superclasses).
     adjacents.sort(key=lambda pair: str(pair[0]))
@@ -1404,9 +1447,16 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
         for handle, cand in local.items():
             chosen.setdefault(handle, cand)
 
+    # A child whose name is not an identifier (``show-newlines.py``, ``2fast.py``)
+    # cannot be imported as a submodule, so it is not one (#597).  Filtering HERE,
+    # in the source-of-truth, keeps the ``inspect`` count equal to the edge.
+    #
     # Sort by the FULL handle — a total order independent of iterdir, so output is
     # deterministic across runs/platforms (not just by bare child name).
-    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
+    return sorted(
+        (entry for _, entry in chosen.values() if _try_handle(entry.handle) is not None),
+        key=lambda e: e.handle,
+    )
 
 
 def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
