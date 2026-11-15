@@ -182,26 +182,18 @@ class TestFindSymbolAcrossPackages:
 
 
 class TestAdditionalPackageModuleNaming:
-    """The additional-package module name belongs in ``_index_module_name`` (the
-    name-index namer), NOT in the shared ``_get_import_path_for_file`` — so the
-    #457 name index gets the right ``full_name`` without silently changing that
-    shared helper's contract for its other callers (``find_importers`` /
-    ``resolve`` / ``lookup``), which kept returning ``None`` for these files.
+    """One file -> module mapper (#625) names additional-package files.
+
+    Before #625 the name index (``_index_module_name``) named them while the
+    shared ``_get_import_path_for_file`` returned ``None``, so ``find_importers``
+    and ``resolve(<file>)`` silently dropped them (#619). There is now one
+    mapper, and an additional path is a sys.path-style root.
     """
 
-    def test_get_import_path_for_file_does_not_map_additional_files(self, cross_project_setup):
+    def test_get_import_path_for_file_maps_additional_package_file(self, cross_project_setup):
         analyzer = _make_analyzer(cross_project_setup)
         utils = cross_project_setup["shared"] / "utils.py"
-        # Shared helper's pre-name-index contract: it does not resolve
-        # additional-package files (that is _index_module_name's job).
-        assert analyzer._get_import_path_for_file(utils) is None
-
-    def test_index_module_name_maps_additional_package_file(self, cross_project_setup):
-        analyzer = _make_analyzer(cross_project_setup)
-        utils = cross_project_setup["shared"] / "utils.py"
-        # The name index still gets the importable module name (sys.path root is
-        # the additional path itself), matching old Jedi: utils, not None.
-        assert analyzer._index_module_name(utils) == "utils"
+        assert analyzer._get_import_path_for_file(utils) == "utils"
 
 
 class TestFindSymbolAcrossNamespaces:

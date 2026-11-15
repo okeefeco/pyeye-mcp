@@ -1,8 +1,9 @@
 """Tests for ``path_utils.dedupe_paths`` — the shared root-list deduper (#423 review).
 
-``dedupe_paths`` is the single dedupe-by-resolved-identity helper that both
-``edges._analyzer_roots`` (namespace-portion union; original paths kept) and
-``resolve._project_roots`` (root-promotion comparison; resolved paths) ride on.
+``dedupe_paths`` is the single dedupe-by-resolved-identity helper that
+``project_layout.project_roots`` (#625) rides on, for every roots boundary:
+original paths kept (e.g. ``NAMESPACE_PORTIONS``) or resolved ones
+(``resolved=True``, e.g. ``TOP_LEVEL_PACKAGE`` root-promotion comparison).
 """
 
 from __future__ import annotations

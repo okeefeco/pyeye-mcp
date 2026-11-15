@@ -71,7 +71,7 @@ from pyeye.canonicalization import (
     resolve_canonical,
 )
 from pyeye.handle import Handle
-from pyeye.path_utils import dedupe_paths
+from pyeye.project_layout import RootsBoundary, project_roots
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -269,22 +269,6 @@ def _candidate_sort_key(candidate: _Candidate) -> tuple[int, str, int]:
     )
 
 
-def _project_roots(analyzer: JediAnalyzer) -> list[Path]:
-    """Return the resolved project roots a top-level package may sit directly under.
-
-    The ``project_path`` plus any src-layout ``source_roots`` (e.g. ``src/``),
-    **resolved** for symlink-stable ``==`` comparison.  Used by
-    :func:`_is_top_level_package` clause (2) to test whether a package directory's
-    parent is a genuine project root.
-
-    Deliberately does NOT include ``analyzer.added_sys_path`` (configured external
-    package roots): bare-name promotion is only for the *project's own* top-level
-    package.  Contrast :func:`edges._analyzer_roots`, which includes it for the
-    namespace-portion union; both share :func:`pyeye.path_utils.dedupe_paths`.
-    """
-    return dedupe_paths([analyzer.project_path, *analyzer.source_roots], resolve_output=True)
-
-
 def _parent_is_root(path: Path, roots: list[Path]) -> bool:
     """Return whether *path*'s parent resolves to one of the project *roots*."""
     try:
@@ -335,7 +319,9 @@ def _is_top_level_package(candidate: _Candidate, name: str, analyzer: JediAnalyz
     if path.name != "__init__.py":
         return False
     pkg_dir = path.parent
-    return pkg_dir.name == name and _parent_is_root(pkg_dir, _project_roots(analyzer))
+    return pkg_dir.name == name and _parent_is_root(
+        pkg_dir, project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE, resolved=True)
+    )
 
 
 def _select_root_package(

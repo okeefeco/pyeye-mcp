@@ -174,9 +174,11 @@ result = func()
         import_paths = await analyzer.find_reexports("User", "models.user", str(user_file))
 
         assert len(import_paths) >= 1
-        assert "from models.user import User" in import_paths
+        assert "from reexport_test.models.user import User" in import_paths
+        # reexport_test is itself a package, so module names carry its prefix
+        # (#625: one file -> module mapper, matching Jedi full_name).
         # Should also find the re-export from models/__init__.py
-        assert "from models import User" in import_paths
+        assert "from reexport_test.models import User" in import_paths
 
     @pytest.mark.asyncio
     async def test_find_symbol_with_import_paths(self):
@@ -213,11 +215,11 @@ result = func()
 
         assert len(import_paths) >= 1
         # Direct import
-        assert "from core.auth.authenticator import Authenticator" in import_paths
+        assert "from reexport_test.core.auth.authenticator import Authenticator" in import_paths
         # Re-export from auth/__init__.py
-        assert "from core.auth import Authenticator" in import_paths
+        assert "from reexport_test.core.auth import Authenticator" in import_paths
         # Re-export from core/__init__.py
-        assert "from core import Authenticator" in import_paths
+        assert "from reexport_test.core import Authenticator" in import_paths
 
     @pytest.mark.asyncio
     async def test_find_reexports_with_longer_file_path(self):
@@ -234,7 +236,7 @@ result = func()
         # The function should use the file path to get full module
         assert len(import_paths) >= 1
         # Even with short module input, we get the re-export
-        assert "from models import User" in import_paths
+        assert "from reexport_test.models import User" in import_paths
 
     def test_find_init_file_with_matching_base_name(self):
         """Test _find_init_file when base directory name matches module prefix."""
