@@ -175,17 +175,19 @@ repos:
         # 'test_*' — they are sample code under analysis, not pytest cases.
         exclude: '^tests/.*(fixtures|utils)/|response_linter\.py$'
 
-  # Project-specific checks
-  # Cross-platform path checker - useful for periodic audits but has false positives
-  # To run manually: python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
-  # - repo: local
-  #   hooks:
-  #     - id: check-cross-platform-paths
-  #       name: Check cross-platform path usage
-  #       entry: python scripts/check_cross_platform_paths.py
-  #       language: system
-  #       files: '\.py$'
-  #       exclude: '^(tests/fixtures/|scripts/check_cross_platform_paths\.py)'
+  # Path ownership ratchet (#717): only pyeye.path_utils / project_layout may
+  # normalise or compare paths (.resolve(), os.path.realpath/abspath,
+  # relative_to, str(path) comparisons). Fails on a site not in the script's
+  # BASELINE, and on a baselined site that has gone (lower or delete its
+  # entry). pytest runs the same ratchet (tests/test_path_ownership.py).
+  - repo: local
+    hooks:
+      - id: path-ownership
+        name: Path ownership ratchet
+        entry: uv run --frozen python scripts/check_cross_platform_paths.py
+        language: system
+        files: ^(src/pyeye/.*|scripts/check_cross_platform_paths)\.py$
+        pass_filenames: false
 
   # JSON validation
   - repo: local

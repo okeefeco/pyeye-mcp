@@ -71,6 +71,10 @@ Truncation reasons (spec §5.4)
   []`` would falsely claim it measured-empty.  One emptiness peek; no
   ``member_count`` (a count per leaf is too costly on large surveys).  Recovery:
   ``outline`` the node itself.  A module with no members stays ``children: []``.
+- ``"unparseable"`` — the node's own file can't be parsed by the server's
+  interpreter (#703), e.g. code using newer syntax, so its members were not
+  measured.  No count.  Never ``children: []``.  Recovery: ``Read`` the file, or
+  run pyeye on a newer Python.
 
 Survey disclosure (#596): a walked package in survey mode carries
 ``member_count`` — the count of members its own ``__init__`` defines, which the
@@ -92,9 +96,16 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from pyeye.mcp.operations.completeness import EXTERNAL, MAX_DEPTH, MAX_NODES, SURVEY_LEAF
+from pyeye.mcp.operations.completeness import (
+    EXTERNAL,
+    MAX_DEPTH,
+    MAX_NODES,
+    SURVEY_LEAF,
+    UNPARSEABLE,
+)
 from pyeye.mcp.operations.edges import (
     EDGE_APPLIES_TO,
+    UnparseableSource,
     edge_applies,
     resolve_members,
     resolve_submodules,
@@ -116,6 +127,7 @@ _REASON_MAX_DEPTH: str = MAX_DEPTH
 _REASON_MAX_NODES: str = MAX_NODES
 _REASON_EXTERNAL: str = EXTERNAL
 _REASON_SURVEY_LEAF: str = SURVEY_LEAF
+_REASON_UNPARSEABLE: str = UNPARSEABLE
 
 # ``<edge>_count`` keys (#599): each count is named for the edge it measures and
 # mirrors ``inspect(handle).edge_counts[<edge>]``.  Whether a count was WITHHELD by
@@ -260,7 +272,12 @@ def _disclose_unlisted_members(
     """
     if not survey_mode:
         return
-    unlisted = len(resolve_members(jedi_name, analyzer).adjacents)
+    try:
+        unlisted = len(resolve_members(jedi_name, analyzer).adjacents)
+    except UnparseableSource:
+        # #703: the package's ``__init__`` doesn't parse, so its member count is
+        # unknown: omitted (not measured), never 0.  Its submodules are still listed.
+        return
     if unlisted:
         tree_node[_MEMBER_COUNT] = unlisted
 
@@ -270,9 +287,10 @@ def _summarise_truncation(root_tree: dict[str, Any]) -> None:
 
     The sorted set of every node's ``truncation_reason``, so a real ``max_nodes``
     cut isn't hidden among hundreds of ``survey_leaf`` nodes.  It is named and
-    shaped like ``trace``'s.  Absent when no node was truncated (absence, not
-    an empty list).  There is no result-level ``truncated`` on ``outline``: the
-    root's own ``truncated`` key already means "the root node was cut off".
+    shaped like ``trace``'s.  Absent when no node was truncated: leave out, never
+    an empty list (the #435 rule).  There is no result-level ``truncated`` on
+    ``outline``: the root's own ``truncated`` key already means "the root node
+    was cut off".
     """
     reasons: set[str] = set()
     stack = [root_tree]
@@ -283,6 +301,18 @@ def _summarise_truncation(root_tree: dict[str, Any]) -> None:
         stack.extend(node.get("children", ()))
     if reasons:
         root_tree["truncation_reasons"] = sorted(reasons)
+
+
+def _mark_unparseable(tree_node: dict[str, Any]) -> None:
+    """Truncate a node whose own file can't be parsed (#703).
+
+    Contracts 1 and 2: ``children`` absent (not walked) and ``truncated: true``
+    with ``truncation_reason: "unparseable"``.  No count: none was measured.
+    """
+    for key in ("children", _MEMBER_COUNT, _SUBMODULE_COUNT):
+        tree_node.pop(key, None)
+    tree_node["truncated"] = True
+    tree_node["truncation_reason"] = _REASON_UNPARSEABLE
 
 
 def _is_survey_root(jedi_name: Any, analyzer: JediAnalyzer) -> bool:
@@ -417,96 +447,103 @@ async def outline(
     # ------------------------------------------------------------------
     while queue:
         jedi_name, depth, tree_node = queue.popleft()
-        stub = tree_node["node"]
-        kind = stub["kind"]
-        scope = stub["scope"]
+        try:
+            stub = tree_node["node"]
+            kind = stub["kind"]
+            scope = stub["scope"]
 
-        # Non-expandable nodes.  In member mode that is any non-container — a
-        # genuine leaf, no peek.  In survey mode a plain module (non-package) is
-        # not walked either, but it may HAVE members, so it is classified by a
-        # cheap emptiness peek rather than claimed empty (#596).
-        if not _is_expandable(jedi_name, kind, survey_mode):
-            _mark_non_expandable(tree_node, jedi_name, kind, analyzer, survey_mode)
-            continue
+            # Non-expandable nodes.  In member mode that is any non-container — a
+            # genuine leaf, no peek.  In survey mode a plain module (non-package) is
+            # not walked either, but it may HAVE members, so it is classified by a
+            # cheap emptiness peek rather than claimed empty (#596).
+            if not _is_expandable(jedi_name, kind, survey_mode):
+                _mark_non_expandable(tree_node, jedi_name, kind, analyzer, survey_mode)
+                continue
 
-        # --- Container: determine which cap (if any) fires. ---
+            # --- Container: determine which cap (if any) fires. ---
 
-        # TIEBREAKER (spec §5.4): budget check wins over depth/external.
-        # Check it FIRST so that when both could fire, we report "max_nodes".
-        if node_count >= max_nodes:
-            # Budget already full: this container cannot admit any child.  Peek
-            # the member count ONCE so a max_nodes truncation carries an honest
-            # signpost (#358 / spec §3) — the peek counts members but adds no
-            # nodes, so it does not "defeat" the budget.  A genuinely empty
-            # container is a leaf (children: []), never a truncation.
-            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
-            if not adjacents:
-                _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
-            else:
-                _mark_max_nodes(tree_node, len(adjacents), survey_mode)
-            continue
+            # TIEBREAKER (spec §5.4): budget check wins over depth/external.
+            # Check it FIRST so that when both could fire, we report "max_nodes".
+            if node_count >= max_nodes:
+                # Budget already full: this container cannot admit any child.  Peek
+                # the member count ONCE so a max_nodes truncation carries an honest
+                # signpost (#358 / spec §3) — the peek counts members but adds no
+                # nodes, so it does not "defeat" the budget.  A genuinely empty
+                # container is a leaf (children: []), never a truncation.
+                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+                if not adjacents:
+                    _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
+                else:
+                    _mark_max_nodes(tree_node, len(adjacents), survey_mode)
+                continue
 
-        # External-scope cap: external containers at depth ≥ 1 are capped.
-        # The root (depth 0) always gets one level of members even if external.
-        if scope == "external" and depth >= 1:
-            # No peek deeper into third-party code.
-            tree_node["truncated"] = True
-            tree_node["truncation_reason"] = _REASON_EXTERNAL
-            continue
-
-        # Depth-frontier peek (spec §5.3): at max_depth, call the
-        # child-adjacents resolver ONCE to distinguish genuine empty containers
-        # from cut-off ones.  In survey mode the peek checks `submodules`.
-        if max_depth is not None and depth >= max_depth:
-            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
-            if not adjacents:
-                # Empty container (member mode) or a submodule-less package
-                # (survey mode — classified by its members, #596).
-                _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
-            else:
-                # Has children but cannot be walked — cut off.  A budget cut
-                # says how much it withheld (#435): the peek already counted it,
-                # named for the edge walked, as on a max_nodes cut (#599).
+            # External-scope cap: external containers at depth ≥ 1 are capped.
+            # The root (depth 0) always gets one level of members even if external.
+            if scope == "external" and depth >= 1:
+                # No peek deeper into third-party code.
                 tree_node["truncated"] = True
-                tree_node["truncation_reason"] = _REASON_MAX_DEPTH
-                tree_node[_SUBMODULE_COUNT if survey_mode else _MEMBER_COUNT] = len(adjacents)
-            continue
+                tree_node["truncation_reason"] = _REASON_EXTERNAL
+                continue
 
-        # --- Expand: reserve-before-expand (spec §4, #358). ---
-        # Peek the direct members ONCE.  Reserve the whole set up front: if the
-        # remaining budget cannot admit ALL of them, do NOT produce a partial
-        # children list — mark this container truncated: "max_nodes" with an
-        # honest member_count and omit children (Contract 1/2).  Recovery is a
-        # fresh re-outline with a larger budget or a targeted subtree.  The old
-        # code broke mid-loop and assigned the partial list with no marker.
-        adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
-        if not adjacents:
-            # Member mode: a genuine empty container — a measured leaf.  Survey
-            # mode: a submodule-less package, classified by its members (#596).
-            _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
-            continue
+            # Depth-frontier peek (spec §5.3): at max_depth, call the
+            # child-adjacents resolver ONCE to distinguish genuine empty containers
+            # from cut-off ones.  In survey mode the peek checks `submodules`.
+            if max_depth is not None and depth >= max_depth:
+                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+                if not adjacents:
+                    # Empty container (member mode) or a submodule-less package
+                    # (survey mode — classified by its members, #596).
+                    _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
+                else:
+                    # Has children but cannot be walked — cut off.  A budget cut
+                    # says how much it withheld (#435): the peek already counted
+                    # it, named for the edge walked, as on a max_nodes cut (#599).
+                    tree_node["truncated"] = True
+                    tree_node["truncation_reason"] = _REASON_MAX_DEPTH
+                    tree_node[_SUBMODULE_COUNT if survey_mode else _MEMBER_COUNT] = len(adjacents)
+                continue
 
-        if node_count + len(adjacents) > max_nodes:
-            _mark_max_nodes(tree_node, len(adjacents), survey_mode)
-            continue
+            # --- Expand: reserve-before-expand (spec §4, #358). ---
+            # Peek the direct members ONCE.  Reserve the whole set up front: if the
+            # remaining budget cannot admit ALL of them, do NOT produce a partial
+            # children list — mark this container truncated: "max_nodes" with an
+            # honest member_count and omit children (Contract 1/2).  Recovery is a
+            # fresh re-outline with a larger budget or a targeted subtree.  The old
+            # code broke mid-loop and assigned the partial list with no marker.
+            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+            if not adjacents:
+                # Member mode: a genuine empty container — a measured leaf.  Survey
+                # mode: a submodule-less package, classified by its members (#596).
+                _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
+                continue
 
-        children: list[dict[str, Any]] = []
-        for child_handle, child_jedi_name in adjacents:
-            child_handle_str = str(child_handle)
-            child_stub = build_stub(child_jedi_name, child_handle_str, analyzer)
-            child_tree: dict[str, Any] = {"node": child_stub}
-            children.append(child_tree)
-            node_count += 1
-            queue.append((child_jedi_name, depth + 1, child_tree))
+            if node_count + len(adjacents) > max_nodes:
+                _mark_max_nodes(tree_node, len(adjacents), survey_mode)
+                continue
 
-        # Sort children by (line_start, handle) — source order (spec §5.2).
-        # BFS inclusion order is independent of presentation order: BFS decides
-        # WHICH nodes are in the tree; (line_start, handle) decides HOW they are
-        # arranged within each parent's children list.
-        children.sort(key=lambda t: (t["node"]["line_start"], t["node"]["handle"]))
+            children: list[dict[str, Any]] = []
+            for child_handle, child_jedi_name in adjacents:
+                child_handle_str = str(child_handle)
+                child_stub = build_stub(child_jedi_name, child_handle_str, analyzer)
+                child_tree: dict[str, Any] = {"node": child_stub}
+                children.append(child_tree)
+                node_count += 1
+                queue.append((child_jedi_name, depth + 1, child_tree))
 
-        tree_node["children"] = children
-        _disclose_unlisted_members(tree_node, jedi_name, analyzer, survey_mode)
+            # Sort children by (line_start, handle) — source order (spec §5.2).
+            # BFS inclusion order is independent of presentation order: BFS decides
+            # WHICH nodes are in the tree; (line_start, handle) decides HOW they are
+            # arranged within each parent's children list.
+            children.sort(key=lambda t: (t["node"]["line_start"], t["node"]["handle"]))
+
+            tree_node["children"] = children
+            _disclose_unlisted_members(tree_node, jedi_name, analyzer, survey_mode)
+        except UnparseableSource:
+            # #703: this node's own file doesn't parse under the server's Python,
+            # so its members were not measured.  Truncated (children absent),
+            # never a measured ``children: []``.  Raised before any child is
+            # admitted, so no child of this node is in the tree or the queue.
+            _mark_unparseable(tree_node)
 
     _summarise_truncation(root_tree)
     return root_tree

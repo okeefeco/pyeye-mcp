@@ -26,7 +26,7 @@ from pyeye.mcp.operations.completeness import (
 from tests.conformance import response_linter
 
 server = importlib.import_module("pyeye.mcp.server")
-_SKILL = Path(__file__).resolve().parent.parent / "skills" / "python-explore" / "SKILL.md"
+_SKILL = Path(__file__).parent.parent / "skills" / "python-explore" / "SKILL.md"
 
 
 def test_every_reason_is_well_formed() -> None:
@@ -51,7 +51,7 @@ def test_linter_budget_set_is_the_table() -> None:
 
 
 def test_code_constants_are_the_table_names() -> None:
-    for const in ("MAX_DEPTH", "MAX_NODES", "EXTERNAL", "SURVEY_LEAF"):
+    for const in ("MAX_DEPTH", "MAX_NODES", "EXTERNAL", "SURVEY_LEAF", "UNPARSEABLE"):
         assert getattr(completeness, const) in TRUNCATION_REASONS
 
 

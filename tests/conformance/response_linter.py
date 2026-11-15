@@ -765,6 +765,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "unknown_edge",
         # #626: an implemented edge that doesn't apply to the source's kind.
         "not_applicable",
+        # #703: the source's own file can't be parsed by the server's Python.
+        "unparseable",
     }
 )
 
@@ -782,7 +784,7 @@ _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"}
 # mode does not walk (#596).  Trace emits neither as a per-node reason, so the two
 # enums are kept apart.
 _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
-    {"max_depth", "max_nodes", "external", "survey_leaf"}
+    {"max_depth", "max_nodes", "external", "survey_leaf", "unparseable"}  # #703
 )
 
 # O.5 — the BUDGET class of truncation reasons (#435): a cap was hit, so the node
@@ -1721,7 +1723,11 @@ def _check_outline_summary(response: dict[str, Any], violations: list[str]) -> N
 
     Present on the root only, as the sorted set of every node's
     ``truncation_reason`` (the root's included); absent when no node is
-    truncated, never ``[]``.
+    truncated, never ``[]``.  This is the "leave out, never false" rule the user
+    chose on #435 for every summary added in or after #435.  ``trace`` is the
+    deliberate exception: its ``truncated`` (a bool) and ``truncation_reasons``
+    (possibly ``[]``) predate #435 and are always present (T.*), because
+    removing a key is barred in 2.x.
     """
     reasons: set[str] = set()
     for path, node in _outline_node_reasons(response):

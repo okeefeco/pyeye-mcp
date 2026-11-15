@@ -21,7 +21,7 @@ superseded_by: []
 
 - **budget:** `max_depth`, `max_nodes`. Recovery: raise the limit. A per-node budget cut carries exactly one edge-named count of what it withheld, so this **amends** #358 and #599, which gave `max_depth` no count. The count is free: the peek already built the list.
 - **boundary:** `external`, `survey_leaf`. Out of the view by design. Recovery: call again on that node. No count, because one would cost a walk per node.
-- **unmeasured:** reserved for pyeye failing to measure at all; #703's `unparseable` joins it when it lands.
+- **unmeasured:** `unparseable` (#703), a file the server's Python can't parse. Recovery: Read the file. No count, because nothing was measured.
 - The code reads its reason names from the table.
 - The linter keeps its own hardcoded sets, because it is an independent oracle. A test pins them equal to the table.
 - A test checks that the outline and trace tool descriptions, and the skill, name every reason the tool emits.
@@ -30,14 +30,15 @@ superseded_by: []
 
 - It deliberately has **no result-level `truncated`**: outline's root dict is also the root node, whose `truncated` already means "the root itself was cut off". The per-node fields are unchanged.
 - The linter enforces the summary (O.7): root only, equal to the union of node reasons, and never `[]`.
+- **Leave out, never false** (the user's call on #435): a summary added in or after #435 is absent when nothing was cut, never `[]` or `truncated: false`. That covers this one and the slice B caps on `expand` / `resolve`. `trace` is the exception: its always-present `truncated` bool and `truncation_reasons` list predate #435 and stay, because removing a key is barred in 2.x.
 
 Everything is additive in 2.x: no field is renamed or removed.
 
 **Anchor:** `pyeye.mcp.operations.completeness` (`TRUNCATION_REASONS`, `reasons_emitted_by`, `reasons_of_class`); `outline.outline` and `_summarise_truncation`; `trace.trace`; `tests/conformance/response_linter.py` (`_BUDGET_REASONS`, O.5–O.7); `tests/test_completeness_registry.py`; #435.
 **Applies-to:**
 
-- every truncation reason any primitive emits: today outline's four and trace's two;
-- `expand` and `resolve` once slice B adds caps, and #703's `unparseable`;
+- every truncation reason any primitive emits: today outline's five (including #703's `unparseable`) and trace's two;
+- `expand` and `resolve` once slice B adds caps;
 - every per-node budget cut in outline (`max_depth`, `max_nodes`, in member and survey mode).
 
 trace's budget truncation is result-level, on a graph, so it carries no single edge count. That is the one documented exception to "a budget cut counts what it withheld".
