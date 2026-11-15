@@ -94,16 +94,20 @@ def test_definitions_are_deterministically_ordered(tmp_path: Path) -> None:
     assert paths == sorted(paths)  # sorted by posix path regardless of input order
 
 
-def test_cache_invalidate_file_clears_name_index(tmp_path: Path) -> None:
-    # The watcher path (GranularCache.invalidate_file) must drop the index.
-    from pyeye.cache import GranularCache
+def test_watcher_change_clears_that_projects_name_index(tmp_path: Path) -> None:
+    # The watcher path (ProjectManager._on_files_changed) must drop the index of
+    # the project the change belongs to, and only that one (#617).
+    from pyeye.project_manager import ProjectManager
 
     f1 = _write(tmp_path, "a.py", "class Field:\n    pass\n")
     key = tmp_path.as_posix()
     project_graph.invalidate()
     idx1 = project_graph.get_name_index(key, [f1], {f1: "a"})
+    manager = ProjectManager()
+    root = tmp_path.resolve()
+    manager._watch_users[root] = {root}  # as _watch records it, without an observer
 
-    GranularCache().invalidate_file(f1)
+    manager._on_files_changed(root, [f1.as_posix()])
 
     idx2 = project_graph.get_name_index(key, [f1], {f1: "a"})
     assert idx2 is not idx1  # file change cleared the index -> rebuilt

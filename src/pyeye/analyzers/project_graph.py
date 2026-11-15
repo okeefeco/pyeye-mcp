@@ -42,6 +42,14 @@ NameIndex = dict[str, list[DefinitionSentinel]]
 _lock = threading.Lock()
 _name_indices: dict[str, NameIndex] = {}
 
+#: A project's invalidation count, plus a store-wide epoch bumped by a full clear.
+#: ``get_name_index`` stores a build only if neither moved since the caller read
+#: its file list: invalidation runs on the watcher thread (#617), so a change can
+#: land between listing the files and storing the index built from them.
+Generation = tuple[int, int]
+_generations: dict[str, int] = {}
+_epoch = 0
+
 
 def _normalize(project_key: str) -> str:
     """Canonical store key for a project root: resolved, then posix.
@@ -152,10 +160,21 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
     return index
 
 
+def generation(project_key: str) -> Generation:
+    """Snapshot *project_key*'s invalidation generation, to pass to :func:`get_name_index`.
+
+    Take it **before** listing the files the index will be built from.
+    """
+    key = _normalize(project_key)
+    with _lock:
+        return (_epoch, _generations.get(key, 0))
+
+
 def get_name_index(
     project_key: str,
     py_files: list[Path],
     file_to_module: dict[Path, str | None],
+    generation: Generation | None = None,
 ) -> NameIndex:
     """Return the cached whole-project name-index, building it on first use.
 
@@ -170,6 +189,9 @@ def get_name_index(
         py_files: The whole-project set of ``.py`` files (union of all scope
             paths); used only when a build is needed.
         file_to_module: Map from each file to its dotted module name.
+        generation: The :func:`generation` taken before *py_files* was read. If
+            the project was invalidated since, the index is built and returned
+            but not cached, because it may predate the change.
 
     Returns:
         The cached :data:`NameIndex` for *project_key*.
@@ -183,7 +205,8 @@ def get_name_index(
         if cached is not None:
             return cached
         index = build_name_index(py_files, file_to_module)
-        _name_indices[key] = index
+        if generation is None or generation == (_epoch, _generations.get(key, 0)):
+            _name_indices[key] = index
         return index
 
 
@@ -197,8 +220,12 @@ def invalidate(project_key: str | None = None) -> None:
     Args:
         project_key: The project to drop; ``None`` clears all projects.
     """
+    global _epoch
     with _lock:
         if project_key is None:
             _name_indices.clear()
+            _epoch += 1
         else:
-            _name_indices.pop(_normalize(project_key), None)
+            key = _normalize(project_key)
+            _name_indices.pop(key, None)
+            _generations[key] = _generations.get(key, 0) + 1

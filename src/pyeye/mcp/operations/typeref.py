@@ -76,6 +76,7 @@ from __future__ import annotations
 import ast
 import logging
 import os
+import threading
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -128,6 +129,27 @@ HeadResolver = Callable[[ast.expr], Awaitable["Handle | None"]]
 _TypeRefKey = tuple[str, str, int, int, int, int, int, str]
 _TYPEREF_CACHE_MAX = 4096
 _typeref_cache: OrderedDict[_TypeRefKey, dict[str, Any]] = OrderedDict()
+# The file watcher calls invalidate_project from its own thread while analysis
+# reads and writes the LRU (#617), so every access to it takes this lock. It is
+# held only for the dict operations, never across an await.
+_typeref_lock = threading.Lock()
+
+
+def _cached_typeref(key: _TypeRefKey) -> dict[str, Any] | None:
+    """Return the cached TypeRef for *key*, marking it recently used, or ``None``."""
+    with _typeref_lock:
+        node = _typeref_cache.get(key)
+        if node is not None:
+            _typeref_cache.move_to_end(key)
+        return node
+
+
+def _store_typeref(key: _TypeRefKey, node: dict[str, Any]) -> None:
+    """Cache *node* under *key*, evicting the least recently used past the cap."""
+    with _typeref_lock:
+        _typeref_cache[key] = node
+        while len(_typeref_cache) > _TYPEREF_CACHE_MAX:
+            _typeref_cache.popitem(last=False)
 
 
 def invalidate_project(root: Path | str) -> None:
@@ -138,13 +160,15 @@ def invalidate_project(root: Path | str) -> None:
     per project, not per file.
     """
     key = Path(root).resolve().as_posix()
-    for cached in [k for k in _typeref_cache if k[0] == key]:
-        del _typeref_cache[cached]
+    with _typeref_lock:
+        for cached in [k for k in _typeref_cache if k[0] == key]:
+            del _typeref_cache[cached]
 
 
 def invalidate_all() -> None:
     """Drop every cached TypeRef."""
-    _typeref_cache.clear()
+    with _typeref_lock:
+        _typeref_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +273,10 @@ async def build_typeref(
     """
     raw = _annotation_source(annotation)
     key = _cache_key(file_path, annotation, _project_root(analyzer))
-    if key is not None and key in _typeref_cache:
-        _typeref_cache.move_to_end(key)
-        return _typeref_cache[key]
+    if key is not None:
+        cached = _cached_typeref(key)
+        if cached is not None:
+            return cached
 
     # Closure capturing file_path/analyzer — the resolver gets just the head
     # node and produces a Handle or None.
@@ -263,9 +288,7 @@ async def build_typeref(
     )
 
     if key is not None:
-        _typeref_cache[key] = node
-        while len(_typeref_cache) > _TYPEREF_CACHE_MAX:
-            _typeref_cache.popitem(last=False)
+        _store_typeref(key, node)
     return node
 
 
