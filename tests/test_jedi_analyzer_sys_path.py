@@ -61,7 +61,14 @@ class TestAddedSysPathAttribute:
         attr_posix = [p.as_posix() for p in analyzer.added_sys_path]
         assert attr_posix == list(passed)
 
-    def test_added_sys_path_empty_without_config(self) -> None:
-        """Without config (no src/namespace roots) the attribute is empty."""
-        analyzer = JediAnalyzer(str(_FIXTURE), config=None)
-        assert analyzer.added_sys_path == []
+    def test_added_sys_path_without_config_matches_config(self) -> None:
+        """Without config, the src/ root is still detected (#625 slice 3).
+
+        Analyzers built with and without config share one src-layout rule, so
+        both hand Jedi the same roots. A project with no src layout and no
+        config still gets ``[]`` (``tests/test_bare_src_layout.py``).
+        """
+        bare = JediAnalyzer(str(_FIXTURE), config=None)
+        configured = JediAnalyzer(str(_FIXTURE), config=ProjectConfig(str(_FIXTURE)))
+        assert bare.added_sys_path == configured.added_sys_path
+        assert bare.added_sys_path == [(_FIXTURE / "src").resolve()]

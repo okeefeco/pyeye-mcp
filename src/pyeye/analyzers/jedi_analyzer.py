@@ -18,7 +18,7 @@ from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer, resolve_relative_import
-from ..project_layout import file_for_module, module_name_for_file
+from ..project_layout import detect_src_layout, file_for_module, module_name_for_file
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -105,9 +105,18 @@ class JediAnalyzer:
         try:
             # Get additional sys paths from config (e.g., src/ layout, sibling packages)
             added_sys_path: list[str] = []
+            resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
-                resolved_project = self.project_path.resolve()
+            else:
+                # No config: apply the same src-layout rule ProjectConfig's
+                # auto-discovery uses, so an analyzer built without config names
+                # files the way a configured one does (#625).  Only src/ is
+                # detected here: sibling/venv discovery and global config stay
+                # config-only.
+                src = detect_src_layout(resolved_project)
+                package_paths = [src.as_posix()] if src is not None else []
+            if package_paths:
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
                     if pkg != resolved_project and pkg.exists():
