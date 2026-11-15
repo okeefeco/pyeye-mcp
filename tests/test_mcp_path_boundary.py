@@ -54,9 +54,11 @@ _SEEDS_PER_CORPUS = 3
 #: Per-PR runs cover the corpora that catch #714-class bugs: a flat layout (the
 #: members edge's ``__main__`` stubs), a configured ``src/`` layout, and a
 #: namespace repo reached by a relative ``../`` config. The rest run when
-#: ``PYEYE_EXHAUSTIVE_PATHS=1``, which CI's push-to-main job sets.
+#: ``PYEYE_EXHAUSTIVE_PATHS=1``, which CI sets on push-to-main and in the merge queue (#775).
 _EXHAUSTIVE_ENV = "PYEYE_EXHAUSTIVE_PATHS"
-_PER_PR_CORPORA = frozenset({"cross_tool", "src_layout", "xns_repo"})
+# multirepo_namespace (#775): a namespace package anchored on its directory, whose
+# location.file is a directory; it crashed resolve_at on push-to-main only.
+_PER_PR_CORPORA = frozenset({"cross_tool", "src_layout", "xns_repo", "multirepo_namespace"})
 
 
 def _corpus_params(names: Iterable[str]) -> list[Any]:
