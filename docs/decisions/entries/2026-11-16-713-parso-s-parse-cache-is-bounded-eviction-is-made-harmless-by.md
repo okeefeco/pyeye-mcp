@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "parso's parse cache is bounded; eviction is made harmless by recovering in Jedi's two readers (#713)"
 issues: [713, 684, 706]
 anchors: ["pyeye._parso_cache.apply_parso_cache_policy", "pyeye._parso_cache._install_recovery", "pyeye._parso_cache._set_cache_item_lru", "pyeye.settings.PerformanceSettings.parso_cache_max_entries", "jedi.inference.filters.get_parso_cache_node", "jedi.parser_utils.get_cached_code_lines", "parso.cache._set_cache_item", "tests/unit/test_parso_cache_gc.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-684-parso-s-in-memory-parse-cache-is-never-garbage-collected.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-713-cached-jedi-scripts-have-their-own-cap-it-is-what-bounds.md"]
 superseded_by: []
 ---
 

@@ -60,21 +60,15 @@ _PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
 #: Known sites -> count. Only shrinks: each migration through path_utils lowers
 #: or deletes an entry (#717). Generate with ``--print-baseline``.
 BASELINE: dict[tuple[str, str], int] = {
-    ("src/pyeye/_stdlib_static.py::_public_stdlib_files", "relative_to"): 1,
-    ("src/pyeye/analyzers/project_graph.py::_normalize", "resolve"): 1,
     ("src/pyeye/async_utils.py::filtered_rglob", "relative_to"): 1,
-    ("src/pyeye/cache.py::CodebaseWatcher._is_ignored", "relative_to"): 1,
     ("src/pyeye/config.py::ProjectConfig.__init__", "resolve"): 1,
     ("src/pyeye/config.py::ProjectConfig._normalise_config_path", "resolve"): 1,
     ("src/pyeye/config.py::ProjectConfig._read_pyright_extra_paths", "resolve"): 1,
-    ("src/pyeye/file_artifact_cache.py::_project_key", "resolve"): 1,
-    ("src/pyeye/file_artifact_cache.py::_resolve_posix", "resolve"): 1,
     ("src/pyeye/mcp/operations/resolve.py::_resolve_file_only", "resolve"): 1,
     ("src/pyeye/mcp/operations/typeref.py::_cache_key", "resolve"): 1,
     ("src/pyeye/mcp/operations/typeref.py::_project_root", "resolve"): 1,
     ("src/pyeye/mcp/operations/typeref.py::invalidate_project", "resolve"): 1,
     ("src/pyeye/mcp/server.py::configure_packages", "resolve"): 2,
-    ("src/pyeye/namespace_resolver.py::NamespaceResolver.register_namespace", "resolve"): 1,
     ("src/pyeye/plugins/base.py::AnalyzerPlugin.get_project_files", "relative_to"): 2,
     ("src/pyeye/plugins/base.py::_normalized", "resolve"): 1,
     ("src/pyeye/plugins/flask.py::FlaskPlugin.find_templates", "relative_to"): 2,
@@ -89,7 +83,6 @@ BASELINE: dict[tuple[str, str], int] = {
     ("src/pyeye/project_manager.py::ProjectManager.invalidate_analyzer", "resolve"): 1,
     ("src/pyeye/project_manager.py::ProjectManager.register_project", "resolve"): 1,
     ("src/pyeye/resolver.py::_top_level_shadow", "resolve"): 1,
-    ("src/pyeye/scope_utils.py::_resolved", "resolve"): 1,
     ("src/pyeye/validation.py::PathValidator.validate_path", "relative_to"): 1,
     ("src/pyeye/validation.py::PathValidator.validate_path", "resolve"): 3,
 }
