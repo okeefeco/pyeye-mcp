@@ -16,7 +16,7 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
-from ..path_utils import normalize_path, path_to_key, relative_within
+from ..path_utils import absolute_path, normalize_path, path_to_key, relative_within
 from ..project_layout import (
     detect_src_layout,
     layout_key,
@@ -166,7 +166,7 @@ class JediAnalyzer:
         # spelling the caller used (#603). abspath, not resolve(): an already
         # absolute path must keep its spelling (no /var -> /private/var on macOS,
         # no RUNNER~1 expansion on Windows) so callers' own paths still match.
-        self.project_path = Path(os.path.abspath(project_path))
+        self.project_path = absolute_path(project_path)
         self.additional_paths: list[Path] = []  # For additional package paths
         self.namespace_paths: dict[str, list[Path]] = {}  # For namespace packages
         self.standalone_paths: list[Path] = []  # For standalone script directories

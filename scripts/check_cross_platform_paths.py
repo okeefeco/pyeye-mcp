@@ -61,7 +61,6 @@ _PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
 #: or deletes an entry (#717). Generate with ``--print-baseline``.
 BASELINE: dict[tuple[str, str], int] = {
     ("src/pyeye/_stdlib_static.py::_public_stdlib_files", "relative_to"): 1,
-    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "os_path"): 1,
     ("src/pyeye/analyzers/project_graph.py::_normalize", "resolve"): 1,
     ("src/pyeye/async_utils.py::filtered_rglob", "relative_to"): 1,
     ("src/pyeye/cache.py::CodebaseWatcher._is_ignored", "relative_to"): 1,
