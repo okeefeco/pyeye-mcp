@@ -30,8 +30,10 @@ Common Pitfalls to Avoid:
     template_name = template_file.relative_to(template_dir).as_posix()
 """
 
+import os
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 
 def dedupe_paths(paths: Iterable[str | Path], *, resolve_output: bool = False) -> list[Path]:
@@ -190,6 +192,60 @@ def relative_within(path: str | Path, parent: str | Path) -> Path | None:
     except (ValueError, OSError):
         return None
     return rel if ".." not in rel.parts else None
+
+
+def absolute_path(path: str | Path) -> Path:
+    """*path* made absolute in the caller's spelling: no symlink resolution (#717).
+
+    ``..`` segments are collapsed lexically and the working directory is
+    prepended to a relative path, but a symlinked or short-name spelling is
+    kept. This is the form to hand back to an agent, which compares it with its
+    own paths (#603). Use :func:`normalize_path` to compare.
+    """
+    return Path(os.path.abspath(path))
+
+
+#: Response keys whose string value is a file path, and keys holding lists of
+#: file paths (``tests/test_mcp_path_boundary.py`` sweeps the tools for these).
+_FILE_KEYS = frozenset({"file"})
+_FILE_LIST_KEYS = frozenset({"unresolved_importers", "unparseable_files"})
+
+
+def respell_under(file: str, roots: Iterable[str | Path]) -> str:
+    """*file* re-spelled under the first of *roots* that contains it, POSIX (#717).
+
+    Jedi reports files resolved, so under a symlinked root a location comes back
+    as ``/real/...`` while the agent opened ``/link/...``. The containment test
+    resolves both sides (:func:`relative_within`), and the answer is joined onto
+    the root as the caller spelled it. A file under no root is returned as
+    given, in POSIX form.
+    """
+    for root in roots:
+        rel = relative_within(file, root)
+        if rel is not None:
+            return (Path(root) / rel).as_posix()
+    return Path(file).as_posix()
+
+
+def respell_paths(obj: Any, roots: list[Path]) -> Any:
+    """A copy of *obj* with every file path re-spelled under *roots* (:func:`respell_under`).
+
+    Walks dicts and lists; rewrites ``file`` values and ``unresolved_importers``
+    entries. Everything else is returned unchanged.
+    """
+    if isinstance(obj, dict):
+        out: dict[Any, Any] = {}
+        for key, value in obj.items():
+            if key in _FILE_KEYS and isinstance(value, str):
+                out[key] = respell_under(value, roots)
+            elif key in _FILE_LIST_KEYS and isinstance(value, list):
+                out[key] = [respell_under(v, roots) if isinstance(v, str) else v for v in value]
+            else:
+                out[key] = respell_paths(value, roots)
+        return out
+    if isinstance(obj, list):
+        return [respell_paths(v, roots) for v in obj]
+    return obj
 
 
 def paths_equal(path1: str | Path, path2: str | Path) -> bool:
