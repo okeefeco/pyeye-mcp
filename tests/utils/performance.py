@@ -113,12 +113,15 @@ class CommonThresholds:
     # p95 over only ~10 warm samples is effectively the slowest single call, so a single
     # GC/disk hiccup can spike it (~98ms observed locally against the old 100ms base).
     # These tiers carry headroom for that jitter; macOS/Windows runners get a 3x margin.
-    SYMBOL_SEARCH_P95 = PerformanceThresholds(
-        base=150.0, linux_ci=225.0, macos_ci=450.0, windows_ci=450.0
+    # Warm find_symbol, per call, in MILLISECONDS (#773, #385): the minimum over
+    # repeated runs of each run's MEDIAN, so a scheduler stall moves nothing.
+    # The baseline is the expected cost on each platform (~2 ms measured
+    # locally); the limit is 3x it, so a 5x slower find_symbol fails everywhere.
+    WARM_FIND_SYMBOL_BASELINE_MS = PerformanceThresholds(
+        base=2.5, linux_ci=3.5, macos_ci=6.0, windows_ci=6.0
     )
-
-    SYMBOL_SEARCH_P50 = PerformanceThresholds(
-        base=50.0, linux_ci=75.0, macos_ci=150.0, windows_ci=150.0
+    WARM_FIND_SYMBOL_MS = PerformanceThresholds(
+        base=7.5, linux_ci=10.5, macos_ci=18.0, windows_ci=18.0
     )
 
     # Goto definition performance
