@@ -79,6 +79,7 @@ from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind
+from pyeye.project_layout import package_kind
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -1315,17 +1316,18 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
         unmatched ``full_name``), ``[]``.
     """
     module_path = getattr(jedi_name, "module_path", None)
-    if module_path is not None:
-        module_path = Path(module_path)
-        if module_path.name == "__init__.py":
-            # Regular package: exactly one on-disk directory — the __init__'s parent.
-            return [module_path.parent]
-        if module_path.suffix == ".py":
-            # A plain X.py module or a class/function handle (defined in some
-            # X.py) — NOT a package.  Stays [] permanently; never a namespace.
-            return []
-        # A directory module_path (some namespace handles) falls through to the
-        # namespace branch below.
+    kind = package_kind(module_path)  # the one package predicate (#625)
+    if kind == "regular" and module_path is not None:  # "regular" implies non-None
+        # Regular package: exactly one on-disk directory — the __init__'s parent.
+        return [Path(module_path).parent]
+    if kind == "module":
+        # A plain X.py module or a class/function handle (defined in some
+        # X.py) — NOT a package.  Stays [] permanently; never a namespace.
+        return []
+    # "namespace" (a directory module_path) and "unknown" (``None``, or a
+    # non-.py file) both fall through to the by-name namespace lookup below.
+    # Unlike inspect/outline, unknown is NOT "not a package" here: Jedi gives a
+    # namespace package a ``None`` path, so the name lookup is what finds it.
 
     # Namespace branch — PEP 420 portion union (first-portion-wins on name
     # collisions).  A namespace package has no __init__.py, so Jedi gives it a
