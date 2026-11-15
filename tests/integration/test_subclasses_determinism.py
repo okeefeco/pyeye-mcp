@@ -9,8 +9,10 @@ non-determinism behind the Pyright backend (#333).
 
 This pins the property that, on a fixture exercising BOTH paths — ``ChildAst``
 (top-level import → AST) and ``ChildGoto`` (``TYPE_CHECKING`` import → ``goto``
-fallback) — the subclass set is identical across processes started with
-different ``PYTHONHASHSEED``.
+fallback) — the direct subclass set is identical across processes started with
+different ``PYTHONHASHSEED``. The base is passed as an FQN, so the query runs
+through the resolved definition-site index (``_build_ast_resolution_tables`` +
+``_resolve_base_to_key``), which is where the ``goto`` fallback lives.
 
 It is a regression guard: today the property holds (project bases that fall back
 to ``goto`` still resolve to a stable in-project target), so the test passes. A
@@ -41,7 +43,7 @@ from pyeye.config import ProjectConfig
 async def main():
     project, base = sys.argv[1], sys.argv[2]
     analyzer = JediAnalyzer(project, config=ProjectConfig(project))
-    res = await analyzer.find_subclasses(base, scope="main", include_indirect=True)
+    res = await analyzer.find_subclasses(base, scope="main")
     print("RESULT:" + json.dumps(sorted(s["full_name"] for s in res["subclasses"])))
 
 
@@ -65,7 +67,7 @@ def _run_in_subprocess(hashseed: str) -> list[str]:
 
 
 def test_find_subclasses_stable_across_process_hash_seeds() -> None:
-    """The subclass set is identical across processes with different hash seeds.
+    """The direct subclass set is identical across processes with different hash seeds.
 
     Asserts both the expected membership (so the test fails loudly if resolution
     breaks entirely) AND equality across seeds (the determinism property #419).

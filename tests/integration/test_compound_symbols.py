@@ -39,7 +39,7 @@ class Product:
 
         # This should find only User's __init__, not Product's
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("User.__init__", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("User.__init__", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "__init__"
@@ -65,9 +65,7 @@ class ScientificCalculator:
 
         # Should find only Calculator.add, not ScientificCalculator.add
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "Calculator.add", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("Calculator.add", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "add"
@@ -93,9 +91,7 @@ class User:
 
         # Should find models.user.User.save
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "models.user.User.save", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("models.user.User.save", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "save"
@@ -123,9 +119,7 @@ class StringUtils:
 
         # Should find only DateUtils.format_date
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "DateUtils.format_date", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("DateUtils.format_date", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "format_date"
@@ -152,9 +146,7 @@ class ProductFactory:
 
         # Should find only UserFactory.create
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "UserFactory.create", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("UserFactory.create", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "create"
@@ -184,7 +176,7 @@ class Admin:
 
         # Should find only User.email property getter
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("User.email", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("User.email", scope="all")
 
         # May return both getter and setter, but at least the getter
         assert len(result) >= 1
@@ -205,9 +197,7 @@ class Outer:
 
         # Should find Inner.method
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "Outer.Inner.method", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("Outer.Inner.method", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "method"
@@ -226,14 +216,12 @@ def simple_function():
 
         # Simple class name should still work
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("SimpleClass", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("SimpleClass", scope="all")
         assert len(result) == 1
         assert result[0]["name"] == "SimpleClass"
 
         # Simple function name should still work
-        result = await analyzer.find_symbol(
-            "simple_function", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("simple_function", scope="all")
         assert len(result) == 1
         assert result[0]["name"] == "simple_function"
 
@@ -271,7 +259,7 @@ def simple_function():
         # This is a special case - built-ins might not be found by Jedi
         # but we should handle gracefully
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("str.__init__", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("str.__init__", scope="all")
 
         # Either finds it or returns empty list (not an error)
         assert isinstance(result, list)
@@ -296,9 +284,7 @@ def split(path):
 
         # Should find myos.path.join
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "myos.path.join", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("myos.path.join", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "join"
@@ -322,9 +308,7 @@ class SyncClient:
 
         # Should find only AsyncClient.connect
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol(
-            "AsyncClient.connect", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("AsyncClient.connect", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "connect"
@@ -341,13 +325,11 @@ class User:
 
         # Non-existent method should return empty list
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("User.delete", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("User.delete", scope="all")
         assert result == []
 
         # Non-existent class should return empty list
-        result = await analyzer.find_symbol(
-            "NonExistent.method", include_import_paths=True, scope="all"
-        )
+        result = await analyzer.find_symbol("NonExistent.method", scope="all")
         assert result == []
 
     async def test_partial_match_not_returned(self, tmp_path: Path) -> None:
@@ -368,7 +350,7 @@ class UserProfile:
 
         # Should find only User.save, not User.save_async or UserProfile.save
         analyzer = JediAnalyzer(str(tmp_path))
-        result = await analyzer.find_symbol("User.save", include_import_paths=True, scope="all")
+        result = await analyzer.find_symbol("User.save", scope="all")
 
         assert len(result) == 1
         assert result[0]["name"] == "save"

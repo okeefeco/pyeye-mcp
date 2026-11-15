@@ -365,49 +365,22 @@ where = ["src"]
         return temp_project_dir
 
     @pytest.mark.asyncio
-    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path):
-        """Test that find_symbol returns 'mypackage.core.MyClass' not 'src.mypackage.core.MyClass'."""
+    @pytest.mark.parametrize("symbol", ["MyClass", "my_function"])
+    async def test_find_symbol_uses_package_path_not_src(self, real_src_project: Path, symbol: str):
+        """find_symbol reports 'mypackage.core.<symbol>', never 'src.mypackage.core.<symbol>'."""
         config = ProjectConfig(str(real_src_project))
         analyzer = JediAnalyzer(str(real_src_project), config=config)
 
-        # Find the class
-        results = await analyzer.find_symbol("MyClass", include_import_paths=True)
+        results = await analyzer.find_symbol(symbol)
 
-        assert len(results) >= 1, "Should find MyClass"
-
-        # Check the import path - it should be 'mypackage.core.MyClass', not 'src.mypackage.core.MyClass'
+        assert len(results) == 1, f"Should find exactly one {symbol}; got {results}"
         result = results[0]
-        import_paths = result.get("import_paths", [])
-
-        # At least one import path should NOT start with 'src.'
-        has_correct_path = any(
-            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
+        assert result["full_name"] == f"mypackage.core.{symbol}", (
+            f"Expected full_name 'mypackage.core.{symbol}', got: {result['full_name']!r}. "
+            "The 'src.' prefix should not appear."
         )
-        assert has_correct_path, (
-            f"Expected import path like 'mypackage.core.MyClass', "
-            f"got: {import_paths}. The 'src.' prefix should not appear."
-        )
-
-    @pytest.mark.asyncio
-    async def test_find_symbol_function_uses_package_path(self, real_src_project: Path):
-        """Test that find_symbol for function returns correct import path."""
-        config = ProjectConfig(str(real_src_project))
-        analyzer = JediAnalyzer(str(real_src_project), config=config)
-
-        results = await analyzer.find_symbol("my_function", include_import_paths=True)
-
-        assert len(results) >= 1, "Should find my_function"
-
-        result = results[0]
-        import_paths = result.get("import_paths", [])
-
-        has_correct_path = any(
-            "mypackage.core" in path and not path.startswith("src.") for path in import_paths
-        )
-        assert has_correct_path, (
-            f"Expected import path like 'mypackage.core.my_function', "
-            f"got: {import_paths}. The 'src.' prefix should not appear."
-        )
+        expected_file = (real_src_project / "src" / "mypackage" / "core.py").resolve()
+        assert Path(result["file"]).resolve().as_posix() == expected_file.as_posix()
 
     @pytest.mark.asyncio
     async def test_module_is_addressable_by_package_path(self, real_src_project: Path):
