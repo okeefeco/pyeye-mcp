@@ -4,21 +4,23 @@ import functools
 import json
 import logging
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from inspect import (
     Parameter as _Parameter,
     isawaitable as _isawaitable,
     signature as _signature,  # `inspect` is shadowed by the MCP tool below
 )
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
 from ..analyzers.jedi_analyzer import JediAnalyzer
+from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
-from ..path_utils import absolute_path, respell_paths
+from ..path_utils import absolute_path, paths_equal, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -92,6 +94,13 @@ def ensure_unified_session() -> None:
 # Global plugin registry
 _plugins: list[Any] = []
 PLUGINS = _plugins  # Expose for testing
+#: The project ``initialize_plugins`` ran for.  Plugin tools are bound to it, so
+#: ``configure_packages`` re-detects frameworks only there (#659).
+_startup_root: Path | None = None
+#: The scope resolver plugin tools were registered with, reused at runtime (#659).
+_startup_resolver: SmartScopeResolver | None = None
+#: Every plugin tool name registered so far; runtime registration is add-only.
+_registered_plugin_tools: set[str] = set()
 
 # Module-level exports for testing
 project_manager = None  # Will be initialized lazily
@@ -141,32 +150,26 @@ def initialize_plugins(project_path: str = ".") -> None:
         - Django: Checks for Django imports and settings.py
         - Flask: Scans for Flask app creation patterns
     """
+    global _startup_root, _startup_resolver
     # Clear in place: PLUGINS aliases this list, and rebinding it left PLUGINS
     # pointing at the old one (#627).
     _plugins.clear()
+    _registered_plugin_tools.clear()
+    _startup_root = Path(project_path)
 
     # Load configuration for namespace support
     config = ProjectConfig(project_path)
 
     # Try to activate each plugin
     for plugin_class in _PLUGIN_CLASSES:
-        try:
-            plugin = plugin_class(project_path)
-            if plugin.detect():
-                _apply_plugin_paths(plugin, config)
-
-                _plugins.append(plugin)
-                logger.info(f"Activated {plugin.name()} plugin with namespace support")
-
-        except Exception:
-            # Plugins are optional, so one failing to load must not stop the server.
-            # It is still a bug, not "framework absent": since #637 detect() raises on
-            # anything but an unreadable file, so report it with its traceback.
-            logger.exception(f"Failed to load plugin {plugin_class.__name__}")
+        plugin = _activate_if_detected(plugin_class, project_path, config)
+        if plugin is not None:
+            _plugins.append(plugin)
 
     # Plugin tools called without ``scope`` resolve it through scope_defaults
     # (#559). Report configured keys that can't apply instead of ignoring them.
     resolver = SmartScopeResolver(config)
+    _startup_resolver = resolver
     ignored = resolver.ignored_method_keys(all_plugin_tool_names(project_path))
     if ignored:
         logger.warning(
@@ -177,7 +180,71 @@ def initialize_plugins(project_path: str = ".") -> None:
 
     # Outside the per-plugin try: a duplicate name is a bug in the declared names,
     # not an optional plugin failing to load, so it must not be swallowed.
-    register_plugin_tools(mcp, _plugins, resolver)
+    _registered_plugin_tools.update(register_plugin_tools(mcp, _plugins, resolver))
+
+
+def _activate_if_detected(
+    plugin_class: type[AnalyzerPlugin], project_path: str, config: ProjectConfig
+) -> AnalyzerPlugin | None:
+    """The configured plugin if its framework is used, else ``None`` (#659).
+
+    Detection covers the project root AND every configured package and namespace
+    path, so a framework used only in a configured package activates, at startup
+    and after ``configure_packages`` alike.  A detector failure is logged and the
+    plugin skipped: plugins are optional, so it must not stop the server, but it
+    is a bug, not "framework absent" (since #637 ``detect()`` raises on anything
+    but an unreadable file), so it is reported with its traceback.
+    """
+    try:
+        plugin = plugin_class(project_path)
+        detected = plugin.detect() or any(
+            plugin_class(root).detect()
+            for root in _detection_roots(config)
+            if not paths_equal(root, project_path)
+        )
+        if not detected:
+            return None
+        _apply_plugin_paths(plugin, config)
+        logger.info(f"Activated {plugin.name()} plugin with namespace support")
+        return plugin
+    except Exception:
+        logger.exception(f"Failed to load plugin {plugin_class.__name__}")
+        return None
+
+
+def _detection_roots(config: ProjectConfig) -> list[str]:
+    """The configured package and namespace directories a framework may live in."""
+    roots = list(config.get_package_paths())
+    for ns_paths in config.get_namespaces().values():
+        roots.extend(ns_paths)
+    return [root for root in roots if Path(root).is_dir()]
+
+
+def redetect_plugins(project_path: str, config: ProjectConfig) -> list[str]:
+    """Activate plugins whose framework a new layout brings in; return their names (#659).
+
+    Runs ``detect()`` (root and configured paths) for each plugin class not yet
+    active, and registers ONLY the new plugins' tools, through the same
+    decorator stack as at startup.  Add-only: nothing already registered is
+    unregistered or renamed.  No ``tools/list_changed`` is sent (#770); a client
+    can call the new tools by name, and the caller reports the names.
+    """
+    active = {type(plugin) for plugin in _plugins}
+    new = [
+        plugin
+        for plugin_class in _PLUGIN_CLASSES
+        if plugin_class not in active
+        for plugin in [_activate_if_detected(plugin_class, project_path, config)]
+        if plugin is not None
+    ]
+    if not new:
+        return []
+    names = register_plugin_tools(
+        mcp, new, _startup_resolver, already_registered=_registered_plugin_tools
+    )
+    _registered_plugin_tools.update(names)
+    _plugins.extend(new)
+    return [plugin.name() for plugin in new]
 
 
 def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:
@@ -383,6 +450,8 @@ def register_plugin_tools(
     server: MCPServer,
     plugins: list[AnalyzerPlugin],
     resolver: SmartScopeResolver | None = None,
+    *,
+    already_registered: Collection[str] = (),
 ) -> list[str]:
     """Register every plugin tool on ``server`` under the name its plugin declares.
 
@@ -398,6 +467,9 @@ def register_plugin_tools(
         resolver: If given, ``scope`` defaults through ``scope_defaults`` when the
             caller omits it (#559). Every tool also gets the opt-in ``envelope``
             argument (#594); see :func:`_plugin_tool`.
+        already_registered: Names registered by an earlier call (runtime
+            re-detection, #659).  They are skipped, never re-registered, so
+            registration is add-only.
 
     Returns:
         The registered tool names, in registration order
@@ -408,6 +480,8 @@ def register_plugin_tools(
     registered: list[str] = []
     for plugin in plugins:
         for tool_name, tool_func in plugin.register_tools().items():
+            if tool_name in already_registered:
+                continue
             if tool_name in registered:
                 raise ValueError(
                     f"Plugin {plugin.name()} declares tool {tool_name!r}, "
@@ -520,9 +594,16 @@ def configure_packages(
     The call errors (an MCP tool error, not a response) only when it can't run:
     an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
     or an unreadable file.
-    """
-    from pathlib import Path
 
+    Framework plugins (#659): on the project the server started in, this also
+    re-detects frameworks against the new layout.  A framework used only in a
+    newly added package (e.g. Flask) activates, and its tools are registered
+    immediately; the result's ``activated_plugins`` names them (``[]`` when none
+    newly activated; absent for any other project, which isn't re-detected).
+    The new tools are **callable by name right away**, even if your client
+    doesn't refresh its tool list: no ``tools/list_changed`` notification is
+    sent (#770).  Registration is add-only; nothing is ever removed.
+    """
     from ..analyzers import project_graph
     from .operations import typeref
 
@@ -573,13 +654,17 @@ def configure_packages(
     # TypeRef cache, which is keyed on the root alone (#620).
     project_graph.invalidate(root.as_posix())
     typeref.invalidate_project(root)
+    invalidate_re_exports(root)
 
-    # Plugins are configured once at startup; give this project's plugins the new
-    # paths. Re-detection (a new package bringing a new framework) still needs a
-    # restart.
+    # Give this project's active plugins the new paths (#618).
     for plugin in _plugins:
         if plugin.project_path.resolve() == root:
             _apply_plugin_paths(plugin, config)
+    # Then re-detect on the startup project, whose tools plugins are bound to: a
+    # framework used only in a newly added package activates now (#659).
+    activated: list[str] | None = None
+    if _startup_root is not None and paths_equal(root, _startup_root):
+        activated = redetect_plugins(_startup_root.as_posix(), config)
 
     result: dict[str, Any] = {
         "packages": config.get_package_paths(),
@@ -587,6 +672,10 @@ def configure_packages(
         "standalone": config.get_standalone_config(),
         "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
+    # #659: present whenever re-detection ran (the startup project); [] when no
+    # framework newly activated.  Their tools are callable by name at once.
+    if activated is not None:
+        result["activated_plugins"] = activated
     # Report config keys that are present but ignored rather than letting them
     # read as live (#513, #581). Absent — not [] — when there are none.
     warnings = []
@@ -776,6 +865,15 @@ async def expand(
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
         Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
+      - ``re_exports``  — symbol → the public MODULES that re-export it (#393).
+        Each stub is the re-exporting module; its ``bindings`` lists the public
+        dotted paths it provides (``["pkg.Foo"]``). Public means a package
+        ``__init__``, a name in ``__all__``, or a public module importing from
+        a ``_private`` one (#712); plain internal imports are ``imported_by``'s.
+        Package files the server's Python can't parse are listed in
+        ``unparseable_files``, and the rest are still reported.  Module handles
+        return ``not_applicable``.  Not in ``inspect``'s ``edge_counts``;
+        ``inspect``'s ``re_exports`` field is deprecated in its favour.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
         (no reverse symbol search).  Returns the DIRECT (depth-1) subclasses only
@@ -848,7 +946,7 @@ async def expand(
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
-          "unparseable_files": [file, ...],  # subclasses / imported_by ONLY (#729); [] when all parsed
+          "unparseable_files": [file, ...],  # subclasses / imported_by / re_exports ONLY (#729); [] when all parsed
           "ceiling": str }               # #417 — the scope the list is complete over
 
     ``ceiling`` names the edge's static-surface ceiling (#417), absent only for
@@ -861,6 +959,7 @@ async def expand(
       - ``static_imports``: import statements written in source; importlib / __import__ with a computed name is not included.
       - ``static_calls``: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
       - ``on_disk_modules``: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
+      - ``package_reexports``: import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included.
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -955,7 +1054,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
-          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by/re_exports walked
           "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
           "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 

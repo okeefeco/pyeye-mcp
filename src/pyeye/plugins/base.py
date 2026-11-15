@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
+from ..path_utils import normalize_path, relative_within
 from ..scope_utils import ScopeLayout, resolve_scope_paths
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ Scope = str | list[str]
 
 def _normalized(paths: Iterable[Path]) -> set[Path]:
     """Absolute, user-expanded, symlink-resolved paths, so equal locations compare equal."""
-    return {Path(p).expanduser().resolve() for p in paths}
+    return {normalize_path(Path(p).expanduser()) for p in paths}
 
 
 class AnalyzerPlugin(ABC):
@@ -196,25 +197,18 @@ class AnalyzerPlugin(ABC):
                 namespace_subdirs = []
                 for ns_paths in self.namespace_paths.values():
                     for ns_path in ns_paths:
-                        try:
-                            # Check if namespace path is under main project
-                            ns_path.relative_to(self.project_path)
+                        # Only a namespace path under the main project (#717: path_utils)
+                        if relative_within(ns_path, self.project_path) is not None:
                             namespace_subdirs.append(ns_path)
-                        except ValueError:
-                            # Not a subdirectory, ignore
-                            pass
 
                 # Filter out files in namespace subdirectories
                 filtered_files = []
                 for f in files:
                     is_in_namespace = False
                     for ns_dir in namespace_subdirs:
-                        try:
-                            f.relative_to(ns_dir)
+                        if relative_within(f, ns_dir) is not None:
                             is_in_namespace = True
                             break
-                        except ValueError:
-                            pass
                     if not is_in_namespace:
                         filtered_files.append(f)
                 files = filtered_files

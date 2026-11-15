@@ -6,6 +6,7 @@ by hooking into the server's execution flow.
 
 import asyncio
 import functools
+import inspect
 import logging
 import time
 from collections.abc import Callable
@@ -57,7 +58,7 @@ def track_mcp_operation(tool_name: str | None = None) -> Callable[[F], F]:
         # Determine the actual tool name
         actual_tool_name = tool_name or func.__name__
 
-        if asyncio.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):  # not asyncio.*: deprecated in 3.14 (#763)
 
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

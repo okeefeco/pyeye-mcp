@@ -180,6 +180,12 @@ addopts = [
     "-v"
 ]
 asyncio_mode = "auto"
+# A DeprecationWarning raised from pyeye's own code fails the test (#763): a
+# deprecated call there flooded 3.14 runs.  Scoped to warnings attributed to a
+# pyeye module, so third-party deprecations don't fail the suite.
+filterwarnings = [
+    "error::DeprecationWarning:pyeye",
+]
 timeout = 300  # Default timeout in seconds (5 minutes)
 markers = [
     "unit: Unit tests - fast, isolated tests",

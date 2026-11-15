@@ -41,7 +41,12 @@ import ast
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from pyeye._module_scope import iter_module_scope_imports
+# build_import_table lives in the leaf module so canonicalization can share it
+# without importing the analyzers layer (#712, #623 layering); re-exported here.
+from pyeye._module_scope import (
+    build_import_table as build_import_table,
+    iter_module_scope_imports,
+)
 from pyeye._module_sentinel import DefinitionSentinel
 
 #: Kinds in ``module_defines`` that represent a real top-level definition site
@@ -134,57 +139,6 @@ def resolve_base(
     full = ".".join([tbl[head], *rest]) if head in tbl else f"{module}.{base_dotted}"
 
     return _follow(full, import_tables, module_defines, star_sources or {}, set())
-
-
-def build_import_table(
-    tree: ast.Module,
-    module: str,
-    resolve_relative: Callable[[str, str | None, int, bool], str | None],
-    is_package: bool = False,
-) -> dict[str, str]:
-    """Build the surface-name → target-path table for one module's AST.
-
-    Only **unguarded top-level** imports are considered (the scope a class base
-    resolves in), via the shared walk with ``include_guarded=False`` (#360,
-    #630): an import under ``if TYPE_CHECKING:`` or in a try/except shim may not
-    be the binding that runs, so the resolver punts to Jedi for it. ``as``-aliases are captured under the alias; ``import a.b.c`` binds the
-    head ``a``; relative imports are made absolute via *resolve_relative*; star
-    imports are skipped (their names can't be resolved statically — the resolver
-    will punt to Jedi for bases that rely on them).
-
-    Args:
-        tree: Parsed module AST.
-        module: Dotted name of this module (for relative-import resolution).
-        resolve_relative: ``(module, imported_module_or_None, level, is_package)
-            -> abs path`` — typically ``import_analyzer.resolve_relative_import``.
-        is_package: ``True`` when *module* is a package ``__init__`` — required
-            for correct relative resolution of nested-package re-exports (#426).
-
-    Returns:
-        ``{surface name: target dotted path}``.
-    """
-    table: dict[str, str] = {}
-    # Unguarded imports only: a guarded binding can't be committed to (#630).
-    for node in iter_module_scope_imports(tree, include_guarded=False):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.asname:
-                    table[alias.asname] = alias.name
-                else:
-                    head = alias.name.split(".")[0]
-                    table[head] = head
-        elif isinstance(node, ast.ImportFrom):
-            base = (
-                resolve_relative(module, node.module, node.level, is_package)
-                if node.level > 0
-                else node.module
-            )
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                surface = alias.asname or alias.name
-                table[surface] = f"{base}.{alias.name}" if base else alias.name
-    return table
 
 
 def build_star_sources(

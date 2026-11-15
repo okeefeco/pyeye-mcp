@@ -436,7 +436,7 @@ class ProjectManager:
             root: The watched root the change happened under
             paths: Every path changed in the debounced batch
         """
-        from pyeye import file_artifact_cache
+        from pyeye import canonicalization, file_artifact_cache
         from pyeye.analyzers import project_graph
         from pyeye.mcp.operations import typeref
 
@@ -453,6 +453,8 @@ class ProjectManager:
             # A referenced type can move to another file, which the TypeRef key
             # (keyed on the annotation's own file) can't see (#620).
             typeref.invalidate_project(project)
+            # Any change can add or drop a re-export anywhere in the package (#393).
+            canonicalization.invalidate_re_exports(project)
             analyzer = self.analyzers.get(project)
             if analyzer is not None:
                 analyzer.scoped_cache.invalidate_all()

@@ -115,14 +115,15 @@ class TestPerItemFailuresDontSinkTheCall:
         """A bad file in the re-export scan: ``inspect`` still answers, ``re_exports`` is unknown."""
         from pyeye import canonicalization
 
-        real = file_artifact_cache.get_script
+        # The re-export scan reads each file's AST for its import table (#712).
+        real = file_artifact_cache.get_ast
 
-        def flaky(path: Any, project: Any) -> Any:
+        def flaky(path: Any) -> Any:
             if Path(path).name == "__init__.py":
                 raise Boom("one bad file")
-            return real(path, project)
+            return real(path)
 
-        monkeypatch.setattr(canonicalization.file_artifact_cache, "get_script", flaky)
+        monkeypatch.setattr(canonicalization.file_artifact_cache, "get_ast", flaky)
         node = await inspect("pkg.mod.Thing", analyzer)
 
         assert node["found"] is True

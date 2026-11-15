@@ -986,7 +986,7 @@ def _with_unparseable(edge: str, files: object) -> dict:
 class TestE8UnparseableFiles:
     """E.8 (#729) — ``unparseable_files`` is subclasses / imported_by only, and well-typed."""
 
-    @pytest.mark.parametrize("edge", ["subclasses", "imported_by"])
+    @pytest.mark.parametrize("edge", ["subclasses", "imported_by", "re_exports"])
     def test_on_reverse_scan_edges_passes(self, edge: str) -> None:
         lint_response(_with_unparseable(edge, ["/proj/new_syntax.py"]), "expand")
         lint_response(_with_unparseable(edge, []), "expand")

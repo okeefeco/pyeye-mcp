@@ -347,7 +347,9 @@ class User(BaseModel):
         assert pydantic_plugin._get_base_name(name_node) == "BaseModel"
 
         # Test with Attribute node
-        attr_node = ast.Attribute(attr="BaseModel")
+        # A complete node: omitting the required ``value`` is deprecated in
+        # Python 3.14 and an error in 3.15 (#763).
+        attr_node = ast.Attribute(value=ast.Name(id="pydantic"), attr="BaseModel")
         assert pydantic_plugin._get_base_name(attr_node) == "BaseModel"
 
         # Test with other node type returns string representation
