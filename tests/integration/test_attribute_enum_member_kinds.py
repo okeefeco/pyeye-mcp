@@ -98,6 +98,29 @@ class NonMembers(Enum):
         pass
 
 
+class StringIgnore(Enum):
+    _ignore_ = "dropped other"
+    dropped = 1
+    KEPT = 2
+
+
+class NonListIgnore(Enum):
+    _ignore_ = 5
+    Q = 1
+
+
+class AnnotatedIgnore(Enum):
+    _ignore_: list = ["p"]
+    P = 1
+
+
+class Uninferable(Enum):
+    UNKNOWN = undefined_name  # noqa: F821 - deliberately uninferable
+    DOTTED = undefined_module.attr  # noqa: F821
+    for loop_var in range(1):
+        pass
+
+
 class DynamicIgnore(Enum):
     _ignore_ = [name for name in ("a",)]
     MAYBE = 1
@@ -227,3 +250,25 @@ async def test_enum_member_inspect_shows_its_value_not_an_int_type(analyzer: Jed
     assert node["kind"] == "enum_member"
     assert node.get("default") == "1"
     assert "type" not in node
+
+
+@pytest.mark.asyncio
+async def test_string_ignore_is_split_on_whitespace(analyzer: JediAnalyzer) -> None:
+    assert await _kind("pkg.m.StringIgnore.dropped", analyzer) == "attribute"
+    assert await _kind("pkg.m.StringIgnore.KEPT", analyzer) == "enum_member"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handle", ["pkg.m.NonListIgnore.Q", "pkg.m.AnnotatedIgnore.P"])
+async def test_unreadable_ignore_makes_every_name_attribute(
+    analyzer: JediAnalyzer, handle: str
+) -> None:
+    """A non-string-list ``_ignore_`` (or one behind an annotation) can't be read statically."""
+    assert await _kind(handle, analyzer) == "attribute"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attr", ["UNKNOWN", "DOTTED", "loop_var"])
+async def test_uninferable_values_are_attribute(analyzer: JediAnalyzer, attr: str) -> None:
+    """A value Jedi can't infer can't be shown to be a member."""
+    assert await _kind(f"pkg.m.Uninferable.{attr}", analyzer) == "attribute"

@@ -118,3 +118,13 @@ def test_module_level_statement_stays_variable() -> None:
 
 def test_non_statement_in_a_class_is_not_refined() -> None:
     assert normalise_kind_from_name(_name("param", parent_type="class")) == "variable"
+
+
+def test_class_body_statement_whose_parent_fails_stays_variable() -> None:
+    """If Jedi can't report the enclosing scope, the name isn't refined."""
+
+    def boom() -> None:
+        raise RuntimeError("no parent")
+
+    name = SimpleNamespace(type="statement", parent=boom)
+    assert normalise_kind_from_name(name) == "variable"
