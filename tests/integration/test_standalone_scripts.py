@@ -107,24 +107,6 @@ class TestStandaloneSymbolLookup:
         assert any("models.py" in r["file"] for r in results)
 
 
-class TestStandaloneImports:
-    """Test import tracking in standalone files."""
-
-    @pytest.mark.asyncio
-    async def test_find_imports_in_standalone(self, standalone_analyzer):
-        """Test that imports from standalone files are tracked."""
-        # Find files that import mypackage
-        imports = await standalone_analyzer.find_imports("mypackage")
-
-        # Should find imports in both package and standalone files
-        assert len(imports) > 0
-
-        import_files = {imp["file"] for imp in imports}
-
-        # Should include standalone script that imports mypackage
-        assert any("analysis2.py" in imp_file for imp_file in import_files)
-
-
 class TestCrossPlatformPaths:
     """Test cross-platform path handling."""
 

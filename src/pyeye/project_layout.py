@@ -31,10 +31,11 @@ boundary that needs one names its subset with :class:`RootsBoundary`:
 =====================  ==========================================================
 Boundary               Subset, in order (and why)
 =====================  ==========================================================
-``SCOPE``              project, source_roots, additional_paths. "Is this file
-                       ours?" for ``classify_scope``. Excludes the namespace and
-                       package roots in ``added_sys_path``; reconciling that with
-                       search scope ``"all"`` is deferred to #623.
+``SCOPE``              the ``NAMESPACE_PORTIONS`` roots. "Is this file ours?"
+                       for ``classify_scope``: everything the user configured,
+                       packages AND namespaces, is ``project`` (#623 decision
+                       7). site-packages / stdlib stay external because
+                       ``classify_scope`` rules them out before any root test.
 ``TOP_LEVEL_PACKAGE``  project, source_roots. Only the project's *own* top-level
                        package is promoted by bare name, never a configured
                        external package root.
@@ -76,7 +77,6 @@ class RootsBoundary(StrEnum):
 # Each boundary's subset, in precedence order. Changing what a boundary covers
 # is a one-line edit here; the module docstring records why each is what it is.
 _SUBSETS: dict[RootsBoundary, tuple[str, ...]] = {
-    RootsBoundary.SCOPE: ("project_path", "source_roots", "additional_paths"),
     RootsBoundary.TOP_LEVEL_PACKAGE: ("project_path", "source_roots"),
     RootsBoundary.MODULE_LOOKUP: ("source_roots", "project_path", "additional_paths"),
     RootsBoundary.NAMESPACE_PORTIONS: (
@@ -86,6 +86,9 @@ _SUBSETS: dict[RootsBoundary, tuple[str, ...]] = {
         "additional_paths",
     ),
 }
+# Configured namespaces count as project (#623): SCOPE is the namespace-portion
+# boundary by name, not a hand-copied list, so the two can't drift.
+_SUBSETS[RootsBoundary.SCOPE] = _SUBSETS[RootsBoundary.NAMESPACE_PORTIONS]
 
 
 def project_roots(analyzer: Any, boundary: RootsBoundary, *, resolved: bool = False) -> list[Path]:
@@ -198,8 +201,13 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
     :func:`module_name_for_file`. Searches the ``MODULE_LOOKUP`` roots in
     precedence order, trying the package ``__init__.py`` before the module
     file, then the root-package case (``rootpkg.a`` inside a project that *is*
-    ``rootpkg``). Namespace packages have no file: use
-    ``canonicalization.find_namespace_package_dirs`` for their directories.
+    ``rootpkg``), then a module inside a configured PEP 420 namespace package
+    (``ns-repo/acme/tools.py`` for ``acme.tools``), searched under that
+    package's portion directories, deepest namespace prefix first (#623).
+    Without that last step a configured namespace repo's modules would have a
+    module name (:func:`module_name_for_file`) but no file.  A namespace package
+    itself has no file: use :func:`find_namespace_package_dirs` for its
+    directories.
 
     Returns the path joined onto the root as given (not resolved), or ``None``.
     """
@@ -215,14 +223,152 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
         bases.append((project, parts[1:]))
 
     for base, rel_parts in bases:
-        pkg_init = base.joinpath(*rel_parts) / "__init__.py"
-        if pkg_init.exists():
-            return pkg_init
-        if rel_parts:
-            mod_file = base.joinpath(*rel_parts[:-1], rel_parts[-1] + ".py")
-            if mod_file.exists():
-                return mod_file
+        found = _module_file_under(base, rel_parts)
+        if found is not None:
+            return found
+    for split_at in range(len(parts) - 1, 0, -1):
+        for portion in find_namespace_package_dirs(".".join(parts[:split_at]), analyzer):
+            found = _module_file_under(portion, parts[split_at:])
+            if found is not None:
+                return found
     return None
+
+
+def _module_file_under(base: Path, rel_parts: list[str]) -> Path | None:
+    """``base/<rel>/__init__.py``, else ``base/<rel>.py``, if it exists."""
+    pkg_init = base.joinpath(*rel_parts) / "__init__.py"
+    if pkg_init.exists():
+        return pkg_init
+    if rel_parts:
+        mod_file = base.joinpath(*rel_parts[:-1], rel_parts[-1] + ".py")
+        if mod_file.exists():
+            return mod_file
+    return None
+
+
+def dir_shallow_qualifies(path: Path) -> bool:
+    """Return whether *path* looks like an importable dir (the §3.5 filter).
+
+    A PEP 420 namespace portion holds importable content but has no
+    ``__init__.py``.  This separates such a directory from obvious junk/data dirs
+    WITHOUT reading any file.  The check is deliberately **shallow and capped at
+    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
+    would be both slow and over-eager).
+
+    A directory qualifies iff, among its DIRECT entries, ANY of:
+
+    - **(a)** a direct ``*.py`` file; or
+    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
+      subpackage one level down); or
+    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
+      ``_recurse=False`` so the recursion stops after exactly ONE extra level
+      (a namespace subpackage one level down).
+
+    This is the **single source of truth** for the namespace-portion importable
+    filter, shared by :func:`find_namespace_package_dirs` (handle anchoring, via
+    ``resolve``/``inspect``) and by ``edges`` (the ``submodules`` enumerator,
+    which imports this function).  Keeping one copy is what stops the anchoring
+    filter and the enumeration filter from drifting apart — a namespace whose
+    only content is a nested regular package (``acme/sub/deep/__init__.py``)
+    qualifies under rule (c) here exactly as it does for the enumerator, so it
+    can never enumerate via ``expand`` yet fail to anchor via ``resolve``.
+
+    No file reads — ``iterdir``, ``.suffix``, ``.is_dir`` / ``.is_file`` and
+    ``.exists`` only.
+
+    Args:
+        path: The candidate directory.
+
+    Returns:
+        ``True`` if *path* qualifies as an importable dir per the rules above,
+        else ``False`` (including when *path* is unreadable).
+    """
+    return _dir_shallow_qualifies_capped(path, _recurse=True)
+
+
+def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
+    """Back the :func:`dir_shallow_qualifies` filter with an explicit recursion cap.
+
+    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
+    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
+    rules (a)/(b) — never trigger a further descent.  This caps the total depth
+    at one extra level (see the public wrapper's docstring for the rule list).
+
+    Args:
+        path: The candidate directory.
+        _recurse: Whether a rule-(c) one-level descent is still permitted.
+
+    Returns:
+        ``True`` if *path* qualifies, else ``False`` (including on read errors).
+    """
+    try:
+        entries = list(path.iterdir())
+    except OSError:
+        return False
+
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") or name == "__pycache__":
+            continue
+        # (a) a direct .py file.
+        if entry.is_file() and entry.suffix == ".py":
+            return True
+        if entry.is_dir():
+            # (b) a direct child dir that is a regular package.
+            if (entry / "__init__.py").exists():
+                return True
+            # (c) a direct child dir that itself shallow-qualifies — but only
+            # one extra level deep (cap: _recurse=False on the descent).
+            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
+                return True
+    return False
+
+
+def find_namespace_package_dirs(module_dotted: str, analyzer: Any) -> list[Path]:
+    """Return the PEP 420 namespace-package portion dirs for *module_dotted* (#444).
+
+    A namespace package has **no** ``__init__.py`` (so :func:`file_for_module`
+    returns ``None`` for the package itself) and may be spread across several *portions* under
+    different sys.path roots.  This returns the **union** of the matching portion
+    directories in ``NAMESPACE_PORTIONS`` roots (sys.path-precedence) order — the
+    anchor a top-level namespace package needs so ``resolve``/``inspect``/
+    ``outline``/``expand`` can fire from the top.
+
+    A directory qualifies as a portion iff it matches the dotted path, has **no**
+    ``__init__.py`` (a regular package is handled by :func:`file_for_module`,
+    not here), and :func:`dir_shallow_qualifies` (so junk/data dirs are
+    excluded).
+
+    This is the single source of truth for "where does this namespace package
+    live"; ``edges`` consumes it for the ``submodules`` enumerator, and
+    ``resolve``/``inspect`` consume it to anchor the handle.
+
+    Returns:
+        The portion directories, roots-ordered and de-duplicated.  ``[]`` when
+        *module_dotted* is not a namespace package (e.g. a regular package, a
+        plain module, or nothing on disk).
+    """
+    path_parts = module_dotted.split(".")
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for base in project_roots(analyzer, RootsBoundary.NAMESPACE_PORTIONS):
+        candidate = base.joinpath(*path_parts)
+        try:
+            if not candidate.is_dir():
+                continue
+            if (candidate / "__init__.py").exists():
+                # A regular package portion is not a namespace portion.
+                continue
+        except OSError:
+            continue
+        if not dir_shallow_qualifies(candidate):
+            continue
+        key = candidate.resolve().as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(candidate)
+    return dirs
 
 
 PackageKind = Literal["regular", "namespace", "module", "unknown"]

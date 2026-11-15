@@ -28,16 +28,10 @@ class SmartScopeResolver:
     SMART_DEFAULTS: dict[str, str] = {
         # Methods that should see everything by default
         "find_subclasses": "all",
-        "find_imports": "main",  # Changed to "main" for better performance
-        # Methods that typically want main project only
-        "list_modules": "main",
-        "list_packages": "main",
         # Plugin tools are NOT listed here: they resolve through
         # plugin_tool_default(), keyed on the MCP tool name (#559).
         # Symbol finding defaults to all (want to find everywhere)
         "find_symbol": "all",
-        "goto_definition": "all",
-        "get_type_info": "all",
     }
 
     def __init__(self, config: ProjectConfig | None = None):

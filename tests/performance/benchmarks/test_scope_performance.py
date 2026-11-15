@@ -232,9 +232,8 @@ class TestSmartScopeResolver:
         assert resolver.get_smart_default("find_subclasses") == "all"
         assert resolver.get_smart_default("find_symbol") == "all"
 
-        # Methods that should search main only
-        assert resolver.get_smart_default("list_modules") == "main"
-        assert resolver.get_smart_default("list_packages") == "main"
+        # A method with no built-in default falls back to "all"
+        assert resolver.get_smart_default("unknown_method") == "all"
         # Plugin tools resolve by MCP tool name, defaulting to "main" (#559)
         assert resolver.plugin_tool_default("find_flask_routes") == "main"
 
@@ -248,7 +247,7 @@ class TestSmartScopeResolver:
             "scope_defaults": {
                 "global": "namespace:custom",
                 "methods": {
-                    "list_modules": "all",
+                    "find_symbol": "main",
                     "find_routes": "namespace:api"
                 }
             }
@@ -258,7 +257,7 @@ class TestSmartScopeResolver:
         resolver = SmartScopeResolver(config)
 
         # User overrides
-        assert resolver.get_smart_default("list_modules") == "all"
+        assert resolver.get_smart_default("find_symbol") == "main"
         assert resolver.get_smart_default("find_routes") == "namespace:api"
 
         # Global default for unknown methods

@@ -78,10 +78,9 @@ from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
-from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind
-from pyeye.project_layout import package_kind
+from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -1256,7 +1255,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
       branch**.  A PEP 420 namespace package has no ``__init__.py`` and may be
       spread across several portions; its directory(ies) are found by matching
       the dotted ``full_name`` under each sys.path root, delegated to
-      :func:`pyeye.canonicalization.find_namespace_package_dirs` (#444).
+      :func:`pyeye.project_layout.find_namespace_package_dirs` (#444).
 
     The namespace branch returns the **union** of the matching portion
     directories in ``roots`` (sys.path precedence) order — a regular package
@@ -1272,7 +1271,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
             ``module_path`` drives the regular-vs-namespace split; its
             ``full_name`` seeds the namespace-portion directory match.
         analyzer: Active analyzer.  The namespace branch consults
-            :func:`pyeye.canonicalization.find_namespace_package_dirs` (the
+            :func:`pyeye.project_layout.find_namespace_package_dirs` (the
             shared SoT over ``source_roots`` / ``project_path`` /
             ``added_sys_path`` / ``additional_paths``).
 
@@ -1300,7 +1299,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     # collisions).  A namespace package has no __init__.py, so Jedi gives it a
     # None (or directory) module_path; its portion directories are found by
     # matching the dotted handle under each sys.path root.  Delegated to
-    # ``canonicalization.find_namespace_package_dirs`` — the single source of
+    # ``project_layout.find_namespace_package_dirs`` — the single source of
     # truth shared with ``resolve``/``inspect`` (#444), so the namespace-portion
     # discovery used by the ``submodules`` enumerator and by handle anchoring can
     # never drift apart.  The enumerator iterates the returned dirs in roots
@@ -1385,7 +1384,7 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
                 init_py = child / "__init__.py"
                 if init_py.exists():
                     cand = (_PRECEDENCE_REGULAR_PKG, _SubmoduleEntry(handle, init_py, True))
-                elif _dir_shallow_qualifies(child):
+                elif dir_shallow_qualifies(child):
                     cand = (_PRECEDENCE_NAMESPACE_PKG, _SubmoduleEntry(handle, child, True))
                 else:
                     continue

@@ -284,7 +284,7 @@ class TestProjectSearchFallback:
             patch("pyeye.canonicalization.find_module_file", return_value=None),
             patch.object(analyzer, "find_symbol", side_effect=RuntimeError("search boom")),
             # Isolate the project-search error path from the external fallback (#529).
-            patch("pyeye.canonicalization._resolve_via_external_inference", return_value=None),
+            patch("pyeye.canonicalization._resolve_external", return_value=None),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
         assert result is None
@@ -435,7 +435,7 @@ class TestMultiHopResolutionEdgeCases:
                 return_value=[{"name": "Config", "file": "x.py"}],  # No full_name key
             ),
             # Isolate the project-search branch from the external fallback (#529).
-            patch("pyeye.canonicalization._resolve_via_external_inference", return_value=None),
+            patch("pyeye.canonicalization._resolve_external", return_value=None),
         ):
             result = await _resolve_canonical_impl("package._impl.config.Config", analyzer)
         assert result is None

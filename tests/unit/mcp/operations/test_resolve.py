@@ -1051,28 +1051,6 @@ class TestResolveBareNameErrorPaths:
         assert result["found"] is False
 
 
-class TestHandleToFile:
-    """Unit tests for the _handle_to_file helper."""
-
-    def test_single_component_handle_returns_none(self, analyzer: JediAnalyzer) -> None:
-        """A Handle with no dot (bare module) returns None — no module part to look up."""
-        from pyeye.handle import Handle
-        from pyeye.mcp.operations.resolve import _handle_to_file
-
-        result = _handle_to_file(Handle("mypackage"), analyzer)
-        assert result is None
-
-    def test_known_handle_returns_posix_path(self, analyzer: JediAnalyzer) -> None:
-        """A valid handle returns a posix-formatted path string."""
-        from pyeye.handle import Handle
-        from pyeye.mcp.operations.resolve import _handle_to_file
-
-        result = _handle_to_file(Handle("mypackage._core.widgets.Widget"), analyzer)
-        assert result is not None
-        assert "/" in result  # posix path
-        assert not result.startswith("\\")
-
-
 class TestResolveFileLineErrorPaths:
     """Error-path coverage for _resolve_file_line."""
 

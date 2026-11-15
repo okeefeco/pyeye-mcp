@@ -184,3 +184,57 @@ def test_banned_prefix_matching() -> None:
     assert not _matches("pyeye.mcpx", "pyeye.mcp")
     assert _matches("jedi.api.classes", "jedi")
     assert not _matches("jedi_compat", "jedi")
+
+
+# ---------------------------------------------------------------------------
+# Temporary upward bridge: canonicalization -> resolver (#623 slice 3 -> 5)
+# ---------------------------------------------------------------------------
+
+#: Functions in ``canonicalization`` allowed a LAZY ``pyeye.resolver`` import,
+#: each with the issue that removes it.  ``resolve_canonical`` becomes a wrapper
+#: over the resolver and is deleted in #623 slice 5, taking this bridge with it.
+CANONICALIZATION_RESOLVER_BRIDGES: dict[str, str] = {"_resolve_external": "#623"}
+
+
+def _resolver_import_sites(source: str) -> tuple[bool, set[str]]:
+    """``(module-level import?, {top-level functions with a lazy import})`` of ``pyeye.resolver``."""
+    tree = ast.parse(source)
+
+    def imports_resolver(node: ast.AST) -> bool:
+        return any(
+            any(_matches(m, "pyeye.resolver") for m in _static_imports(ast.unparse(sub), "x"))
+            for sub in ast.walk(node)
+            if isinstance(sub, (ast.Import, ast.ImportFrom))
+        )
+
+    module_level = False
+    lazy: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if imports_resolver(node):
+                lazy.add(node.name)
+        elif imports_resolver(node):
+            module_level = True
+    return module_level, lazy
+
+
+def test_canonicalization_imports_resolver_only_lazily() -> None:
+    """A module-level import would be a cycle (``resolver`` imports ``canonicalization``)."""
+    source = (PKG_ROOT / "canonicalization.py").read_text(encoding="utf-8")
+    module_level, lazy = _resolver_import_sites(source)
+    assert not module_level, "canonicalization must not import pyeye.resolver at module level"
+    assert lazy == set(CANONICALIZATION_RESOLVER_BRIDGES), (
+        f"lazy pyeye.resolver imports in canonicalization: {sorted(lazy)}; "
+        f"expected exactly {sorted(CANONICALIZATION_RESOLVER_BRIDGES)}. Delete an entry "
+        "when its bridge goes; don't add one."
+    )
+
+
+def test_resolver_import_site_detector() -> None:
+    source = (
+        "from pyeye import resolver\n"
+        "def lazy():\n    from pyeye.resolver import resolve_handle\n"
+        "def other():\n    import os\n"
+    )
+    assert _resolver_import_sites(source) == (True, {"lazy"})
+    assert _resolver_import_sites("import os\n") == (False, set())
