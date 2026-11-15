@@ -3,14 +3,28 @@
 import contextlib
 import logging
 import threading
+import time
 from pathlib import Path
 
 from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
+from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
 
 logger = logging.getLogger(__name__)
+
+
+#: Seconds after the watcher's debounce at which the start-up catch-up sweeps
+#: run (#738). Two, because watchdog gives no ready signal: the first catches a
+#: change made while the emitter was coming up; the second, well after any
+#: plausible emitter start latency, catches one made after the first sweep but
+#: before the emitter listened.
+CATCHUP_SWEEP_OFFSETS: tuple[float, ...] = (0.5, 5.0)
+
+#: Slack before each sweep's cutoff, for coarse-mtime filesystems (FAT/exFAT
+#: 2 s, #731): a file written in the same tick as the cutoff isn't skipped.
+CATCHUP_MTIME_MARGIN_NS = 2_000_000_000
 
 
 class ProjectManager:
@@ -30,6 +44,9 @@ class ProjectManager:
         # Guards watchers/_watch_users: the watchdog thread reads them while
         # analysis threads register and drop projects.
         self._watch_lock = threading.RLock()
+        # Pending start-up catch-up sweeps per watched root (#738).
+        self._catchup_timers: dict[Path, list[threading.Timer]] = {}
+        self._catchup_cutoff_ns: dict[Path, int] = {}
         self.analyzers: dict[Path, JediAnalyzer] = {}  # Analyzer instance cache
         self.access_order: list[Path] = []  # LRU tracking
         self.max_projects = (
@@ -319,6 +336,7 @@ class ProjectManager:
                 self._on_files_changed(root, paths)
 
             watcher = CodebaseWatcher(root.as_posix(), on_change)
+            started_ns = time.time_ns()  # BEFORE start(): the window opens here (#738)
             try:
                 watcher.start()
             except OSError as e:
@@ -330,7 +348,55 @@ class ProjectManager:
                 )
                 return
             self.watchers[root] = watcher
+            self._schedule_catchup(root, started_ns)
         logger.info(f"Started watching {root.as_posix()}")
+
+    def _schedule_catchup(self, root: Path, started_ns: int) -> None:
+        """Schedule the start-up catch-up sweeps for *root* (#738). Call with the lock held.
+
+        ``Observer.start()`` returns before the emitter listens (FSEvents
+        snapshots then starts its stream; Windows opens its directory handle on
+        the emitter thread), and a change made in that window is never
+        delivered. Each sweep, on a daemon timer and never on a tool call's
+        path, re-stats the root's ``.py`` files and invalidates those changed
+        since the previous cutoff, exactly as a delivered batch would.
+        """
+        debounce = settings.settings.watcher_debounce
+        timers = []
+        for offset in CATCHUP_SWEEP_OFFSETS:
+            timer = threading.Timer(debounce + offset, self._catch_up, args=(root,))
+            timer.daemon = True
+            timers.append(timer)
+        self._catchup_timers[root] = timers
+        self._catchup_cutoff_ns[root] = started_ns - CATCHUP_MTIME_MARGIN_NS
+        for timer in timers:
+            timer.start()
+
+    def _catch_up(self, root: Path) -> None:
+        """One catch-up sweep: invalidate *root*'s ``.py`` files changed since the cutoff."""
+        sweep_ns = time.time_ns()
+        with self._watch_lock:
+            if root not in self.watchers:
+                return  # unwatched meanwhile
+            cutoff = self._catchup_cutoff_ns.get(root, sweep_ns)
+            # The next sweep only needs changes since this one started.
+            self._catchup_cutoff_ns[root] = sweep_ns - CATCHUP_MTIME_MARGIN_NS
+        changed = []
+        for path in filtered_rglob("*.py", root):
+            try:
+                if path.stat().st_mtime_ns >= cutoff:
+                    changed.append(path.as_posix())
+            except OSError:
+                continue  # removed while sweeping
+        if changed:
+            logger.info(f"Catch-up sweep: {len(changed)} change(s) under {root.as_posix()}")
+            self._on_files_changed(root, sorted(changed))
+
+    def _cancel_catchup(self, root: Path) -> None:
+        """Cancel *root*'s pending sweeps. Call with the lock held."""
+        for timer in self._catchup_timers.pop(root, []):
+            timer.cancel()
+        self._catchup_cutoff_ns.pop(root, None)
 
     def _unwatch_project(self, project: Path) -> None:
         """Drop *project* as a user of every root, stopping watchers nobody else uses."""
@@ -341,6 +407,7 @@ class ProjectManager:
                 users.discard(project)
                 if not users:
                     del self._watch_users[root]
+                    self._cancel_catchup(root)
                     watcher = self.watchers.pop(root, None)
                     if watcher is not None:
                         stopped.append(watcher)
@@ -397,6 +464,8 @@ class ProjectManager:
             self._cleanup_project(project_path)
         # Anything still watched has no user left.
         with self._watch_lock:
+            for root in list(self._catchup_timers):
+                self._cancel_catchup(root)
             leftovers = list(self.watchers.values())
             self.watchers.clear()
             self._watch_users.clear()
