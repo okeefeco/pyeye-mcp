@@ -119,52 +119,6 @@ class PathValidator:
 
         return resolved_path
 
-    @classmethod
-    def is_safe_to_read(cls, path: str | Path, max_size: int = 10 * 1024 * 1024) -> bool:
-        """Check if a file is safe to read.
-
-        Args:
-            path: Path to check
-            max_size: Maximum file size in bytes (default 10MB)
-
-        Returns:
-            True if the file appears safe to read
-        """
-        try:
-            path_obj = cls.validate_path(path)
-
-            # Check if file exists
-            if not path_obj.exists():
-                return False
-
-            # Check if it's a regular file
-            if not path_obj.is_file():
-                return False
-
-            # Check file size
-            if path_obj.stat().st_size > max_size:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    f"File too large: {path_obj.as_posix()} ({path_obj.stat().st_size} bytes)"
-                )
-                return False
-
-            # Check if it's a symlink pointing outside project
-            if path_obj.is_symlink():
-                target = path_obj.resolve()
-                # Could add additional checks here
-                import logging
-
-                logging.getLogger(__name__).info(
-                    f"Following symlink: {path_obj.as_posix()} -> {target.as_posix()}"
-                )
-
-            return True
-
-        except (ValidationError, OSError):
-            return False
-
 
 class InputValidator:
     """General input validation utilities."""

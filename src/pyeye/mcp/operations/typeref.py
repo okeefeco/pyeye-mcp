@@ -444,8 +444,8 @@ def _attribute_target_position(node: ast.expr) -> tuple[int, int]:
     forward-ref string, not the source file, so ``script.goto`` would land
     nowhere useful.
 
-    Mirrors the strategy used by ``inspect._attr_target_position`` for base
-    classes.
+    Mirrors :func:`pyeye._ast_targets.attr_target_position`, which ``inspect``
+    and ``edges`` use for base classes.
     """
     if isinstance(node, ast.Attribute):
         end_line = node.end_lineno or node.lineno

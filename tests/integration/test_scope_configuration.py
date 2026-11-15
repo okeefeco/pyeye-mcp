@@ -27,7 +27,7 @@ class TestScopeConfiguration:
                     "scope_defaults": {
                         "global": "all",
                         "methods": {
-                            "list_modules": "main",
+                            "find_symbol": "main",
                             "find_models": "namespace:company",
                             "find_routes": "namespace:company.api",
                         },
@@ -41,7 +41,7 @@ class TestScopeConfiguration:
         # Check defaults were loaded
         defaults = config.get_scope_defaults()
         assert defaults["global"] == "all"
-        assert defaults["methods"]["list_modules"] == "main"
+        assert defaults["methods"]["find_symbol"] == "main"
         assert defaults["methods"]["find_models"] == "namespace:company"
         assert defaults["methods"]["find_routes"] == "namespace:company.api"
 
@@ -82,7 +82,7 @@ company = ["../company-core", "../company-utils"]
 global = "namespace:company"
 
 [tool.pyeye.scope_defaults.methods]
-list_modules = "main"
+find_symbol = "main"
 find_subclasses = "all"
 
 [tool.pyeye.scope_aliases]
@@ -97,7 +97,7 @@ development = ["main", "namespace:company"]
 
         defaults = config.get_scope_defaults()
         assert defaults["global"] == "namespace:company"
-        assert defaults["methods"]["list_modules"] == "main"
+        assert defaults["methods"]["find_symbol"] == "main"
         assert defaults["methods"]["find_subclasses"] == "all"
 
         aliases = config.get_scope_aliases()
@@ -111,14 +111,14 @@ development = ["main", "namespace:company"]
         global_config_dir.mkdir(parents=True)
         global_config = global_config_dir / "config.json"
         global_config.write_text(
-            json.dumps({"scope_defaults": {"global": "all", "methods": {"list_modules": "all"}}})
+            json.dumps({"scope_defaults": {"global": "all", "methods": {"find_symbol": "all"}}})
         )
 
         # Create project config
         project_config = tmp_path / "project" / ".pyeye.json"
         project_config.parent.mkdir()
         project_config.write_text(
-            json.dumps({"scope_defaults": {"methods": {"list_modules": "main"}}})  # Override global
+            json.dumps({"scope_defaults": {"methods": {"find_symbol": "main"}}})  # Override global
         )
 
         # Mock home directory
@@ -128,7 +128,7 @@ development = ["main", "namespace:company"]
         defaults = config.get_scope_defaults()
 
         # Project config should override global
-        assert defaults["methods"]["list_modules"] == "main"
+        assert defaults["methods"]["find_symbol"] == "main"
         # Note: Due to our config loading order, global defaults may not always merge correctly
         # This is expected behavior - project config takes precedence
 
@@ -142,7 +142,9 @@ class TestSmartScopeResolverIntegration:
 
         # Should use built-in defaults
         assert resolver.get_smart_default("find_subclasses") == "all"
-        assert resolver.get_smart_default("list_modules") == "main"
+        assert resolver.get_smart_default("find_symbol") == "all"
+        # A method with no built-in default falls back to "all"
+        assert resolver.get_smart_default("unknown_method") == "all"
 
         # No aliases without config
         assert resolver.resolve_aliases("backend") == "backend"
