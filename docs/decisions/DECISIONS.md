@@ -1,6 +1,6 @@
 # Decision Log
 
-Contract- or invariant-significant, friction-driven decisions. Each one is a small, verifiable fact: **Friction · Decision · Anchor** (stable references) **· Applies-to** (every governed site; recommended) **· Verify** (checkable, or honestly labelled).
+Contract- or invariant-significant, friction-driven decisions. Each one is a small, verifiable fact: **Friction · Decision · Anchor** (stable references) **· Applies-to** (every governed site, or `none (<why>)`; required since #636) **· Verify** (checkable, or honestly labelled).
 
 **One file per decision** lives in [`entries/`](entries/), named `YYYY-MM-DD-<issue>-<slug>.md`. There is no committed index (#679). List and filter the entries from their front matter instead:
 

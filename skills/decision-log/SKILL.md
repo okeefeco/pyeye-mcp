@@ -58,21 +58,22 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 **Friction:** <the frustration that drove the change — what broke / didn't work / was unsafe>
 **Decision:** <what was decided and chosen; the rejected alternative if non-obvious>
 **Anchor:** <stable refs only — canonical symbol name(s) + #issue/PR or commit-pinned permalink>
-**Applies-to:** <recommended — EVERY site the rule governs, not just the ones this change touched; or how to enumerate them>
+**Applies-to:** <required — EVERY site the rule governs, not just the ones this change touched; or how to enumerate them; or `none (<why>)`>
 **Verify:** <gold | partial | unverifiable — see below>
 ```
 
 Keep each field to a line or two. A 6-line entry that gets written beats a 40-line ADR that doesn't.
 
-## Applies-to (recommended, not required)
+## Applies-to (required)
 
 `Anchor` names what this change *touched*. `Applies-to` names every site the rule *governs*. The gap between the two is where decisions drift: a rule applied only where the friction showed up, while sibling copies keep the old behaviour (#616; the 2026-11-15 duplication audit found #454, #457, #545 and #360 each applied to only some of their sites).
 
-- **Include it** whenever the rule governs more than one site, such as "every primitive", "all five walkers", "every edge in `EDGE_RESOLVERS`" or "no `project.search` call anywhere in `src/`".
+- **Every new entry has one** (#636). Name every site the rule governs, such as "every primitive", "all five walkers", "every edge in `EDGE_RESOLVERS`" or "no `project.search` call anywhere in `src/`". When the rule has one site, name that site.
 - **List the sites by stable reference** (symbol names, a registry, a module set), never `file:line`. If they are better found by a query than a list, give the query, e.g. `every function that builds a jedi.Script(code=...)`.
 - **Name the sites the change did NOT touch.** Writing an `Applies-to` broader than `Anchor` is the point. Say plainly which sites still diverge and link their issue, rather than implying full coverage.
-- **Omit it** when the rule genuinely has one site. Don't write `Applies-to: n/a`.
-- It is **optional**. Don't refuse, block or rewrite an entry because it lacks one, and don't backfill old entries just to add it. Add it when an entry is being written or a later change touches that entry's rule.
+- **Opt out explicitly** when the decision governs no code site (a policy or process decision): write `Applies-to: none (<why>)`, e.g. `none (policy decision: release classification)`. A bare `none`, `n/a`, `TBD` or an empty value is rejected. Better still, name the test or script that enforces the policy, if there is one.
+- **Old entries are grandfathered.** Entries written before the rule may lack `Applies-to`; don't backfill them just to add it. If the repo has `scripts/decisions.py`, its `check` fails a new entry without one and keeps the grandfathered names in `APPLIES_TO_GRANDFATHERED`, a list that only shrinks: when you give an old entry `Applies-to`, delete its name there.
+- **A list on the following lines counts.** The value runs from the label to the next `**Field:**` line.
 
 **Prefer a Verify that sweeps the `Applies-to` sites over one that samples a single case.** A gold Verify that checks one handle, one primitive or one call site passes while the other sites drift. Prefer one that enumerates the sites, such as a parametrised test over every primitive, an AST scan of `src/` or a loop over a registry. When only a sample is checkable, label it `partial` and name the unswept sites as the residue.
 
