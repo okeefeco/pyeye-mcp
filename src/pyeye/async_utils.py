@@ -83,8 +83,12 @@ def _is_linked_worktree(directory: Path) -> bool:
     return target.parent.name == "worktrees"
 
 
-async def rglob_async(pattern: str, path: Path) -> list[Path]:
-    """Recursively glob files asynchronously, excluding non-project directories.
+def filtered_rglob(pattern: str, path: Path) -> list[Path]:
+    """Recursively glob under *path*, excluding non-project directories (#507, #517).
+
+    The ONE home of the project-scan exclusion rule: :func:`rglob_async` and
+    every whole-tree scan (the framework plugins) call it, so none of them can
+    walk into a nested worktree or ``.venv`` on its own.
 
     Two exclusion rules apply:
 
@@ -115,33 +119,43 @@ async def rglob_async(pattern: str, path: Path) -> list[Path]:
     """
     from .constants import EXCLUDED_DIRS
 
-    def _filtered_rglob() -> list[Path]:
-        # A single scan revisits the same ancestor directories thousands of
-        # times; probe each one once.
-        is_worktree_root: dict[Path, bool] = {}
+    # A single scan revisits the same ancestor directories thousands of
+    # times; probe each one once.
+    is_worktree_root: dict[Path, bool] = {}
 
-        def _under_nested_worktree(candidate: Path) -> bool:
-            for parent in candidate.parents:
-                if parent == path:
-                    return False
-                cached = is_worktree_root.get(parent)
-                if cached is None:
-                    cached = _is_linked_worktree(parent)
-                    is_worktree_root[parent] = cached
-                if cached:
-                    return True
-            return False
+    def _under_nested_worktree(candidate: Path) -> bool:
+        for parent in candidate.parents:
+            if parent == path:
+                return False
+            cached = is_worktree_root.get(parent)
+            if cached is None:
+                cached = _is_linked_worktree(parent)
+                is_worktree_root[parent] = cached
+            if cached:
+                return True
+        return False
 
-        results = []
-        for p in path.rglob(pattern):
-            # Test only components below the scan root: an ancestor named e.g.
-            # ``build`` must not exclude the whole project (#515).
-            rel_parts = p.relative_to(path).parts
-            if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in rel_parts):
-                continue
-            if _under_nested_worktree(p):
-                continue
-            results.append(p)
-        return results
+    results = []
+    for p in path.rglob(pattern):
+        # Test only components below the scan root: an ancestor named e.g.
+        # ``build`` must not exclude the whole project (#515).
+        rel_parts = p.relative_to(path).parts
+        if any(part in EXCLUDED_DIRS or part.endswith(".egg-info") for part in rel_parts):
+            continue
+        if _under_nested_worktree(p):
+            continue
+        results.append(p)
+    return results
 
-    return await asyncio.to_thread(_filtered_rglob)
+
+async def rglob_async(pattern: str, path: Path) -> list[Path]:
+    """:func:`filtered_rglob` on a worker thread.
+
+    Args:
+        pattern: Glob pattern
+        path: Base path to search in
+
+    Returns:
+        The matching paths, with the :func:`filtered_rglob` exclusions applied.
+    """
+    return await asyncio.to_thread(filtered_rglob, pattern, path)

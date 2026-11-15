@@ -3,10 +3,10 @@ date: "2026-08-09"
 title: "the project scan excludes nested git *worktrees*, not gitignored files (#507)"
 issues: [507, 470]
 anchors: ["pyeye.async_utils.rglob_async", "pyeye.scope_utils.parallel_search", "JediAnalyzer.get_project_files", "PluginBase.get_project_files"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-517-every-whole-tree-scan-goes-through-filtered-rglob.md"]
 superseded_by: []
 ---
 
