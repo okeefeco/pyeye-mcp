@@ -321,9 +321,13 @@ claim from `imports` likewise requires the node absent from `unresolved_imports`
 
 ### Framework plugin tools — always pass `envelope=true`
 
-When pyeye detects Pydantic, Django or Flask, it also registers that framework's
-tools (`find_pydantic_models`, `get_model_schema`, `find_django_models`,
-`find_flask_routes`, `find_error_handlers`, …). By default they return a bare list:
+When pyeye detects Pydantic, Django or Flask (in the project or a configured package),
+it also registers that framework's tools (`find_pydantic_models`, `get_model_schema`,
+`find_django_models`, `find_flask_routes`, `find_error_handlers`, …). After
+`configure_packages` adds a package that brings a new framework, its result lists the
+newly activated plugins in `activated_plugins`, and their tools are **callable by name
+at once**: call them even if your tool list hasn't refreshed (pyeye sends no
+list-changed notification). By default they return a bare list:
 an empty answer is *zero content items*, and nothing says which scope was searched.
 "These are all the models" looks the same as "these are the main repo's models".
 
