@@ -73,7 +73,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
 _ISSUE_621 = "#621"  # trace: wrong-kind as measured-empty; interior nodes skip resolution
 _ISSUE_623 = "#623"  # one canonical handle resolver
-_ISSUE_626 = "#626"  # one edge-applicability table
 
 
 def _round_trip(corpus: str, issue: str, checks: tuple[str, ...], *handles: str) -> dict:
@@ -122,54 +121,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "typing.List",
     ),
     #
-    # #626: `submodules` applies to a NON-module symbol defined in a package
-    # `__init__` (`pkg.__all__`, `pkg.init_fn`) and fabricates
-    # `<symbol>.<child>` handles from the package's directory.
-    **_round_trip(
-        "canonicalization_multihop",
-        _ISSUE_626,
-        _MISS,
-        "package.__all__._impl",
-        "package.__all__.legacy",
-        "package.__all__.subpkg",
-        "self_reexport_pkg.__all__.submodule",
-    ),
-    **_round_trip(
-        "containment",
-        _ISSUE_626,
-        _MISS,
-        "regular.mypkg.__all__.alpha",
-        "regular.mypkg.__all__.beta",
-        "regular.mypkg.__all__.sub",
-        "survey.svpkg.both.both_fn.leaf",
-        "survey.svpkg.init_fn.bare",
-        "survey.svpkg.init_fn.both",
-        "survey.svpkg.init_fn.empty",
-        "survey.svpkg.init_fn.full",
-        "survey.svpkg.init_fn.initonly",
-        "survey.svpkg.init_fn.nested",
-    ),
-    **_round_trip(
-        "cross_tool",
-        _ISSUE_626,
-        _MISS,
-        "xpkg.__all__.consumer",
-        "xpkg.__all__.core",
-        "xpkg.__all__.text",
-    ),
-    **_round_trip(
-        "resolve_project",
-        _ISSUE_626,
-        _MISS,
-        "mypackage.__all__._core",
-        "mypackage.__all__.collision_demo",
-        "mypackage.__all__.external_subclass_demo",
-        "mypackage.__all__.helpers",
-        "mypackage.__all__.inheritance_via_attr",
-        "mypackage.__all__.usage",
-        "mypackage.__all__.use_widget",
-    ),
-    **_round_trip("subclasses_resolution", _ISSUE_626, _MISS, "pkg.__all__.core"),
     #
     # #623: inspect finds a module that resolve can't (module shadowed by a
     # same-named namespace dir — resolve and inspect use different placement).

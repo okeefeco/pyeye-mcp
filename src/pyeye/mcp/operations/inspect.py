@@ -55,6 +55,7 @@ from pyeye.canonicalization import collect_re_exports
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
     _enumerate_submodule_paths,
+    edge_applies,
     resolve_members,
     resolve_superclasses,
 )
@@ -775,8 +776,14 @@ async def _build_edge_counts(
     # callers/references are deliberately excluded — see docstring / #332.
     coros: dict[str, Awaitable[int]] = {}
 
-    if kind == "class":
-        coros["members"] = _count_class_members(handle, jedi_name, analyzer)
+    # Which edges are counted is the applicability table's call (#626); the kind
+    # only picks the member-counting strategy.
+    if edge_applies("members", jedi_name):
+        if kind == "class":
+            coros["members"] = _count_class_members(handle, jedi_name, analyzer)
+        else:
+            coros["members"] = _count_module_members(jedi_name, analyzer)
+    if edge_applies("superclasses", jedi_name):
         coros["superclasses"] = _count_superclasses(jedi_name, analyzer, superclasses)
         # subclasses is intentionally NOT measured here — counting subclasses
         # requires the same project-wide inheritance scan as listing them, so it
@@ -784,9 +791,8 @@ async def _build_edge_counts(
         # expand(handle, "subclasses").  inspect's edge_counts reports only edges
         # derivable from the symbol's own definition (members, superclasses).
 
-    elif kind == "module":
-        coros["members"] = _count_module_members(jedi_name, analyzer)
-        # submodules is a PACKAGE-only edge (#423): present (possibly a measured
+    if edge_applies("submodules", jedi_name):
+        # submodules is counted only for a PACKAGE (#423): present (possibly a measured
         # 0) for a package handle, ABSENT for a plain module — the absence-vs-zero
         # invariant.  is_package == its module_path is an __init__.py (regular
         # package) OR a directory (a PEP 420 namespace package anchored on its

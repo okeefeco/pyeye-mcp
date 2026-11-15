@@ -561,8 +561,8 @@ class TestExpandImportedByNonModuleEndToEnd:
         )
 
     @pytest.mark.asyncio
-    async def test_imported_by_non_module_reason_is_not_yet_implemented(self) -> None:
-        """Non-module imported_by reason must be 'not_yet_implemented'."""
+    async def test_imported_by_non_module_reason_is_not_applicable(self) -> None:
+        """Non-module imported_by reason must be 'not_applicable' (#626)."""
         from pyeye.mcp.server import expand
 
         result = await expand(
@@ -572,8 +572,8 @@ class TestExpandImportedByNonModuleEndToEnd:
         )
 
         assert (
-            result["reason"] == "not_yet_implemented"
-        ), f"expected reason='not_yet_implemented'; got {result.get('reason')!r}"
+            result["reason"] == "not_applicable"
+        ), f"expected reason='not_applicable'; got {result.get('reason')!r}"
 
     @pytest.mark.asyncio
     async def test_imported_by_non_module_has_non_empty_detail(self) -> None:
@@ -813,18 +813,14 @@ class TestExpandSubclassesClassEndToEnd:
 
 
 class TestExpandSubclassesNonClassEndToEnd:
-    """End-to-end tests for the ``subclasses`` edge on a NON-CLASS handle over the wire.
+    """expand(pkg.base module, 'subclasses') end to end: ``not_applicable`` (#626).
 
-    ``pkg.base`` is a module — only a class CAN be subclassed, so ``[]`` for a
-    non-class is true BY DEFINITION.  Unlike ``imported_by`` (whose wrong-kind
-    result is the unsupported ``None`` branch), ``subclasses`` takes the
-    ``members``/``callees`` measured-empty route: the SUPPORTED branch with
-    ``stubs: []``.  This is the defining behavior of the slice (#348 decision 1).
+    ``pkg.base`` is a module, and ``subclasses`` applies to classes only, so the
+    answer is the unsupported branch, not a measured ``stubs: []``.
     """
 
     @pytest.mark.asyncio
-    async def test_subclasses_non_class_returns_supported_branch(self) -> None:
-        """expand(pkg.base module, 'subclasses') returns the SUPPORTED branch."""
+    async def test_subclasses_non_class_is_not_applicable(self) -> None:
         from pyeye.mcp.server import expand
 
         result = await expand(
@@ -832,54 +828,13 @@ class TestExpandSubclassesNonClassEndToEnd:
             edge="subclasses",
             project_path=str(_SUBCLASSES_FIXTURE),
         )
-
-        assert isinstance(result, dict), f"result must be a plain dict; got {type(result)!r}"
-        assert "unsupported" not in result, (
-            "non-class subclasses must be the SUPPORTED measured-empty branch, "
-            f"not unsupported; got result={result!r}"
-        )
-        assert "reason" not in result, (
-            "non-class subclasses must NOT carry a 'reason' (supported branch); "
-            f"got result={result!r}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_subclasses_non_class_has_empty_stubs(self) -> None:
-        """The non-class result is measured-empty: stubs present and empty."""
-        from pyeye.mcp.server import expand
-
-        result = await expand(
-            handle="pkg.base",
-            edge="subclasses",
-            project_path=str(_SUBCLASSES_FIXTURE),
-        )
-
-        assert "stubs" in result, f"'stubs' missing from supported result: {result!r}"
-        assert result["stubs"] == [], (
-            "non-class subclasses must be measured-empty ('stubs': []); "
-            f"got stubs={result.get('stubs')!r}"
-        )
-        assert result["edge"] == "subclasses"
-
-    @pytest.mark.asyncio
-    async def test_subclasses_non_class_no_unresolved_call_sites(self) -> None:
-        """The non-class subclasses result must NOT include 'unresolved_call_sites'."""
-        from pyeye.mcp.server import expand
-
-        result = await expand(
-            handle="pkg.base",
-            edge="subclasses",
-            project_path=str(_SUBCLASSES_FIXTURE),
-        )
-
-        assert "unresolved_call_sites" not in result, (
-            "'unresolved_call_sites' must be absent for subclasses edge; "
-            f"got result keys: {list(result.keys())!r}"
-        )
+        assert result.get("unsupported") is True, f"got result={result!r}"
+        assert result["reason"] == "not_applicable"
+        assert "stubs" not in result
+        assert "unresolved_call_sites" not in result
 
     @pytest.mark.asyncio
     async def test_subclasses_non_class_result_is_json_serialisable(self) -> None:
-        """The non-class measured-empty result round-trips through json.dumps."""
         from pyeye.mcp.server import expand
 
         result = await expand(
@@ -887,26 +842,7 @@ class TestExpandSubclassesNonClassEndToEnd:
             edge="subclasses",
             project_path=str(_SUBCLASSES_FIXTURE),
         )
-
-        serialised = json.dumps(result)
-        roundtripped = json.loads(serialised)
-        assert isinstance(roundtripped, dict)
-        assert roundtripped["stubs"] == []
-
-    @pytest.mark.asyncio
-    async def test_subclasses_non_class_result_is_plain_dict(self) -> None:
-        """The non-class measured-empty result is an exact plain dict."""
-        from pyeye.mcp.server import expand
-
-        result = await expand(
-            handle="pkg.base",
-            edge="subclasses",
-            project_path=str(_SUBCLASSES_FIXTURE),
-        )
-
-        assert (
-            type(result) is dict
-        ), f"result must be exact dict (not subclass); got {type(result)!r}"  # noqa: E721
+        assert json.loads(json.dumps(result)) == result
 
 
 class TestExpandSubclassesEmptyClassEndToEnd:

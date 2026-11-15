@@ -77,7 +77,12 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
-from pyeye.mcp.operations.edges import EDGE_RESOLVERS, STATUS_IMPLEMENTED, edge_status
+from pyeye.mcp.operations.edges import (
+    EDGE_RESOLVERS,
+    STATUS_IMPLEMENTED,
+    edge_applies,
+    edge_status,
+)
 from pyeye.mcp.operations.expand import _unsupported_detail
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.resolver import NotFound, resolve_handle
@@ -118,10 +123,12 @@ async def _single_hop(
     """
     if edge_status(edge) != STATUS_IMPLEMENTED:
         return [], None, None
+    # Wrong kind (#626's table): not walked.  #657 reports these hops in
+    # ``unsupported_edges`` once trace goes through ``expand_resolved``.
+    if not edge_applies(edge, jedi_name):
+        return [], None, None
     raw = EDGE_RESOLVERS[edge](jedi_name, analyzer)
     edge_result = await raw if isawaitable(raw) else raw
-    if edge_result is None:
-        return [], None, None
     adjacents = [(str(adj_handle), name) for adj_handle, name in edge_result.adjacents]
     return adjacents, edge_result.unresolved_call_sites, edge_result.unresolved_imports
 
