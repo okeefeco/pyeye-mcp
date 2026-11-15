@@ -109,18 +109,14 @@ Create in your project root:
       "./plugins/*",                // Local plugins
       "~/repos/community-plugins/*" // External plugins
     ]
-  },
-  "exclude": [
-    "**/tests/**",                  // Exclude test directories
-    "**/migrations/**",             // Exclude Django migrations
-    "**/__pycache__/**"            // Exclude Python cache
-  ],
-  "cache": {
-    "ttl_seconds": 300,            // Cache time-to-live (5 minutes)
-    "max_size_mb": 100             // Maximum cache size
   }
 }
 ```
+
+Older docs also showed `exclude`, `exclude_patterns`, `cache`, `analysis` and
+`performance` keys. They are deprecated and have no effect: pyeye never read them
+and logs a warning when one is set (#581). Use the environment variables in the
+README's Performance Settings for cache tuning.
 
 ### Configuration in pyproject.toml
 
@@ -155,10 +151,7 @@ Create `~/.config/pyeye/config.json`:
   "packages": [
     "~/my-common-libs",
     "~/work/shared-utils"
-  ],
-  "cache": {
-    "ttl_seconds": 600
-  }
+  ]
 }
 ```
 
@@ -564,9 +557,8 @@ def load_plugins(project_path: str):
 ### Performance Issues
 
 1. Reduce number of included packages
-2. Increase cache TTL
-3. Use exclude patterns for large directories
-4. Check if file watchers are overwhelming system
+2. Increase cache TTL (`PYEYE_CACHE_TTL`)
+3. Check if file watchers are overwhelming system
 
 ### MCP Connection Issues
 
