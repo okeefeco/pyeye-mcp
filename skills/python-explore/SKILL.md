@@ -163,6 +163,22 @@ measured in that scope": unknown beyond it, **not** proof of absence. Don't
 report a static result as exhaustive over instance attributes or the runtime.
 (Same boundary `imported_by` already names for dynamic imports.)
 
+The boundary is also in the response (#417): `expand` carries `ceiling`, the root
+of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The ids:
+
+<!-- markdownlint-disable MD050 -- dunder names are quoted verbatim from edges.CEILING_MEANINGS -->
+
+- `static_definitions`: definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included.
+- `literal_subclassing`: project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included.
+- `declared_bases`: the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses.
+- `static_imports`: import statements written in source; importlib / __import__ with a computed name is not included.
+- `static_calls`: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
+- `on_disk_modules`: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
+
+<!-- markdownlint-enable MD050 -->
+
+`enclosing_scope` has none: lexical nesting is exact.
+
 ## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
 This is the most important rule in this skill.

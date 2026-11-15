@@ -322,6 +322,58 @@ EDGE_APPLIES_TO: dict[str, frozenset[str]] = {
 }
 
 
+#: The static-surface ceiling of each edge (#417): the scope a returned list is
+#: complete over.  pyeye's structural edges are complete over what is written in
+#: source, not over what exists at runtime; this makes that boundary part of the
+#: response (``ceiling`` on expand, outline's root and, per edge, trace's
+#: ``ceilings``), so a JSON consumer that never reads a docstring still sees it.
+#: One id per edge, whatever the source's kind.  An edge absent here is exact
+#: over its domain (``enclosing_scope``: lexical nesting has no runtime half).
+EDGE_CEILINGS: dict[str, str] = {
+    "members": "static_definitions",
+    "subclasses": "literal_subclassing",
+    "superclasses": "declared_bases",
+    "imports": "static_imports",
+    "imported_by": "static_imports",
+    "callees": "static_calls",
+    "submodules": "on_disk_modules",
+}
+
+#: Edges with no ceiling: exact over their domain.
+EXACT_EDGES: frozenset[str] = frozenset({"enclosing_scope"})
+
+#: What each ceiling id means: the one definition the docs and the skill use.
+CEILING_MEANINGS: dict[str, str] = {
+    "static_definitions": (
+        "definitions written in source: a class body (methods, nested classes, "
+        "class-level assignments) or a module's top level. Instance attributes "
+        "assigned in methods (self.x = ...) and anything injected at runtime "
+        "(metaclass, setattr, __getattr__, type(), __init_subclass__) are not included"
+    ),
+    "literal_subclassing": (
+        "project classes whose class statement names this class as a base; classes "
+        "built with type(), class factories or __init_subclass__ registration are "
+        "not included"
+    ),
+    "declared_bases": (
+        "the bases written in the class statement; bases added at runtime are not "
+        "included, and bases that don't resolve are listed in unresolved_superclasses"
+    ),
+    "static_imports": (
+        "import statements written in source; importlib / __import__ with a computed "
+        "name is not included"
+    ),
+    "static_calls": (
+        "calls whose target static analysis resolves; dynamic calls are counted in "
+        "unresolved_call_sites, not listed"
+    ),
+    "on_disk_modules": (
+        "modules and subpackages present on disk under the package; entries added to "
+        "__path__ at runtime are not included"
+    ),
+}
+
+
 def edge_kind(jedi_name: Any) -> str:
     """The kind the applicability table is keyed on (methods promoted, #406)."""
     return normalise_kind_from_name(jedi_name)
