@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye.project_layout import module_name_for_file
-from pyeye.resolver import NotFound, resolve_handle
+from pyeye.resolver import NotFound, resolve_item
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -164,7 +164,7 @@ def _enrich_record(
         return
 
     if symbol.how == "module":
-        outcome = resolve_handle(name, analyzer)
+        outcome = resolve_item(name, analyzer)  # per record (#704)
     else:
         outcome = _place(path, name, line, symbol, analyzer)
     if isinstance(outcome, NotFound):
@@ -212,7 +212,7 @@ def _place(path: Path, name: str, line: Any, symbol: Symbol, analyzer: JediAnaly
                 "definition (for example, it is defined inside a function)."
             ),
         )
-    return resolve_handle(f"{module}.{qualname}", analyzer)
+    return resolve_item(f"{module}.{qualname}", analyzer)  # per record (#704)
 
 
 def _qualname(tree: ast.Module, name: str, line: int, how: str) -> str | None:

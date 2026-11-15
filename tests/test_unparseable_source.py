@@ -172,34 +172,33 @@ class TestOnlyParseErrorsAreMapped:
             parse_own_source("whatever.py")
 
     @pytest.mark.asyncio
-    async def test_a_non_parse_failure_keeps_its_existing_handling(
+    async def test_a_non_parse_failure_propagates(
         self, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A Jedi failure in the members resolver still reads as before (#704's scope)."""
+        """A Jedi failure is internal: it propagates (#704), never ``unparseable``."""
 
         def boom(*_args: Any, **_kwargs: Any) -> Any:
             raise RuntimeError("jedi broke")
 
         monkeypatch.setattr(edges.file_artifact_cache, "get_script", boom)
-        result = await expand("upkg.ok", "members", analyzer)
-        assert result.get("reason") != "unparseable"
+        with pytest.raises(RuntimeError, match="jedi broke"):
+            await expand("upkg.ok", "members", analyzer)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("edge", ["members", "imports"])
-    async def test_a_non_parse_ast_failure_keeps_its_existing_handling(
+    async def test_a_non_parse_ast_failure_propagates(
         self, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch, edge: str
     ) -> None:
-        """Only SyntaxError maps to unparseable at the call sites too: an ``OSError``
-        from ``get_ast`` (e.g. a namespace package's directory path) still reads as
-        before, not as a crash and not as unparseable (#704's scope)."""
+        """Only ``SyntaxError`` maps to unparseable; any other read failure is
+        internal and propagates (#704). A namespace package's directory never
+        reaches the read: ``edges._own_source`` answers it first."""
 
         def denied(_path: Any) -> Any:
             raise IsADirectoryError("is a directory")
 
         monkeypatch.setattr(edges.file_artifact_cache, "get_ast", denied)
-        result = await expand("upkg.ok", edge, analyzer)
-        assert result["found"] is True
-        assert result.get("reason") != "unparseable"
+        with pytest.raises(IsADirectoryError):
+            await expand("upkg.ok", edge, analyzer)
 
 
 @pytest.mark.skipif(sys.version_info >= (3, 14), reason="these modules parse on 3.14 (#543)")
