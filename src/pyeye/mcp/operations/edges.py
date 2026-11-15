@@ -71,11 +71,12 @@ from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
+from pyeye._stdlib_runtime import is_stdlib, stdlib_canonical
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
 from pyeye.resolver import Resolved, resolve_handle
-from pyeye.scope import classify_scope
+from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -346,6 +347,27 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
 
 
+def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
+    """The ONE builder for an edge handle from a Jedi ``Name`` (#544).
+
+    *full_name* defaults to ``name.full_name``. When the name's definition is a
+    standard-library ``.py`` file, the running interpreter names it
+    (:func:`pyeye._stdlib_runtime.stdlib_canonical`): a member of
+    ``_collections_abc.Mapping`` is emitted as ``collections.abc.Mapping.<m>``,
+    the handle ``resolve`` and ``inspect`` report. The file check keeps a
+    project package that shares a stdlib name untouched. Everything else is
+    :func:`_try_handle` of *full_name*.
+    """
+    if full_name is None:
+        full_name = getattr(name, "full_name", None)
+    if not full_name:
+        return None
+    module_path = getattr(name, "module_path", None)
+    if module_path is not None and is_stdlib_source(module_path):
+        full_name = stdlib_canonical(full_name) or full_name
+    return _try_handle(full_name)
+
+
 def _try_handle(s: str) -> Handle | None:
     """Attempt to construct a :class:`Handle` from *s*, returning ``None`` on failure.
 
@@ -404,7 +426,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
         if full_name in seen:
             continue
         seen.add(full_name)
-        h = _try_handle(full_name)
+        h = _handle_for_name(name, full_name)
         if h is not None:
             members.append((h, name))
     return members
@@ -490,7 +512,7 @@ def _module_members(
         if full_name in seen:
             continue
         seen.add(full_name)
-        h = _try_handle(full_name)
+        h = _handle_for_name(name, full_name)
         if h is not None:
             members.append((h, name))
     return members
@@ -665,13 +687,32 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
     d = goto_target(script, line, col)
     if d is None:
         return None
-    h = _try_handle(d.full_name)
+    h = _handle_for_name(d)
     return (h, d) if h is not None else None
 
 
 # ---------------------------------------------------------------------------
 # imported_by resolver (spec §5.3) — pure-AST reverse import scan
 # ---------------------------------------------------------------------------
+
+
+def _stdlib_import_target(
+    node: ast.ImportFrom, name: str, analyzer: JediAnalyzer
+) -> tuple[Handle, Any] | None:
+    """Place ``from <stdlib module> import <name>`` by its imported path (#544).
+
+    The resolver names a stdlib symbol the way the running interpreter does, so
+    the edge emits what ``resolve`` reports. ``None`` (fall back to ``goto``)
+    for a relative import, a non-stdlib module, a project module that shares a
+    stdlib name, or a path the resolver can't place.
+    """
+    if node.level or not node.module or not is_stdlib(node.module):
+        return None
+    resolved = resolve_handle(f"{node.module}.{name}", analyzer)
+    if not isinstance(resolved, Resolved) or resolved.scope != "external":
+        return None
+    handle = _try_handle(resolved.handle)
+    return (handle, resolved.anchor) if handle is not None else None
 
 
 def _canonical_import_targets(
@@ -1038,7 +1079,7 @@ def superclass_bases(
             bases.append((text, None))
             continue
         d = goto_target(script, base_line, base_col, prefer="class")
-        h = _try_handle(d.full_name) if d is not None else None
+        h = _handle_for_name(d) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases
 
@@ -1180,9 +1221,14 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
             for alias in node.names:
                 if alias.name == "*":
                     continue
-                # alias.col_offset is the column of the imported name itself
-                # (Jedi resolves the symbol/module at that position).
-                pair = _resolve_call_target(script, (alias.lineno, alias.col_offset))
+                # A stdlib name is placed by the resolver from the IMPORTED path
+                # (#544): goto follows typeshed, which reverses
+                # ``collections.abc.Mapping`` into ``typing.Mapping``.
+                # Otherwise alias.col_offset is the column of the imported name
+                # itself (Jedi resolves the symbol/module at that position).
+                pair = _stdlib_import_target(node, alias.name, analyzer) or _resolve_call_target(
+                    script, (alias.lineno, alias.col_offset)
+                )
                 if pair is None:
                     unresolved.add(_import_from_target(node, alias.name))
                     continue
@@ -1270,7 +1316,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     if not full_name:
         return EdgeResult(adjacents=[])
 
-    h = _try_handle(full_name)
+    h = _handle_for_name(parent, full_name)
     if h is None:
         return EdgeResult(adjacents=[])
 

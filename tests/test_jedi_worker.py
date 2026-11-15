@@ -387,7 +387,12 @@ async def test_io_imports_resolve_on_the_worker_and_report_the_stub_as_unresolve
     result = await run_on_jedi_worker(lambda: resolve_imports(io_module, analyzer))
 
     assert result is not None
-    assert "_io.UnsupportedOperation" in (result.unresolved_imports or [])
+    # The walk returned and stayed honest: the imports are measured (a list),
+    # and ``from _io import UnsupportedOperation`` is no longer unresolved. The
+    # resolver names it at its runtime definition, ``io.UnsupportedOperation``
+    # (#544), which is ``io`` itself, so it is a dropped self-edge.
+    assert result.unresolved_imports is not None
+    assert "_io.UnsupportedOperation" not in result.unresolved_imports
 
 
 async def test_trace_into_io_through_the_tool_layer(tmp_path: Path) -> None:
@@ -407,8 +412,8 @@ async def test_trace_into_io_through_the_tool_layer(tmp_path: Path) -> None:
     )
 
     assert "io" in traced["nodes"]
-    walked_io_imports = traced.get("unresolved_imports", {}).get("io", [])
-    assert "io" in traced["unresolved_nodes"] or "_io.UnsupportedOperation" in walked_io_imports
+    walked_io = any(edge["from"] == "io" for edge in traced["edges"])
+    assert "io" in traced["unresolved_nodes"] or walked_io
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the C stack overflow is Windows-only")
