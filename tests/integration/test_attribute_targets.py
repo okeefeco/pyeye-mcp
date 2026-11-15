@@ -109,25 +109,25 @@ async def test_attribute_target_handle_is_not_found(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("handle", "line"),
+    ("handle", "line", "kind"),
     [
-        ("pkg.m.A.__init__.loc", 5),
-        ("pkg.m.A.later.x", 10),
-        ("pkg.n.obj", 3),
-        ("pkg.n.real", 5),
-        ("pkg.o.C.attr", 2),
-        ("pkg.o.c", 5),
-        ("pkg.o.B.real", 12),
+        ("pkg.m.A.__init__.loc", 5, "variable"),
+        ("pkg.m.A.later.x", 10, "variable"),
+        ("pkg.n.obj", 3, "variable"),
+        ("pkg.n.real", 5, "variable"),
+        ("pkg.o.C.attr", 2, "attribute"),  # a class-body binding (#695)
+        ("pkg.o.c", 5, "variable"),
+        ("pkg.o.B.real", 12, "attribute"),  # a class-body binding (#695)
     ],
 )
 async def test_genuine_binding_still_resolves(
-    project: tuple[JediAnalyzer, Path], handle: str, line: int
+    project: tuple[JediAnalyzer, Path], handle: str, line: int, kind: str
 ) -> None:
     analyzer, _ = project
     resolved = await resolve(handle, analyzer)
     assert resolved["found"] is True, resolved
     assert resolved["handle"] == handle
-    assert resolved["kind"] == "variable"
+    assert resolved["kind"] == kind
     assert resolved["location"]["line_start"] == line
     inspected = await inspect(handle, analyzer)
     assert inspected["found"] is True

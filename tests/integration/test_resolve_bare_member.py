@@ -89,8 +89,8 @@ async def _resolve(name: str, analyzer: JediAnalyzer) -> dict:
     ("name", "handle", "kind"),
     [
         ("uniquely_named", "pkg.a.Alpha.uniquely_named", "method"),
-        ("unique_attr", "pkg.a.Alpha.unique_attr", "variable"),
-        ("typed_attr", "pkg.a.Alpha.typed_attr", "variable"),
+        ("unique_attr", "pkg.a.Alpha.unique_attr", "attribute"),  # #695
+        ("typed_attr", "pkg.a.Alpha.typed_attr", "attribute"),  # #695
         ("deep", "pkg.a.Outer.Inner.deep", "method"),
     ],
 )

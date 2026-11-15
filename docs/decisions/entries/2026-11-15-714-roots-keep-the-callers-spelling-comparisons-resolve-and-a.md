@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "Roots keep the caller's spelling, comparisons resolve, and a project handle's module comes from the mapper (#714)"
 issues: [714, 603, 668, 625]
 anchors: ["pyeye.path_utils.relative_within", "pyeye.project_layout.module_name_for_file", "pyeye.resolver.handle_for_anchor", "pyeye.mcp.operations.edges._handle_for_name", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.__init__"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-717-mcp-responses-spell-in-project-paths-under-the-callers-project.md"]
 superseded_by: []
 ---
 

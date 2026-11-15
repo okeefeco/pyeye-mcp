@@ -18,6 +18,7 @@ from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
+from ..path_utils import absolute_path, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -95,6 +96,18 @@ PLUGINS = _plugins  # Expose for testing
 # Module-level exports for testing
 project_manager = None  # Will be initialized lazily
 project_config = None  # Will be initialized lazily
+
+
+def _for_caller(result: Any, project_path: str) -> dict[str, Any]:
+    """*result* with every in-project file path in the caller's spelling (#717).
+
+    The analyzer is built from the resolved root (#603: one analyzer per
+    directory, whatever spelling reached it first), and Jedi reports files
+    resolved. An agent that opened a symlinked ``project_path`` must still get
+    paths under the root it gave, or it can't match them to its own paths or
+    its sandbox's allowed directories.
+    """
+    return dict(respell_paths(dict(result), [absolute_path(project_path)]))
 
 
 def get_analyzer(project_path: str = ".") -> JediAnalyzer:
@@ -248,6 +261,10 @@ def _plugin_tool(
             result = plugin_handles.enrich(
                 tool_name, result, lambda: get_analyzer(plugin.project_path.as_posix())
             )
+        # The caller's spelling of the project root, as the core tools give it
+        # (#717): enrich's locations come from the analyzer, which is resolved.
+        # Before the envelope, so the bare list and `results` carry the same.
+        result = respell_paths(result, [absolute_path(plugin.project_path)])
         if not envelope:
             return result
         searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
@@ -541,7 +558,7 @@ def configure_packages(
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
-        manager.namespace_resolver.register_namespace(namespace, ns_paths)
+        manager.namespace_resolver.register_namespace(namespace, ns_paths, project=root)
 
     # Invalidate cached analyzers for all paths so the next get_analyzer call
     # rebuilds with the updated package paths, namespaces, and standalone
@@ -628,7 +645,7 @@ async def resolve(
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
     # to match this wrapper's declared return type. TypedDict instances are
     # already dicts at runtime; this is a mypy-compliance shallow copy.
-    return dict(await _resolve_impl(identifier, analyzer))
+    return _for_caller(await _resolve_impl(identifier, analyzer), project_path)
 
 
 @mcp.tool()
@@ -667,7 +684,7 @@ async def resolve_at(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _resolve_at_impl(file, line, column, analyzer))
+    return _for_caller(await _resolve_at_impl(file, line, column, analyzer), project_path)
 
 
 @mcp.tool()
@@ -697,7 +714,9 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
-        - attribute/property/variable: type?, default? (simple literals only)
+        - attribute/property/variable/enum_member: type?, default? (simple literals only).
+          A class-body binding is ``attribute``; a member of an ``enum.Enum``
+          subclass is ``enum_member`` (its ``default`` is the member's value).
 
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
@@ -708,7 +727,7 @@ async def inspect(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _inspect_impl(handle, analyzer))
+    return _for_caller(await _inspect_impl(handle, analyzer), project_path)
 
 
 @mcp.tool()
@@ -872,7 +891,7 @@ async def expand(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _expand_impl(handle, edge, analyzer))
+    return _for_caller(await _expand_impl(handle, edge, analyzer), project_path)
 
 
 @mcp.tool()
@@ -961,8 +980,7 @@ async def trace(
         subgraph never overstates how complete the call walk was.
     """
     analyzer = get_analyzer(project_path)
-    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(
+    return _for_caller(
         await _trace_impl(
             start,
             follow,
@@ -970,7 +988,8 @@ async def trace(
             max_depth=max_depth,
             max_nodes=max_nodes,
             stop_when=stop_when,
-        )
+        ),
+        project_path,
     )
 
 
@@ -1103,7 +1122,10 @@ async def outline(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
+    return _for_caller(
+        await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes),
+        project_path,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)
