@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `resolve` and `resolve_at` not-found responses now carry the lookup they missed and a next step (#626). `resolve` adds `identifier` (the input, verbatim) and `resolve_at` adds `file`, `line` and `column` (as passed), and both add `detail`. For example: `{found: false, identifier: "pkg.Nope", reason: "unresolved", detail: "…"}`. `reason` keeps its existing values (`unresolved`, `file_not_found`, `no_symbol_at_position`). All five primitives now share one not-found shape: `{found: false, <lookup echo>, reason, detail}`. `handle` appears only when the input is a handle (`inspect`, `outline`, `expand`), so an identifier or path is never handed back as if it were one. The tool descriptions also now say what really raises: invalid arguments or a missing `project_path`, never a lookup miss.
 - Framework plugin tools (Pydantic, Django, Flask) take an opt-in `envelope` argument that reports what was searched (#594). By default a plugin tool returns a bare list: an empty answer is zero content items, and nothing says which scope was searched, so "these are all the models" looked the same as "these are the main repo's models". With `envelope=true` every plugin tool returns `{scope, searched, unsearched_scopes, results}`:
   - `scope` is the scope as requested or defaulted.
   - `searched` lists the configured scopes (`main`, `packages`, each `namespace:<name>`) whose paths were all searched.

@@ -658,17 +658,26 @@ def test_legacy_not_found_detector() -> None:
 
 @pytest.mark.parametrize("operation", _RESOLVE_ENTRY_POINTS)
 def test_check_n_applies_to_resolve_operations(operation: str) -> None:
-    """Check N now covers resolve / resolve_at (#545, #615)."""
+    """Check N covers resolve / resolve_at with their own echo (#545, #615, #626)."""
     from tests.conformance.response_linter import ConformanceViolation, lint_response
 
-    # The shared shape passes.
-    lint_response(
-        {"found": False, "handle": "pkg.nope", "reason": "unresolved", "detail": "no match"},
-        operation,
+    echo = (
+        {"identifier": "pkg.nope"}
+        if operation == "resolve"
+        else {"file": "pkg/nope.py", "line": 1, "column": 0}
     )
-    # An allow-listed legacy pair passes (N.4 ratchet).
-    lint_response({"found": False, "reason": "file_not_found"}, operation)
-    # A legacy shape with an unlisted reason does not.
+    # The operation's shared shape passes, for every reason in its set.
+    for reason in ("unresolved", "file_not_found", "no_symbol_at_position"):
+        lint_response({"found": False, **echo, "reason": reason, "detail": "no match"}, operation)
+    # Echoing a handle for a non-handle input does not (#626).
+    with pytest.raises(ConformanceViolation, match="N.2"):
+        lint_response(
+            {"found": False, "handle": "pkg.nope", "reason": "unresolved", "detail": "no match"},
+            operation,
+        )
+    # The legacy two-key shape is no longer exempt: #626 emptied the N.4 list.
+    with pytest.raises(ConformanceViolation, match="N.2"):
+        lint_response({"found": False, "reason": "file_not_found"}, operation)
     with pytest.raises(ConformanceViolation, match="N.2"):
         lint_response({"found": False, "reason": "some_new_reason"}, operation)
     # A legacy shape padded with extra fields is not exempt.
