@@ -252,7 +252,9 @@ def test_member_index_is_built_and_invalidated_with_the_name_index(tmp_path: Pat
     first = project_graph.get_member_index(str(tmp_path), [f], {f: "m"})
     assert project_graph.get_member_index(str(tmp_path), [f], {f: "m"}) is first
     project_graph.invalidate(str(tmp_path))
-    f.write_text("class B:\n    def other(self):\n        pass\n")
-    rebuilt = project_graph.get_member_index(str(tmp_path), [f], {f: "m"})
+    # A new file, not a rewrite: on Windows a rewrite within the mtime
+    # resolution would be served from the AST cache, which isn't under test.
+    g = _write(tmp_path, "n.py", "class B:\n    def other(self):\n        pass\n")
+    rebuilt = project_graph.get_member_index(str(tmp_path), [g], {g: "n"})
     assert rebuilt is not first
     assert set(rebuilt) == {"other"}
