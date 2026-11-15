@@ -234,6 +234,18 @@ repos:
       - id: markdownlint
         args: ['--fix']
 
+  # Decision log (#679): one file per decision in docs/decisions/entries/. Validates
+  # front matter, names and symmetric amend/supersede links, and points at
+  # `scripts/decisions.py migrate` if an entry was written into DECISIONS.md.
+  - repo: local
+    hooks:
+      - id: decisions-check
+        name: Decision log check (one file per decision)
+        entry: uv run --frozen python scripts/decisions.py check
+        language: system
+        files: ^(docs/decisions/|scripts/decisions\.py$)
+        pass_filenames: false
+
   # Decision-log nudge — runs AFTER each commit, never blocks. Prints a one-line
   # suggestion when the just-committed diff touches a contract surface (new
   # PYEYE_* config knob, public/dunder signature change, or an output-shape dict

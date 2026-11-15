@@ -5,7 +5,7 @@ the Pydantic and Django AST tools, in ``AnalyzerPlugin.get_project_files``, and 
 plugin's ``detect()``. There an internal error read as "nothing found" (``[]``) or
 "not this framework" (``False``).
 
-The contract, shared by every plugin (see the #622 entry in docs/decisions/DECISIONS.md):
+The contract, shared by every plugin (see the #622 entry in docs/decisions/entries/):
 
 - an unreadable file (``OSError``/``UnicodeDecodeError``) or unparseable source
   (``SyntaxError``/``ValueError``/``RecursionError``) is warned about and skipped;

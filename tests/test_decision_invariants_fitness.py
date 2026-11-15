@@ -1,6 +1,6 @@
 """Single-site fitness tests for DECISIONS invariants (#615, epic #629).
 
-Each decision in ``docs/decisions/DECISIONS.md`` says a capability lives in ONE
+Each decision in ``docs/decisions/entries/`` says a capability lives in ONE
 place, but its Verify line samples only the site where the friction showed up.
 These tests sweep ``src/pyeye`` with an AST scan, so a second copy can't
 creep in unseen.

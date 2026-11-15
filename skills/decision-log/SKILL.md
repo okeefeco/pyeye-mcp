@@ -1,6 +1,6 @@
 ---
 name: decision-log
-description: Use at the commit checkpoint — or on demand ("log this decision", "record why we did this") — when a change is BOTH contract/invariant-significant AND driven by friction. Captures a short, honest, verifiable decision note into the repo's docs/decisions/DECISIONS.md. Triggers on diffs touching a public signature, a documented invariant, a predicate/schema, or an edge/API contract. Does NOT trigger for pure bugfixes, renames, formatting, dependency bumps, or any change without a non-obvious "why". Tool-agnostic — synergises with pyeye but does not require it.
+description: Use at the commit checkpoint — or on demand ("log this decision", "record why we did this") — when a change is BOTH contract/invariant-significant AND driven by friction. Captures a short, honest, verifiable decision note as one file in the repo's docs/decisions/entries/. Triggers on diffs touching a public signature, a documented invariant, a predicate/schema, or an edge/API contract. Does NOT trigger for pure bugfixes, renames, formatting, dependency bumps, or any change without a non-obvious "why". Tool-agnostic — synergises with pyeye but does not require it.
 ---
 
 # Decision Log
@@ -44,12 +44,12 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 - The change is mechanical and self-explanatory from the diff.
 - You are unsure it clears the contract-significant bar — default to silence.
 
-## The Flow (propose → draft → confirm → append)
+## The Flow (propose → draft → confirm → write)
 
 1. **Propose in ONE line.** e.g. *"That `stop_when` change alters a predicate contract — log a decision note?"* Do not draft yet.
 2. **Draft from the diff + conversation.** Fill every field. Pull the *why* from what was actually said/decided, not a guess.
 3. **Show the drafted entry** for confirmation.
-4. **Append on confirm** to `docs/decisions/DECISIONS.md` (newest on top; create with the header if absent). On decline, drop it.
+4. **Write on confirm** a new entry file in `docs/decisions/entries/` (see File Convention). If it amends or supersedes an earlier entry, also update that entry's front matter. On decline, drop it.
 
 ## Entry Schema
 
@@ -91,15 +91,40 @@ The `Verify` line is the bridge to the trust layer. It MUST be one of three hone
 
 ## File Convention
 
-- Location: `docs/decisions/DECISIONS.md` at the repo root. Create `docs/decisions/` if absent.
-- Append-only, **newest entry on top**, one entry per *distinct* decision (not per commit; one commit may yield zero or one).
-- When creating the file, start it with this header, then the first entry:
+**One file per decision**, with no committed index, so two PRs never edit the same lines.
+
+- **Before drafting, read what already exists.** If the repo has `scripts/decisions.py`, run `python scripts/decisions.py index --active` (optionally `--symbol <name>` or `--issue <N>`) and open the one to three entries that matter. If it doesn't, list `docs/decisions/entries/`. The new decision may amend or supersede one of them.
+- **Location:** `docs/decisions/entries/YYYY-MM-DD-<issue>-<slug>.md`, or `YYYY-MM-DD-<slug>.md` when there's no issue. Use the date the decision was made, the issue it belongs to, and a short lowercase hyphenated slug of the title. Create the directory if absent.
+- One file per *distinct* decision (not per commit; one commit may yield zero or one).
+- **Front matter**, then the entry. Each front-matter value is a JSON literal on one line:
 
 ```text
-# Decision Log
+---
+date: "2026-11-15"
+title: "One canonical handle resolver (#623)"
+issues: [623]
+anchors: ["pyeye.resolver.resolve_handle"]
+status: "active"
+amends: []
+supersedes: []
+amended_by: []
+superseded_by: []
+---
 
-Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
+## 2026-11-15 — One canonical handle resolver (#623)
+
+**Friction:** …
+**Decision:** …
+**Anchor:** …
+**Applies-to:** …
+**Verify:** …
 ```
+
+- `title` and `date` match the `##` heading exactly.
+- `anchors` lists the governed symbols, the same stable references as the `Anchor` and `Applies-to` lines. It is what `index --symbol` searches.
+- **Amending or superseding** an earlier decision: list the old file in the new entry's `amends` / `supersedes`, add the new file to the old entry's `amended_by` / `superseded_by`, and set the old entry's `status` to `amended` or `superseded`. That front matter is the only edit ever made to an existing entry; its body stays as written.
+- **After writing:** if the repo has `scripts/decisions.py`, run `python scripts/decisions.py check`. It must pass.
+- If `docs/decisions/DECISIONS.md` doesn't exist, create it as a short static header that explains the format and how to list entries. It is never edited per decision.
 
 ## Workflow
 
@@ -116,7 +141,7 @@ digraph decision_log {
     "Propose in ONE line" [shape=box];
     "Draft entry from diff + conversation" [shape=box];
     "Show entry for confirmation" [shape=box];
-    "Append to docs/decisions/DECISIONS.md" [shape=box];
+    "Write docs/decisions/entries/<file>.md" [shape=box];
     "Drop silently" [shape=box];
 
     "Change being committed / user says 'log this'" -> "Touches a contract surface?";
@@ -128,7 +153,7 @@ digraph decision_log {
     "User confirms?" -> "Drop silently" [label="no"];
     "User confirms?" -> "Draft entry from diff + conversation" [label="yes"];
     "Draft entry from diff + conversation" -> "Show entry for confirmation";
-    "Show entry for confirmation" -> "Append to docs/decisions/DECISIONS.md";
+    "Show entry for confirmation" -> "Write docs/decisions/entries/<file>.md";
 }
 ```
 

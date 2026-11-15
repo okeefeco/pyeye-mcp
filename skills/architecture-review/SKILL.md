@@ -94,7 +94,9 @@ the orchestrator's job is to wire the steps together and drive the human loop.
 - **Resolve the caller-supplied scope** to a canonical handle (a package, module,
   or directory). Scope is **required** — if the caller gave none, ask for one; do
   not default to the whole repo (auto-iteration is deferred).
-- **Load the Tier-3 baseline:** `docs/decisions/DECISIONS.md` plus any existing
+- **Load the Tier-3 baseline:** the decision log, one file per decision in
+  `docs/decisions/entries/` (list them with `python scripts/decisions.py index
+  --active` where that script exists, then open the relevant ones), plus any existing
   conformance tests / fitness functions. These are the *only* first-strength
   external anchors a recommendation may cite.
 - **Load prior cross-run state** with `state.load_state(path)`: prior coverage,
@@ -213,8 +215,8 @@ handles / #issue) — never bare `file:line`; `Verify` must be honestly tiered
 (gold / partial / unverifiable).
 
 When drafting the entry, pull evidence and handles from the finding verbatim.
-The entry appends to `docs/decisions/DECISIONS.md` (newest on top; create with
-the standard header if absent).
+The entry is a new file in `docs/decisions/entries/`, in the format the
+`decision-log` skill's File Convention defines (one file per decision; #679).
 
 **Prefer an executable fitness-function or conformance-test stub** so the norm
 becomes a running check (anti-drift, spec §14): the stub lives in `tests/` and
