@@ -87,7 +87,7 @@ from typing import TYPE_CHECKING, Any
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position
 from pyeye._goto import binding_target, goto_target
-from pyeye._stdlib_runtime import is_stdlib
+from pyeye._stdlib_static import is_stdlib
 from pyeye.handle import Handle
 from pyeye.project_layout import module_name_for_file
 from pyeye.resolver import Resolved, resolve_handle
@@ -489,7 +489,7 @@ def _stdlib_binding_handle(
 
     ``goto`` with imports followed lands where typeshed says the name lives,
     which for ``from collections.abc import Mapping`` is ``typing.Mapping``,
-    the reverse of the runtime. The binding itself (imports NOT followed) names
+    the reverse of the real source. The binding itself (imports NOT followed) names
     the imported path; a stdlib path is placed by the resolver, so the typeref
     carries the handle ``resolve`` reports. ``None`` when the head is not bound
     to one stdlib path, or the resolver places it outside the stdlib.

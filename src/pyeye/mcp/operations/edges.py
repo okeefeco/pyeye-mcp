@@ -71,7 +71,7 @@ from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
-from pyeye._stdlib_runtime import is_stdlib, stdlib_canonical
+from pyeye._stdlib_static import is_stdlib, public_handle
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
@@ -351,10 +351,11 @@ def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
     """The ONE builder for an edge handle from a Jedi ``Name`` (#544).
 
     *full_name* defaults to ``name.full_name``. When the name's definition is a
-    standard-library ``.py`` file, the running interpreter names it
-    (:func:`pyeye._stdlib_runtime.stdlib_canonical`): a member of
-    ``_collections_abc.Mapping`` is emitted as ``collections.abc.Mapping.<m>``,
-    the handle ``resolve`` and ``inspect`` report. The file check keeps a
+    standard-library ``.py`` file in a private module, it is named by the public
+    module that re-exports it (:func:`pyeye._stdlib_static.public_handle`): a
+    member of ``_collections_abc.Mapping`` is emitted as
+    ``collections.abc.Mapping.<m>``, the handle ``resolve`` and ``inspect``
+    report. The file check keeps a
     project package that shares a stdlib name untouched. Everything else is
     :func:`_try_handle` of *full_name*.
     """
@@ -364,7 +365,7 @@ def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
         return None
     module_path = getattr(name, "module_path", None)
     if module_path is not None and is_stdlib_source(module_path):
-        full_name = stdlib_canonical(full_name) or full_name
+        full_name = public_handle(full_name) or full_name
     return _try_handle(full_name)
 
 

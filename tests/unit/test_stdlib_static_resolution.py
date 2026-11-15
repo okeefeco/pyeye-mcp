@@ -1,9 +1,10 @@
-"""Standard-library symbols resolve to their runtime definition (#544).
+"""Stdlib names: public handles for private definitions (#544), and the
+platform decision point for ``os.path`` (#329). All static; identical on every OS.
 
 ``collections.abc.Mapping`` was an honest not-found: typeshed declares it as a
-re-export of ``typing.Mapping``, the reverse of the runtime. The resolver now
-asks the running interpreter for stdlib symbols, so every tool reports the
-runtime's own handle, located in the runtime definition's source.
+re-export of ``typing.Mapping``, the reverse of the real source. The resolver
+follows the real ``.py`` chain to ``class Mapping`` in ``_collections_abc.py``
+and names it by the public module, ``collections.abc.Mapping``, in every tool.
 """
 
 from __future__ import annotations
@@ -30,9 +31,7 @@ def analyzer() -> JediAnalyzer:
 
 class TestCollectionsAbc:
     @pytest.mark.parametrize("leaf", _ABCS)
-    def test_resolve_handle_names_the_runtime_class(
-        self, leaf: str, analyzer: JediAnalyzer
-    ) -> None:
+    def test_resolve_handle_names_the_public_class(self, leaf: str, analyzer: JediAnalyzer) -> None:
         result = resolve_handle(f"collections.abc.{leaf}", analyzer)
 
         assert isinstance(result, Resolved), result
@@ -91,8 +90,8 @@ class TestUnchangedStdlib:
     def test_typing_alias_is_not_turned_into_a_different_object(
         self, analyzer: JediAnalyzer
     ) -> None:
-        # ``typing.Mapping`` is an alias instance at runtime, not a class: the
-        # runtime rule does not apply, and it is not rewritten to the ABC.
+        # ``typing.Mapping`` is defined in ``typing`` (a public module): the #544
+        # exception does not apply, and it is never rewritten to the ABC.
         result = resolve_handle("typing.Mapping", analyzer)
 
         assert not isinstance(result, Resolved) or result.handle == "typing.Mapping"
@@ -119,7 +118,7 @@ class TestToolsAgreeOnStdlibHandles:
     """Every tool emits the handle ``resolve`` reports (#544, #614)."""
 
     @pytest.mark.asyncio
-    async def test_imports_edge_names_the_imported_runtime_class(
+    async def test_imports_edge_names_the_imported_public_class(
         self, importer: JediAnalyzer
     ) -> None:
         from pyeye.mcp.operations.expand import expand
@@ -145,7 +144,7 @@ class TestToolsAgreeOnStdlibHandles:
         assert isinstance(resolved, Resolved) and resolved.handle == "collections.abc.Mapping"
 
     @pytest.mark.asyncio
-    async def test_member_and_superclass_handles_use_the_runtime_owner(
+    async def test_member_and_superclass_handles_use_the_public_owner(
         self, analyzer: JediAnalyzer
     ) -> None:
         from pyeye.mcp.operations.expand import expand
@@ -159,12 +158,12 @@ class TestToolsAgreeOnStdlibHandles:
         assert all(h.startswith("collections.abc.Mapping.") for h in member_handles)
         assert [s["handle"] for s in supers["stubs"]] == ["collections.abc.Collection"]
         assert node["superclasses"] == ["collections.abc.Collection"]
-        # count == expand (#599) holds for a runtime-renamed class
+        # count == expand (#599) holds for a publicly-renamed class
         assert node["edge_counts"]["members"] == len(members["stubs"])
         assert node["edge_counts"]["superclasses"] == len(supers["stubs"])
 
     @pytest.mark.asyncio
-    async def test_enclosing_scope_of_a_member_is_the_runtime_class(
+    async def test_enclosing_scope_of_a_member_is_the_public_class(
         self, analyzer: JediAnalyzer
     ) -> None:
         from pyeye.mcp.operations.expand import expand
@@ -195,3 +194,46 @@ class TestProjectShadowingAStdlibName:
         assert resolved.handle == "json.JSONDecoder"
         assert resolved.scope == "project"
         assert [s["handle"] for s in members["stubs"]] == ["json.JSONDecoder.decode"]
+
+
+class TestOsPathDecisionPoint:
+    """``os.path`` names are located at the ``sys.platform`` branch (#329).
+
+    Neither ``ntpath.py`` nor ``posixpath.py``: the typeshed ``os/path.pyi``
+    block that selects between them, the same on every OS.
+    """
+
+    @staticmethod
+    def _assert_decision_point(file: str, line_start: int) -> None:
+        assert file.endswith("stdlib/os/path.pyi"), file
+        assert Path(file).read_text().splitlines()[line_start - 1].startswith("if sys.platform")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("identifier", "kind"), [("os.path.join", "function"), ("os.path", "module")]
+    )
+    async def test_resolve_and_inspect(
+        self, identifier: str, kind: str, analyzer: JediAnalyzer
+    ) -> None:
+        resolved = await resolve(identifier, analyzer)
+        node = await inspect(identifier, analyzer)
+
+        assert resolved["found"] is True and node["found"] is True
+        assert resolved["handle"] == node["handle"] == identifier
+        assert resolved["kind"] == node["kind"] == kind
+        self._assert_decision_point(
+            resolved["location"]["file"], resolved["location"]["line_start"]
+        )
+        assert node["location"] == resolved["location"]
+
+    @pytest.mark.asyncio
+    async def test_callee_stub_is_at_the_decision_point(self, importer: JediAnalyzer) -> None:
+        from pyeye.mcp.operations.expand import expand
+
+        resolved = await resolve("os.path.join", importer)
+        callees = await expand("importer.f", "callees", importer)
+        stub = next(s for s in callees["stubs"] if s["handle"] == "os.path.join")
+
+        assert stub["line_start"] == resolved["location"]["line_start"]
+        assert stub["line_end"] == resolved["location"]["line_end"]
+        assert stub["kind"] == "function"

@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "One canonical handle resolver; every tool echoes the canonical handle (#623)"
 issues: [623, 602, 431, 429, 454, 457]
 anchors: ["pyeye.resolver.resolve_handle", "Resolved", "NotFound", "_synthetic_import", "scope_for", "pyeye.project_layout.file_for_module", "find_namespace_package_dirs", "tests/unit/test_resolver.py", "tests/integration/test_canonical_resolver.py", "tests/integration/test_resolve_on_resolver.py"]
-status: "active"
+status: "amended"
 amends: ["2026-10-29-506-dotted-handles-are-placed-by-definition-lookup-never-by.md", "2026-06-21-444-namespace-packages-anchored-through-resolve-inspect.md", "2026-06-21-454-edge-stub-scope-reconciles-to-the-project-definition-site.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-15-544-stdlib-private-definitions-get-public-handles-os-path-is-located.md"]
 superseded_by: []
 ---
 

@@ -19,11 +19,15 @@ Strategy order (the first hit wins):
    re-export alias (``package.Thing`` for ``package._impl.Thing``) is matched
    by name and followed to its definition, whose ``full_name`` becomes the
    canonical handle. There is no fallback to shallower modules after a miss.
-5. **Standard-library runtime definition** (#544), for a stdlib class or
-   function outside the project: the running interpreter names it
-   (``__module__.__qualname__``) and locates it (:mod:`pyeye._stdlib_runtime`),
-   so ``collections.abc.Mapping`` is the class in ``_collections_abc.py``, not
-   typeshed's reversed re-export of ``typing.Mapping``.
+5. **Private stdlib definition** (#544), for a stdlib class or function
+   outside the project: the real ``.py`` chain is followed statically to a
+   definition in a private stdlib module, named by its public re-exporting
+   module (:mod:`pyeye._stdlib_static`), so ``collections.abc.Mapping`` is the
+   class in ``_collections_abc.py``, not typeshed's reversed re-export of
+   ``typing.Mapping``.
+
+A handle in a platform-selected module (``os.path``, #329) is located at the
+``sys.platform`` branch that selects its implementation, the same on every OS.
 6. **Guarded inference**, last and only for handles outside the project
    boundary (#506): infer ``module.leaf`` through a synthetic import and accept
    a result only if its name equals the leaf. Inference can land on a
@@ -46,7 +50,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pyeye import file_artifact_cache
 from pyeye._goto import goto_target
 from pyeye._module_sentinel import ModuleSentinel
-from pyeye._stdlib_runtime import RuntimeDefinition, runtime_definition
+from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
 from pyeye.project_layout import (
@@ -117,6 +121,7 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
     kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
@@ -349,10 +354,11 @@ def _follow_alias(
 def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
     """Steps 3, 5 and 6 for a handle outside the project.
 
-    5. **Stdlib runtime definition** (#544), checked first because it needs no
-       Jedi inference: a stdlib class or function is named and located by the
-       running interpreter (:func:`pyeye._stdlib_runtime.runtime_definition`)
-       and anchored on Jedi's definition ``Name`` at that file and line.
+    5. **Private stdlib definition** (#544), checked first because it needs no
+       Jedi inference: the real ``.py`` chain is followed statically
+       (:func:`pyeye._stdlib_static.stdlib_definition`) to a definition in a
+       private stdlib module; it is named by the public re-exporting module and
+       anchored on Jedi's definition ``Name`` at that file and line.
     3. **External module**: an inferred module whose ``full_name`` is *path*.
     6. **External definition**, from one synthetic import; first rule that applies:
 
@@ -369,11 +375,11 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
           leaf; its ``full_name`` is the canonical handle (a re-export under the
           same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
     """
-    runtime = runtime_definition(path)
-    if runtime is not None:  # the stdlib runtime definition (#544)
-        anchor = _anchor_at_runtime_definition(runtime, analyzer)
+    private = stdlib_definition(path)
+    if private is not None:  # a private stdlib definition, public handle (#544)
+        anchor = _anchor_at_stdlib_definition(private, analyzer)
         if anchor is not None:
-            return runtime.handle, anchor
+            return private.handle, anchor
     inferred, target = _synthetic_import(path, analyzer)
     for name in inferred:  # 3
         if name.type == "module" and name.full_name == path:
@@ -393,22 +399,22 @@ def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
     return None
 
 
-def _anchor_at_runtime_definition(runtime: RuntimeDefinition, analyzer: JediAnalyzer) -> Any | None:
-    """The Jedi definition ``Name`` at *runtime*'s file and line, or ``None``.
+def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer) -> Any | None:
+    """The Jedi definition ``Name`` at *found*'s file and line, or ``None``.
 
     Anchoring on Jedi's own definition keeps ``kind``, ``signature`` and
     ``location`` coming from the same place they do for every other symbol;
-    only the handle is the runtime's.
+    only the handle is the public one.
     """
     try:
-        names = file_artifact_cache.get_script(runtime.file, analyzer.project).get_names(
+        names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
             all_scopes=True, definitions=True, references=False
         )
     except Exception as exc:
-        logger.debug("resolver: names for %s failed: %s", runtime.file, exc)
+        logger.debug("resolver: names for %s failed: %s", found.file, exc)
         return None
     for name in names:
-        if name.name == runtime.name and name.line == runtime.line:
+        if name.name == found.name and name.line == found.line:
             return name
     return None
 

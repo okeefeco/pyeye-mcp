@@ -388,9 +388,9 @@ async def test_io_imports_resolve_on_the_worker_and_report_the_stub_as_unresolve
 
     assert result is not None
     # The walk returned and stayed honest: the imports are measured (a list),
-    # and ``from _io import UnsupportedOperation`` is no longer unresolved. The
-    # resolver names it at its runtime definition, ``io.UnsupportedOperation``
-    # (#544), which is ``io`` itself, so it is a dropped self-edge.
+    # and ``from _io import UnsupportedOperation`` is no longer unresolved. A
+    # stdlib import is placed by the resolver from its imported path (#544):
+    # ``io.UnsupportedOperation``, which is ``io`` itself, a dropped self-edge.
     assert result.unresolved_imports is not None
     assert "_io.UnsupportedOperation" not in result.unresolved_imports
 
