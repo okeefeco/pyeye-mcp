@@ -18,6 +18,7 @@ from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer, resolve_relative_import
+from ..project_layout import file_for_module, module_name_for_file
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -274,7 +275,7 @@ class JediAnalyzer:
         # access. Scope is NOT baked into the build (that would poison the
         # project-keyed cache for other scopes) — it is applied below at lookup.
         all_files = await self.get_project_files(pattern="*.py", scope="all")
-        file_to_module = {f: self._index_module_name(f) for f in all_files}
+        file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         index = await asyncio.to_thread(
             project_graph.get_name_index,
             self.project_path.as_posix(),
@@ -518,7 +519,12 @@ class JediAnalyzer:
         return paths
 
     def _get_import_path_for_file(self, py_file: Path) -> str | None:
-        """Get the import path for a Python file.
+        """Return the dotted module name for *py_file*, as Jedi's ``full_name`` spells it.
+
+        Delegates to :func:`pyeye.project_layout.module_name_for_file`, the one
+        file → module mapper (#625). It covers src roots, a project that is
+        itself a package, additional packages and namespace roots, so the name
+        index, ``find_importers`` and ``resolve(<file>)`` all agree.
 
         Args:
             py_file: Path to the Python file
@@ -526,97 +532,7 @@ class JediAnalyzer:
         Returns:
             Import path string, or None if it can't be determined
         """
-        # Try source roots first (e.g., src/ layout)
-        # This ensures files in src/package/module.py return "package.module"
-        # instead of "src.package.module"
-        for source_root in self.source_roots:
-            try:
-                rel_path = py_file.relative_to(source_root)
-                module_parts = list(rel_path.parts[:-1])  # directories
-                if py_file.name != "__init__.py":
-                    module_parts.append(py_file.stem)
-                return ".".join(module_parts) if module_parts else py_file.stem
-            except ValueError:
-                continue
-
-        # Try main project
-        try:
-            rel_path = py_file.relative_to(self.project_path)
-            module_parts = list(rel_path.parts[:-1])  # directories
-            if py_file.name != "__init__.py":
-                module_parts.append(py_file.stem)
-            return ".".join(module_parts) if module_parts else py_file.stem
-        except ValueError:
-            pass
-
-        # Try namespaces
-        for ns_name, ns_paths in self.namespace_paths.items():
-            for ns_path in ns_paths:
-                try:
-                    if py_file.is_relative_to(ns_path):
-                        ns_rel_path = py_file.relative_to(ns_path)
-                        module_parts = list(ns_rel_path.parts[:-1])
-                        if py_file.name != "__init__.py":
-                            module_parts.append(py_file.stem)
-                        if not module_parts:
-                            return py_file.stem
-                        # ``ns_path`` is normally the repo root, so the repo-root-
-                        # relative path ALREADY includes the namespace dir (e.g.
-                        # ``company/auth/models`` under ``.../company-auth``) — the
-                        # importable name Jedi reports. Only prepend ``ns_name``
-                        # when it does NOT, i.e. ``ns_path`` points straight at the
-                        # namespace dir. Prepending unconditionally double-counts
-                        # the prefix (``company.company.auth.models``) — unimportable
-                        # and a #457 regression once enumeration runs through here.
-                        ns_segments = ns_name.split(".")
-                        if module_parts[: len(ns_segments)] == ns_segments:
-                            return ".".join(module_parts)
-                        return f"{ns_name}.{'.'.join(module_parts)}"
-                except (ValueError, AttributeError):
-                    continue
-
-        return None
-
-    def _index_module_name(self, py_file: Path) -> str | None:
-        """Dotted module name for the name index (matches Jedi's full_name).
-
-        Like :meth:`_get_import_path_for_file`, but composes the two module names
-        the old per-scope ``project.search`` produced that the shared helper does
-        not — keeping that helper's contract unchanged for its other callers
-        (``find_importers`` / ``resolve`` / ``lookup``, which rely on it staying
-        prefix-free and not resolving additional-package files):
-
-        - **main-project** file when the root is itself a package
-          (``_jedi_root_is_parent``): include the root package name
-          (``pkg.models.X``, not ``models.X``);
-        - **additional-package** file: each additional path is a sys.path-style
-          root (rooted *at* the package dir), so ``shared_lib/utils.py`` is
-          module ``utils`` — mirroring the per-path Jedi project the old
-          ``_search_all_scopes`` used. The shared helper returns ``None`` here.
-
-        Everything else (namespaces, ``src``-layout roots, plain main files)
-        defers to :meth:`_get_import_path_for_file` unchanged.
-
-        Args:
-            py_file: The file whose module name is needed.
-
-        Returns:
-            The dotted module name, or ``None`` if it cannot be determined.
-        """
-        if self._jedi_root_is_parent and self._is_subpath(py_file, self.project_path):
-            rel = py_file.relative_to(self.project_path.parent)
-            parts = list(rel.parts[:-1])
-            if py_file.name != "__init__.py":
-                parts.append(py_file.stem)
-            return ".".join(parts) if parts else py_file.stem
-        for add_path in self.additional_paths:
-            if self._is_subpath(py_file, add_path):
-                rel = py_file.relative_to(add_path)
-                parts = list(rel.parts[:-1])
-                if py_file.name != "__init__.py":
-                    parts.append(py_file.stem)
-                return ".".join(parts) if parts else py_file.stem
-        return self._get_import_path_for_file(py_file)
+        return module_name_for_file(self, py_file)
 
     def _get_namespace_base_path(self, ns_path: Path, namespace: str) -> Path:
         """Get the base path for a namespace within a repository.
@@ -811,7 +727,7 @@ class JediAnalyzer:
             tree = file_artifact_cache.get_ast(path)
         except (OSError, SyntaxError, ValueError):
             return []
-        module_name = self._index_module_name(path)
+        module_name = self._get_import_path_for_file(path)
         parent_full = parent.full_name
         return [
             d
@@ -2042,13 +1958,13 @@ class JediAnalyzer:
                 try:
                     file_path_obj = Path(file_path)
                     module_from_file = self._get_import_path_for_file(file_path_obj)
-                    # Use the module from file if it's more complete
+                    # Use the module from file if it's more complete.  It is
+                    # already the module's full name (#625: one mapper, which
+                    # carries the root-package prefix), so use it whole.
                     if module_from_file and len(module_from_file.split(".")) > len(
                         original_module.split(".")
                     ):
-                        original_module = module_from_file.rsplit(".", 1)[
-                            0
-                        ]  # Remove the filename part
+                        original_module = module_from_file
                 except (ValueError, Exception):
                     pass  # Keep original module if conversion fails
 
@@ -2071,35 +1987,9 @@ class JediAnalyzer:
         return import_paths
 
     def _find_init_file(self, module_path: str) -> Path | None:
-        """Find the __init__.py file for a module."""
-        try:
-            # Convert module path to file system path
-            path_parts = module_path.split(".")
-
-            # Search in source roots first (e.g., src/), then project path and additional paths
-            search_paths = list(self.source_roots) + [self.project_path]
-            if hasattr(self, "additional_paths"):
-                search_paths.extend(self.additional_paths)
-
-            for base_path in search_paths:
-                # Try to find the module relative to the base path
-                # First check if the full module path exists as a package
-                potential_path = base_path / Path(*path_parts) / "__init__.py"
-                if potential_path.exists():
-                    return potential_path
-
-                # Also check if it's a submodule of a package in the base path
-                # (e.g., base_path contains "reexport_test" and we're looking for "reexport_test.models")
-                if len(path_parts) > 1 and base_path.name == path_parts[0]:
-                    # Skip the first part if it matches the base directory name
-                    potential_path = base_path / Path(*path_parts[1:]) / "__init__.py"
-                    if potential_path.exists():
-                        return potential_path
-
-        except Exception as e:
-            logger.debug(f"Error finding __init__.py for {module_path}: {e}")
-
-        return None
+        """Find the ``__init__.py`` for a package via the one module → file mapper (#625)."""
+        found = file_for_module(self, module_path)
+        return found if found is not None and found.name == "__init__.py" else None
 
     async def _check_symbol_in_init(
         self, init_file: Path, symbol_name: str, submodule: str

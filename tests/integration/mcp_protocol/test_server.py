@@ -216,8 +216,10 @@ class TestFindSymbol:
                 import_paths = result["import_paths"]
                 assert len(import_paths) >= 2
                 # Should have both direct and re-exported paths
-                assert any("from models.user import User" in path for path in import_paths)
-                assert any("from models import User" in path for path in import_paths)
+                assert any(
+                    "from reexport_test.models.user import User" in path for path in import_paths
+                )
+                assert any("from reexport_test.models import User" in path for path in import_paths)
 
         assert user_found, "User class not found in results"
 
@@ -247,10 +249,15 @@ class TestFindSymbol:
                 assert len(import_paths) >= 3
                 # Check for all three levels
                 assert any(
-                    "from core.auth.authenticator import Authenticator" in p for p in import_paths
+                    "from reexport_test.core.auth.authenticator import Authenticator" in p
+                    for p in import_paths
                 )
-                assert any("from core.auth import Authenticator" in p for p in import_paths)
-                assert any("from core import Authenticator" in p for p in import_paths)
+                assert any(
+                    "from reexport_test.core.auth import Authenticator" in p for p in import_paths
+                )
+                assert any(
+                    "from reexport_test.core import Authenticator" in p for p in import_paths
+                )
 
         assert auth_found, "Authenticator class not found in results"
 
