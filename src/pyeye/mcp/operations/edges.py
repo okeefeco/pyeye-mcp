@@ -78,7 +78,7 @@ from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
-from pyeye.mcp.operations.resolve import _normalise_kind
+from pyeye.kinds import normalise_kind
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -328,7 +328,7 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    kind = _normalise_kind(getattr(jedi_name, "type", None))
+    kind = normalise_kind(getattr(jedi_name, "type", None))
     handle = getattr(jedi_name, "full_name", None)
     if not handle:
         return EdgeResult(adjacents=[])
@@ -577,9 +577,9 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         pairs and the unresolved-call-site count.  Non-function sources yield
         ``EdgeResult(adjacents=[], unresolved_call_sites=0)``.
     """
-    kind = _normalise_kind(getattr(jedi_name, "type", None))
+    kind = normalise_kind(getattr(jedi_name, "type", None))
     # Jedi reports BOTH module-level functions AND methods (instance, class,
-    # static) with ``type="function"``, so ``_normalise_kind`` yields
+    # static) with ``type="function"``, so ``normalise_kind`` yields
     # ``"function"`` for all of them.  This gate therefore INCLUDES methods and
     # @property getters — they are not excluded.  Only non-function kinds
     # (class, module, variable, …) short-circuit here.
@@ -722,7 +722,7 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
         target, or ``None`` for a non-module target.  ``unresolved_call_sites``
         is always ``None`` — that notion is callees-only.
     """
-    if _normalise_kind(getattr(jedi_name, "type", None)) != "module":
+    if normalise_kind(getattr(jedi_name, "type", None)) != "module":
         return None
 
     module_path = getattr(jedi_name, "full_name", None)
@@ -819,7 +819,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
         or ``EdgeResult([])`` for any non-class target.  ``unresolved_call_sites``
         is always ``None`` — that notion is callees-only.
     """
-    if _normalise_kind(getattr(jedi_name, "type", None)) != "class":
+    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
         return EdgeResult(adjacents=[])
 
     handle = getattr(jedi_name, "full_name", None)
@@ -949,7 +949,7 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    if _normalise_kind(getattr(jedi_name, "type", None)) != "class":
+    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
         return EdgeResult(adjacents=[])
 
     file_path = getattr(jedi_name, "module_path", None)
@@ -1118,7 +1118,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult | None
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    if _normalise_kind(getattr(jedi_name, "type", None)) != "module":
+    if normalise_kind(getattr(jedi_name, "type", None)) != "module":
         return None
 
     file_path = getattr(jedi_name, "module_path", None)
@@ -1215,7 +1215,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     the arithmetic would mis-identify ``Outer`` as a module, failing to find it.
     ``parent()`` returns the true lexical parent at any nesting depth.
 
-    See also: ``inspect._is_method`` uses the same ``jedi_name.parent()`` Jedi
+    See also: ``pyeye.kinds.is_method`` uses the same ``jedi_name.parent()`` Jedi
     API for method-vs-function classification (method detection, #337).
 
     Synchronous: ``parent()`` is a pure Jedi API call (no file I/O); ``Handle``
@@ -1240,7 +1240,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     _ = analyzer  # unused: kept for the EDGE_RESOLVERS (jedi_name, analyzer) signature contract
     # Module gate: a module has no lexical enclosing scope.  Gate on kind BEFORE
     # calling parent() — a ModuleSentinel may not have a parent() method at all.
-    if _normalise_kind(getattr(jedi_name, "type", None)) == "module":
+    if normalise_kind(getattr(jedi_name, "type", None)) == "module":
         return EdgeResult(adjacents=[])
 
     # Retrieve the parent Jedi Name via the Jedi API (not dotted-name arithmetic).
