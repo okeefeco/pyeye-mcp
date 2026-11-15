@@ -324,7 +324,8 @@ class TestConfigurePackages:
 
         assert not (cwd / ".pyeye.json").exists()
         saved = json.loads((root / ".pyeye.json").read_text())
-        assert saved["packages"] == [lib.as_posix()]
+        # Compare as paths: the config stores them in the OS's native form.
+        assert [Path(p).resolve() for p in saved["packages"]] == [lib.resolve()]
         assert result["config_file"] == (root.resolve() / ".pyeye.json").as_posix()
 
     async def test_new_package_root_is_watched(
