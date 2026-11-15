@@ -71,8 +71,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                 check ∈ {"expanded_but_refused", "edge_not_in_expand",
 #                          "wrong_kind_not_unsupported"}
 
-_ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
-_ISSUE_623 = "#623"  # one canonical handle resolver
 _ISSUE_626 = "#626"  # one edge-applicability table
 
 
@@ -140,36 +138,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     **_round_trip("subclasses_resolution", _ISSUE_626, _MISS, "pkg.__all__.core"),
     #
     # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
-    # #602/#623: stdlib and third-party symbols emitted by `imports` that no
-    # tool resolves (typing specials, and names inference can't place).
-    **_round_trip(
-        "src/pyeye",
-        _ISSUE_602,
-        _MISS,
-        "__future__.annotations",
-        "filelock.FileLock",
-        "threading.Lock",
-        "typing.Awaitable",
-        "typing.Callable",
-        "typing.Coroutine",
-        "typing.Iterable",
-        "typing.Iterator",
-        "typing.Literal",
-        "typing.Mapping",
-        "typing.TYPE_CHECKING",
-        "watchdog.observers.Observer",
-    ),
-    # #623: `imports` emits the typeshed private module (`_datetime.datetime`);
-    # resolve canonicalises to the public one (`datetime.datetime`).
-    **_round_trip(
-        "src/pyeye",
-        _ISSUE_623,
-        ("same_handle",),
-        "_datetime.datetime",
-        "_datetime.timedelta",
-        "_typing.ParamSpec",
-        "_typing.TypeVar",
-    ),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
     # == 4. trace vs expand: none since #621.
