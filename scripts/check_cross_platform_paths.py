@@ -1,186 +1,289 @@
 #!/usr/bin/env python3
-"""Pre-commit hook to check for cross-platform path handling violations.
+"""Path normalisation and comparison have one owner (#717).
 
-This script looks for common patterns that violate our cross-platform path guidelines:
-1. Using str(Path) for display/storage instead of .as_posix()
-2. String interpolation with Path objects without .as_posix()
-3. Dictionary keys using str(Path) instead of path_to_key()
+``pyeye.path_utils`` and ``pyeye.project_layout`` (the file <-> module mapper)
+are the only modules that may normalise or compare filesystem paths. Elsewhere
+in ``src/pyeye`` these AST patterns are flagged:
 
-Exit codes:
-0 - No violations found
-1 - Violations found
+- ``resolve``: a zero-argument ``.resolve()`` call;
+- ``os_path``: ``os.path.realpath`` / ``abspath`` / ``normpath`` / ``samefile``;
+- ``relative_to``: ``.relative_to(...)`` / ``.is_relative_to(...)``, i.e. a
+  containment check (use ``path_utils.relative_within``);
+- ``str_compare``: ``str(<path-like>)`` used in a comparison, in
+  ``.startswith`` / ``.endswith``, or as a dict key or subscript.
+
+Path-like means a name or attribute called ``path``, ``file``, ``root`` or
+``dir``, or ending in ``_path``, ``_file``, ``_root`` or ``_dir``. Log messages
+and f-strings are not checked.
+
+Three path bugs in one afternoon (#710, #714, #715) came from code that
+normalised or compared paths its own way. Two copies of the same comparison
+disagreed about symlinks, and the answer was an invented handle.
+
+The check is a **ratchet**, with the same rules as the duplicate-code report
+(#689). :data:`BASELINE` maps ``(file::qualname, rule)`` to the number of known
+sites. A count above the baseline fails: route the new code through
+``path_utils``. A count below the baseline, or a key that is gone, fails too:
+lower or delete the entry. Keys use the enclosing function, so the check
+survives line shifts.
+
+Usage::
+
+    check_cross_platform_paths.py                 # the ratchet over src/pyeye (blocking)
+    check_cross_platform_paths.py --report        # list every site, exit 0
+    check_cross_platform_paths.py --print-baseline  # the BASELINE literal for the current tree
+    check_cross_platform_paths.py FILE...         # report only, for the given files
 """
 
+from __future__ import annotations
+
+import argparse
 import ast
+import re
 import sys
+from collections import Counter
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC = REPO_ROOT / "src" / "pyeye"
 
-class PathViolationChecker(ast.NodeVisitor):
-    """AST visitor to find cross-platform path violations."""
+#: The modules that own path normalisation and comparison.
+OWNERS = frozenset({"src/pyeye/path_utils.py", "src/pyeye/project_layout.py"})
 
-    def __init__(self, filename: str, source_lines: list[str]):
-        """Initialize the checker with a filename and source lines."""
-        self.filename = filename
-        self.source_lines = source_lines
-        self.violations: list[tuple[int, str]] = []
+RULES = ("resolve", "os_path", "relative_to", "str_compare")
 
-    def _is_suppressed(self, line_no: int) -> bool:
-        """Check if a line has a suppression comment."""
-        if 0 <= line_no - 1 < len(self.source_lines):
-            line = self.source_lines[line_no - 1]
-            return "# noqa: path-check" in line or "# path-check: ignore" in line
-        return False
+_OS_PATH_FUNCS = frozenset({"realpath", "abspath", "normpath", "samefile"})
+_PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
+
+#: Known sites -> count. Only shrinks: each migration through path_utils lowers
+#: or deletes an entry (#717). Generate with ``--print-baseline``.
+BASELINE: dict[tuple[str, str], int] = {
+    ("src/pyeye/_jedi_project.py::<module>", "resolve"): 1,
+    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "relative_to"): 1,
+    ("src/pyeye/_jedi_project.py::is_jedi_private_path", "resolve"): 1,
+    ("src/pyeye/_stdlib_static.py::_public_stdlib_files", "relative_to"): 1,
+    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "os_path"): 1,
+    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.__init__", "resolve"): 4,
+    ("src/pyeye/analyzers/jedi_analyzer.py::JediAnalyzer.set_namespace_paths", "resolve"): 1,
+    ("src/pyeye/analyzers/project_graph.py::_normalize", "resolve"): 1,
+    ("src/pyeye/async_utils.py::filtered_rglob", "relative_to"): 1,
+    ("src/pyeye/cache.py::CodebaseWatcher._is_ignored", "relative_to"): 1,
+    ("src/pyeye/config.py::ProjectConfig.__init__", "resolve"): 1,
+    ("src/pyeye/config.py::ProjectConfig._normalise_config_path", "resolve"): 1,
+    ("src/pyeye/config.py::ProjectConfig._read_pyright_extra_paths", "resolve"): 1,
+    ("src/pyeye/file_artifact_cache.py::_project_key", "resolve"): 1,
+    ("src/pyeye/file_artifact_cache.py::_resolve_posix", "resolve"): 1,
+    ("src/pyeye/mcp/operations/resolve.py::_resolve_file_only", "resolve"): 1,
+    ("src/pyeye/mcp/operations/typeref.py::_cache_key", "resolve"): 1,
+    ("src/pyeye/mcp/operations/typeref.py::_project_root", "resolve"): 1,
+    ("src/pyeye/mcp/operations/typeref.py::invalidate_project", "resolve"): 1,
+    ("src/pyeye/mcp/server.py::configure_packages", "resolve"): 2,
+    ("src/pyeye/namespace_resolver.py::NamespaceResolver.register_namespace", "resolve"): 1,
+    ("src/pyeye/plugins/base.py::AnalyzerPlugin.get_project_files", "relative_to"): 2,
+    ("src/pyeye/plugins/base.py::_normalized", "resolve"): 1,
+    ("src/pyeye/plugins/flask.py::FlaskPlugin.find_templates", "relative_to"): 2,
+    ("src/pyeye/plugins/handles.py::_enrich_record", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._layout_roots", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._needs_update", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._on_files_changed", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._register", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._setup_watcher", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager._watch", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager.get_analyzer", "resolve"): 2,
+    ("src/pyeye/project_manager.py::ProjectManager.invalidate_analyzer", "resolve"): 1,
+    ("src/pyeye/project_manager.py::ProjectManager.register_project", "resolve"): 1,
+    ("src/pyeye/resolver.py::_top_level_shadow", "resolve"): 1,
+    ("src/pyeye/scope_utils.py::_resolved", "resolve"): 1,
+    ("src/pyeye/validation.py::PathValidator.validate_path", "relative_to"): 1,
+    ("src/pyeye/validation.py::PathValidator.validate_path", "resolve"): 3,
+}
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One flagged site."""
+
+    file: str
+    qualname: str
+    rule: str
+    line: int
+    text: str
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """The ``(file::qualname, rule)`` baseline key for this finding."""
+        return (f"{self.file}::{self.qualname}", self.rule)
+
+
+def _is_pathlike(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return bool(_PATHLIKE.search(node.id))
+    if isinstance(node, ast.Attribute):
+        return bool(_PATHLIKE.search(node.attr))
+    return False
+
+
+def _str_of_pathlike(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "str"
+        and len(node.args) == 1
+        and _is_pathlike(node.args[0])
+    )
+
+
+class _Visitor(ast.NodeVisitor):
+    def __init__(self, file: str, lines: list[str]) -> None:
+        self.file = file
+        self.lines = lines
+        self.scope: list[str] = []
+        self.findings: list[Finding] = []
+
+    def _add(self, node: ast.AST, rule: str) -> None:
+        line = getattr(node, "lineno", 0)
+        text = self.lines[line - 1].strip() if 0 < line <= len(self.lines) else ""
+        qualname = ".".join(self.scope) or "<module>"
+        self.findings.append(Finding(self.file, qualname, rule, line, text))
+
+    def _scoped(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    visit_FunctionDef = _scoped
+    visit_AsyncFunctionDef = _scoped
+    visit_ClassDef = _scoped
 
     def visit_Call(self, node: ast.Call) -> None:
-        """Check function calls for str(Path) usage."""
-        # Skip if line is suppressed
-        if self._is_suppressed(node.lineno):
-            return
-
-        # Check for str(path_like_variable)
-        if isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1:
-            arg = node.args[0]
-
-            # Look for variables that might be Path objects
-            if isinstance(arg, ast.Name) and self._looks_like_path_variable(arg.id):
-                self.violations.append(
-                    (
-                        node.lineno,
-                        f"Use of str({arg.id}) detected. Consider {arg.id}.as_posix() for display/storage",
-                    )
-                )
-
-            # Look for Path() constructor calls
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            if func.attr == "resolve" and not node.args and not node.keywords:
+                self._add(node, "resolve")
+            elif func.attr in ("relative_to", "is_relative_to") and node.args:
+                self._add(node, "relative_to")
             elif (
-                isinstance(arg, ast.Call)
-                and isinstance(arg.func, ast.Name)
-                and arg.func.id == "Path"
+                func.attr in _OS_PATH_FUNCS
+                and isinstance(func.value, ast.Attribute)
+                and func.value.attr == "path"
+                and isinstance(func.value.value, ast.Name)
+                and func.value.value.id == "os"
             ):
-                self.violations.append(
-                    (
-                        node.lineno,
-                        "Use of str(Path(...)) detected. Consider Path(...).as_posix() for display/storage",
-                    )
-                )
-
+                self._add(node, "os_path")
+            elif func.attr in ("startswith", "endswith") and (
+                _str_of_pathlike(func.value) or any(_str_of_pathlike(a) for a in node.args)
+            ):
+                self._add(node, "str_compare")
         self.generic_visit(node)
 
-    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
-        """Check f-strings for Path objects without .as_posix()."""
-        # Skip if line is suppressed
-        if self._is_suppressed(node.lineno):
-            return
-
-        for value in node.values:
-            if isinstance(value, ast.FormattedValue):
-                if isinstance(value.value, ast.Name) and self._looks_like_path_variable(
-                    value.value.id
-                ):
-                    self.violations.append(
-                        (
-                            node.lineno,
-                            f"f-string with {value.value.id} detected. Consider {{path.as_posix()}} for display",
-                        )
-                    )
-
+    def visit_Compare(self, node: ast.Compare) -> None:
+        if any(_str_of_pathlike(n) for n in [node.left, *node.comparators]):
+            self._add(node, "str_compare")
         self.generic_visit(node)
 
-    def _looks_like_path_variable(self, name: str) -> bool:
-        """Heuristic to identify variables that might be Path objects."""
-        # Exclude common false positives
-        false_positives = [
-            "module_path",  # Python module path (e.g., "os.path")
-            "import_path",  # Import path
-            "xpath",  # XML path
-            "jsonpath",  # JSON path
-            "classpath",  # Java classpath
-            "pythonpath",  # Python module search path
-            "sys_path",  # sys.path
-        ]
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if _str_of_pathlike(node.slice):
+            self._add(node, "str_compare")
+        self.generic_visit(node)
 
-        name_lower = name.lower()
-
-        # Check if it's a known false positive
-        if any(fp in name_lower for fp in false_positives):
-            return False
-
-        # Check for path indicators
-        path_indicators = [
-            "path",
-            "file",
-            "dir",
-            "directory",
-            "folder",
-            "location",
-            "template_file",
-            "config_file",
-            "source_file",
-            "target_file",
-        ]
-
-        return any(indicator in name_lower for indicator in path_indicators)
+    def visit_Dict(self, node: ast.Dict) -> None:
+        if any(k is not None and _str_of_pathlike(k) for k in node.keys):
+            self._add(node, "str_compare")
+        self.generic_visit(node)
 
 
-def check_file_for_violations(filepath: Path) -> list[tuple[int, str]]:
-    """Check a Python file for cross-platform path violations."""
-    try:
-        content = filepath.read_text(encoding="utf-8")
-        lines = content.splitlines()
-
-        # Skip files that import path_utils (they're probably doing it right)
-        if "from pyeye.path_utils import" in content or "import pyeye.path_utils" in content:
-            return []
-
-        # Parse the AST
-        tree = ast.parse(content, filename=str(filepath))
-
-        # Check for violations
-        checker = PathViolationChecker(str(filepath), lines)
-        checker.visit(tree)
-
-        return checker.violations
-
-    except (SyntaxError, UnicodeDecodeError) as e:
-        print(f"Warning: Could not parse {filepath}: {e}")
-        return []
+def check_source(source: str, file: str) -> list[Finding]:
+    """Every finding in *source* (the text of *file*, a repo-relative POSIX path)."""
+    visitor = _Visitor(file, source.splitlines())
+    visitor.visit(ast.parse(source, filename=file))
+    return visitor.findings
 
 
-def main() -> int:
-    """Main entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: check_cross_platform_paths.py <file1> [file2] ...")
-        return 1
+def iter_files(root: Path = SRC) -> Iterator[Path]:
+    """Every ``.py`` file under *root*, sorted, except the path owners."""
+    for path in sorted(root.rglob("*.py")):
+        if path.relative_to(REPO_ROOT).as_posix() not in OWNERS:
+            yield path
 
-    all_violations = []
 
-    for filepath in sys.argv[1:]:
-        path = Path(filepath)
-        if not path.exists() or path.suffix != ".py":
+def scan(paths: list[Path] | None = None) -> list[Finding]:
+    """Findings in *paths* (default: every non-owner file under ``src/``)."""
+    findings: list[Finding] = []
+    for path in paths if paths is not None else list(iter_files()):
+        rel = path.resolve().relative_to(REPO_ROOT).as_posix()
+        if rel in OWNERS:
             continue
+        findings += check_source(path.read_text(encoding="utf-8"), rel)
+    return findings
 
-        violations = check_file_for_violations(path)
 
-        for line_no, message in violations:
-            all_violations.append((filepath, line_no, message))
+def counts(findings: list[Finding]) -> dict[tuple[str, str], int]:
+    """Number of findings per baseline key."""
+    return dict(Counter(f.key for f in findings))
 
-    if all_violations:
-        print("❌ Cross-platform path violations found:")
-        print()
 
-        for filepath, line_no, message in all_violations:
-            print(f"  {filepath}:{line_no}: {message}")
+def ratchet(
+    found: dict[tuple[str, str], int], baseline: dict[tuple[str, str], int]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """``(grown, shrunk)`` keys: above the baseline, and below it (or gone)."""
+    grown = sorted(k for k, n in found.items() if n > baseline.get(k, 0))
+    shrunk = sorted(k for k, n in baseline.items() if found.get(k, 0) < n)
+    return grown, shrunk
 
-        print()
-        print("💡 Fix suggestions:")
-        print("  - For display/storage: use path.as_posix() instead of str(path)")
-        print("  - For dictionary keys: use path_to_key(path) from pyeye.path_utils")
-        print("  - For comparisons: use paths_equal(p1, p2) from pyeye.path_utils")
-        print("  - See CONTRIBUTING.md 'Cross-Platform Development' section for details")
 
-        return 1
+def _baseline_literal(found: dict[tuple[str, str], int]) -> str:
+    lines = ["BASELINE: dict[tuple[str, str], int] = {"]
+    for (site, rule), n in sorted(found.items()):
+        lines.append(f'    ("{site}", "{rule}"): {n},')
+    lines.append("}")
+    return "\n".join(lines)
 
-    return 0
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the checker; return the process exit code."""
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    parser.add_argument("--report", action="store_true", help="list every site and exit 0")
+    parser.add_argument("--print-baseline", action="store_true", help="print the BASELINE literal")
+    parser.add_argument("paths", nargs="*", type=Path)
+    args = parser.parse_args(argv)
+
+    findings = scan(args.paths or None)
+    if args.print_baseline:
+        print(_baseline_literal(counts(findings)))
+        return 0
+    if args.report or args.paths:
+        for f in findings:
+            print(f"{f.file}:{f.line}: [{f.rule}] {f.qualname}: {f.text}")
+        print(f"path ownership (#717): {len(findings)} site(s) outside path_utils/project_layout")
+        return 0
+
+    grown, shrunk = ratchet(counts(findings), BASELINE)
+    found = counts(findings)
+    for key in grown:
+        print(
+            f"  NEW path normalisation/comparison at {key[0]} [{key[1]}]: "
+            f"{found.get(key, 0)} > baseline {BASELINE.get(key, 0)}"
+        )
+        for f in findings:
+            if f.key == key:
+                print(f"      {f.file}:{f.line}: {f.text}")
+    for key in shrunk:
+        print(
+            f"  fewer sites at {key[0]} [{key[1]}] than BASELINE says "
+            f"({found.get(key, 0)} < {BASELINE[key]}): lower or delete the entry"
+        )
+    if grown:
+        print(
+            "  Route new path handling through pyeye.path_utils "
+            "(relative_within, paths_equal, normalize_path) instead of adding to BASELINE."
+        )
+    print(
+        f"path ownership (#717): {sum(found.values())} known site(s), "
+        f"{len(grown)} new, {len(shrunk)} stale"
+    )
+    return 1 if grown or shrunk else 0
 
 
 if __name__ == "__main__":

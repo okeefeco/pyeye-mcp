@@ -63,6 +63,10 @@ E.6 ``unresolved_superclasses`` (#624) placement — only allowed on the support
 E.7 ``unresolved_importers`` (#668) placement — only allowed on the supported
     branch when ``edge == "imported_by"``; a list of non-empty single-line strs
     (the POSIX paths of importing files that have no module name).
+E.8 ``unparseable_files`` (#729) placement — only allowed on the supported
+    branch when ``edge`` is ``"subclasses"`` or ``"imported_by"``; a list of
+    non-empty single-line strs (the POSIX paths of files the server couldn't
+    parse).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -97,6 +101,9 @@ T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced)
     and non-empty lists of non-empty single-line target strs.  Optional.
 T.10 ``unresolved_importers`` (#668), when present (only if ``imported_by`` was
     traced), is a dict ``{handle: [file, ...]}`` shaped like T.8.  Optional.
+T.11 ``unparseable_files`` (#729), when present (only if ``subclasses`` or
+    ``imported_by`` was traced), is a dict ``{handle: [file, ...]}`` shaped like
+    T.8.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -765,6 +772,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "unknown_edge",
         # #626: an implemented edge that doesn't apply to the source's kind.
         "not_applicable",
+        # #703: the source's own file can't be parsed by the server's Python.
+        "unparseable",
     }
 )
 
@@ -782,8 +791,14 @@ _VALID_TRUNCATION_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"}
 # mode does not walk (#596).  Trace emits neither as a per-node reason, so the two
 # enums are kept apart.
 _VALID_OUTLINE_TRUNCATION_REASONS: frozenset[str] = frozenset(
-    {"max_depth", "max_nodes", "external", "survey_leaf"}
+    {"max_depth", "max_nodes", "external", "survey_leaf", "unparseable"}  # #703
 )
+
+# O.5 — the BUDGET class of truncation reasons (#435): a cap was hit, so the node
+# says how much it withheld.  Hardcoded like the sets above (the linter is an
+# independent oracle); ``tests/test_completeness_registry.py`` checks these sets
+# equal ``pyeye.mcp.operations.completeness.TRUNCATION_REASONS``.
+_BUDGET_REASONS: frozenset[str] = frozenset({"max_depth", "max_nodes"})
 
 # ---------------------------------------------------------------------------
 # Check S — Stub structural-floor helpers
@@ -1096,34 +1111,42 @@ def _check_expand_structural_floor(
         # E.5–E.7 — unresolved_imports (#494) / _superclasses (#624) / _importers (#668): if
         # present, must be on their edge's supported branch and be a list of
         # non-empty single-line strings.
-        for rule, key, edge_name in _EDGE_LOSS_LISTS:
+        for rule, key, edge_names in _EDGE_LOSS_LISTS:
             if key in response:
-                _check_edge_loss_list(response[key], rule, key, edge_name, edge_val, violations)
+                _check_edge_loss_list(response[key], rule, key, edge_names, edge_val, violations)
 
 
-#: Per-edge "couldn't name / couldn't resolve" lists on an ExpandResult:
-#: (rule, key, the one edge it may appear on).
-_EDGE_LOSS_LISTS = (
-    ("E.5", "unresolved_imports", "imports"),  # #494
-    ("E.6", "unresolved_superclasses", "superclasses"),  # #624
-    ("E.7", "unresolved_importers", "imported_by"),  # #668
+#: Per-edge "couldn't name / couldn't resolve / couldn't read" lists on an
+#: ExpandResult: (rule, key, the edges it may appear on).
+_EDGE_LOSS_LISTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("E.5", "unresolved_imports", ("imports",)),  # #494
+    ("E.6", "unresolved_superclasses", ("superclasses",)),  # #624
+    ("E.7", "unresolved_importers", ("imported_by",)),  # #668
+    ("E.8", "unparseable_files", ("subclasses", "imported_by")),  # #729
 )
 #: The same losses carried onto a trace Subgraph, keyed by node: (rule, key).
 _TRACE_LOSS_MAPS = (
     ("T.8", "unresolved_imports"),  # #494
     ("T.10", "unresolved_importers"),  # #668
+    ("T.11", "unparseable_files"),  # #729
 )
 
 
 def _check_edge_loss_list(
-    value: Any, rule: str, key: str, edge_name: str, edge_val: Any, violations: list[str]
+    value: Any,
+    rule: str,
+    key: str,
+    edge_names: tuple[str, ...],
+    edge_val: Any,
+    violations: list[str],
 ) -> None:
-    """E.5–E.7 — a supported-branch loss list: right edge, list of single-line strs."""
-    if not (isinstance(edge_val, str) and edge_val == edge_name):
+    """E.5–E.8 — a supported-branch loss list: right edge, list of single-line strs."""
+    if not (isinstance(edge_val, str) and edge_val in edge_names):
+        allowed = " or ".join(f"'{name}'" for name in edge_names)
         violations.append(
             f"[{rule} {key} placement] '{key}' is present but edge={edge_val!r} "
-            f"(not '{edge_name}'). It is only valid on the supported branch when "
-            f"edge == '{edge_name}'."
+            f"(not {allowed}). It is only valid on the supported branch when "
+            f"edge is {allowed}."
         )
         return
     if not isinstance(value, list):
@@ -1144,7 +1167,7 @@ def _check_edge_loss_list(
 
 
 def _check_trace_loss_map(value: Any, rule: str, key: str, violations: list[str]) -> None:
-    """T.8 / T.10 — ``{handle: [str, ...]}`` with non-empty lists (zero-loss nodes omitted)."""
+    """T.8 / T.10 / T.11 — ``{handle: [str, ...]}`` with non-empty lists (zero-loss nodes omitted)."""
     if not isinstance(value, dict):
         violations.append(
             f"[{rule} trace {key} type] '{key}' must be a dict {{handle: [str, ...]}}; "
@@ -1509,32 +1532,33 @@ def _check_outline_counts(
     # ``submodules``) and mirrors ``inspect().edge_counts`` — the VALUE invariant
     # needs an analyzer, so it is a test-level check; the linter checks SHAPE and
     # PLACEMENT.  Where a count may appear is read from the node's state:
-    #   - a ``max_nodes`` truncation carries EXACTLY ONE count — the edge it
-    #     withheld (members in member mode, submodules in survey mode);
+    #   - a BUDGET truncation (``max_nodes`` / ``max_depth``, #435) carries
+    #     EXACTLY ONE count — the edge it withheld (members in member mode,
+    #     submodules in survey mode);
     #   - a walked node may carry ``member_count`` > 0 — members not in this view
     #     (a survey package, whose children are submodules); never
     #     ``submodule_count`` (submodules there ARE the children);
-    #   - any other truncation (max_depth / external / survey_leaf) carries none.
+    #   - a boundary or unmeasured truncation (external / survey_leaf / …)
+    #     carries none: see ``completeness.TRUNCATION_REASONS`` for the classes.
     count_keys = [k for k in _OUTLINE_COUNT_KEYS if k in tree]
     _check_outline_count_values(tree, path, count_keys, violations)
 
-    is_max_nodes_trunc = (
-        tree.get("truncated") is True and tree.get("truncation_reason") == "max_nodes"
-    )
-    if is_max_nodes_trunc:
+    reason = tree.get("truncation_reason")
+    is_budget_trunc = tree.get("truncated") is True and reason in _BUDGET_REASONS
+    if is_budget_trunc:
         if len(count_keys) != 1:
             violations.append(
-                f"[O.5 outline max_nodes count required] {path}: a 'max_nodes' truncation "
-                "must carry exactly one of 'member_count' / 'submodule_count' (the count "
-                f"of the edge it withheld); got {count_keys or 'none'}. See spec §4 "
-                "reserve-before-expand / §6.4 count-consistency."
+                f"[O.5 outline budget count required] {path}: a {reason!r} (budget) "
+                "truncation must carry exactly one of 'member_count' / 'submodule_count' "
+                f"(the count of the edge it withheld); got {count_keys or 'none'}. See "
+                "spec §4 reserve-before-expand / §6.4 count-consistency, and #435."
             )
     elif has_truncated:
         if count_keys:
             violations.append(
                 f"[O.6 outline count placement] {path}: {count_keys} on a "
-                f"{tree.get('truncation_reason')!r} truncation. Only 'max_nodes' "
-                "truncations count what they withheld."
+                f"{reason!r} truncation. Only budget truncations "
+                f"({sorted(_BUDGET_REASONS)}) count what they withheld."
             )
     elif has_children:
         if "submodule_count" in tree:
@@ -1693,6 +1717,54 @@ def _check_outline_structural_floor(
         violations: Mutable list to append violation messages to.
     """
     _check_outline_tree_node(response, "", violations)
+    _check_outline_summary(response, violations)
+
+
+def _outline_node_reasons(tree: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(path, node)`` for every OutlineTree node below the root."""
+    stack: list[tuple[str, Any]] = [("", tree)]
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        yield path, node
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend((f"{path}.children[{i}]", c) for i, c in enumerate(children))
+
+
+def _check_outline_summary(response: dict[str, Any], violations: list[str]) -> None:
+    """O.7 — the result-level ``truncation_reasons`` summary (#435).
+
+    Present on the root only, as the sorted set of every node's
+    ``truncation_reason`` (the root's included); absent when no node is
+    truncated, never ``[]``.  This is the "leave out, never false" rule the user
+    chose on #435 for every summary added in or after #435.  ``trace`` is the
+    deliberate exception: its ``truncated`` (a bool) and ``truncation_reasons``
+    (possibly ``[]``) predate #435 and are always present (T.*), because
+    removing a key is barred in 2.x.
+    """
+    reasons: set[str] = set()
+    for path, node in _outline_node_reasons(response):
+        if path and "truncation_reasons" in node:
+            violations.append(
+                f"[O.7 outline summary placement] {path}: 'truncation_reasons' belongs on "
+                "the root only (the per-node field is 'truncation_reason')."
+            )
+        if node.get("truncated") is True and isinstance(node.get("truncation_reason"), str):
+            reasons.add(node["truncation_reason"])
+    summary = response.get("truncation_reasons")
+    if not reasons:
+        if summary is not None:
+            violations.append(
+                f"[O.7 outline summary] 'truncation_reasons' is {summary!r} but no node is "
+                "truncated; absent when nothing was cut, never an empty list."
+            )
+    elif summary != sorted(reasons):
+        violations.append(
+            f"[O.7 outline summary] 'truncation_reasons' is {summary!r}; expected the sorted "
+            f"set of node reasons {sorted(reasons)} (absent means nothing was truncated)."
+        )
 
 
 # O.5 — ``<edge>_count`` keys an outline node may carry (#599), in a stable order.

@@ -671,8 +671,8 @@ class TestTraceInteriorNodesFollowExpand:
                 return resolver.NotFound(reason="unresolved", detail="rejected by test")
             return real(path, analyzer)
 
-        # trace and expand both resolve through the one resolver (#623).
-        monkeypatch.setattr(trace_mod, "resolve_handle", rejecting)
+        # trace (per node, #704) and expand both resolve through the one resolver (#623).
+        monkeypatch.setattr(trace_mod, "resolve_item", rejecting)
         monkeypatch.setattr(expand_mod, "resolve_handle", rejecting)
 
     @pytest.mark.asyncio

@@ -1,10 +1,11 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from .exceptions import ValidationError
+from .path_utils import ensure_posix_path
 
 
 class PathValidator:
@@ -215,32 +216,6 @@ class InputValidator:
 
         return col_num
 
-    @staticmethod
-    def sanitize_string(text: str, max_length: int = 10000) -> str:
-        """Sanitize a string for safe use.
-
-        Args:
-            text: The string to sanitize
-            max_length: Maximum allowed length
-
-        Returns:
-            The sanitized string
-        """
-        if not text:
-            return ""
-
-        # Remove null bytes
-        text = text.replace("\x00", "")
-
-        # Truncate if too long
-        if len(text) > max_length:
-            text = text[:max_length]
-
-        # Remove control characters except common ones (tab, newline, etc.)
-        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-
-        return text
-
 
 def validate_mcp_inputs(func: Any) -> Any:
     """Decorator to validate inputs for MCP tool functions.
@@ -270,7 +245,13 @@ def validate_mcp_inputs(func: Any) -> Any:
             if param_name in ["file", "file_path", "path", "project_path"]:
                 try:
                     validated = PathValidator.validate_path(value)
-                    bound.arguments[param_name] = str(validated)
+                    # POSIX, never str(): str() gives native backslashes on
+                    # Windows, and the value is echoed back to the agent (#717).
+                    bound.arguments[param_name] = (
+                        validated.as_posix()
+                        if isinstance(validated, PurePath)
+                        else ensure_posix_path(str(validated))
+                    )
                 except ValidationError as e:
                     # Raise the error to be handled by the exception handler
                     raise ValidationError(

@@ -73,13 +73,14 @@ async def collect_re_exports(handle: Handle, analyzer: JediAnalyzer) -> list[Han
     Returns:
         A sorted list of :class:`~pyeye.handle.Handle` objects representing
         public import paths.  The canonical handle itself is *not* included.
-        Returns an empty list when no re-exports are found.  Never raises.
+        Returns an empty list when no re-exports are found.
+
+    Raises:
+        Exception: An internal failure while scanning (#704). It propagates so
+            the caller can leave ``re_exports`` absent (unknown); an empty list
+            would claim "measured, none".
     """
-    try:
-        return await _collect_re_exports_impl(handle, analyzer)
-    except Exception as exc:
-        logger.debug("collect_re_exports(%r) failed: %s", handle, exc)
-        return []
+    return await _collect_re_exports_impl(handle, analyzer)
 
 
 # ---------------------------------------------------------------------------
@@ -184,21 +185,16 @@ async def _scan_package_for_handle(
     """
     results: list[str] = []
 
-    try:
-        # The shared project-scan rule (#517): a project that is itself a package
-        # has its root here, which may hold nested worktrees or a .venv.
-        py_files = sorted(filtered_rglob("*.py", package_root))
-    except Exception as exc:
-        logger.debug("_scan_package_for_handle: cannot list files under %s: %s", package_root, exc)
-        return results
+    # A file that can't be listed or read propagates (#704): skipping it would
+    # return a re-export list that claims to be complete. ``re_exports`` has no
+    # per-item incompleteness signal, so inspect leaves the field absent.
+    # The shared project-scan rule (#517): a project that is itself a package
+    # has its root here, which may hold nested worktrees or a .venv.
+    py_files = sorted(filtered_rglob("*.py", package_root))
 
     for py_file in py_files:
-        try:
-            script = file_artifact_cache.get_script(py_file, analyzer.project)
-            names = script.get_names(all_scopes=False)
-        except Exception as exc:
-            logger.debug("_scan_package_for_handle: jedi error on %s: %s", py_file, exc)
-            continue
+        script = file_artifact_cache.get_script(py_file, analyzer.project)
+        names = script.get_names(all_scopes=False)
 
         for name in names:
             if name.full_name != target_full_name:

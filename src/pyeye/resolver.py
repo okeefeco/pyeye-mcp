@@ -106,7 +106,12 @@ class Ambiguous:
 
 
 def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
-    """Resolve an exact dotted *path* to its definition. Never raises.
+    """Resolve an exact dotted *path* to its definition. Never raises for a miss.
+
+    A miss is :class:`NotFound`. An internal failure (a pyeye or Jedi bug, such
+    as #684's ``KeyError``) is NOT a miss: it propagates, so the tool call is a
+    loud, logged crash rather than a confident "unresolved" (#704, #626). A
+    caller resolving one item of a multi-item answer uses :func:`resolve_item`.
 
     Args:
         path: A dotted handle, canonical or a re-export alias.
@@ -115,11 +120,7 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     Returns:
         :class:`Resolved` with the canonical handle, or :class:`NotFound`.
     """
-    try:
-        found = _resolve(path, analyzer, hops=0)
-    except Exception as exc:  # never raise: an internal error is an honest miss
-        logger.debug("resolve_handle(%r) failed: %s", path, exc)
-        found = None
+    found = _resolve(path, analyzer, hops=0)
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
@@ -131,6 +132,30 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         scope=scope_for(anchor, canonical, kind, analyzer),
         anchor=anchor,
     )
+
+
+def resolve_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
+    """:func:`resolve_handle` for ONE item of a multi-item answer (#704).
+
+    A trace node, an import target, a typeref head, a plugin record: one bad item
+    mustn't sink the whole call. An internal failure on *path* is logged with its
+    traceback and returned as that item's unknown, a :class:`NotFound` whose
+    ``detail`` says it was an internal error, not a fact about the code. The
+    caller reports it through its own honest signal (``unresolved_nodes``,
+    ``unresolved_imports``, an absent typeref handle, a record's
+    ``unresolved``). A single-subject caller uses :func:`resolve_handle`.
+    """
+    try:
+        return resolve_handle(path, analyzer)
+    except Exception as exc:
+        logger.warning("resolver: internal error resolving %r", path, exc_info=True)
+        return NotFound(
+            reason="unresolved",
+            detail=(
+                f"pyeye hit an internal error resolving {path!r} ({type(exc).__name__}). "
+                "This says nothing about whether it exists; please report it."
+            ),
+        )
 
 
 async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | NotFound:
@@ -171,18 +196,11 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
     if isinstance(exact, Resolved) and exact.kind == "module" and exact.handle == bare:
         return exact
 
-    try:
-        matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
-    except Exception as exc:  # never raise: an index failure is an honest miss
-        logger.debug("resolve_name(%r): find_symbol failed: %s", bare, exc)
-        matches = []
+    # An index or lookup failure propagates (#704): it isn't evidence the name is absent.
+    matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
     found = _canonical_candidates(matches, analyzer)
     if not found:  # 4: members, only as a fallback (#508)
-        try:
-            members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
-        except Exception as exc:  # never raise
-            logger.debug("resolve_name(%r): member lookup failed: %s", bare, exc)
-            members = []
+        members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
         found = _canonical_candidates(members, analyzer)
     if not found:
         return NotFound(reason="unresolved", detail=_miss_detail(bare))
@@ -331,13 +349,10 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         if mod_file is None:
             continue
         rest = parts[split_at:]
-        try:
-            names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
-                all_scopes=True, definitions=True, references=False
-            )
-        except Exception as exc:
-            logger.debug("resolver: names for %s failed: %s", mod_file, exc)
-            return None
+        # The module file exists, so a failure reading its names is internal (#704).
+        names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
+            all_scopes=True, definitions=True, references=False
+        )
         for name in names:
             # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
             # nothing in this scope (#567).
@@ -444,13 +459,9 @@ def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer
     ``location`` coming from the same place they do for every other symbol;
     only the handle is the public one.
     """
-    try:
-        names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
-            all_scopes=True, definitions=True, references=False
-        )
-    except Exception as exc:
-        logger.debug("resolver: names for %s failed: %s", found.file, exc)
-        return None
+    names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
+        all_scopes=True, definitions=True, references=False
+    )
     for name in names:
         if name.name == found.name and name.line == found.line:
             return name
@@ -462,17 +473,17 @@ def _synthetic_import(path: str, analyzer: JediAnalyzer) -> tuple[list[Any], Any
 
     The one place a file-less ``jedi.Script`` is built (#623).  Returns the
     inferred Jedi ``Name`` objects and the single ``goto`` target picked by
-    :func:`pyeye._goto.goto_target` (``None`` unless exactly one).  Never raises.
-    """
-    module_dotted = path.rsplit(".", 1)[0] if "." in path else path
-    try:
-        import jedi
+    :func:`pyeye._goto.goto_target` (``None`` unless exactly one).
 
-        script = jedi.Script(code=f"import {module_dotted}\n{path}", project=analyzer.project)
-        inferred = list(script.infer(2, len(path)))
-    except Exception as exc:
-        logger.debug("resolver: synthetic import of %r failed: %s", path, exc)
-        return [], None
+    Inference of a name that doesn't exist returns ``[]``; it doesn't raise. A
+    raise is an internal failure (#684's parso ``KeyError``) and propagates
+    (#704), never an empty "unresolved".
+    """
+    import jedi
+
+    module_dotted = path.rsplit(".", 1)[0] if "." in path else path
+    script = jedi.Script(code=f"import {module_dotted}\n{path}", project=analyzer.project)
+    inferred = list(script.infer(2, len(path)))
     return inferred, goto_target(script, 2, len(path))
 
 

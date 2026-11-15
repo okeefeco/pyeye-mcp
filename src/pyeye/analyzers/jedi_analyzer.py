@@ -16,13 +16,13 @@ from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
-from ..path_utils import normalize_path, relative_within
+from ..path_utils import normalize_path, path_to_key, relative_within
 from ..project_layout import (
     detect_src_layout,
     layout_key,
     module_name_for_file,
 )
-from ..resolver import Resolved, resolve_handle
+from ..resolver import Resolved, resolve_item
 from ..scope_utils import (
     ScopedCache,
     ScopeLayout,
@@ -47,6 +47,21 @@ logger = logging.getLogger(__name__)
 Scope = str | list[str]
 
 
+def _parse_or_record(py_file: Path, unparseable: list[str]) -> ast.Module | None:
+    """A project-wide scan's AST for *py_file*, or ``None`` when it can't be parsed (#729).
+
+    A :class:`SyntaxError` (the same mapping as #703's ``parse_own_source``)
+    records the file's POSIX path in *unparseable*, so the scan discloses it
+    instead of silently dropping it.  Anything else propagates to the caller's
+    existing handling (#704).
+    """
+    try:
+        return file_artifact_cache.get_ast(py_file)
+    except SyntaxError:
+        unparseable.append(path_to_key(py_file))
+        return None
+
+
 class Importers(NamedTuple):
     """What :meth:`JediAnalyzer.find_importers` found (#668).
 
@@ -61,6 +76,8 @@ class Importers(NamedTuple):
 
     named: list[tuple[str, Path]]
     unnamed: list[Path]
+    #: Files in scope that couldn't be parsed, POSIX (#729).
+    unparseable: tuple[str, ...] = ()
 
 
 def _jedi_sys_path(paths: Iterable[str | Path]) -> list[str]:
@@ -332,6 +349,34 @@ class JediAnalyzer:
 
     # LIVE (not deprecated): the AST name-index search (#457) behind ``find_symbol``
     # and ``_resolve_simple_type`` — i.e. behind ``resolve``. Do not remove.
+    async def index_unparseable_files(self) -> tuple[str, ...]:
+        """Project files the bare-name index couldn't parse, POSIX-sorted (#729).
+
+        A definition in such a file is invisible to bare-name ``resolve``, so a
+        miss there is not proof of absence.  Built with (and cached alongside)
+        the name index.
+        """
+        files: tuple[str, ...] = await self._project_index(project_graph.get_index_unparseable)
+        return files
+
+    async def _project_index(self, getter: Any) -> Any:
+        """Run one of ``project_graph``'s whole-project index getters off the event loop.
+
+        Snapshot before listing files: a watcher invalidation landing between the
+        listing and the build then stops a stale index being cached (#617).
+        """
+        generation = project_graph.generation(self.project_path.as_posix())
+        all_files = await self.get_project_files(pattern="*.py", scope="all")
+        file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
+        return await asyncio.to_thread(
+            getter,
+            self.project_path.as_posix(),
+            all_files,
+            file_to_module,
+            generation,
+            layout_key=self.layout_key,
+        )
+
     async def find_member_definitions(self, name: str) -> list[Any]:
         """Every method or class-body attribute named *name*, project-wide (#508).
 
@@ -384,18 +429,8 @@ class JediAnalyzer:
         # build is parse-bound and paid once per project; lookups are O(1) dict
         # access. Scope is NOT baked into the build (that would poison the
         # project-keyed cache for other scopes) — it is applied below at lookup.
-        # Snapshot before listing files: a watcher invalidation landing between
-        # the listing and the build then stops a stale index being cached (#617).
-        generation = project_graph.generation(self.project_path.as_posix())
-        all_files = await self.get_project_files(pattern="*.py", scope="all")
-        file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
-        index = await asyncio.to_thread(
-            project_graph.get_member_index if members else project_graph.get_name_index,
-            self.project_path.as_posix(),
-            all_files,
-            file_to_module,
-            generation,
-            layout_key=self.layout_key,
+        index = await self._project_index(
+            project_graph.get_member_index if members else project_graph.get_name_index
         )
 
         if fuzzy:
@@ -407,38 +442,23 @@ class JediAnalyzer:
 
         # Narrow to the requested scope at lookup time, then dedup by
         # (name, file, line) — preserving the historical key.
-        scope_dirs = [d.resolve() for d in await self._resolve_scope_to_paths(effective_scope)]
+        scope_dirs = [
+            normalize_path(d) for d in await self._resolve_scope_to_paths(effective_scope)
+        ]
 
         results: list[Any] = []
         seen: set[tuple[str, str | None, int]] = set()
         for r in candidates:
             if r.module_path is None:
                 continue
-            resolved_mp = r.module_path.resolve()
-            if not any(self._is_subpath(resolved_mp, scope_dir) for scope_dir in scope_dirs):
+            resolved_mp = normalize_path(r.module_path)
+            if not any(relative_within(resolved_mp, d) is not None for d in scope_dirs):
                 continue
             key = (r.name, resolved_mp.as_posix(), r.line)
             if key not in seen:
                 seen.add(key)
                 results.append(r)
         return results
-
-    @staticmethod
-    def _is_subpath(path: Path, parent: Path) -> bool:
-        """Check if path is a subdirectory of parent.
-
-        Args:
-            path: The path to check
-            parent: The potential parent path
-
-        Returns:
-            True if path is under parent, False otherwise
-        """
-        try:
-            path.relative_to(parent)
-            return True
-        except ValueError:
-            return False
 
     async def get_project_files(
         self,
@@ -815,6 +835,7 @@ class JediAnalyzer:
         return Importers(
             named=[(module, importers[module]) for module in sorted(importers)],
             unnamed=unnamed,
+            unparseable=graph.unparseable,
         )
 
     def _build_import_graph(self, py_files: list[Path]) -> project_graph.ImportGraph:
@@ -838,11 +859,14 @@ class JediAnalyzer:
             The :class:`~pyeye.analyzers.project_graph.ImportGraph`.
         """
         registry: dict[str, list[tuple[str | None, Path]]] = {}
+        unparseable: list[str] = []
         for py_file in py_files:
             try:
                 importer_module = self._get_import_path_for_file(py_file)
                 importer_is_package = py_file.name == "__init__.py"
-                tree = file_artifact_cache.get_ast(py_file)
+                tree = _parse_or_record(py_file, unparseable)
+                if tree is None:
+                    continue
                 targets: set[str] = set()
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Import):
@@ -866,7 +890,8 @@ class JediAnalyzer:
             for target in targets:
                 registry.setdefault(target, []).append((importer_module, py_file))
         return project_graph.ImportGraph(
-            importers={target: tuple(entries) for target, entries in registry.items()}
+            importers={target: tuple(entries) for target, entries in registry.items()},
+            unparseable=tuple(sorted(unparseable)),
         )
 
     async def _serialize_name(
@@ -984,11 +1009,12 @@ class JediAnalyzer:
                         for fqn in self._direct_children(base_class, graph)
                         if fqn in graph.classes
                     ],
+                    "unparseable_files": list(graph.unparseable),  # #729
                 }
 
             # Simple-name path: no production caller (the edge passes a FQN), so
             # it stays uncached and builds its own inventory.
-            classes_by_fqn, parent_to_children = self._class_inventory(
+            classes_by_fqn, parent_to_children, _ = self._class_inventory(
                 py_files, self._file_to_module(py_files)
             )
 
@@ -1062,22 +1088,29 @@ class JediAnalyzer:
 
     def _class_inventory(
         self, py_files: list[Path], file_to_module: dict[Path, str | None]
-    ) -> tuple[dict[str, tuple[ast.ClassDef, ast.Module, Path]], dict[str, set[str]]]:
+    ) -> tuple[
+        dict[str, tuple[ast.ClassDef, ast.Module, Path]], dict[str, set[str]], tuple[str, ...]
+    ]:
         """Every class in *py_files*, plus parent name -> child FQNs (simple-name lookups).
 
-        One pass over each file's cached AST. A file that can't be read or parsed
-        is skipped, as before.
+        One pass over each file's cached AST. A file the server's interpreter
+        can't parse is recorded (#729); any other failure skips the file, as
+        before.
 
         Returns:
-            ``(classes_by_fqn, parent_to_children)``: FQN -> ``(node, tree, file)``,
-            and each declared base's dotted text -> the FQNs that name it.
+            ``(classes_by_fqn, parent_to_children, unparseable)``: FQN ->
+            ``(node, tree, file)``, each declared base's dotted text -> the FQNs
+            that name it, and the POSIX-sorted unparseable files.
         """
         classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
         parent_to_children: dict[str, set[str]] = {}
+        unparseable: list[str] = []
         for py_file in py_files:
             try:
                 # Bucket 1: AST comes from cache.
-                tree = file_artifact_cache.get_ast(py_file)
+                tree = _parse_or_record(py_file, unparseable)
+                if tree is None:
+                    continue
                 module_path = file_to_module[py_file]
                 for node in ast.walk(tree):
                     if not isinstance(node, ast.ClassDef):
@@ -1094,7 +1127,7 @@ class JediAnalyzer:
                             parent_to_children.setdefault(parent_name, set()).add(fqn)
             except Exception as e:
                 logger.debug(f"Error parsing {py_file}: {e}")
-        return classes_by_fqn, parent_to_children
+        return classes_by_fqn, parent_to_children, tuple(sorted(unparseable))
 
     def _build_class_graph(self, py_files: list[Path]) -> project_graph.ClassGraph:
         """Build the resolved class graph for *py_files* (#397; uncached).
@@ -1108,7 +1141,7 @@ class JediAnalyzer:
         Runs Jedi, so it must run on the analyzer's (Jedi worker) thread.
         """
         file_to_module = self._file_to_module(py_files)
-        classes_by_fqn, _ = self._class_inventory(py_files, file_to_module)
+        classes_by_fqn, _, unparseable = self._class_inventory(py_files, file_to_module)
         import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
             py_files, file_to_module
         )
@@ -1144,6 +1177,7 @@ class JediAnalyzer:
             import_tables=import_tables,
             module_defines=module_defines,
             star_sources=star_sources,
+            unparseable=unparseable,
         )
 
     def _direct_children(self, target_fqn: str, graph: project_graph.ClassGraph) -> set[str]:
@@ -1173,7 +1207,7 @@ class JediAnalyzer:
         the lifetime of a single ``find_subclasses`` call.  Never raises.
         """
         if identifier not in canonical_cache:
-            resolved = resolve_handle(identifier, self)
+            resolved = resolve_item(identifier, self)  # per base (#704)
             # A Resolved handle is always a valid dotted path (the resolver checks).
             canonical_cache[identifier] = (
                 Handle(resolved.handle) if isinstance(resolved, Resolved) else None

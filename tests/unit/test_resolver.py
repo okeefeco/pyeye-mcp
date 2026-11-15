@@ -222,10 +222,13 @@ def test_unknown_handle_is_not_found(project: JediAnalyzer, path: str) -> None:
     assert path in result.detail
 
 
-def test_synthetic_import_failure_is_not_found(project: JediAnalyzer) -> None:
+def test_synthetic_import_failure_propagates(project: JediAnalyzer) -> None:
+    """A Jedi failure is internal, not "unresolved" (#704; #684's path)."""
     with patch("jedi.Script", side_effect=RuntimeError("simulated jedi failure")):
-        assert isinstance(resolve_handle("pathlib.Path", project), NotFound)
-        assert isinstance(resolve_handle("logging", project), NotFound)
+        with pytest.raises(RuntimeError, match="simulated jedi failure"):
+            resolve_handle("pathlib.Path", project)
+        with pytest.raises(RuntimeError, match="simulated jedi failure"):
+            resolve_handle("logging", project)
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +241,18 @@ def test_malformed_path_is_not_found(project: JediAnalyzer, path: str) -> None:
     assert isinstance(resolve_handle(path, project), NotFound)
 
 
-def test_internal_error_is_not_found(
-    project: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_internal_error_propagates(project: JediAnalyzer, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never raises for a MISS; an internal error is a loud crash (#704)."""
+
     def boom(*_args: Any) -> None:
         raise RuntimeError("layout exploded")
 
     monkeypatch.setattr(resolver_mod, "file_for_module", boom)
-    assert isinstance(resolve_handle("pkg", project), NotFound)
+    with pytest.raises(RuntimeError, match="layout exploded"):
+        resolve_handle("pkg", project)
+    # One item of a multi-item answer: that item's unknown, labelled as internal.
+    item = resolver_mod.resolve_item("pkg", project)
+    assert isinstance(item, NotFound) and "internal error" in item.detail
 
 
 def test_alias_hops_are_bounded(project: JediAnalyzer) -> None:

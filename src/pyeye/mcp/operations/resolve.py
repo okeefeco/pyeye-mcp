@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 
@@ -116,6 +117,8 @@ class _Miss(TypedDict, total=False):
     reason: Required[str]
     #: Overrides the default ``detail`` when the miss has a better next step.
     detail: str
+    #: Appended to whichever ``detail`` is used: a known limit on the miss (#729).
+    note: str
 
 
 def _miss(reason: str, detail: str | None = None) -> _Miss:
@@ -260,16 +263,16 @@ async def _resolve_at_position(
     if not file_path.exists():
         return _miss("file_not_found")
 
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        # follow_imports=True is intentional here: position-based resolution
-        # should land on the definition site, not the use site. Callers that
-        # want the symbol AT the position rather than its definition should
-        # use a name-based form via resolve(identifier).
-        definitions = script.goto(line, column, follow_imports=True)
-    except Exception as exc:
-        logger.debug("_resolve_at_position: goto(%d, %d) failed: %s", line, column, exc)
+    # A position outside the file is the caller's miss; Jedi would raise on it.
+    # Any OTHER failure of goto is internal and propagates (#704).
+    if not _position_in_file(file_path, line, column):
         return _miss("no_symbol_at_position")
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    # follow_imports=True is intentional here: position-based resolution
+    # should land on the definition site, not the use site. Callers that
+    # want the symbol AT the position rather than its definition should
+    # use a name-based form via resolve(identifier).
+    definitions = script.goto(line, column, follow_imports=True)
 
     if not definitions:
         return _miss("no_symbol_at_position")
@@ -318,6 +321,24 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
     return result
 
 
+def _position_in_file(file_path: Path, line: int, column: int) -> bool:
+    """Whether (*line*, *column*) is a position Jedi accepts in *file_path*.
+
+    Mirrors Jedi's ``validate_line_column``: ``1 <= line <= len(lines)`` and
+    ``0 <= column <=`` that line's length without its line ending. Checked up
+    front so an out-of-range position is a miss and a Jedi failure is not
+    mistaken for one (#704).
+    """
+    import parso
+
+    lines = parso.split_lines(file_path.read_text(encoding="utf-8"), keepends=True)
+    if not 0 < line <= len(lines):
+        return False
+    text = lines[line - 1]
+    length = len(text) - (2 if text.endswith("\r\n") else 1 if text.endswith("\n") else 0)
+    return 0 <= column <= length
+
+
 def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
     """Find the column of the first identifier on *line* (1-indexed).
 
@@ -361,13 +382,35 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult
     result = await resolve_name(name, analyzer)
     if isinstance(result, NotFound):
         # A bare dunder is never a member candidate (#508): say where to look.
-        return _miss("unresolved", result.detail if _is_dunder(name) else None)
+        miss = _miss("unresolved", result.detail if _is_dunder(name) else None)
+        note = await _unparseable_note(analyzer)
+        if note:
+            miss["note"] = note
+        return miss
     if isinstance(result, Ambiguous):
         candidates = sorted(
             (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
         )
         return _AmbiguousResult(found=True, ambiguous=True, candidates=candidates)
     return _success_from_resolved(result)
+
+
+async def _unparseable_note(analyzer: JediAnalyzer) -> str | None:
+    """Say how much of the project a bare-name miss couldn't see (#729), or ``None``."""
+    try:
+        files = await analyzer.index_unparseable_files()
+    except Exception as exc:  # never fail a miss over its explanation
+        logger.debug("resolve: unparseable-file lookup failed: %s", exc)
+        return None
+    if not files:
+        return None
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    count = f"{len(files)} project file{'' if len(files) == 1 else 's'}"
+    return (
+        f"Note: {count} can't be parsed by the server's Python {version} (e.g. "
+        f"{files[0]}), so a definition there is invisible to a bare-name search; "
+        "Read it, or run pyeye on a newer Python."
+    )
 
 
 def _is_dunder(name: str) -> bool:
@@ -479,9 +522,12 @@ async def resolve(
     """
     result = await _resolve_identifier(identifier, analyzer)
     if result["found"] is False:
-        return not_found_for(
+        response = not_found_for(
             "resolve", {"identifier": identifier}, result["reason"], result.get("detail")
         )
+        if result.get("note"):
+            response["detail"] = f"{response['detail']} {result['note']}"
+        return response
     return result
 
 

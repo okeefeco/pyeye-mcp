@@ -68,6 +68,7 @@ import sysconfig
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from pyeye.path_utils import normalize_path, relative_within
 from pyeye.project_layout import RootsBoundary, project_roots
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ Scope = Literal["project", "external"]
 # tests, monkeypatch the module-level name directly:
 #   monkeypatch.setattr("pyeye.scope._STDLIB_ROOTS", frozenset({Path("/fake")}))
 _STDLIB_ROOTS: frozenset[Path] = frozenset(
-    Path(p).resolve()
+    normalize_path(p)
     for p in (sysconfig.get_paths()["stdlib"], sysconfig.get_paths()["platstdlib"])
 )
 
@@ -173,8 +174,7 @@ def _has_site_packages_segment(path: Path) -> bool:
 
 def _is_under_stdlib(path: Path) -> bool:
     """Return True if *path* is a descendant of any known stdlib root."""
-    resolved = path.resolve()
-    return any(_is_subpath(resolved, root) for root in _STDLIB_ROOTS)
+    return any(relative_within(path, root) is not None for root in _STDLIB_ROOTS)
 
 
 def is_stdlib_source(file_path: Path | str) -> bool:
@@ -188,23 +188,10 @@ def is_stdlib_source(file_path: Path | str) -> bool:
     if path.suffix != ".py":
         return False
     try:
-        resolved = path.resolve()
+        resolved = normalize_path(path)
     except OSError:
         return False
     return _is_under_stdlib(resolved) and not _has_site_packages_segment(resolved)
-
-
-def _is_subpath(path: Path, parent: Path) -> bool:
-    """Return True if *path* is at or below *parent*.
-
-    Works for both absolute and relative paths; uses pure ``Path.relative_to``
-    which is safe and platform-aware without requiring the paths to exist.
-    """
-    try:
-        path.relative_to(parent)
-        return True
-    except ValueError:
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +224,13 @@ def classify_scope(file_path: Path | str, analyzer: JediAnalyzer) -> Scope:
     # "external" via the symlink path but "project" via the real path (#338).
     # Resolving first is the symlink/editable-install-correct choice: the symlink
     # collapses to its real location before any segment/prefix test runs.
-    resolved = Path(file_path).resolve()
+    resolved = normalize_path(file_path)
 
     # Rule 1: Build artifacts — even if inside the project, classify external.
     # Pass the resolved project root so that ``build`` and ``dist`` are only
     # matched at the immediate top level of the project (preventing false
     # positives for legitimately-named nested sub-directories).
-    project_root = analyzer.project_path.resolve()
+    project_root = normalize_path(analyzer.project_path)
     if _has_build_artifact_segment(resolved, project_root):
         return "external"
 
@@ -257,7 +244,7 @@ def classify_scope(file_path: Path | str, analyzer: JediAnalyzer) -> Scope:
 
     # Rule 4: Project source roots
     for root in project_roots(analyzer, RootsBoundary.SCOPE, resolved=True):
-        if _is_subpath(resolved, root):
+        if relative_within(resolved, root) is not None:
             return "project"
 
     # Rule 5: Default — unknown external location

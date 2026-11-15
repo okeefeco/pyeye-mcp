@@ -197,6 +197,11 @@ jobs:
         run: uv sync --locked
 
       - name: Run tests with coverage
+        # The exhaustive path-variant runs (#717): every corpus under every
+        # root spelling. Per-PR runs cover the corpora that catch #714-class
+        # bugs. Off on Windows, where symlinks need privileges.
+        env:
+          PYEYE_EXHAUSTIVE_PATHS: ${{ matrix.os != 'windows-latest' && '1' || '' }}
         run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov

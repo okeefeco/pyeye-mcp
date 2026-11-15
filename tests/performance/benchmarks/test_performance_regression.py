@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import timeit
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -89,40 +90,57 @@ class TestPerformanceBaselines:
         )
 
     def test_metrics_overhead(self):
-        """Test that metrics collection itself has minimal overhead."""
-        collector = MetricsCollector()
+        """``MetricsCollector.measure`` adds only microseconds per call (#741).
 
-        # Function with known duration
-        @collector.measure("test_op")
-        def operation():
-            time.sleep(0.01)  # 10ms
-
-        # Function without metrics
-        def operation_no_metrics():
-            time.sleep(0.01)  # 10ms
-
-        # Measure with metrics
-        start = time.perf_counter()
-        for _ in range(100):
-            operation()
-        with_metrics_time = time.perf_counter() - start
-
-        # Measure without metrics
-        start = time.perf_counter()
-        for _ in range(100):
-            operation_no_metrics()
-        without_metrics_time = time.perf_counter() - start
-
-        # Calculate overhead
-        overhead_ms = ((with_metrics_time - without_metrics_time) / 100) * 1000
-
-        # Metrics overhead should be minimal
+        Times a NO-OP wrapped by the decorator against the bare no-op, so the
+        difference is the decorator's own cost.  (It used to subtract two loops
+        of ``time.sleep(0.01)``, which measured sleep jitter: macOS CI overshoots
+        by milliseconds.)  Many calls per sample and the minimum of several
+        repeats reject scheduler noise, as ``timeit`` recommends.
+        """
+        overhead_us = _measure_overhead_us(MetricsCollector().measure("test_op"))
         assert_performance_threshold(
-            overhead_ms,
-            CommonThresholds.METRICS_OVERHEAD,
+            overhead_us,
+            CommonThresholds.METRICS_OVERHEAD_US,
             "Metrics overhead",
-            unit="ms per operation",
+            unit="us per call",
         )
+
+    def test_metrics_overhead_catches_a_10x_slower_decorator(self):
+        """The guard is real: a decorator ten times as expensive fails it.
+
+        The injected cost is a fixed busy-wait of 9x the calibrated baseline
+        (on top of the real cost), not a multiple of this run's measurement,
+        so a fast runner can't make the slowed decorator look cheap.
+        """
+        collector = MetricsCollector()
+        spin_s = CommonThresholds.METRICS_OVERHEAD_BASELINE_US * 9 / 1e6
+
+        def slow_measure(func):
+            wrapped = collector.measure("slow")(func)
+
+            def slower(*args, **kwargs):
+                end = time.perf_counter() + spin_s
+                while time.perf_counter() < end:
+                    pass
+                return wrapped(*args, **kwargs)
+
+            return slower
+
+        slow_us = _measure_overhead_us(slow_measure)
+        assert slow_us > CommonThresholds.METRICS_OVERHEAD_US.get_threshold()
+
+
+def _noop() -> None:
+    return None
+
+
+def _measure_overhead_us(decorate, calls: int = 10_000, repeats: int = 7) -> float:
+    """Per-call cost in microseconds that *decorate* adds around a no-op."""
+    wrapped = decorate(_noop)
+    bare_s = min(timeit.repeat(_noop, number=calls, repeat=repeats))
+    wrapped_s = min(timeit.repeat(wrapped, number=calls, repeat=repeats))
+    return (wrapped_s - bare_s) / calls * 1e6
 
 
 class TestMemoryEfficiency:

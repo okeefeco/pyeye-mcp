@@ -3,12 +3,26 @@
 import ast
 import logging
 from collections.abc import Callable
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
+from .. import resolver
 from ..async_utils import filtered_rglob
+from ..project_layout import module_name_for_file
 from .base import AnalyzerPlugin, Scope
 
+if TYPE_CHECKING:
+    from ..analyzers.jedi_analyzer import JediAnalyzer
+
 logger = logging.getLogger(__name__)
+
+#: The Pydantic roots a model subclasses: the base name user code writes, and
+#: the dotted paths it can be imported from (#664).
+_ROOTS: dict[str, tuple[str, ...]] = {
+    "BaseModel": ("pydantic.BaseModel",),
+    "RootModel": ("pydantic.RootModel",),
+    "BaseSettings": ("pydantic_settings.BaseSettings", "pydantic.BaseSettings"),
+}
 
 
 class PydanticPlugin(AnalyzerPlugin):
@@ -59,7 +73,20 @@ class PydanticPlugin(AnalyzerPlugin):
         }
 
     async def find_models(self, scope: Scope = "main") -> list[dict[str, Any]]:
-        """Find all Pydantic models in the project.
+        """Find all Pydantic models in the project, direct and indirect (#664).
+
+        A model is a project class that subclasses a Pydantic root
+        (``BaseModel``, ``RootModel``, ``BaseSettings``) directly or through
+        other project classes. Models are found by DEFINITION SITE through the
+        one class graph (``JediAnalyzer.find_subclasses``, cached per
+        generation, #397), so two models with the same name stay distinct and a
+        local class that merely shares a root's name is not a model.
+
+        **Weaker fallback:** a root that doesn't resolve is matched by direct base
+        NAME instead. For example, when pydantic-settings isn't importable,
+        BaseSettings subclasses are found by direct base name; the walk then
+        continues from them by definition site. This applies ONLY to a root that
+        doesn't resolve.
 
         Args:
             scope: Search scope (default: this tool's ``scope_defaults`` entry in the
@@ -68,37 +95,122 @@ class PydanticPlugin(AnalyzerPlugin):
                 - "all": Include configured namespaces
                 - "namespace:name": Specific namespace
         """
+        analyzer = self._analyzer()
+        await self._warn_unreadable_sources(scope)
+        root_handles, unresolved_names = self._resolve_roots(analyzer)
+
+        queue: list[dict[str, Any]] = []
+        for handle in root_handles:
+            queue.extend(await self._direct_subclasses(analyzer, handle, scope))
+        if unresolved_names:
+            queue.extend(await self._name_matched_seeds(unresolved_names, scope, analyzer))
+
+        found: dict[str, dict[str, Any]] = {}
+        while queue:
+            sub = queue.pop(0)
+            if sub["full_name"] in found:
+                continue
+            found[sub["full_name"]] = sub
+            queue.extend(await self._direct_subclasses(analyzer, sub["full_name"], scope))
+
         models = []
-
-        py_files = await self.get_project_files("*.py", scope)
-        for py_file in py_files:
-            content = await self._read_source(py_file)
-            if content is None:
-                continue
-            if "BaseModel" not in content and "pydantic" not in content.lower():
-                continue  # Quick filter
-
-            tree = self._parse_source(py_file, content)
-            if tree is None:
-                continue
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    # Check if it inherits from BaseModel or any Pydantic base
-                    if self._is_pydantic_model(node, content):
-                        model_info = {
-                            "name": node.name,
-                            "file": py_file.as_posix(),
-                            "line": node.lineno,
-                            "type": "pydantic_model",
-                            "fields": self._extract_fields(node),
-                            "validators": self._extract_validators(node),
-                            "config": self._extract_config(node),
-                            "base_classes": [self._get_base_name(base) for base in node.bases],
-                        }
-                        models.append(model_info)
-
+        for sub in sorted(found.values(), key=lambda s: (Path(s["file"]).as_posix(), s["line"])):
+            record = await self._model_record(Path(sub["file"]), sub["line"])
+            if record is not None:
+                models.append(record)
         return models
+
+    async def _warn_unreadable_sources(self, scope: Scope) -> None:
+        """Warn about every Pydantic-looking file that can't be read or parsed (#637).
+
+        The class graph skips such a file silently (#729), so this keeps the
+        plugin contract: broken user code is skipped WITH a warning. Reading and
+        parsing log the warning themselves.
+        """
+        for py_file in await self.get_project_files("*.py", scope):
+            content = await self._read_source(py_file)
+            if content is not None and ("BaseModel" in content or "pydantic" in content.lower()):
+                self._parse_source(py_file, content)
+
+    def _analyzer(self) -> "JediAnalyzer":
+        """The project's shared analyzer (the server's instance; no ``pyeye.mcp`` import)."""
+        from ..project_manager import get_project_manager
+
+        return get_project_manager().get_analyzer(self.project_path.as_posix())
+
+    @staticmethod
+    def _resolve_roots(analyzer: "JediAnalyzer") -> tuple[list[str], frozenset[str]]:
+        """The roots' definition-site handles, and the root names that don't resolve."""
+        handles: list[str] = []
+        unresolved: set[str] = set()
+        for name, paths in _ROOTS.items():
+            resolved = [resolver.resolve_handle(p, analyzer) for p in paths]
+            hits = [r.handle for r in resolved if isinstance(r, resolver.Resolved)]
+            if hits:
+                handles.extend(dict.fromkeys(hits))
+            else:
+                unresolved.add(name)
+        return handles, frozenset(unresolved)
+
+    @staticmethod
+    async def _direct_subclasses(
+        analyzer: "JediAnalyzer", handle: str, scope: Scope
+    ) -> list[dict[str, Any]]:
+        """*handle*'s direct project subclasses, by definition site (the class graph)."""
+        result = await analyzer.find_subclasses(handle, scope=scope)
+        return [s for s in result.get("subclasses", []) if s.get("full_name")]
+
+    async def _name_matched_seeds(
+        self, names: frozenset[str], scope: Scope, analyzer: "JediAnalyzer"
+    ) -> list[dict[str, Any]]:
+        """Classes whose DIRECT base is named one of *names* (the unresolvable-root fallback)."""
+        seeds: list[dict[str, Any]] = []
+        for py_file in await self.get_project_files("*.py", scope):
+            content = await self._read_source(py_file)
+            if content is None or not any(n in content for n in names):
+                continue
+            tree = self._parse_source(py_file, content)
+            module = module_name_for_file(analyzer, py_file) if tree is not None else None
+            if tree is None or module is None:
+                continue
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef) and any(
+                    self._base_leaf(base) in names for base in node.bases
+                ):
+                    seeds.append(
+                        {"full_name": f"{module}.{node.name}", "file": py_file, "line": node.lineno}
+                    )
+        return seeds
+
+    @staticmethod
+    def _base_leaf(base: ast.expr) -> str | None:
+        if isinstance(base, ast.Name):
+            return base.id
+        if isinstance(base, ast.Attribute):
+            return base.attr
+        return None
+
+    async def _model_record(self, py_file: Path, line: int) -> dict[str, Any] | None:
+        """The ``find_models`` record for the class defined at *py_file*:*line*."""
+        content = await self._read_source(py_file)
+        tree = self._parse_source(py_file, content) if content is not None else None
+        if tree is None:
+            return None
+        node = next(
+            (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line), None
+        )
+        if node is None:
+            return None
+        return {
+            "name": node.name,
+            "file": py_file.as_posix(),
+            "line": node.lineno,
+            "type": "pydantic_model",
+            "fields": self._extract_fields(node),
+            "validators": self._extract_validators(node),
+            "config": self._extract_config(node),
+            "base_classes": [self._get_base_name(base) for base in node.bases],
+        }
 
     async def get_model_schema(
         self, model_name: str, scope: Scope = "main"
@@ -259,6 +371,9 @@ class PydanticPlugin(AnalyzerPlugin):
     ) -> dict[str, Any]:
         """Trace the inheritance hierarchy of a Pydantic model.
 
+        ``children`` are the model's direct subclasses by definition site (#664),
+        so two models with the same name each list only their own children.
+
         Args:
             model_name: Name of the model to trace
             scope: Search scope (default: this tool's ``scope_defaults`` entry in the
@@ -269,17 +384,20 @@ class PydanticPlugin(AnalyzerPlugin):
         """
         models = await self.find_models(scope)
         target = next((m for m in models if m["name"] == model_name), None)
-        return self.inheritance_for(model_name, target, models)
+        return await self.inheritance_for(model_name, target, models, scope)
 
-    @staticmethod
-    def inheritance_for(
-        model_name: str, target: dict[str, Any] | None, models: list[dict[str, Any]]
+    async def inheritance_for(
+        self,
+        model_name: str,
+        target: dict[str, Any] | None,
+        models: list[dict[str, Any]],
+        scope: Scope = "main",
     ) -> dict[str, Any]:
         """Build the inheritance answer for *target* (a ``find_models`` record).
 
-        Children are matched by base-class **name**, as before; with two models of
-        the same name, a child of either is listed under both (resolving bases is
-        #664's subclasses-edge work).
+        ``children`` are the target's DIRECT subclasses by definition site, from
+        the one class graph (#664). With two models of the same name, each lists
+        only its own children (#720's note, fixed).
         """
         hierarchy: dict[str, Any] = {
             "model": model_name,
@@ -296,16 +414,18 @@ class PydanticPlugin(AnalyzerPlugin):
             hierarchy["fields_inherited"] = []
             hierarchy["fields_own"] = target["fields"]
 
-        # Check which models inherit from our target
-        for model in models:
-            if model_name in model["base_classes"]:
-                hierarchy["children"].append(
-                    {
-                        "name": model["name"],
-                        "file": model["file"],
-                        "line": model["line"],
-                    }
+        if target is not None:
+            analyzer = self._analyzer()
+            module = module_name_for_file(analyzer, Path(target["file"]))
+            if module is not None:
+                children = await self._direct_subclasses(
+                    analyzer, f"{module}.{target['name']}", scope
                 )
+                hierarchy["children"] = [
+                    {"name": c["name"], "file": Path(c["file"]).as_posix(), "line": c["line"]}
+                    for c in sorted(children, key=lambda c: (Path(c["file"]).as_posix(), c["line"]))
+                ]
+        _ = models  # kept for the callers' signature; children come from the graph
 
         return hierarchy
 
