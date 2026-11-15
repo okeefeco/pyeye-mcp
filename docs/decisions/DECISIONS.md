@@ -110,28 +110,41 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
 - Supersedes the #431 alias-retry wrapper: aliases are followed inside placement.
 - Amends the 2026-10-29 #506/#544 entry: inference lives only in the resolver, with the `name == leaf` check. inspect's `full_name == handle` check is dropped.
 - Amends the #444 entry: namespace anchoring is strategy 2.
+- **Slice 3 amendment (scope; also amends the 2026-06-21 #454 entry):**
+  - The resolver owns scope. `resolver.scope_for` (`classify_scope`, then the #454 reconciliation of an installed copy back to the project, then file-less namespace packages) is the one rule, shared by `Resolved.scope` and every edge stub (`stubs.build_stub`).
+  - `RootsBoundary.SCOPE` is the `NAMESPACE_PORTIONS` boundary, by name. Everything the user configured, packages and namespaces, is `project`; site-packages and the stdlib stay `external` because `classify_scope` rules them out before any root test. Rejected: a three-valued scope (project / sibling / external), which is a vocabulary change for #594.
+  - `project_layout.file_for_module` also searches a configured PEP 420 package's portion directories, so a namespace repo outside the project root is placeable. That fixes a slice-2 regression: those modules were in the boundary but had no file, so strategy 4 missed them. `find_namespace_package_dirs` / `dir_shallow_qualifies` moved down into `project_layout` (pure path logic) for it.
+  - `resolve_at` is not-found when the resolver can't place the position's definition; returning Jedi's raw `full_name` is rejected (audit row 3).
+  - `resolve_canonical`'s external branch calls the resolver through a lazy import, a temporary bridge removed with `resolve_canonical` in slice 5.
 - Rejected:
   - keeping inspect's shorten-after-a-miss walk, which only inspect had (audit §4.2);
   - caching synthetic-import results to speed up a repeated inspect of an external class (~0.4 s warm), which would add cross-call state for a modest gain.
 
-**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; #623, #602, #431, #429, #457.
+**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import` / `scope_for`; `pyeye.project_layout.file_for_module` / `find_namespace_package_dirs`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; `tests/integration/test_resolve_on_resolver.py`; #623, #602, #431, #429, #454, #457.
 **Applies-to:** every exact-path handle lookup in `src/pyeye`:
 
 - `inspect`;
 - `outline` root;
 - `expand` source;
-- `trace` roots.
+- `trace` roots;
+- `resolve` dotted names, and bare names with no name-index hit (an exact top-level module);
+- `resolve_at` (the position's definition is canonicalized through the resolver).
 
-Not yet moved (later #623 slices): `resolve` / `resolve_at` (slice 3, which also moves scope ownership and #454 into the resolver and amends this entry), bare-name search (slice 4), trace interior nodes and typeref forward refs (slice 5). Still separate today: `canonicalization._resolve_via_external_inference` and `resolve._resolve_external_dotted_name`.
-**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py` passes:
+Scope: every `Resolved` and every edge stub (`scope_for`), and every `classify_scope` caller (the widened `SCOPE` boundary).
+
+Not yet moved (later #623 slices): the bare-name policy with index hits, where an exact top-level module wins (slice 4); trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
+**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/integration/test_resolve_on_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py tests/test_cross_tool_invariants.py` passes:
 
 - each strategy resolves its case;
 - a project path never reaches inference, and a mismatched inference (`typing.TYPE_CHECKING` → `bool`) is not-found;
 - placement stops at the deepest module;
 - an alias and its canonical handle give identical `inspect` nodes;
 - inspect, outline, expand and trace all echo `pkg._impl.Thing` for `pkg.Thing`;
-- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import` plus the two slice-3 copies, and no `project.search` outside the #628 dead code;
-- `resolver` doesn't import `pyeye.mcp`, statically or at import time.
+- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import`, and no `project.search` outside the #628 dead code;
+- `resolver` doesn't import `pyeye.mcp`, statically or at import time, and `canonicalization` imports it only lazily, in `_resolve_external`;
+- `resolve` finds `os`, `io`, `logging`, `os.path` and agrees with `inspect` on handle, kind and scope; `resolve_at` is not-found when the resolver misses;
+- a configured namespace repo outside the project root resolves in every tool with scope `project`, while site-packages under a configured root stays `external`;
+- the `xns_repo` cross-tool corpus round-trips and agrees with no allow-list entries.
 
 ## 2026-11-15 — All Jedi work runs on one large-stack worker thread (#650)
 

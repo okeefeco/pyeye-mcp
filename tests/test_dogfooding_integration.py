@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-import pyeye.dogfooding_integration
-from pyeye.dogfooding_integration import DogfoodingIntegration
+import scripts.dogfooding_integration
 from pyeye.metrics import MetricsCollector
+from scripts.dogfooding_integration import DogfoodingIntegration
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_export_mcp_metrics_for_session(integration, mock_metrics, monkeypatch):
     """Test exporting MCP metrics for dogfooding session."""
     # Mock the global metrics instance
 
-    monkeypatch.setattr(pyeye.dogfooding_integration, "mcp_metrics", mock_metrics)
+    monkeypatch.setattr(scripts.dogfooding_integration, "mcp_metrics", mock_metrics)
 
     # Override the get_performance_report method to return test data
     def mock_get_performance_report():
@@ -165,7 +165,7 @@ def test_get_mcp_adoption_rate_with_session(integration):
 
 def test_sync_mcp_metrics_function(monkeypatch):
     """Test the sync_mcp_metrics convenience function."""
-    from pyeye.dogfooding_integration import sync_mcp_metrics
+    from scripts.dogfooding_integration import sync_mcp_metrics
 
     # Mock the integration methods
     def mock_update(self):  # noqa: ARG001

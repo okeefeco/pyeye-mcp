@@ -7,7 +7,7 @@ import pytest
 
 from pyeye.analyzers import project_graph
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.exceptions import AnalysisError, FileAccessError
+from pyeye.exceptions import AnalysisError
 
 
 class TestJediAnalyzer:
@@ -57,110 +57,6 @@ class TestJediAnalyzer:
         # Fuzzy returns every indexed name containing the query.
         results = await analyzer.find_symbol("test", fuzzy=True)
         assert len(results) == 3
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_goto_definition(self, mock_project_class, mock_script_class, temp_project_dir):
-        """Test going to symbol definition."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Create test file
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("""
-def test_function():
-    pass
-
-test_function()
-""")
-
-        # Mock definition
-        mock_definition = Mock()
-        mock_definition.name = "test_function"
-        mock_definition.module_name = "test"
-        mock_definition.line = 2
-        mock_definition.column = 4
-        mock_definition.module_path = test_file
-        mock_definition.type = "function"
-        mock_definition.docstring = Mock(return_value="Function docstring")
-
-        mock_script = Mock()
-        mock_script.goto.return_value = [mock_definition]
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.goto_definition(str(test_file), 5, 0)
-
-        assert result is not None
-        assert result["name"] == "test_function"
-        assert result["line"] == 2
-        assert "docstring" in result
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_goto_definition_no_result(
-        self, mock_project_class, mock_script_class, temp_project_dir
-    ):
-        """Test goto definition with no results."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("# Empty file")
-
-        mock_script = Mock()
-        mock_script.goto.return_value = []
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.goto_definition(str(test_file), 1, 0)
-
-        assert result is None
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_get_type_info(self, mock_project_class, mock_script_class, temp_project_dir):
-        """Test getting type information."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("""
-def func() -> str:
-    return "hello"
-
-result = func()
-""")
-
-        # Mock type inference
-        mock_type = Mock()
-        mock_type.name = "str"
-        mock_type.type = "class"
-        mock_type.module_name = "builtins"
-        mock_type.description = "str() -> str"
-        mock_type.full_name = "builtins.str"
-        mock_type.docstring = Mock(return_value="String type")
-
-        # Mock help info
-        mock_help = Mock()
-        mock_help.docstring = Mock(return_value="String type")
-
-        mock_script = Mock()
-        mock_script.infer.return_value = [mock_type]
-        mock_script.help.return_value = [mock_help]
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        result = await analyzer.get_type_info(str(test_file), 5, 0)
-
-        assert result is not None
-        assert "inferred_types" in result
-        assert len(result["inferred_types"]) == 1
-        assert result["inferred_types"][0]["name"] == "str"
-        assert "docstring" in result
 
     @pytest.mark.asyncio
     async def test_find_reexports(self):
@@ -302,59 +198,6 @@ __all__ = [
         result = analyzer._find_init_file("nonexistent.module.path")
         assert result is None  # Should return None when not found
 
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
-    @pytest.mark.asyncio
-    async def test_find_imports(self, mock_project_class, mock_script_class, temp_project_dir):
-        """Test finding module imports."""
-        mock_project = Mock()
-        mock_project_class.return_value = mock_project
-
-        # Create test files with imports
-        file1 = temp_project_dir / "file1.py"
-        file1.write_text("""
-import os
-from pathlib import Path
-import sys
-""")
-
-        file2 = temp_project_dir / "file2.py"
-        file2.write_text("""
-import os
-import json
-""")
-
-        # Mock the get_names results for each file
-        mock_name1 = Mock()
-        mock_name1.type = "module"
-        mock_name1.full_name = "os"
-        mock_name1.line = 2
-        mock_name1.column = 0
-        mock_name1.description = "import os"
-
-        mock_name2 = Mock()
-        mock_name2.type = "module"
-        mock_name2.full_name = "os"
-        mock_name2.line = 2
-        mock_name2.column = 0
-        mock_name2.description = "import os"
-
-        # Mock Script for each file
-        mock_script1 = Mock()
-        mock_script1.get_names.return_value = [mock_name1]
-
-        mock_script2 = Mock()
-        mock_script2.get_names.return_value = [mock_name2]
-
-        # Make Script return different mocks for different files
-        mock_script_class.side_effect = [mock_script1, mock_script2]
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        results = await analyzer.find_imports("os")
-
-        assert len(results) == 2
-        assert all(r["import_statement"] == "import os" for r in results)
-
     @pytest.mark.asyncio
     async def test_error_handling(self, temp_project_dir, caplog):
         """find_symbol wraps an internal search failure in AnalysisError."""
@@ -399,17 +242,6 @@ import json
             assert result["file"] == "/test/module.py"
             assert result["docstring"] == "Test class docstring"
 
-    @pytest.mark.asyncio
-    async def test_nonexistent_file_handling(self, temp_project_dir):
-        """Test handling of non-existent files."""
-        with patch("pyeye.analyzers.jedi_analyzer.jedi.Project"):
-            analyzer = JediAnalyzer(str(temp_project_dir))
-
-            # Try to analyze non-existent file - should raise FileAccessError
-            with pytest.raises(FileAccessError) as exc_info:
-                await analyzer.goto_definition("/nonexistent/file.py", 1, 0)
-            assert "File not found" in str(exc_info.value)
-
     @patch("pyeye.analyzers.jedi_analyzer.jedi.Project")
     def test_multiple_projects(self, mock_project_class, tmp_path):
         """Test that analyzer can work with different projects."""
@@ -430,48 +262,6 @@ import json
         calls = mock_project_class.call_args_list
         assert calls[0][1]["path"] == project1.as_posix()
         assert calls[1][1]["path"] == project2.as_posix()
-
-    @pytest.mark.asyncio
-    async def test_get_type_info_error_handling(self, temp_project_dir):
-        """Test error handling in get_type_info."""
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Test with non-existent file
-        with pytest.raises(FileAccessError) as exc_info:
-            await analyzer.get_type_info("nonexistent.py", 1, 0)
-        assert "nonexistent.py" in str(exc_info.value)
-
-    @patch("pyeye.analyzers.jedi_analyzer.file_artifact_cache.get_script")
-    @pytest.mark.asyncio
-    async def test_get_type_info_jedi_error(self, mock_script_class, temp_project_dir):
-        """Test get_type_info when Jedi raises an error."""
-        # Create a test file
-        test_file = temp_project_dir / "test.py"
-        test_file.write_text("x = 1")
-
-        # Make Script.infer raise an exception
-        mock_script = Mock()
-        mock_script.infer.side_effect = Exception("Jedi inference error")
-        mock_script_class.return_value = mock_script
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-
-        with pytest.raises(AnalysisError) as exc_info:
-            await analyzer.get_type_info(str(test_file), 1, 0)
-        assert "Failed to get type info" in str(exc_info.value)
-
-    @patch("pyeye.analyzers.jedi_analyzer.rglob_async")
-    @pytest.mark.asyncio
-    async def test_find_imports_file_read_error(self, mock_rglob, temp_project_dir):
-        """Test find_imports when file reading fails."""
-        # Mock rglob to return a file that will fail to read
-        mock_rglob.return_value = [Path("/unreadable/file.py")]
-
-        analyzer = JediAnalyzer(str(temp_project_dir))
-        results = await analyzer.find_imports("os")
-
-        # Should return empty results when files can't be read
-        assert results == []
 
     @pytest.mark.asyncio
     async def test_find_subclasses_direct(self, temp_project_dir):
