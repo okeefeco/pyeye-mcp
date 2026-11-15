@@ -18,7 +18,7 @@ from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
-from ..path_utils import absolute_path, respell_paths
+from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -521,14 +521,12 @@ def configure_packages(
     an invalid argument, a ``project_path`` that doesn't exist, an unusable config,
     or an unreadable file.
     """
-    from pathlib import Path
-
     from ..analyzers import project_graph
     from .operations import typeref
 
     # Load existing config for the project being configured (#618: was always ".")
     global project_config
-    root = Path(project_path).resolve()
+    root = normalize_path(project_path)
     project_config = ProjectConfig(root.as_posix())
     config = project_config
 
@@ -578,7 +576,7 @@ def configure_packages(
     # paths. Re-detection (a new package bringing a new framework) still needs a
     # restart.
     for plugin in _plugins:
-        if plugin.project_path.resolve() == root:
+        if paths_equal(plugin.project_path, root):
             _apply_plugin_paths(plugin, config)
 
     result: dict[str, Any] = {
