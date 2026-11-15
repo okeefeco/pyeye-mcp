@@ -2,7 +2,7 @@
 date: "2026-11-15"
 title: "Roots keep the caller's spelling, comparisons resolve, and a project handle's module comes from the mapper (#714)"
 issues: [714, 603, 668, 625]
-anchors: ["pyeye.path_utils.relative_within", "pyeye.project_layout.module_name_for_file", "pyeye.resolver._canonical_of", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.__init__"]
+anchors: ["pyeye.path_utils.relative_within", "pyeye.project_layout.module_name_for_file", "pyeye.resolver.handle_for_anchor", "pyeye.mcp.operations.edges._handle_for_name", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.__init__"]
 status: "active"
 amends: []
 supersedes: []
@@ -22,5 +22,5 @@ superseded_by: []
 
 Rejected: resolving `project_path` (that undoes #603: callers' own paths would stop matching `location.file`); filtering out only `__main__.*` names (that still returns `src.pkg.mod.X`).
 **Anchor:** `pyeye.path_utils.relative_within`; `pyeye.project_layout.module_name_for_file`; `pyeye.resolver._canonical_of`; the root setup in `JediAnalyzer.__init__`; #714, #603, #668.
-**Applies-to:** Jedi-facing paths: `JediAnalyzer.__init__` (`jedi.Project` root and `added_sys_path`) and `file_artifact_cache.get_script`. Comparison: `project_layout.module_name_for_file` (project, additional, `MODULE_LOOKUP` and namespace roots) and the in-project root setup in `JediAnalyzer.__init__`. Handles: `resolver._canonical_of`, reached from `_place_definition` and `_follow_alias` (so `resolve`, `resolve_at`, `inspect`, `outline`, `expand` and `trace`). Not yet moved: other path comparisons outside `path_utils` / `project_layout` (e.g. `JediAnalyzer._is_subpath`, `_search_all_scopes`' scope filter). #717 makes `path_utils` / `project_layout` their only owners.
+**Applies-to:** Jedi-facing paths: `JediAnalyzer.__init__` (`jedi.Project` root and `added_sys_path`) and `file_artifact_cache.get_script`. Comparison: `project_layout.module_name_for_file` (project, additional, `MODULE_LOOKUP` and namespace roots) and the in-project root setup in `JediAnalyzer.__init__`. Handles: `resolver.handle_for_anchor`, the one rule, used by `resolver._canonical_of` (reached from `_place_definition` and `_follow_alias`) and by `edges._handle_for_name` (#721's single edge-handle builder: `_class_members`, `_module_members`, `_resolve_call_target`, `superclass_bases`, `resolve_enclosing_scope`). So it covers `resolve`, `resolve_at`, `inspect`, `outline`, `expand` and `trace`. Not yet moved: other path comparisons outside `path_utils` / `project_layout` (e.g. `JediAnalyzer._is_subpath`, `_search_all_scopes`' scope filter). #717 makes `path_utils` / `project_layout` their only owners.
 **Verify:** PARTIAL — gold: `uv run pytest tests/test_symlinked_root.py` passes. It covers every operation on a symlinked root with and without config; every edge on a cold cache (src and flat layouts), with no `__main__.` or `src.` handle; `location.file` being the same file; the `..` guard; and `_canonical_of` never returning `__main__.*`. Unverifiable until #717's checker: that no other module compares paths outside `path_utils` / `project_layout`.

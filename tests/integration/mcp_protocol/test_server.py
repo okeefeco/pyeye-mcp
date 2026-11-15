@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.exceptions import ValidationError
@@ -312,21 +313,32 @@ class TestInputValidation:
     # before it ever touches the file, so these assertions hold for a path that
     # does not exist.
 
+    # Since #626 slice C the rejection reaches the client as an MCP tool error
+    # (``ToolError``) naming the error type and the parameter, raised from the
+    # original ``ValidationError``.
+
     @pytest.mark.asyncio
     async def test_validate_negative_line_number(self):
-        """Test that negative line numbers are rejected."""
-        with pytest.raises(ValidationError) as exc_info:
+        """Test that negative line numbers are rejected as a tool error naming ``line``."""
+        with pytest.raises(ToolError) as exc_info:
             await resolve_at("test.py", -1, 0)
 
-        assert "line number" in str(exc_info.value).lower()
+        message = str(exc_info.value)
+        assert message.startswith("ValidationError:")
+        assert "line number" in message.lower()
+        assert "parameter=line" in message
+        assert isinstance(exc_info.value.__cause__, ValidationError)
 
     @pytest.mark.asyncio
     async def test_validate_negative_column_number(self):
-        """Test that negative column numbers are rejected."""
-        with pytest.raises(ValidationError) as exc_info:
+        """Test that negative column numbers are rejected as a tool error naming ``column``."""
+        with pytest.raises(ToolError) as exc_info:
             await resolve_at("test.py", 10, -5)
 
-        assert "column" in str(exc_info.value).lower()
+        message = str(exc_info.value)
+        assert message.startswith("ValidationError:")
+        assert "parameter=column" in message
+        assert isinstance(exc_info.value.__cause__, ValidationError)
 
 
 class TestGetPerformanceMetrics:

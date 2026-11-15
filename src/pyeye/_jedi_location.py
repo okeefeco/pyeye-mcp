@@ -68,7 +68,10 @@ def get_end_line(jedi_name: Any) -> int:
                     break
                 end_pos = getattr(node, "end_pos", None)
                 if end_pos is not None:
-                    return int(end_pos[0])
+                    line, column = int(end_pos[0]), int(end_pos[1])
+                    # A block ending in its newline ends at column 0 of the NEXT
+                    # line; the block's last line is the one before (#709).
+                    return line - 1 if column == 0 and line > start_line else line
                 break
             node = getattr(node, "parent", None)
     except Exception:

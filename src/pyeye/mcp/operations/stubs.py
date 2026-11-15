@@ -75,6 +75,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from pyeye._jedi_location import get_end_line
+from pyeye._stdlib_static import relocate_platform
 from pyeye.kinds import normalise_kind_from_name
 from pyeye.mcp.operations.inspect import _build_signature
 from pyeye.resolver import scope_for
@@ -103,6 +104,10 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
     Returns:
         A Stub dict conforming to spec §4.1.
     """
+    # A platform-selected name (``os.path.join``) is located at the
+    # ``sys.platform`` branch that selects it, as ``resolve`` reports (#329).
+    jedi_name = relocate_platform(handle, jedi_name)
+
     # ------------------------------------------------------------------
     # 1. Kind — normalise, promoting function → method when applicable (#406)
     # ------------------------------------------------------------------
