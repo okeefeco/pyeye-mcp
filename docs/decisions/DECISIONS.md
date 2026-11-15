@@ -14,7 +14,7 @@ Contract/invariant-significant, friction-driven decisions. Each entry is a small
 - Rejected: keeping a smarter tie-break (prefer project scope, or prefer the first `try` branch), which would be a guess presented as an answer; and leaving the field independent of the edge (the #330 drift).
 - Not changed here: typeref forward refs (`x: "Foo"`) still use a project-wide bare-name search and can disagree with `x: Foo`. #623 slice 5 moves them onto the shared resolver; a strict xfail pins the gap.
 - Noted, not changed: a base written as a call (`class C(make_base())`) resolves to the factory function's handle, in both the field and the edge, because goto lands on the call's name.
-- The inheritance edges agree on scope (#669, same PR): `subclasses` searches `edges._project_search_scope` (the main project, `packages`, and every configured namespace), the scope `project` stubs and the `superclasses` edge resolve into. Standalone script directories are excluded: they are not configured project code. Relative namespace paths are normalised in `ProjectManager`, so the file↔module mapper can place files under them.
+- The inheritance edges agree on scope (#669, same PR): `subclasses` searches `edges._project_search_scope` (the main project, `packages`, and every configured namespace), the scope `project` stubs and the `superclasses` edge resolve into. Standalone script directories are excluded: they are not configured project code. Configured paths are normalised once, where every consumer reads them (#668): `ProjectConfig._normalise_config_path` (`~` expanded, anchored to the project, `..` collapsed) serves both `get_namespaces()` and package paths, so `ProjectManager`, plugins and `configure_packages` agree and the file↔module mapper can place files under a `../repo` namespace.
 
 **Anchor:** `pyeye._goto.goto_target` / `pick_target`; `pyeye.mcp.operations.edges.superclass_bases`; response_linter rule E.6.
 **Applies-to:** every place that picks a `goto` result for an edge or a type:
@@ -23,6 +23,7 @@ Contract/invariant-significant, friction-driven decisions. Each entry is a small
 - `edges.superclass_bases` (the superclasses edge, `edge_counts.superclasses`, and inspect's `superclasses` field);
 - `typeref._resolve_head_via_jedi`.
 - The `subclasses` edge's search scope (`edges._project_search_scope`, #669).
+- Configured namespace and package path normalisation (`ProjectConfig._normalise_config_path`, #668).
 
 Out of scope: `resolve.py`'s position goto and `resolver.py` (#623), and the dead `JediAnalyzer` goto paths (#628).
 
