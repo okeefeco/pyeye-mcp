@@ -470,10 +470,16 @@ def configure_packages(
         "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
     }
     # Report config keys that are present but ignored rather than letting them
-    # read as live (#513). Absent — not [] — when there are none.
+    # read as live (#513, #581). Absent — not [] — when there are none.
+    warnings = []
     ignored = config.get_ignored_standalone_keys()
     if ignored:
-        result["warnings"] = [ProjectConfig.ignored_standalone_keys_message(ignored)]
+        warnings.append(ProjectConfig.ignored_standalone_keys_message(ignored))
+    ignored_top = config.get_ignored_top_level_keys()
+    if ignored_top:
+        warnings.append(ProjectConfig.ignored_top_level_keys_message(ignored_top))
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
