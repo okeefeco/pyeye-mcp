@@ -13,7 +13,7 @@ from .analyzers.jedi_analyzer import JediAnalyzer
 from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
-from .path_utils import path_to_key
+from .path_utils import normalize_path, path_to_key
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class ProjectManager:
             project_path: Main project path
             include_paths: Additional paths to include (e.g., local packages)
         """
-        main_path = Path(project_path).resolve()
+        main_path = normalize_path(project_path)
 
         # Track access for LRU
         if main_path in self.access_order:
@@ -99,7 +99,7 @@ class ProjectManager:
             return True
 
         current_deps = self.dependencies[main_path]
-        new_deps = {Path(p).resolve() for p in (include_paths or [])}
+        new_deps = {normalize_path(p) for p in (include_paths or [])}
 
         return current_deps != new_deps
 
@@ -113,7 +113,7 @@ class ProjectManager:
 
         dep_paths = set()
         for path in include_paths or []:
-            resolved = Path(path).resolve()
+            resolved = normalize_path(path)
             if resolved.exists() and resolved.is_dir():
                 dep_paths.add(resolved)
                 logger.info(f"  Including dependency: {resolved}")
@@ -227,7 +227,7 @@ class ProjectManager:
         # Import here to avoid circular imports
         from .config import ProjectConfig
 
-        path_key = Path(project_path).resolve()
+        path_key = normalize_path(project_path)
 
         # --- Cache hit: return the existing analyzer ---
         if path_key in self.analyzers:
@@ -279,7 +279,7 @@ class ProjectManager:
         if config.has_explicit_config:
             config_package_paths = config.get_package_paths()
             # get_package_paths() always prepends the project itself; skip the first entry
-            extra_paths = [p for p in config_package_paths if Path(p).resolve() != path_key]
+            extra_paths = [p for p in config_package_paths if normalize_path(p) != path_key]
             if extra_paths:
                 self.register_project(path_key.as_posix(), extra_paths)
                 logger.info(
@@ -336,7 +336,7 @@ class ProjectManager:
         Args:
             project_path: Path to the project whose analyzer should be evicted.
         """
-        path_key = Path(project_path).resolve()
+        path_key = normalize_path(project_path)
         if self.analyzers.pop(path_key, None) is not None:
             logger.info(f"Invalidated cached analyzer for {path_key.as_posix()}")
         # Its plugin state was built from the same configuration (#665).
@@ -354,14 +354,14 @@ class ProjectManager:
             roots.extend(ns_paths)
         seen: dict[Path, None] = {}
         for root in roots:
-            resolved = Path(root).resolve()
+            resolved = normalize_path(root)
             if resolved.is_dir():
                 seen.setdefault(resolved, None)
         return list(seen)
 
     def _watch(self, root: Path, project: Path) -> None:
         """Watch *root* on behalf of *project*, starting at most one watcher per root."""
-        root = Path(root).resolve()
+        root = normalize_path(root)
         with self._watch_lock:
             self._watch_users.setdefault(root, set()).add(project)
             if root in self.watchers:
@@ -453,7 +453,7 @@ class ProjectManager:
 
     def _setup_watcher(self, path: Path) -> None:
         """Watch *path* as its own project (kept for callers that predate ``_watch``)."""
-        resolved = Path(path).resolve()
+        resolved = normalize_path(path)
         self._watch(resolved, resolved)
 
     def _on_files_changed(self, root: Path, paths: list[str]) -> None:
@@ -474,7 +474,7 @@ class ProjectManager:
         from pyeye.mcp.operations import typeref
 
         with self._watch_lock:
-            projects = sorted(self._watch_users.get(Path(root).resolve(), set()))
+            projects = sorted(self._watch_users.get(normalize_path(root), set()))
         logger.info(
             f"{len(paths)} change(s) under {Path(root).as_posix()}; "
             f"invalidating {len(projects)} project(s)"

@@ -162,3 +162,25 @@ def test_changes_outputs_force_code_on_non_pr_events() -> None:
 def test_evaluator_rejects_unknown_expressions() -> None:
     with pytest.raises(AssertionError, match="unsupported"):
         _evaluate("contains(github.event.head_commit.message, 'x')", {})
+
+
+def _test_step_env(job: str) -> str:
+    steps = _load()["jobs"][job]["steps"]
+    step = next(s for s in steps if s.get("name") == "Run tests with coverage")
+    return str(step.get("env", {}).get("PYEYE_EXHAUSTIVE_PATHS", ""))
+
+
+def test_merge_queue_runs_the_exhaustive_path_variants() -> None:
+    """#775: the queue must test what push-to-main tests.
+
+    test-main sets PYEYE_EXHAUSTIVE_PATHS off Windows; test-pr ran without it, so
+    the queue passed PRs that turned main red for 15 merges.  test-pr now sets it
+    on merge_group (off Windows, as test-main), and only there, so per-PR runs
+    stay fast.
+    """
+    main_env = _test_step_env("test-main")
+    pr_env = _test_step_env("test-pr")
+    assert "matrix.os != 'windows-latest'" in main_env
+    assert "github.event_name == 'merge_group'" in pr_env
+    assert "matrix.os != 'windows-latest'" in pr_env
+    assert "'1'" in pr_env

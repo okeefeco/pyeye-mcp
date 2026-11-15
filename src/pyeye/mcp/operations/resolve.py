@@ -240,6 +240,28 @@ def _make_location(file_str: str, line: int | None, column: int | None) -> _Loca
 # ---------------------------------------------------------------------------
 
 
+def _no_source_file(file_path: Path) -> _Miss | None:
+    """The miss for a path with no source file to read, or ``None`` (#775).
+
+    A missing path is ``file_not_found``.  So is a DIRECTORY: a PEP 420
+    namespace package is anchored on its directory (#444), so its emitted
+    ``location.file`` is a directory, and an agent may pass it back.  It has no
+    source to position in; reading it would raise ``IsADirectoryError``, which
+    #704 rightly made a crash.  Decided here explicitly, like
+    ``edges._own_source``, never by catching the read error.
+    """
+    if not file_path.exists():
+        return _miss("file_not_found")
+    if file_path.is_dir():
+        return _miss(
+            "file_not_found",
+            f"{file_path.as_posix()} is a directory, not a source file (a namespace "
+            "package has no source of its own). Pass a .py file, or resolve the "
+            "package by its dotted name.",
+        )
+    return None
+
+
 async def _resolve_at_position(
     file_path: Path, line: int, column: int, analyzer: JediAnalyzer
 ) -> _HelperResult:
@@ -260,8 +282,8 @@ async def _resolve_at_position(
     Returns:
         A :data:`ResolveResult` on success or a not-found result on failure.
     """
-    if not file_path.exists():
-        return _miss("file_not_found")
+    if (miss := _no_source_file(file_path)) is not None:
+        return miss
 
     # A position outside the file is the caller's miss; Jedi would raise on it.
     # Any OTHER failure of goto is internal and propagates (#704).
@@ -302,8 +324,8 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
     2. Delegate to ``_resolve_at_position`` with the computed column.
     3. Fall back to column 0 if the heuristic column yields no results.
     """
-    if not file_path.exists():
-        return _miss("file_not_found")
+    if (miss := _no_source_file(file_path)) is not None:
+        return miss
 
     # Determine a useful column on the target line.
     heuristic_column = _find_symbol_column_on_line(file_path, line)
@@ -580,5 +602,7 @@ async def resolve_at(
     result = await _resolve_at_position(Path(file), line, column, analyzer)
     if result["found"] is False:
         echo = {"file": file, "line": line, "column": column}
-        return not_found_for("resolve_at", echo, result["reason"])
+        # The helper's own detail (e.g. "is a directory", #775) wins over the
+        # reason's default, as in resolve().
+        return not_found_for("resolve_at", echo, result["reason"], result.get("detail"))
     return result
