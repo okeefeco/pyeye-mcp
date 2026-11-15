@@ -122,6 +122,11 @@ def main() -> None:
         collector = get_unified_collector()
         collector.end_session()
 
+        # Stop the Jedi worker thread (#650) before tearing projects down.
+        from .jedi_worker import shutdown as shutdown_jedi_worker
+
+        shutdown_jedi_worker()
+
         # Cleanup projects
         manager = get_project_manager()
         manager.cleanup_all()
