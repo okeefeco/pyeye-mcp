@@ -6,6 +6,7 @@ import logging
 import typing
 from collections.abc import Callable
 from inspect import (
+    Parameter as _Parameter,
     isawaitable as _isawaitable,
     signature as _signature,  # `inspect` is shadowed by the MCP tool below
 )
@@ -177,38 +178,81 @@ def all_plugin_tool_names(project_path: str) -> set[str]:
     return names
 
 
-def _with_scope_default(
-    tool_name: str, func: Callable[..., Any], resolver: SmartScopeResolver
+def _plugin_tool(
+    tool_name: str,
+    func: Callable[..., Any],
+    plugin: AnalyzerPlugin,
+    resolver: SmartScopeResolver | None,
 ) -> Callable[..., Any]:
-    """Make ``func``'s ``scope`` optional, defaulting through ``scope_defaults`` (#559).
+    """Wrap a plugin tool with the shared ``scope`` default and the opt-in ``envelope``.
 
-    The MCP schema is built from the returned callable's signature, so ``scope``
-    becomes ``Scope | None = None``; every other parameter is unchanged. A call
-    without ``scope`` gets ``resolver.plugin_tool_default(tool_name)``, and an
-    explicit ``scope`` always wins. Either way, ``scope_aliases`` are expanded.
+    The MCP schema is built from the returned callable's signature:
+
+    - ``scope`` becomes ``Scope | None = None`` when ``resolver`` is given (#559). A
+      call without it gets ``resolver.plugin_tool_default(tool_name)``, an explicit
+      ``scope`` always wins, and ``scope_aliases`` are expanded either way.
+    - ``envelope: bool = False`` is appended (#594). When true, the tool returns
+      ``{scope, searched, unsearched_scopes, results}``: ``scope`` is the scope as
+      requested or defaulted (before alias expansion), ``searched`` and
+      ``unsearched_scopes`` come from ``AnalyzerPlugin.describe_scope``, and
+      ``results`` is exactly what the tool returns without the envelope. When
+      false, the return value is passed through untouched, so the default wire
+      format is unchanged (making the envelope the default is #644).
+
+    Every other parameter is unchanged.
     """
     signature = _signature(func)
     if "scope" not in signature.parameters:
-        return func
+        raise TypeError(f"Plugin tool {tool_name!r} has no 'scope' parameter")
+    if "envelope" in signature.parameters:
+        raise TypeError(f"Plugin tool {tool_name!r} already declares 'envelope'")
     hints = typing.get_type_hints(func)
 
     @functools.wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+    async def wrapper(*args: Any, envelope: bool = False, **kwargs: Any) -> Any:
         bound = signature.bind_partial(*args, **kwargs)
-        if bound.arguments.get("scope") is None:
-            bound.arguments["scope"] = resolver.plugin_tool_default(tool_name)
-        # Plugins resolve only main/all/packages/namespace:/package:, so an
-        # alias (from config or the caller) would otherwise search nothing.
-        bound.arguments["scope"] = resolver.resolve_aliases(bound.arguments["scope"])
+        if resolver is not None:
+            if bound.arguments.get("scope") is None:
+                bound.arguments["scope"] = resolver.plugin_tool_default(tool_name)
+        else:
+            bound.apply_defaults()
+        requested = bound.arguments["scope"]
+        if resolver is not None:
+            # Plugins resolve only main/all/packages/namespace:/package:, so an
+            # alias (from config or the caller) would otherwise search nothing.
+            bound.arguments["scope"] = resolver.resolve_aliases(requested)
         result = func(*bound.args, **bound.kwargs)
-        return await result if _isawaitable(result) else result
+        if _isawaitable(result):
+            result = await result
+        if not envelope:
+            return result
+        searched, unsearched = plugin.describe_scope(bound.arguments["scope"])
+        return {
+            "scope": requested,
+            "searched": searched,
+            "unsearched_scopes": unsearched,
+            "results": result,
+        }
 
+    # Keep the tool's own return type, so the SDK builds the same structured
+    # output as before when ``envelope`` is false; the union admits the envelope.
+    return_type = hints.get("return", Any) | dict[str, Any]
+    envelope_param = _Parameter("envelope", _Parameter.KEYWORD_ONLY, default=False, annotation=bool)
     parameters = [
-        p.replace(default=None, annotation=Scope | None) if p.name == "scope" else p
+        (
+            p.replace(default=None, annotation=Scope | None)
+            if p.name == "scope" and resolver is not None
+            else p
+        )
         for p in signature.parameters.values()
     ]
-    wrapper.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
-    wrapper.__annotations__ = {**hints, "scope": Scope | None}
+    wrapper.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=[*parameters, envelope_param], return_annotation=return_type
+    )
+    annotations = {**hints, "envelope": bool, "return": return_type}
+    if resolver is not None:
+        annotations["scope"] = Scope | None
+    wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
     return wrapper
 
@@ -229,8 +273,9 @@ def register_plugin_tools(
     Args:
         server: The MCP server to register on
         plugins: Activated plugins, in load order
-        resolver: If given, tools with a ``scope`` parameter default it through
-            ``scope_defaults`` when the caller omits it (#559)
+        resolver: If given, ``scope`` defaults through ``scope_defaults`` when the
+            caller omits it (#559). Every tool also gets the opt-in ``envelope``
+            argument (#594); see :func:`_plugin_tool`.
 
     Returns:
         The registered tool names, in registration order
@@ -246,9 +291,7 @@ def register_plugin_tools(
                     f"Plugin {plugin.name()} declares tool {tool_name!r}, "
                     "which another plugin already registered"
                 )
-            if resolver is not None:
-                tool_func = _with_scope_default(tool_name, tool_func, resolver)
-            server.tool(name=tool_name)(tool_func)
+            server.tool(name=tool_name)(_plugin_tool(tool_name, tool_func, plugin, resolver))
             registered.append(tool_name)
     return registered
 

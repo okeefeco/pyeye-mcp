@@ -2,6 +2,29 @@
 
 Specialized tools for analyzing Flask applications, routes, blueprints, and extensions. These 8 tools are automatically activated when Flask is detected in your project.
 
+## Common parameters
+
+Every tool on this page also takes these two optional parameters, even where a tool's own "Parameters" section doesn't list them:
+
+- `scope`: where to search: `"main"`, `"all"`, `"packages"`, `"namespace:<name>"`, `"package:<path>"`, a scope alias, or a list of these. When it's omitted, the tool's `scope_defaults` entry applies, then `scope_defaults.global`, then `"main"`.
+- `envelope` (default `false`): when `true`, the tool returns one object instead of its bare result:
+
+  ```json
+  {
+    "scope": "main",
+    "searched": ["main"],
+    "unsearched_scopes": ["packages", "namespace:company"],
+    "results": []
+  }
+  ```
+
+  - `scope`: the scope as requested or defaulted (an alias appears as written).
+  - `searched`: the configured scopes (`main`, `packages`, each `namespace:<name>`) whose paths were all searched, then any `package:<path>` given.
+  - `unsearched_scopes`: the configured scopes the search didn't cover. When this is non-empty, the results may be incomplete; retry with `scope="all"`.
+  - `results`: exactly what the tool returns without `envelope`. An empty list means the tool searched and found nothing.
+
+  The default bare result is unchanged. AI agents should always pass `envelope=true` (#594).
+
 ## Table of Contents
 
 1. [find_flask_routes](#find_flask_routes)

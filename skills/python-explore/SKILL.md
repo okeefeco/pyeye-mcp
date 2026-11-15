@@ -226,6 +226,29 @@ So "no callers"-style reasoning from a `trace` result requires `unresolved_roots
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
 claim from `imports` likewise requires the node absent from `unresolved_imports`.
 
+### Framework plugin tools — always pass `envelope=true`
+
+When pyeye detects Pydantic, Django or Flask, it also registers that framework's
+tools (`find_pydantic_models`, `get_model_schema`, `find_django_models`,
+`find_flask_routes`, `find_error_handlers`, …). By default they return a bare list:
+an empty answer is *zero content items*, and nothing says which scope was searched.
+"These are all the models" looks the same as "these are the main repo's models".
+
+**Always call them with `envelope=true`.** You get one object back:
+
+```text
+{ scope: "main", searched: ["main"], unsearched_scopes: ["namespace:company"], results: [...] }
+```
+
+- **`results`** is the tool's normal answer (`[]` means searched and found none).
+- **`searched`** lists the configured scopes that were fully searched.
+- **`unsearched_scopes`** lists configured scopes the search did **not** cover. If it is
+  non-empty, don't call the result complete: retry with `scope="all"`, or say which
+  scopes you didn't search.
+
+These tools read source as text and only skip files that can't be read or parsed. A
+tool *error* means the search failed. Report it; don't treat it as an empty result.
+
 ## Workflow
 
 ```dot
@@ -460,7 +483,9 @@ Don't block — degrade gracefully, but make the limitation visible.
 - Reaching for `grep` to find a definition.
 - Reaching for `grep` to answer a relationship/reference question.
 - Reaching for a pre-v2.0 tool name you remember — the primitives in the table above
-  are the whole surface, and nothing else is registered.
+  are the whole surface, plus the framework plugin tools when a framework is detected.
+- Calling a framework plugin tool without `envelope=true`, or reporting its `results`
+  as complete while `unsearched_scopes` is non-empty.
 - **Faking "who calls this" with grep** instead of delegating to your LSP (or, with
   no LSP, stating the limit honestly).
 - Re-exploring a symbol pyeye already surfaced in this conversation.

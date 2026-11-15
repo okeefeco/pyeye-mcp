@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `trace` responses now include `unresolved_nodes` (#621), always present: the interior nodes `trace` reached but could not resolve, the same handles `expand` answers `found: false` for (for example some stdlib modules today). They stay in `nodes` but are not walked, so a listed node is a dead end of the walk, not a node with no neighbours.
 
+- Framework plugin tools (Pydantic, Django, Flask) take an opt-in `envelope` argument that reports what was searched (#594). By default a plugin tool returns a bare list: an empty answer is zero content items, and nothing says which scope was searched, so "these are all the models" looked the same as "these are the main repo's models". With `envelope=true` every plugin tool returns `{scope, searched, unsearched_scopes, results}`:
+  - `scope` is the scope as requested or defaulted.
+  - `searched` lists the configured scopes (`main`, `packages`, each `namespace:<name>`) whose paths were all searched.
+  - `unsearched_scopes` lists the ones the search didn't cover, so an agent can retry with `scope="all"`.
+  - `results` is the tool's usual answer, present even when empty.
+
+  The default output is unchanged. The python-explore skill now tells agents to always pass `envelope=true`, and the plugin API docs document `scope` and `envelope`. Making the envelope the default is planned for the next major release (#644).
 - `SECURITY.md` (#69): report vulnerabilities privately through GitHub's private vulnerability reporting, now enabled for the repository, rather than public issues. It covers supported versions (2.x), response goals, scope, and pyeye's security model: static analysis only, and it reads whatever paths the MCP client points it at, so path validation is a sanity check rather than a sandbox. Linked from the README.
 
 ### Fixed
