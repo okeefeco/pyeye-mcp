@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyeye import file_artifact_cache
-from pyeye.analyzers.base_resolution import build_import_table
+from pyeye._module_scope import build_import_table
 from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
 from pyeye.import_analyzer import resolve_relative_import
