@@ -104,7 +104,7 @@ reliably today:
 | `enclosing_scope` | child → parent | the one lexical scope containing this symbol (method → class, etc.) |
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
-| `superclasses` | class → its bases | the class's direct base classes |
+| `superclasses` | class → its bases | the class's direct base classes, in declaration order; bases that don't resolve are listed in `unresolved_superclasses` |
 | `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
 | `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
 

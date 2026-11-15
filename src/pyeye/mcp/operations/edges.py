@@ -75,12 +75,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
+from pyeye._goto import goto_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
-from pyeye.canonicalization import _dir_shallow_qualifies, find_namespace_package_dirs
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind
-from pyeye.project_layout import package_kind
+from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -118,11 +118,16 @@ class EdgeResult:
             Unlike call sites these ARE nameable from the AST, so they are listed
             (sorted, deduped), not merely counted.  ``None`` for every non-
             ``imports`` edge (the notion is imports-only).
+        unresolved_superclasses: For ``superclasses`` (#624), the declared base
+            expressions (``ast.unparse`` text, declaration order) whose ``goto``
+            named no single class — listed, never silently dropped.  ``None``
+            for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
     unresolved_call_sites: int | None = None
     unresolved_imports: list[str] | None = None
+    unresolved_superclasses: list[str] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -599,9 +604,11 @@ def _call_target_position(func: ast.expr) -> tuple[int, int] | None:
 def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, Any] | None:
     """Forward-resolve a call target's (line, col) to a ``(Handle, Name)`` pair.
 
-    Uses ``script.goto(line, col, follow_imports=True)`` — the import-following
-    landing IS the canonicalization for callees.  Returns the first def with a
-    ``full_name`` as a ``(Handle, Name)`` pair (the Jedi def ``Name`` is carried
+    Uses ``goto(line, col, follow_imports=True)`` — the import-following
+    landing IS the canonicalization for callees — through the one goto policy
+    (:func:`pyeye._goto.goto_target`, #624): exactly one distinct target, else
+    unresolved, never the first of several.  Returns it as a ``(Handle, Name)``
+    pair (the Jedi def ``Name`` is carried
     so ``expand`` can build the callee's stub without re-resolving — important
     for builtins/stdlib callees).  Returns ``None`` when nothing resolves, no
     def has a ``full_name``, or ``Handle`` construction fails.
@@ -615,17 +622,11 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
         unresolved).
     """
     line, col = target
-    try:
-        defs = script.goto(line, col, follow_imports=True)
-    except Exception:
+    d = goto_target(script, line, col)
+    if d is None:
         return None
-    for d in defs:
-        full_name = getattr(d, "full_name", None)
-        if full_name:
-            h = _try_handle(full_name)
-            if h is not None:
-                return h, d
-    return None
+    h = _try_handle(d.full_name)
+    return (h, d) if h is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +703,18 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
 # ---------------------------------------------------------------------------
 # subclasses resolver (#348) — forward AST class-graph walk, async
 # ---------------------------------------------------------------------------
+
+
+def _project_search_scope(analyzer: JediAnalyzer) -> list[str]:
+    """The search scope that matches ``project`` stubs: main + packages + namespaces (#669).
+
+    Configured additional packages and namespace repos are ``project`` scope
+    (#623), and the ``superclasses`` edge resolves into them, so the
+    ``subclasses`` edge must search them too.  Standalone script directories are
+    deliberately left out: they aren't configured project code.
+    """
+    namespaces = sorted(getattr(analyzer, "namespace_paths", {}) or {})
+    return ["main", "packages", *(f"namespace:{name}" for name in namespaces)]
 
 
 async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
@@ -789,7 +802,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # whole closure onto depth 1).
     result = await analyzer.find_subclasses(
         handle,
-        scope="main",
+        scope=_project_search_scope(analyzer),
         include_indirect=False,
         show_hierarchy=False,
     )
@@ -856,22 +869,19 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     Mechanics:
 
-    1. Walk the class's cached AST to locate its ``ClassDef.bases`` — the
-       declared direct bases (source order).
-    2. For each base expression, call ``script.goto(line, col,
-       follow_imports=True)`` with the position from
-       :func:`attr_target_position`, preferring ``class``-kind results, so
-       ``pkg.sub.ClassName`` resolves to the class, not the package.
-    3. Keep the first goto def that has a ``full_name`` and builds a valid
-       :class:`Handle`.  The goto ``Name`` is carried directly as the
-       adjacent's ``Name`` (no re-resolution).
-    4. Dedup by canonical handle string; sort by handle string for
-       deterministic order (like ``resolve_subclasses``).
-    5. Bases that produce no goto result with a ``full_name`` are DROPPED
-       (can't build a valid stub without a ``Name``).  This is intentional —
-       the count derives from this resolver (see ``inspect._count_superclasses``)
-       so ``len(stubs) == inspect.edge_counts.superclasses`` is guaranteed by
-       construction.
+    1. :func:`superclass_bases` walks the class's ``ClassDef.bases`` (the
+       declared direct bases) and resolves each with the one goto policy
+       (:func:`pyeye._goto.goto_target`, preferring a class), so
+       ``pkg.sub.ClassName`` resolves to the class, not the package.  It is
+       also what ``inspect``'s ``superclasses`` field reads (#624).
+    2. Resolved bases become the adjacents, in DECLARATION order (the start
+       of the MRO; #624 — previously sorted by handle), de-duplicated by
+       handle.  The goto ``Name`` is carried as the adjacent's ``Name``.
+    3. A base with no single target is listed in ``unresolved_superclasses``
+       by its source text, never silently dropped (#624, like #494's
+       ``unresolved_imports``).  The count derives from this resolver (see
+       ``inspect._count_superclasses``), so
+       ``len(stubs) == inspect.edge_counts.superclasses`` by construction.
 
     Kind gate (the defining decision of this edge):
 
@@ -898,80 +908,83 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     Returns:
         An :class:`EdgeResult` whose ``adjacents`` are the direct base-class
-        ``(canonical Handle, Jedi Name)`` pairs for a class target, sorted by
-        handle string; or ``EdgeResult([])`` for any non-class target.
+        ``(canonical Handle, Jedi Name)`` pairs for a class target, in
+        declaration order, and whose ``unresolved_superclasses`` lists the
+        bases that didn't resolve; empty for any non-class target.
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
-        return EdgeResult(adjacents=[])
+    bases = superclass_bases(jedi_name, analyzer)
+    if bases is None:
+        return EdgeResult(adjacents=[], unresolved_superclasses=[])
 
+    seen: set[str] = set()
+    adjacents: list[tuple[Handle, Any]] = []
+    unresolved: list[str] = []
+    for text, pair in bases:
+        if pair is None:
+            unresolved.append(text)
+        elif str(pair[0]) not in seen:
+            seen.add(str(pair[0]))
+            adjacents.append(pair)
+    return EdgeResult(adjacents=adjacents, unresolved_superclasses=unresolved)
+
+
+def superclass_bases(
+    jedi_name: Any, analyzer: JediAnalyzer
+) -> list[tuple[str, tuple[Handle, Any] | None]] | None:
+    """Each declared base of a class, in declaration order, with its resolution.
+
+    The ONE walk behind both the ``superclasses`` edge and ``inspect``'s
+    ``superclasses`` field (#624), so the two can't drift: the edge keeps the
+    resolved bases (and lists the rest in ``unresolved_superclasses``); the
+    field shows every base, raw text where it didn't resolve.
+
+    Each base is resolved with :func:`pyeye._goto.goto_target` at the
+    rightmost identifier of its expression (``pkg.sub.Base`` → ``Base``, so
+    goto lands on the class, not the package), preferring a class among
+    several targets.
+
+    Args:
+        jedi_name: Resolved Jedi ``Name`` for a class.
+        analyzer: Active analyzer (for the Jedi project used by ``get_script``).
+
+    Returns:
+        ``[(ast.unparse text, (Handle, Name) or None), ...]`` in declaration
+        order; ``[]`` for a class with no explicit bases; ``None`` when the
+        target is not a class or its source can't be read.
+    """
+    if normalise_kind(getattr(jedi_name, "type", None)) != "class":
+        return None
     file_path = getattr(jedi_name, "module_path", None)
     line = getattr(jedi_name, "line", None)
     if file_path is None or line is None:
-        return EdgeResult(adjacents=[])
-
+        return None
     try:
         tree = file_artifact_cache.get_ast(file_path)
         script = file_artifact_cache.get_script(file_path, analyzer.project)
     except Exception:
-        return EdgeResult(adjacents=[])
+        return None
 
-    # Locate the ClassDef at the class's definition line.
-    class_node: ast.ClassDef | None = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.lineno == line:
-            class_node = node
-            break
-    if class_node is None or not class_node.bases:
-        return EdgeResult(adjacents=[])
+    class_node = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line),
+        None,
+    )
+    if class_node is None:
+        return None
 
-    seen: set[str] = set()
-    adjacents: list[tuple[Handle, Any]] = []
-
+    bases: list[tuple[str, tuple[Handle, Any] | None]] = []
     for base in class_node.bases:
-        # Resolve the base AST node to a (line, col) position for goto.
-        # attr_target_position returns the rightmost identifier in an
-        # attribute chain (e.g. pkg.sub.ClassName → ClassName), so goto
-        # lands on the class definition, not the package.
+        text = ast.unparse(base)
         try:
             base_line, base_col = attr_target_position(base)
         except Exception:
-            # Unresolvable base expression (e.g. complex subscript) — drop.
+            bases.append((text, None))
             continue
-
-        try:
-            defs = script.goto(base_line, base_col, follow_imports=True)
-        except Exception:
-            continue
-
-        # Prefer class-kind results; fall back to any named result.
-        # This matches _resolve_base_class_via_jedi in inspect.py.
-        class_defs = [d for d in defs if d.type == "class" and d.full_name]
-        named_defs = [d for d in defs if d.full_name]
-        candidates = class_defs if class_defs else named_defs
-
-        for candidate in candidates:
-            full_name = candidate.full_name
-            if not full_name:
-                continue
-            h = _try_handle(full_name)
-            if h is None:
-                continue
-            key = str(h)
-            if key in seen:
-                break  # dedup: first occurrence wins; skip remaining candidates
-            seen.add(key)
-            adjacents.append((h, candidate))
-            break  # first valid candidate for this base is sufficient
-
-    # Sort by canonical handle string for deterministic order across runs
-    # (mirrors resolve_subclasses — set iteration order is PYTHONHASHSEED-
-    # dependent, but here we walk bases in source order, which IS deterministic;
-    # sorting is still applied for consistency with the subclasses contract).
-    adjacents.sort(key=lambda pair: str(pair[0]))
-
-    return EdgeResult(adjacents=adjacents)
+        d = goto_target(script, base_line, base_col, prefer="class")
+        h = _try_handle(d.full_name) if d is not None else None
+        bases.append((text, (h, d) if h is not None else None))
+    return bases
 
 
 # ---------------------------------------------------------------------------
@@ -1242,7 +1255,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
       branch**.  A PEP 420 namespace package has no ``__init__.py`` and may be
       spread across several portions; its directory(ies) are found by matching
       the dotted ``full_name`` under each sys.path root, delegated to
-      :func:`pyeye.canonicalization.find_namespace_package_dirs` (#444).
+      :func:`pyeye.project_layout.find_namespace_package_dirs` (#444).
 
     The namespace branch returns the **union** of the matching portion
     directories in ``roots`` (sys.path precedence) order — a regular package
@@ -1258,7 +1271,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
             ``module_path`` drives the regular-vs-namespace split; its
             ``full_name`` seeds the namespace-portion directory match.
         analyzer: Active analyzer.  The namespace branch consults
-            :func:`pyeye.canonicalization.find_namespace_package_dirs` (the
+            :func:`pyeye.project_layout.find_namespace_package_dirs` (the
             shared SoT over ``source_roots`` / ``project_path`` /
             ``added_sys_path`` / ``additional_paths``).
 
@@ -1286,7 +1299,7 @@ def _package_dirs(jedi_name: Any, analyzer: JediAnalyzer) -> list[Path]:
     # collisions).  A namespace package has no __init__.py, so Jedi gives it a
     # None (or directory) module_path; its portion directories are found by
     # matching the dotted handle under each sys.path root.  Delegated to
-    # ``canonicalization.find_namespace_package_dirs`` — the single source of
+    # ``project_layout.find_namespace_package_dirs`` — the single source of
     # truth shared with ``resolve``/``inspect`` (#444), so the namespace-portion
     # discovery used by the ``submodules`` enumerator and by handle anchoring can
     # never drift apart.  The enumerator iterates the returned dirs in roots
@@ -1371,7 +1384,7 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
                 init_py = child / "__init__.py"
                 if init_py.exists():
                     cand = (_PRECEDENCE_REGULAR_PKG, _SubmoduleEntry(handle, init_py, True))
-                elif _dir_shallow_qualifies(child):
+                elif dir_shallow_qualifies(child):
                     cand = (_PRECEDENCE_NAMESPACE_PKG, _SubmoduleEntry(handle, child, True))
                 else:
                     continue

@@ -30,6 +30,38 @@ Contract/invariant-significant, friction-driven decisions. Each entry is a small
 - **Nested route:** a route defined inside `create_app()` has `unresolved.reason == "unresolved"` and no `handle`, but still has `location` and `scope`.
 - Also: file-only records carry neither key; `name`/`file`/`line` are byte-unchanged; envelope `results` equal the bare list.
 
+## 2026-11-15 — One goto-disambiguation policy; inspect's superclasses field reads the edge (#624)
+
+**Friction:** Four call sites picked among Jedi `goto` results with four rules. Callees and imports took the first result with a `full_name`; superclasses (edge, plus a copy in inspect) preferred a class, then took the first; typeref required exactly one. A first-match guess is a confident answer to an ambiguous question: the same `.clear()` resolved to `collections.OrderedDict.clear` in one file and `typing.MutableMapping.clear` in another. inspect's `superclasses` field and the `superclasses` edge were separate implementations that already disagreed: declaration order versus sorted by handle, and raw text for an unresolved base versus a silent drop. typeref carried a byte-for-byte copy of `attr_target_position`.
+
+**Decision:** `pyeye._goto.goto_target(script, line, col, prefer=None)` is the only picker: exactly one distinct `full_name`, or, with `prefer`, exactly one of that kind; otherwise `None`.
+
+- Every caller reports `None` honestly: `unresolved_call_sites`, `unresolved_imports`, the new `unresolved_superclasses`, or a typeref without a handle. No heuristic was added.
+- Measured before deciding, over the #614 corpora and src/pyeye: 10 of 3,752 call sites and 1 of 500 imports changed from a guess to unresolved; no superclass did. Every case was a real ambiguity: union receivers, `try`/`except ImportError` fallback bindings, and inference splits.
+- `edges.superclass_bases` is the one walk over a class's declared bases. The edge keeps the resolved bases in DECLARATION order (the start of the MRO; previously sorted by handle) and lists the rest in `unresolved_superclasses`, by source text, mirroring #494's `unresolved_imports`. inspect's field is built from the same walk: handles where resolved, text where not, so it is unchanged for clients. `inspect._resolve_base_class_via_jedi` and typeref's `_attribute_target_position` are deleted.
+- Rejected: keeping a smarter tie-break (prefer project scope, or prefer the first `try` branch), which would be a guess presented as an answer; and leaving the field independent of the edge (the #330 drift).
+- Not changed here: typeref forward refs (`x: "Foo"`) still use a project-wide bare-name search and can disagree with `x: Foo`. #623 slice 5 moves them onto the shared resolver; a strict xfail pins the gap.
+- Noted, not changed: a base written as a call (`class C(make_base())`) resolves to the factory function's handle, in both the field and the edge, because goto lands on the call's name.
+- The inheritance edges agree on scope (#669, same PR): `subclasses` searches `edges._project_search_scope` (the main project, `packages`, and every configured namespace), the scope `project` stubs and the `superclasses` edge resolve into. Standalone script directories are excluded: they are not configured project code. Configured paths are normalised once, where every consumer reads them (#668): `ProjectConfig._normalise_config_path` (`~` expanded, anchored to the project, `..` collapsed) serves both `get_namespaces()` and package paths, so `ProjectManager`, plugins and `configure_packages` agree and the file↔module mapper can place files under a `../repo` namespace.
+
+**Anchor:** `pyeye._goto.goto_target` / `pick_target`; `pyeye.mcp.operations.edges.superclass_bases`; response_linter rule E.6.
+**Applies-to:** every place that picks a `goto` result for an edge or a type:
+
+- `edges._resolve_call_target` (the callees and imports edges);
+- `edges.superclass_bases` (the superclasses edge, `edge_counts.superclasses`, and inspect's `superclasses` field);
+- `typeref._resolve_head_via_jedi`.
+- The `subclasses` edge's search scope (`edges._project_search_scope`, #669).
+- Configured namespace and package path normalisation (`ProjectConfig._normalise_config_path`, #668).
+
+Out of scope: `resolve.py`'s position goto and `resolver.py` (#623), and the dead `JediAnalyzer` goto paths (#628).
+
+**Verify:** gold. `uv run pytest tests/unit/mcp/operations/test_goto_policy.py tests/test_cross_tool_invariants.py::test_superclasses_field_is_the_edge tests/conformance/test_linter_adversarial_expand.py::TestExpandUnresolvedSuperclassesRule tests/test_import_layers_fitness.py` passes:
+
+- the no-guess rule on synthetic `goto` results, and the regression fixture (union receiver, `try`/`except` fallback binding) now reports unresolved;
+- an AST scan finds no direct `.goto(` call in `edges.py`, `inspect.py` or `typeref.py`, and no attr-position copy in typeref;
+- the field equals the edge (declaration order, plus unresolved text) for every class in every #614 corpus;
+- `_goto` imports neither `jedi` nor `pyeye.mcp`.
+
 ## 2026-11-15 — One not-found shape for all five primitives: the lookup echo, a per-operation reason set, and `detail` (#626, amends #545)
 
 **Friction:** #545 unified the not-found response for inspect, outline and expand only. `resolve` and `resolve_at` still returned a bare `{found: false, reason}`, so an agent got no echo of what missed and no next step. #545 also defined `handle` as "the echoed input" and said `reason` "reuses resolve's vocabulary". Applied to resolve and resolve_at, that would put an identifier or a file path in `handle`, where agents feed it to `inspect`. And it would collapse `file_not_found` / `no_symbol_at_position` into prose, so a missing file would read as a spelling miss. The user decided the target shape (on #626).
@@ -115,28 +147,41 @@ Steps 3 and 5 read one synthetic import (`resolver._synthetic_import`, the only 
 - Supersedes the #431 alias-retry wrapper: aliases are followed inside placement.
 - Amends the 2026-10-29 #506/#544 entry: inference lives only in the resolver, with the `name == leaf` check. inspect's `full_name == handle` check is dropped.
 - Amends the #444 entry: namespace anchoring is strategy 2.
+- **Slice 3 amendment (scope; also amends the 2026-06-21 #454 entry):**
+  - The resolver owns scope. `resolver.scope_for` (`classify_scope`, then the #454 reconciliation of an installed copy back to the project, then file-less namespace packages) is the one rule, shared by `Resolved.scope` and every edge stub (`stubs.build_stub`).
+  - `RootsBoundary.SCOPE` is the `NAMESPACE_PORTIONS` boundary, by name. Everything the user configured, packages and namespaces, is `project`; site-packages and the stdlib stay `external` because `classify_scope` rules them out before any root test. Rejected: a three-valued scope (project / sibling / external), which is a vocabulary change for #594.
+  - `project_layout.file_for_module` also searches a configured PEP 420 package's portion directories, so a namespace repo outside the project root is placeable. That fixes a slice-2 regression: those modules were in the boundary but had no file, so strategy 4 missed them. `find_namespace_package_dirs` / `dir_shallow_qualifies` moved down into `project_layout` (pure path logic) for it.
+  - `resolve_at` is not-found when the resolver can't place the position's definition; returning Jedi's raw `full_name` is rejected (audit row 3).
+  - `resolve_canonical`'s external branch calls the resolver through a lazy import, a temporary bridge removed with `resolve_canonical` in slice 5.
 - Rejected:
   - keeping inspect's shorten-after-a-miss walk, which only inspect had (audit §4.2);
   - caching synthetic-import results to speed up a repeated inspect of an external class (~0.4 s warm), which would add cross-call state for a modest gain.
 
-**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; #623, #602, #431, #429, #457.
+**Anchor:** `pyeye.resolver.resolve_handle` / `Resolved` / `NotFound` / `_synthetic_import` / `scope_for`; `pyeye.project_layout.file_for_module` / `find_namespace_package_dirs`; `tests/unit/test_resolver.py`; `tests/integration/test_canonical_resolver.py`; `tests/integration/test_resolve_on_resolver.py`; #623, #602, #431, #429, #454, #457.
 **Applies-to:** every exact-path handle lookup in `src/pyeye`:
 
 - `inspect`;
 - `outline` root;
 - `expand` source;
-- `trace` roots.
+- `trace` roots;
+- `resolve` dotted names, and bare names with no name-index hit (an exact top-level module);
+- `resolve_at` (the position's definition is canonicalized through the resolver).
 
-Not yet moved (later #623 slices): `resolve` / `resolve_at` (slice 3, which also moves scope ownership and #454 into the resolver and amends this entry), bare-name search (slice 4), trace interior nodes and typeref forward refs (slice 5). Still separate today: `canonicalization._resolve_via_external_inference` and `resolve._resolve_external_dotted_name`.
-**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py` passes:
+Scope: every `Resolved` and every edge stub (`scope_for`), and every `classify_scope` caller (the widened `SCOPE` boundary).
+
+Not yet moved (later #623 slices): the bare-name policy with index hits, where an exact top-level module wins (slice 4); trace interior nodes, typeref forward refs and `resolve_canonical` (slice 5).
+**Verify:** gold. `uv run pytest tests/unit/test_resolver.py tests/integration/test_canonical_resolver.py tests/integration/test_resolve_on_resolver.py tests/test_decision_invariants_fitness.py tests/test_import_layers_fitness.py tests/test_cross_tool_invariants.py` passes:
 
 - each strategy resolves its case;
 - a project path never reaches inference, and a mismatched inference (`typing.TYPE_CHECKING` → `bool`) is not-found;
 - placement stops at the deepest module;
 - an alias and its canonical handle give identical `inspect` nodes;
 - inspect, outline, expand and trace all echo `pkg._impl.Thing` for `pkg.Thing`;
-- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import` plus the two slice-3 copies, and no `project.search` outside the #628 dead code;
-- `resolver` doesn't import `pyeye.mcp`, statically or at import time.
+- the AST scan finds `jedi.Script(code=...)` only in `resolver._synthetic_import`, and no `project.search` outside the #628 dead code;
+- `resolver` doesn't import `pyeye.mcp`, statically or at import time, and `canonicalization` imports it only lazily, in `_resolve_external`;
+- `resolve` finds `os`, `io`, `logging`, `os.path` and agrees with `inspect` on handle, kind and scope; `resolve_at` is not-found when the resolver misses;
+- a configured namespace repo outside the project root resolves in every tool with scope `project`, while site-packages under a configured root stays `external`;
+- the `xns_repo` cross-tool corpus round-trips and agrees with no allow-list entries.
 
 ## 2026-11-15 — All Jedi work runs on one large-stack worker thread (#650)
 

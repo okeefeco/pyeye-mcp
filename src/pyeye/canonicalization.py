@@ -90,10 +90,8 @@ from typing import TYPE_CHECKING, Any
 from pyeye import file_artifact_cache
 from pyeye.handle import Handle
 from pyeye.project_layout import (
-    RootsBoundary,
     file_for_module,
     module_name_for_file,
-    project_roots,
 )
 
 if TYPE_CHECKING:
@@ -196,7 +194,7 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
         found = await _resolve_via_project_search(symbol_name, identifier, analyzer)
         if found is not None:
             return found
-        return _resolve_via_external_inference(identifier, analyzer)
+        return _resolve_external(identifier, analyzer)
 
     full_name = await _get_full_name_from_file(module_file, symbol_name, analyzer)
     if full_name is None:
@@ -277,131 +275,6 @@ def find_definition_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
     return None
 
 
-def _dir_shallow_qualifies(path: Path) -> bool:
-    """Return whether *path* looks like an importable dir (the §3.5 filter).
-
-    A PEP 420 namespace portion holds importable content but has no
-    ``__init__.py``.  This separates such a directory from obvious junk/data dirs
-    WITHOUT reading any file.  The check is deliberately **shallow and capped at
-    one extra level** — it is NOT a recursive "any ``.py`` anywhere" walk (which
-    would be both slow and over-eager).
-
-    A directory qualifies iff, among its DIRECT entries, ANY of:
-
-    - **(a)** a direct ``*.py`` file; or
-    - **(b)** a direct child dir containing an ``__init__.py`` (a regular
-      subpackage one level down); or
-    - **(c)** a direct child dir that *itself* shallow-qualifies — checked with
-      ``_recurse=False`` so the recursion stops after exactly ONE extra level
-      (a namespace subpackage one level down).
-
-    This is the **single source of truth** for the namespace-portion importable
-    filter, shared by :func:`find_namespace_package_dirs` (handle anchoring, via
-    ``resolve``/``inspect``) and by ``edges`` (the ``submodules`` enumerator,
-    which imports this function).  Keeping one copy is what stops the anchoring
-    filter and the enumeration filter from drifting apart — a namespace whose
-    only content is a nested regular package (``acme/sub/deep/__init__.py``)
-    qualifies under rule (c) here exactly as it does for the enumerator, so it
-    can never enumerate via ``expand`` yet fail to anchor via ``resolve``.
-
-    No file reads — ``iterdir``, ``.suffix``, ``.is_dir`` / ``.is_file`` and
-    ``.exists`` only.
-
-    Args:
-        path: The candidate directory.
-
-    Returns:
-        ``True`` if *path* qualifies as an importable dir per the rules above,
-        else ``False`` (including when *path* is unreadable).
-    """
-    return _dir_shallow_qualifies_capped(path, _recurse=True)
-
-
-def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
-    """Back the :func:`_dir_shallow_qualifies` filter with an explicit recursion cap.
-
-    ``_recurse`` is consumed on the FIRST extra level: the rule-(c) descent calls
-    this helper with ``_recurse=False``, so a grandchild dir can only satisfy
-    rules (a)/(b) — never trigger a further descent.  This caps the total depth
-    at one extra level (see the public wrapper's docstring for the rule list).
-
-    Args:
-        path: The candidate directory.
-        _recurse: Whether a rule-(c) one-level descent is still permitted.
-
-    Returns:
-        ``True`` if *path* qualifies, else ``False`` (including on read errors).
-    """
-    try:
-        entries = list(path.iterdir())
-    except OSError:
-        return False
-
-    for entry in entries:
-        name = entry.name
-        if name.startswith(".") or name == "__pycache__":
-            continue
-        # (a) a direct .py file.
-        if entry.is_file() and entry.suffix == ".py":
-            return True
-        if entry.is_dir():
-            # (b) a direct child dir that is a regular package.
-            if (entry / "__init__.py").exists():
-                return True
-            # (c) a direct child dir that itself shallow-qualifies — but only
-            # one extra level deep (cap: _recurse=False on the descent).
-            if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
-                return True
-    return False
-
-
-def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> list[Path]:
-    """Return the PEP 420 namespace-package portion dirs for *module_dotted* (#444).
-
-    A namespace package has **no** ``__init__.py`` (so :func:`find_module_file`
-    returns ``None`` for it) and may be spread across several *portions* under
-    different sys.path roots.  This returns the **union** of the matching portion
-    directories in ``NAMESPACE_PORTIONS`` roots (sys.path-precedence) order — the
-    anchor a top-level namespace package needs so ``resolve``/``inspect``/
-    ``outline``/``expand`` can fire from the top.
-
-    A directory qualifies as a portion iff it matches the dotted path, has **no**
-    ``__init__.py`` (a regular package is handled by :func:`find_module_file`,
-    not here), and :func:`_dir_shallow_qualifies` (so junk/data dirs are
-    excluded).
-
-    This is the single source of truth for "where does this namespace package
-    live"; ``edges`` consumes it for the ``submodules`` enumerator, and
-    ``resolve``/``inspect`` consume it to anchor the handle.
-
-    Returns:
-        The portion directories, roots-ordered and de-duplicated.  ``[]`` when
-        *module_dotted* is not a namespace package (e.g. a regular package, a
-        plain module, or nothing on disk).
-    """
-    path_parts = module_dotted.split(".")
-    dirs: list[Path] = []
-    seen: set[str] = set()
-    for base in project_roots(analyzer, RootsBoundary.NAMESPACE_PORTIONS):
-        candidate = base.joinpath(*path_parts)
-        try:
-            if not candidate.is_dir():
-                continue
-            if (candidate / "__init__.py").exists():
-                # A regular package portion is not a namespace portion.
-                continue
-        except OSError:
-            continue
-        if not _dir_shallow_qualifies(candidate):
-            continue
-        key = candidate.resolve().as_posix()
-        if key in seen:
-            continue
-        seen.add(key)
-        dirs.append(candidate)
-    return dirs
-
-
 async def _get_full_name_from_file(
     module_file: Path | None, symbol_name: str, analyzer: JediAnalyzer
 ) -> str | None:
@@ -444,46 +317,28 @@ async def _resolve_class_member(identifier: str, analyzer: JediAnalyzer) -> Hand
     return Handle(candidate)
 
 
-def _resolve_via_external_inference(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
-    """Fallback for external modules: follow the import to the definition site (#529).
+def _resolve_external(identifier: str, analyzer: JediAnalyzer) -> Handle | None:
+    """External (stdlib / site-packages) fallback: ask the one resolver (#623, #529).
 
-    External (stdlib / site-packages) modules are not project files, so
-    :func:`find_module_file` misses them and the chain walk never starts.  Infer
-    the symbol through a synthetic import instead — the same technique as
-    ``resolve``'s ``_resolve_external_dotted_name`` — and return Jedi's
-    definition-site ``full_name``.  This is what lets the #431 alias retry
-    canonicalize external re-exports such as ``asyncio.Queue`` (star import) or
-    ``pathlib.Path`` (moved to ``pathlib._local`` in Python 3.13).
+    External modules are not project files, so :func:`find_module_file` misses
+    them and the chain walk never starts.  :func:`pyeye.resolver.resolve_handle`
+    owns external resolution (an external module, then guarded inference with
+    the ``name == leaf`` check), so ``asyncio.Queue`` and ``pathlib.Path``
+    canonicalize here exactly as they do in every tool.
 
-    An inferred definition is accepted only when its name equals the requested
-    leaf.  Inference can land on a *different* object (``collections.abc.Mapping``
-    infers to typeshed's ``typing._SpecialGenericAlias``); returning that would
-    make callers describe the wrong symbol.  The cost: an external re-export
-    under a different name (``from x import A as B``) stays unresolved — an
-    honest miss rather than a wrong answer.
+    The import is lazy and points UP a layer (``resolver`` imports this module).
+    It is a temporary bridge: ``resolve_canonical`` becomes a wrapper over the
+    resolver and is deleted in #623 slice 5, and this import goes with it.
     """
-    parts = identifier.split(".")
-    module_dotted, leaf = ".".join(parts[:-1]), parts[-1]
-    if not module_dotted or not leaf:
+    from pyeye.resolver import Resolved, resolve_handle
+
+    resolved = resolve_handle(identifier, analyzer)
+    if not isinstance(resolved, Resolved):
         return None
     try:
-        import jedi
-
-        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf}"
-        script = jedi.Script(code=fake_code, project=analyzer.project)
-        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf))
-    except Exception as exc:
-        logger.debug("_resolve_via_external_inference(%r) failed: %s", identifier, exc)
+        return Handle(resolved.handle)
+    except ValueError:
         return None
-
-    for name in inferred:
-        if name.name != leaf or not name.full_name:
-            continue
-        try:
-            return Handle(name.full_name)
-        except ValueError:
-            continue
-    return None
 
 
 async def _resolve_via_project_search(

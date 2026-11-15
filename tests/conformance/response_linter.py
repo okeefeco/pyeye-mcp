@@ -56,6 +56,9 @@ E.4 Each Stub in ``stubs`` passes the Stub structural floor (S.*) and the
     layering check (A.*).
 E.5 ``unresolved_imports`` (#494) placement — only allowed on the supported
     branch when ``edge == "imports"``; a list of non-empty single-line strs.
+E.6 ``unresolved_superclasses`` (#624) placement — only allowed on the supported
+    branch when ``edge == "superclasses"``; a list of non-empty single-line
+    strs (the unresolved bases' source text).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -1045,6 +1048,14 @@ def _check_expand_structural_floor(
                 "edge == 'imports'."
             )
 
+        # E.6 — unresolved_superclasses must NOT be present on the unsupported branch
+        if "unresolved_superclasses" in response:
+            violations.append(
+                "[E.6 unresolved_superclasses placement] 'unresolved_superclasses' is "
+                "present on the unsupported branch. It must only appear on the supported "
+                "branch when edge == 'superclasses'."
+            )
+
     else:
         # --- Supported branch (has_stubs_key) ---
         if not isinstance(stubs_val, list):
@@ -1108,6 +1119,28 @@ def _check_expand_structural_floor(
                         violations.append(
                             f"[E.5 unresolved_imports entry single-line] "
                             f"unresolved_imports[{idx}]: must be single-line."
+                        )
+
+        # E.6 — unresolved_superclasses (#624): superclasses-only, a list of
+        # non-empty single-line strs (each an unresolved base's source text).
+        if "unresolved_superclasses" in response:
+            us = response["unresolved_superclasses"]
+            if not (isinstance(edge_val, str) and edge_val == "superclasses"):
+                violations.append(
+                    f"[E.6 unresolved_superclasses placement] 'unresolved_superclasses' is "
+                    f"present but edge={edge_val!r} (not 'superclasses')."
+                )
+            elif not isinstance(us, list):
+                violations.append(
+                    f"[E.6 unresolved_superclasses type] must be a list; "
+                    f"got {type(us).__name__!r}."
+                )
+            else:
+                for idx, item in enumerate(us):
+                    if not isinstance(item, str) or not item.strip() or "\n" in item:
+                        violations.append(
+                            f"[E.6 unresolved_superclasses entry] unresolved_superclasses[{idx}]: "
+                            f"must be a non-empty single-line str; got {_truncate(item)}."
                         )
 
 
