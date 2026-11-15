@@ -297,43 +297,24 @@ def _patches_project_search(unit: ast.AST) -> bool:
 # ---------------------------------------------------------------------------
 
 # 1. Synthetic-import inference: ``jedi.Script(code=...)`` in exactly ONE
-#    function.  Three copies today, with two different acceptance guards
-#    (``name == leaf`` vs ``full_name == handle``).  #623 builds the single
-#    resolver and names the survivor here.
-SYNTHETIC_IMPORT_SANCTIONED: Site | None = None
+#    function, the resolver's (#623 slice 2).  The two copies left go when
+#    ``resolve`` and ``canonicalization`` move onto the resolver (slice 3).
+SYNTHETIC_IMPORT_SANCTIONED: Site | None = ("resolver.py", "_synthetic_import")
 SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {
     ("canonicalization.py", "_resolve_via_external_inference"): "#623",
-    ("mcp/operations/inspect.py", "_find_jedi_name_for_handle"): "#623",
     ("mcp/operations/resolve.py", "_resolve_external_dotted_name"): "#623",
 }
 
 # 2. ``project.search(`` appears nowhere (#457: use the AST name-index).
 PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {
-    ("mcp/operations/inspect.py", "_find_jedi_name_for_handle"): "#623",
     # Unreachable from any MCP tool (no caller in src/ or tests/).
     ("project_manager.py", "ProjectManager.search_all_projects"): "#628",
 }
 
 # 2b. Tests that pin the banned ``project.search`` path as expected behaviour.
-#     Keyed relative to ``tests/``.  They go when #623 removes inspect's Case 3.
-PROJECT_SEARCH_PINNING_TESTS_ALLOWLIST: dict[Site, str] = {
-    (
-        "unit/mcp/operations/test_inspect.py",
-        "TestFindJediNameForHandleFallbacks.test_project_search_match_found_in_case3",
-    ): "#623",
-    (
-        "unit/mcp/operations/test_inspect.py",
-        "TestFindJediNameForHandleFallbacks.test_synthetic_import_fallback_for_external_symbol",
-    ): "#623",
-    (
-        "unit/mcp/operations/test_inspect.py",
-        "TestFindJediNameForHandleFallbacks.test_synthetic_import_fallback_returns_none_for_bogus_handle",
-    ): "#623",
-    (
-        "unit/mcp/operations/test_inspect.py",
-        "TestInspectSpanLocation.test_synthetic_import_exception_handler_returns_none",
-    ): "#623",
-}
+#     Keyed relative to ``tests/``.  Empty since #623 slice 2 removed inspect's
+#     Case 3; kept so a new pinning test fails.
+PROJECT_SEARCH_PINNING_TESTS_ALLOWLIST: dict[Site, str] = {}
 
 # 3. Module-scope Import/ImportFrom walk over ``tree.body``: only
 #    ``_module_scope.iter_module_scope_imports`` (#360, moved below both layers in #630).

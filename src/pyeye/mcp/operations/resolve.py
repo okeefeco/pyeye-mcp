@@ -752,8 +752,8 @@ async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _S
     that imports the parent module and references the leaf symbol, then asks
     Jedi to infer the symbol — Jedi follows into stdlib/site-packages on demand.
 
-    Mirrors the synthetic-import fallback in
-    :func:`pyeye.mcp.operations.inspect._find_jedi_name_for_handle`.
+    A second copy of :func:`pyeye.resolver._synthetic_import`'s guarded
+    inference, removed when ``resolve`` moves onto the resolver (#623 slice 3).
 
     Returns ``None`` when Jedi cannot infer the symbol (bogus name, module not
     installed, etc.). Caller (``_resolve_dotted_name``) guarantees the input

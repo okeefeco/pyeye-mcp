@@ -81,9 +81,9 @@ from pyeye.mcp.operations.edges import (
     STATUS_NOT_YET_IMPLEMENTED,
     edge_status,
 )
-from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
+from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -168,13 +168,11 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # — never as ``stubs: []`` (the #332 measured-zero lie) and never as an
     # unsupported result implying the handle was found (#545).
     # ------------------------------------------------------------------
-    jedi_name = await _resolve_handle_to_jedi_name(handle, analyzer)
-
-    if jedi_name is None:
+    resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
+    if isinstance(resolved, NotFound):
         return not_found(handle, edge=edge)
-
-    # Prefer the canonical resolved full_name; fall back to the input handle.
-    source = jedi_name.full_name if getattr(jedi_name, "full_name", None) else handle
+    jedi_name = resolved.anchor
+    source = resolved.handle
 
     # ------------------------------------------------------------------
     # Unsupported edge — the mapped reason, independent of the source's kind.
