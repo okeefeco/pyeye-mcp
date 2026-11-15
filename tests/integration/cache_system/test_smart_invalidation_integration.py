@@ -223,7 +223,8 @@ def main():
         on_change_callback = mock_watcher_class.call_args[0][1]
 
         # Trigger smart invalidation
-        on_change_callback(str(core_path))
+        # The callback receives the whole debounced batch (#617).
+        on_change_callback([str(core_path)])
 
         # Both keys should be invalidated due to dependency
         assert cache.get("test_key") is None

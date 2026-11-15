@@ -49,6 +49,14 @@ git commit -m "docs: update installation instructions"
 - **MANDATORY**: Tests for ALL bug fixes (include regression tests)
 - Documentation updates (if needed)
 
+### Changelog Entries (fragments, #660)
+
+- NEVER edit `CHANGELOG.md` in a feature PR. Add a hand-written fragment, `changes/<issue>.<category>.md`, holding one or more `-` bullets and no heading. The categories are `breaking`, `added`, `changed`, `deprecated`, `removed`, `fixed` and `security` (`changes/README.md`).
+- A second PR for the same issue uses `changes/<issue>-<n>.<category>.md` (e.g. `623-2.fixed.md`).
+- Leave the bullets already under `[Unreleased]` alone. `prepare` releases them with the fragments.
+- While 2.x is current, run `python scripts/changelog.py no-breaking` on every PR. It MUST print `0`. A `*.breaking.md` fragment or a `### BREAKING CHANGES` heading fails it.
+- `python scripts/changelog.py check` (CI `changelog-validation`) rejects bad fragment names and unknown categories.
+
 ### PR Creation via CLI
 
 ```bash
@@ -144,7 +152,7 @@ For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --bo
 
 A release is a PR; see `docs/RELEASE.md`.
 
-- Prepare it with `python scripts/changelog.py prepare X.Y.Z`. NEVER hand-edit the version heading.
+- Prepare it with `python scripts/changelog.py prepare X.Y.Z`. It collects `[Unreleased]` and the `changes/` fragments into the version section and deletes the fragments. Commit both: `git add -A CHANGELOG.md changes/`. NEVER hand-edit the version heading or assemble fragments by hand.
 - The commit subject AND the PR title MUST both be exactly `chore(release): vX.Y.Z`. The tag workflow keys on it, and commitizen rejects the non-conventional `release: vX.Y.Z` (#587).
 - NEVER tag manually after merging a release PR: `tag-release.yml` tags and publishes. A manual tag races it.
 - If `prepare` refuses (e.g. an under-bump against `### BREAKING CHANGES`), fix the version or the notes. Don't work around it.
