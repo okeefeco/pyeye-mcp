@@ -33,6 +33,7 @@ template_name = template_file.relative_to(template_dir).as_posix()
   - `path_to_key()` - For dictionary keys/comparison
   - `ensure_posix_path()` - Convert any path to forward slashes
   - `paths_equal()` - Platform-safe path comparison
+  - `relative_within()` - Containment (`path` inside `root`?), as spelled then resolved (#714)
 
 ## When to Use Each Method
 
@@ -95,10 +96,16 @@ assert paths_equal(result_path, expected_path)
 When asked to validate cross-platform compatibility, run the static checker, then fix per the rules above:
 
 ```bash
-python scripts/check_cross_platform_paths.py src/pyeye/**/*.py
+uv run python scripts/check_cross_platform_paths.py --report
 ```
 
-It flags likely path-handling issues (e.g. `str(path)` in display contexts, missing `.as_posix()`); apply the patterns in this file (`.as_posix()` for display/storage, `path_to_key()` / `paths_equal()` for keys/comparison) and re-run the test suite.
+It lists every place outside `path_utils` / `project_layout` that normalises or compares paths: `.resolve()`, `os.path.realpath/abspath/normpath/samefile`, `.relative_to()` / `.is_relative_to()`, and `str(path)` in comparisons or keys. Without `--report` it is a blocking ratchet (pre-commit `path-ownership`, `tests/test_path_ownership.py`).
+
+## One Owner for Path Normalisation and Comparison (#717)
+
+- NEVER normalise or compare paths outside `pyeye.path_utils` / `pyeye.project_layout`. Use `relative_within()` (containment, spelling-insensitive), `paths_equal()` (equality) or `normalize_path()` (resolved form).
+- NEVER add a site to the checker's `BASELINE`. It only shrinks: when a migration removes a site, lower or delete its entry (the ratchet fails until you do).
+- Jedi gets RESOLVED paths (root, `added_sys_path`, Script paths); the caller's spelling is for display (#714).
 
 > The former `cross-platform-validator` agent was retired (#483) — it depended on removed v2.0 tools and re-implemented, semantically, the textual check the static script already does. See `04-agent-triggers.md` → "Why no cross-platform-validator agent".
 
