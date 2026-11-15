@@ -12,7 +12,7 @@ project.  They verify:
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 from pathlib import Path
 
 import pytest
@@ -41,7 +41,7 @@ class TestResolveToolRegistered:
         """resolve is an async function (or wrapped to behave as one)."""
         from pyeye.mcp.server import resolve
 
-        assert asyncio.iscoroutinefunction(resolve)
+        assert inspect.iscoroutinefunction(resolve)
 
 
 class TestResolveAtToolRegistered:
@@ -61,7 +61,7 @@ class TestResolveAtToolRegistered:
         """resolve_at is an async function (or wrapped to behave as one)."""
         from pyeye.mcp.server import resolve_at
 
-        assert asyncio.iscoroutinefunction(resolve_at)
+        assert inspect.iscoroutinefunction(resolve_at)
 
 
 # ---------------------------------------------------------------------------
