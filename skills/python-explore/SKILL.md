@@ -93,6 +93,11 @@ Notes that matter:
   - Only a `handle` key is ever a handle. Never pass `identifier` or `file` to `inspect`.
 
   By contrast, `expand`'s `stubs: []` with `found: true` *is* a measured zero.
+- **Unparseable source:** if a file can't be parsed by the Python pyeye runs on (e.g.
+  the code uses newer syntax), its edges weren't measured. `expand` / `trace` say
+  `reason: "unparseable"` and `outline` marks the node `truncation_reason: "unparseable"`
+  with no `children`; `inspect` leaves the count out. That is unknown, not empty: `Read`
+  the file (the `detail` names the line), or run pyeye on a newer Python.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
