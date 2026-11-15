@@ -1451,9 +1451,16 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
         for handle, cand in local.items():
             chosen.setdefault(handle, cand)
 
+    # A child whose name is not an identifier (``show-newlines.py``, ``2fast.py``)
+    # cannot be imported as a submodule, so it is not one (#597).  Filtering HERE,
+    # in the source-of-truth, keeps the ``inspect`` count equal to the edge.
+    #
     # Sort by the FULL handle — a total order independent of iterdir, so output is
     # deterministic across runs/platforms (not just by bare child name).
-    return sorted((entry for _, entry in chosen.values()), key=lambda e: e.handle)
+    return sorted(
+        (entry for _, entry in chosen.values() if _try_handle(entry.handle) is not None),
+        key=lambda e: e.handle,
+    )
 
 
 def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
