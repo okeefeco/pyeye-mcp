@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sys
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import pytest
@@ -38,7 +37,6 @@ from tests.test_plugin_envelope import (
 
 _PATH_KEYS = frozenset({"file", "config_file"})
 _PATH_LIST_KEYS = frozenset({"packages", "unresolved_importers", "dirs"})
-_DRIVE = re.compile(r"^[A-Za-z]:/")
 
 #: corpus name -> (directory copied into tmp, root relative to that copy)
 _CORPORA: dict[str, tuple[Path, str]] = {
@@ -81,7 +79,7 @@ def _path_problems(value: Any, where: str) -> list[str]:
     problems = []
     if "\\" in value:
         problems.append(f"{where}: backslash in {value!r}")
-    if not (value.startswith("/") or _DRIVE.match(value)):
+    if not (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()):
         problems.append(f"{where}: not absolute: {value!r}")
     if ".." in value.split("/"):
         problems.append(f"{where}: '..' segment in {value!r}")
@@ -126,12 +124,45 @@ def walk(obj: Any, where: str = "$") -> list[str]:
         ("C:/Users/x/pkg/mod.py", True),
         ("pkg/mod.py", False),
         ("C:\\Users\\x\\mod.py", False),
+        ("c:/users/x/mod.py", True),
+        ("C:mod.py", False),  # drive-relative, not absolute
         ("/abs/pkg/../mod.py", False),
     ],
 )
 def test_walker_flags_bad_paths(value: str, ok: bool) -> None:
     problems = walk({"location": {"file": value}, "packages": [value]})
     assert (not problems) is ok, problems
+
+
+def test_a_backslashed_absolute_path_is_reported_once() -> None:
+    """``C:\\x`` is absolute; the only problem is the backslash."""
+    problems = walk({"file": "C:\\Users\\x\\mod.py"})
+    assert len(problems) == 1 and "backslash" in problems[0], problems
+
+
+def test_the_tool_layer_echoes_validated_paths_as_posix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``validate_mcp_inputs`` hands tools a POSIX path, even from a Windows path (#717).
+
+    It used ``str(path)``, which is native backslashes on Windows: resolve_at
+    echoed ``C:\\Users\\…`` back to the agent.
+    """
+    from pyeye import validation
+
+    monkeypatch.setattr(
+        validation.PathValidator,
+        "validate_path",
+        classmethod(lambda _cls, _p, _base_path=None: PureWindowsPath("C:\\proj\\pkg\\mod.py")),
+    )
+    seen = {}
+
+    @validation.validate_mcp_inputs
+    async def tool(file: str) -> None:
+        seen["file"] = file
+
+    import asyncio
+
+    asyncio.run(tool("whatever"))
+    assert seen["file"] == "C:/proj/pkg/mod.py"
 
 
 def test_walker_ignores_non_path_keys() -> None:
