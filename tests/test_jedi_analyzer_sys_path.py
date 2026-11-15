@@ -8,6 +8,7 @@ collision-winner determinism). These tests pin the public attribute to a
 stable ``list[Path]`` that equals the same paths handed to ``jedi.Project``.
 """
 
+import os
 from pathlib import Path
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -70,5 +71,7 @@ class TestAddedSysPathAttribute:
         """
         bare = JediAnalyzer(str(_FIXTURE), config=None)
         configured = JediAnalyzer(str(_FIXTURE), config=ProjectConfig(str(_FIXTURE)))
-        assert bare.added_sys_path == configured.added_sys_path
-        assert bare.added_sys_path == [(_FIXTURE / "src").resolve()]
+        # Same root. The bare analyzer keeps project_path's unresolved spelling
+        # (#603), the configured one the config's resolved form.
+        assert [p.resolve() for p in bare.added_sys_path] == configured.added_sys_path
+        assert bare.added_sys_path == [Path(os.path.abspath(_FIXTURE)) / "src"]

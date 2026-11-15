@@ -108,15 +108,6 @@ class JediAnalyzer:
             resolved_project = self.project_path.resolve()
             if config:
                 package_paths = config.get_package_paths()
-            else:
-                # No config: apply the same src-layout rule ProjectConfig's
-                # auto-discovery uses, so an analyzer built without config names
-                # files the way a configured one does (#625).  Only src/ is
-                # detected here: sibling/venv discovery and global config stay
-                # config-only.
-                src = detect_src_layout(resolved_project)
-                package_paths = [src.as_posix()] if src is not None else []
-            if package_paths:
                 for pkg_path in package_paths:
                     pkg = Path(pkg_path).resolve()
                     if pkg != resolved_project and pkg.exists():
@@ -128,6 +119,24 @@ class JediAnalyzer:
                         for p in added_sys_path
                         if self._is_subpath(Path(p), resolved_project)
                     ]
+            else:
+                # No config: apply the same src-layout rule ProjectConfig's
+                # auto-discovery uses, so an analyzer built without config names
+                # files the way a configured one does (#625).  Only src/ is
+                # detected here: sibling/venv discovery and global config stay
+                # config-only.
+                #
+                # The root keeps project_path's spelling, NOT a resolved one.
+                # project_path is deliberately unresolved (#603), and files are
+                # enumerated under it, so a resolved src root (a symlink target,
+                # a Windows long name for an 8.3 path) would never match them:
+                # every module would fall back to the project root and be
+                # named ``src.<pkg>…``.
+                src = detect_src_layout(self.project_path)
+                if src is not None:
+                    added_sys_path.append(src.as_posix())
+                    self.source_roots = [src]
+                    logger.info(f"Adding {src.as_posix()} to Jedi sys path (src layout)")
 
             # Add namespace repo roots to Jedi's sys_path so full_name values
             # include the namespace prefix from the first query.

@@ -10,6 +10,7 @@ entries). Analyzers built with and without config now share one detection rule,
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,9 @@ class TestDetectSrcLayout:
 class TestBareAnalyzer:
     def test_bare_analyzer_has_the_src_root(self) -> None:
         analyzer = JediAnalyzer(str(_FIXTURE))
-        src = (_FIXTURE / "src").resolve()
+        # In project_path's own (unresolved, #603) spelling, so it matches the
+        # files enumerated under project_path.
+        src = Path(os.path.abspath(_FIXTURE)) / "src"
         assert analyzer.source_roots == [src]
         assert analyzer.added_sys_path == [src]
 
@@ -81,3 +84,39 @@ class TestBareAnalyzer:
         analyzer = JediAnalyzer(str(_FIXTURE))
         result = await resolve((_FIXTURE / "src" / "mypackage" / "module.py").as_posix(), analyzer)
         assert result["handle"] == "mypackage.module"
+
+
+class TestSpellingOfTheProjectPath:
+    """The src root follows ``project_path``'s spelling, not its resolved form.
+
+    Regression: the first version resolved the src root while ``project_path``
+    keeps the caller's spelling (#603). Wherever the two differ, files never
+    matched the root and were named ``src.<pkg>…``. On Windows CI that was an
+    8.3/long-name or case difference (``resolve("mypackage.module.my_function")``
+    returned ``src.mypackage.module.my_function``). A symlinked project path
+    reproduces it on any OS that allows symlinks.
+    """
+
+    @pytest.fixture
+    def linked_fixture(self, tmp_path: Path) -> Path:
+        link = tmp_path / "linked_project"
+        try:
+            link.symlink_to(_FIXTURE.resolve(), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks are not available here")
+        return link
+
+    def test_root_keeps_the_symlink_spelling(self, linked_fixture: Path) -> None:
+        analyzer = JediAnalyzer(str(linked_fixture))
+        assert analyzer.source_roots == [Path(os.path.abspath(linked_fixture)) / "src"]
+
+    @pytest.mark.parametrize(
+        "handle", ["mypackage", "mypackage.module", "mypackage.module.my_function"]
+    )
+    async def test_handles_have_no_src_prefix_through_a_symlink(
+        self, linked_fixture: Path, handle: str
+    ) -> None:
+        analyzer = JediAnalyzer(str(linked_fixture))
+        resolved = await resolve(handle, analyzer)
+        assert resolved["found"] is True
+        assert resolved["handle"] == handle
