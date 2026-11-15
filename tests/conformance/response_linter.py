@@ -138,6 +138,17 @@ N.4 Ratchet (#615): ``resolve`` / ``resolve_at`` still return the legacy
     shared shape for all five primitives.  Only that exact two-key shape with a
     listed pair is exempt; anything else is checked against N.2.
 
+Check K — closed kind vocabulary (#623)
+---------------------------------------
+K.1 Every handle-bearing dict anywhere in a response (one carrying ``handle``,
+    ``kind`` and ``scope``: a resolve / resolve_at / inspect answer, an
+    ambiguous candidate, a Stub) has ``kind`` in ``_VALID_KINDS``, the closed
+    vocabulary from ``docs/api-redesign.md``.  Other ``kind`` fields (a
+    parameter's kind, a trace edge's kind) carry a different vocabulary and are
+    not checked here.  ``_VALID_KINDS`` is hardcoded so the linter stays an
+    independent oracle; ``tests/unit/test_kinds.py`` pins
+    ``pyeye.kinds.KINDS`` to the same set.
+
 Usage
 -----
 ::
@@ -1710,6 +1721,50 @@ def _check_found_discriminator(
 
 
 # ---------------------------------------------------------------------------
+# Check K — closed kind vocabulary (#623)
+# ---------------------------------------------------------------------------
+
+# K.1 — The documented kind vocabulary (``docs/api-redesign.md``).  Deliberately
+# hardcoded, not imported from ``pyeye.kinds``, like ``_VALID_NOT_FOUND_REASONS``.
+_VALID_KINDS: frozenset[str] = frozenset(
+    {"class", "function", "method", "module", "variable", "attribute", "property"}
+)
+
+# K.1 — The keys that mark a dict as a handle-bearing answer or Stub.
+_HANDLE_BEARING_KEYS: frozenset[str] = frozenset({"handle", "kind", "scope"})
+
+
+def _iter_dicts(obj: Any, path: str) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield ``(path, dict)`` for *obj* and every dict nested inside it."""
+    if isinstance(obj, dict):
+        yield path, obj
+        for key, value in obj.items():
+            yield from _iter_dicts(value, f"{path}.{key}" if path else key)
+    elif isinstance(obj, list):
+        for idx, item in enumerate(obj):
+            yield from _iter_dicts(item, f"{path}[{idx}]")
+
+
+def _check_kind_vocabulary(response: dict[str, Any], violations: list[str]) -> None:
+    """K.1 — Every handle-bearing dict reports a kind from the closed vocabulary.
+
+    Args:
+        response: The operation response dict.
+        violations: Mutable list to append violation messages to.
+    """
+    for path, obj in _iter_dicts(response, ""):
+        if not set(obj) >= _HANDLE_BEARING_KEYS:
+            continue
+        kind = obj["kind"]
+        if not isinstance(kind, str) or kind not in _VALID_KINDS:
+            where = f"{path}.kind" if path else "kind"
+            violations.append(
+                f"[K.1 kind vocabulary] {where}: {_truncate(kind)} is not in the closed "
+                f"kind vocabulary {sorted(_VALID_KINDS)} (#623)."
+            )
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1744,6 +1799,7 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
     """
     violations: list[str] = []
     _check_layering(response, operation, violations)
+    _check_kind_vocabulary(response, violations)
 
     is_not_found = operation in _FOUND_DISCRIMINATED_OPERATIONS and _check_found_discriminator(
         response, operation, violations

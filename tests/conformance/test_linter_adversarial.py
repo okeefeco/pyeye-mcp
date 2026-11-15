@@ -541,8 +541,12 @@ class TestAbsenceVsZeroDetection:
         with pytest.raises(ConformanceViolation, match="callers"):
             lint_response(bad, "inspect")
 
-    def test_unknown_kind_empty_edge_counts_allowed(self) -> None:
-        """Unknown kind with empty edge_counts is allowed (no measurement applicable)."""
+    def test_unknown_kind_empty_edge_counts_only_fails_kind_vocabulary(self) -> None:
+        """Unknown kind with empty edge_counts: no B violation, only K.1 (#623).
+
+        Before the closed vocabulary (#623) an unknown kind was accepted outright;
+        now K.1 rejects it, but absence-vs-zero still raises nothing extra.
+        """
         good = {
             "found": True,
             "handle": "pkg.x",
@@ -552,7 +556,8 @@ class TestAbsenceVsZeroDetection:
             "docstring": None,
             "edge_counts": {},
         }
-        lint_response(good, "inspect")  # must not raise
+        with pytest.raises(ConformanceViolation, match=r"1 rule\(s\) violated[\s\S]*K\.1"):
+            lint_response(good, "inspect")
 
     # -----------------------------------------------------------------------
     # B.4 — Nullable optional fields
@@ -763,7 +768,7 @@ class TestLinterAcceptsValidResponses:
         lint_response(good, "inspect")  # must not raise
 
     def test_empty_edge_counts_for_unknown_kind(self) -> None:
-        """A response with empty edge_counts and unknown kind is accepted."""
+        """Empty edge_counts with an unknown kind: only K.1 fires (#623 closed vocabulary)."""
         good = {
             "found": True,
             "handle": "pkg.x",
@@ -773,7 +778,8 @@ class TestLinterAcceptsValidResponses:
             "docstring": None,
             "edge_counts": {},
         }
-        lint_response(good, "inspect")  # must not raise
+        with pytest.raises(ConformanceViolation, match=r"1 rule\(s\) violated[\s\S]*K\.1"):
+            lint_response(good, "inspect")
 
     def test_docstring_with_many_newlines_allowed(self) -> None:
         """A docstring with 100+ newlines is allowed (allowlisted field)."""

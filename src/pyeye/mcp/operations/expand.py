@@ -72,6 +72,7 @@ from __future__ import annotations
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
+from pyeye.kinds import normalise_kind
 from pyeye.mcp import meta
 from pyeye.mcp.operations.edges import (
     EDGE_RESOLVERS,
@@ -82,7 +83,6 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.inspect import _resolve_handle_to_jedi_name
 from pyeye.mcp.operations.not_found import not_found
-from pyeye.mcp.operations.resolve import _normalise_kind
 from pyeye.mcp.operations.stubs import build_stub
 
 if TYPE_CHECKING:
@@ -211,7 +211,7 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     edge_result = await raw if isawaitable(raw) else raw
 
     if edge_result is None:
-        kind = _normalise_kind(getattr(jedi_name, "type", None))
+        kind = normalise_kind(getattr(jedi_name, "type", None))
         # NOTE: The detail message below uses affirmative "supported for modules
         # only" wording. Both ``imported_by`` and ``imports`` are module-only
         # edges whose resolvers return ``None`` for non-module handles; this
@@ -251,7 +251,7 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # subclasses is direct-only (#422); a CLASS result carries a static pointer to
     # the trace route for the full closure.  Class-gated: a non-class subclasses
     # result is a measured-empty [], where the "use trace" hint would be noise.
-    if edge == "subclasses" and _normalise_kind(getattr(jedi_name, "type", None)) == "class":
+    if edge == "subclasses" and normalise_kind(getattr(jedi_name, "type", None)) == "class":
         result["transitive_hint"] = SUBCLASSES_TRANSITIVE_HINT
 
     return result
