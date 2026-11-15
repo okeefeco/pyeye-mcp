@@ -15,6 +15,7 @@ from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.config import ProjectConfig
 from pyeye.mcp.operations.outline import outline as outline_impl
 from pyeye.mcp.operations.resolve import resolve as resolve_impl
+from pyeye.path_utils import relative_within
 
 
 def _posix(paths: list[str] | None) -> list[str] | None:
@@ -165,22 +166,16 @@ where = ["src"]
             has_external = any("/external/path" in p for p in added_paths)
             assert not has_external, "External paths should not be in added_sys_path"
 
-    def test_is_subpath_helper(self, temp_project_dir: Path):
-        """Test the _is_subpath helper method."""
-        # Create analyzer (we just need an instance to test the method)
-        with patch("pyeye.analyzers.jedi_analyzer.jedi.Project"):
-            analyzer = JediAnalyzer(str(temp_project_dir))
-
-        # Test subpath detection
+    def test_containment_helper(self):
+        """Containment is path_utils.relative_within (#717: one owner)."""
         parent = Path("/project")
         child = Path("/project/src/package")
         external = Path("/other/project")
 
-        assert analyzer._is_subpath(child, parent) is True
-        assert analyzer._is_subpath(external, parent) is False
-        # Same path returns True (relative_to works), but we handle this
-        # separately in __init__ by checking pkg != self.project_path first
-        assert analyzer._is_subpath(parent, parent) is True
+        assert relative_within(child, parent) is not None
+        assert relative_within(external, parent) is None
+        # The root itself is "inside"; __init__ skips pkg == project_path first.
+        assert relative_within(parent, parent) is not None
 
 
 class TestSrcLayoutAutoDiscovery:

@@ -50,7 +50,7 @@ A record with neither `handle` nor `unresolved` doesn't name a symbol, for examp
 
 ## find_pydantic_models
 
-Find all Pydantic models in the project.
+Find all Pydantic models in the project: every class that subclasses `BaseModel`, `RootModel` or `BaseSettings` directly or through other project classes. Models are identified by where they are defined, so two models with the same name stay distinct. When a Pydantic base can't be imported where pyeye runs (for example, `pydantic-settings` isn't installed), its direct subclasses are found by base name instead, which is a weaker signal.
 
 ### Parameters
 
