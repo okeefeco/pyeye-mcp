@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
+from ..scope_utils import ScopeLayout, resolve_scope_paths
+
 logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
@@ -30,6 +32,7 @@ class AnalyzerPlugin(ABC):
         self.project_path = Path(project_path)
         self.additional_paths: list[Path] = []
         self.namespace_paths: dict[str, list[Path]] = {}
+        self.standalone_paths: list[Path] = []
 
     # Read/parse contract shared by every plugin (#622, #637): unreadable files and
     # unparseable user source are warned about and skipped; anything else, such as an
@@ -139,6 +142,14 @@ class AnalyzerPlugin(ABC):
         self.namespace_paths = {ns: [Path(p) for p in paths] for ns, paths in namespaces.items()}
         logger.info(f"Plugin {self.name()}: Set {len(self.namespace_paths)} namespace mappings")
 
+    def set_standalone_paths(self, paths: list[Path]) -> None:
+        """Set standalone script directories (searched by ``standalone`` and ``all``).
+
+        Args:
+            paths: Standalone script directories
+        """
+        self.standalone_paths = paths
+
     async def get_project_files(self, pattern: str = "*.py", scope: Scope = "main") -> list[Path]:
         """Get files from project based on scope.
 
@@ -208,8 +219,17 @@ class AnalyzerPlugin(ABC):
 
         return unique_files
 
+    def scope_layout(self) -> ScopeLayout:
+        """This plugin's search-scope layout (the one :func:`resolve_scope_paths` reads)."""
+        return ScopeLayout.from_parts(
+            self.project_path,
+            self.additional_paths,
+            self.namespace_paths,
+            self.standalone_paths,
+        )
+
     async def _resolve_scope_to_paths(self, scope: Scope) -> set[Path]:
-        """Resolve scope specification to actual filesystem paths.
+        """Resolve a scope to filesystem paths through the one resolver (#690).
 
         Args:
             scope: Scope specification (string or list of strings)
@@ -221,74 +241,21 @@ class AnalyzerPlugin(ABC):
 
     def _scope_paths(self, scope: Scope, warn: bool = True) -> set[Path]:
         """Synchronous core of :meth:`_resolve_scope_to_paths`."""
-        paths = set()
-
-        # Normalize to list for uniform processing
-        scopes = [scope] if isinstance(scope, str) else scope
-
-        for s in scopes:
-            if s == "main":
-                # Just the main project
-                paths.add(self.project_path)
-
-            elif s == "all":
-                # Everything: main + packages + namespaces
-                paths.add(self.project_path)
-                paths.update(self.additional_paths)
-                # Add all namespace paths
-                for ns_paths in self.namespace_paths.values():
-                    paths.update(ns_paths)
-
-            elif s == "packages":
-                # All configured packages excluding main
-                paths.update(self.additional_paths)
-
-            elif s.startswith("namespace:"):
-                # Specific namespace
-                ns_name = s[10:]  # Remove "namespace:" prefix
-                if ns_name in self.namespace_paths:
-                    paths.update(self.namespace_paths[ns_name])
-                else:
-                    if warn:
-                        logger.warning(f"Plugin {self.name()}: Namespace not found: {ns_name}")
-
-            elif s.startswith("package:"):
-                # Specific package path
-                pkg_path = Path(s[8:])  # Remove "package:" prefix
-                if pkg_path.exists():
-                    paths.add(pkg_path)
-                elif warn:
-                    logger.warning(
-                        f"Plugin {self.name()}: Package path does not exist: {pkg_path.as_posix()}"
-                    )
-
-            else:
-                if warn:
-                    logger.warning(f"Plugin {self.name()}: Unknown scope specification: {s}")
-
-        return paths
+        return resolve_scope_paths(
+            scope, self.scope_layout(), warn=warn, owner=f"Plugin {self.name()}: "
+        )
 
     def configured_scopes(self) -> dict[str, set[Path]]:
         """Map every scope this plugin is configured to search to the paths it covers.
 
-        In a stable order: ``main`` always; ``packages`` when configured packages
-        add paths beyond the main project and the namespaces (``additional_paths``
-        also holds those, as :func:`pyeye.mcp.server.initialize_plugins` sets it);
-        then one ``namespace:<name>`` per configured namespace, sorted.
+        ``main`` always; ``packages`` and ``standalone`` when configured; then one
+        ``namespace:<name>`` per configured namespace, sorted. Read from the same
+        layout and resolver the search uses (:meth:`ScopeLayout.configured_scopes`).
         """
-        namespace_paths = {
-            f"namespace:{name}": _normalized(self.namespace_paths[name])
-            for name in sorted(self.namespace_paths)
+        return {
+            name: _normalized(paths)
+            for name, paths in self.scope_layout().configured_scopes().items()
         }
-        main = _normalized([self.project_path])
-        packages = _normalized(self.additional_paths) - main
-        for ns in namespace_paths.values():
-            packages -= ns
-        scopes: dict[str, set[Path]] = {"main": main}
-        if packages:
-            scopes["packages"] = packages
-        scopes.update(namespace_paths)
-        return scopes
 
     def describe_scope(self, scope: Scope) -> tuple[list[str], list[str]]:
         """Report what a search over ``scope`` covers, for the plugin-tool envelope (#594).
@@ -316,7 +283,9 @@ class AnalyzerPlugin(ABC):
         searched: list[str] = []
         unsearched: list[str] = []
         for name, paths in self.configured_scopes().items():
-            (searched if paths <= covered else unsearched).append(name)
+            # A path is searched when it is, or lies under, a searched root.
+            whole = all(any(p == c or c in p.parents for c in covered) for p in paths)
+            (searched if whole else unsearched).append(name)
         for s in [scope] if isinstance(scope, str) else scope:
             if s.startswith("package:") and Path(s[8:]).exists() and s not in searched:
                 searched.append(s)

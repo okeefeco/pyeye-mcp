@@ -87,8 +87,10 @@ _SUBSETS: dict[RootsBoundary, tuple[str, ...]] = {
     ),
 }
 # Configured namespaces count as project (#623): SCOPE is the namespace-portion
-# boundary by name, not a hand-copied list, so the two can't drift.
-_SUBSETS[RootsBoundary.SCOPE] = _SUBSETS[RootsBoundary.NAMESPACE_PORTIONS]
+# boundary by name, not a hand-copied list, so the two can't drift. It adds the
+# standalone script directories (#690): ``scope="all"`` searches them, so a file
+# found there is project code, not "external".
+_SUBSETS[RootsBoundary.SCOPE] = (*_SUBSETS[RootsBoundary.NAMESPACE_PORTIONS], "standalone_paths")
 
 
 def project_roots(analyzer: Any, boundary: RootsBoundary, *, resolved: bool = False) -> list[Path]:
@@ -109,6 +111,7 @@ def project_roots(analyzer: Any, boundary: RootsBoundary, *, resolved: bool = Fa
         "source_roots": list(getattr(analyzer, "source_roots", None) or []),
         "added_sys_path": list(getattr(analyzer, "added_sys_path", None) or []),
         "additional_paths": list(getattr(analyzer, "additional_paths", None) or []),
+        "standalone_paths": list(getattr(analyzer, "standalone_paths", None) or []),
     }
     ordered = [root for attr in _SUBSETS[boundary] for root in available[attr]]
     return dedupe_paths(ordered, resolve_output=resolved)
