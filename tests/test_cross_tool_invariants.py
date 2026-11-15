@@ -148,6 +148,11 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "_typing.ParamSpec",
         "_typing.TypeVar",
     ),
+    #
+    # #667 multi-repo namespace scenario: the same classes of gap, no new ones.
+    **_round_trip(
+        "multirepo_namespace", _ISSUE_602, _MISS, "__future__.annotations", "typing.TYPE_CHECKING"
+    ),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
     # == 4. trace vs expand: none since #621.
@@ -160,7 +165,10 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
 
 
 def _assert_matches_allowlist(
-    observed: dict[tuple[str, ...], str], prefix: tuple[str, ...], context: str
+    observed: dict[tuple[str, ...], str],
+    prefix: tuple[str, ...],
+    context: str,
+    allowed: dict[tuple[str, ...], str] | None = None,
 ) -> None:
     """Fail unless *observed* violations equal the allow-list entries under *prefix*.
 
@@ -170,8 +178,12 @@ def _assert_matches_allowlist(
             ``("round_trip", "cross_tool")``); only allow-list entries with this
             prefix are compared, so each parametrised case owns its own slice.
         context: label for the failure message.
+        allowed: the entries this case owns, when *prefix* alone can't select
+            them (trace_expand keys aren't keyed by corpus; they're selected
+            by root).  Defaults to every KNOWN_GAPS entry under *prefix*.
     """
-    allowed = {k: v for k, v in KNOWN_GAPS.items() if k[: len(prefix)] == prefix}
+    if allowed is None:
+        allowed = {k: v for k, v in KNOWN_GAPS.items() if k[: len(prefix)] == prefix}
     new = sorted(set(observed) - set(allowed))
     fixed = sorted(set(allowed) - set(observed))
     lines: list[str] = []
@@ -216,9 +228,29 @@ _SWEEP_CORPORA: dict[str, Path] = {
 #: this shape (the repo's modules stopped resolving) with no corpus to notice.
 _SWEEP_CORPORA["xns_repo"] = _FIXTURES / "xns_repo" / "app"
 
+#: The full multi-repo namespace scenario (#667): three sibling repos stitched
+#: into the PEP 420 ``corp`` namespace from outside a root-package project, via
+#: ``namespaces`` (one a ``src/`` layout) and ``packages``.  See its README.
+_MULTIREPO = _FIXTURES / "scenarios" / "multirepo_namespace"
+_SWEEP_CORPORA["multirepo_namespace"] = _MULTIREPO / "app"
+_MULTIREPO_MODULES = [
+    "corp",
+    "corp.core",
+    "corp.core.models",
+    "corp.tools",
+    "corp.tools.widgets",
+    "corp.tools.sub",
+    "corp.tools.sub.helper",
+    "corp.web",
+    "corp.web.views",
+]
+
 #: Extra sweep seeds for modules outside the corpus root (``_module_seeds`` only
 #: walks the root).
-_EXTRA_SEEDS: dict[str, list[str]] = {"xns_repo": ["acme.tools", "acme.widgets"]}
+_EXTRA_SEEDS: dict[str, list[str]] = {
+    "xns_repo": ["acme.tools", "acme.widgets"],
+    "multirepo_namespace": _MULTIREPO_MODULES,
+}
 
 
 def _module_seeds(root: Path) -> list[str]:
@@ -489,17 +521,35 @@ _XNS_REPO_ENTRIES = (
     _Entry("project_subclass", "main.FancyWidget", ("main.py", 7, 6)),
 )
 
+#: The #667 multi-repo namespace scenario.  Positions are relative to ``app/``.
+_CORE_MODELS = "../corp-core/src/corp/core/models.py"
+_WIDGETS = "../corp-tools/corp/tools/widgets.py"
+_MULTIREPO_ENTRIES = (
+    _Entry("root_package", "app", None),
+    _Entry("project_function", "app.main.run", ("main.py", 11, 4)),
+    _Entry("ns_package", "corp", None),
+    _Entry("src_layout_portion", "corp.core", None),
+    _Entry("src_layout_class", "corp.core.models.Base", (_CORE_MODELS, 8, 6)),
+    _Entry("src_layout_method", "corp.core.models.Base.describe", (_CORE_MODELS, 14, 8)),
+    _Entry("reexport", "corp.tools.Base", None),
+    _Entry("packages_class", "corp.tools.widgets.Widget", (_WIDGETS, 14, 6)),
+    _Entry("nested_module", "corp.tools.sub.helper", None),
+    _Entry("flat_function", "corp.web.views.render", ("../corp-web/corp/web/views.py", 16, 4)),
+    _Entry("ghost", "corp.nope", None),
+)
+
 #: corpus name -> (project root, entries)
 _AGREE_CORPORA: dict[str, tuple[Path, tuple[_Entry, ...]]] = {
     "cross_tool": (_XTOOL, _XTOOL_ENTRIES),
     "src_layout": (_FIXTURES / "added_sys_path_project", _SRC_LAYOUT_ENTRIES),
     "root_package": (_FIXTURES / "lookup_project", _ROOT_PACKAGE_ENTRIES),
     "xns_repo": (_FIXTURES / "xns_repo" / "app", _XNS_REPO_ENTRIES),
+    "multirepo_namespace": (_MULTIREPO / "app", _MULTIREPO_ENTRIES),
 }
 
 #: Corpora whose project root sits in a fixture dir with sibling repos it
 #: configures by relative path: the whole parent is copied, so ``../`` resolves.
-_AGREE_COPY_PARENT = frozenset({"xns_repo"})
+_AGREE_COPY_PARENT = frozenset({"xns_repo", "multirepo_namespace"})
 
 _FIELDS = ("found", "handle", "kind", "scope")
 
@@ -666,13 +716,53 @@ async def _trace_expand_violations(
     return out
 
 
-async def test_trace_expand_agree() -> None:
+#: trace/expand roots in the #667 scenario: cross-repo hierarchy, calls and imports.
+#:
+#: The ``imports`` traces of modules that import the stdlib are EXCLUDED, like
+#: ``(xpkg.core, imports)`` above: trace walks into ``logging`` / ``pathlib`` /
+#: ``sys`` and Jedi's import following recurses deep enough to overflow the C
+#: stack on Windows / CPython 3.11.  The cross-repo import closure is covered by
+#: ``tests/integration/test_multirepo_namespace_scenario.py``, which traces with
+#: ``exclude_external``.
+_MULTIREPO_TRACE_CASES = tuple(
+    (root, edge)
+    for root in (
+        "app.main",
+        "corp",
+        "corp.core.models",
+        "corp.core.models.Base",
+        "corp.tools.widgets.Widget",
+        "corp.web.views",
+        "corp.web.views.render",
+    )
+    for edge in EDGE_RESOLVERS
+    if (root, edge)
+    not in {
+        ("app.main", "imports"),
+        ("corp.core.models", "imports"),
+        ("corp.web.views", "imports"),
+    }
+)
+
+
+@pytest.mark.parametrize(
+    ("project", "cases"),
+    [
+        pytest.param(_XTOOL, _TRACE_CASES, id="cross_tool"),
+        pytest.param(_MULTIREPO / "app", _MULTIREPO_TRACE_CASES, id="multirepo_namespace"),
+    ],
+)
+async def test_trace_expand_agree(project: Path, cases: tuple[tuple[str, str], ...]) -> None:
     """trace walks exactly the hops expand supports, and surfaces wrong-kind edges."""
-    analyzer = ProjectManager().get_analyzer(str(_XTOOL))
+    analyzer = ProjectManager().get_analyzer(str(project))
+    roots = {root for root, _ in cases}
     observed: dict[tuple[str, ...], str] = {}
-    for root, edge in _TRACE_CASES:
+    for root, edge in cases:
         observed.update(await _trace_expand_violations(root, edge, analyzer))
-    _assert_matches_allowlist(observed, ("trace_expand",), "trace-expand")
+    owned = {k: v for k, v in KNOWN_GAPS.items() if k[0] == "trace_expand" and k[1] in roots}
+    _assert_matches_allowlist(
+        observed, ("trace_expand",), f"trace-expand[{project.name}]", allowed=owned
+    )
 
 
 # ---------------------------------------------------------------------------

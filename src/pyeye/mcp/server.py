@@ -601,8 +601,11 @@ async def expand(
         a function or class body too (a lazy import is still a dependency).
         So it is NOT the exact inverse of ``imports``: if ``imports(M)`` shows
         module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
-        importer appears only here.  Non-module handles return the unsupported branch
-        with ``reason: "not_applicable"`` (#626).  Ceiling: runtime-dynamic imports
+        importer appears only here.  A file that imports it but has no module
+        name (``my-script.py``, ``tools-dir/x.py``) can't be a stub; it is listed
+        in ``unresolved_importers`` (#668), never dropped.  Non-module handles
+        return the unsupported branch with ``reason: "not_applicable"`` (#626).
+        Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
@@ -670,7 +673,8 @@ async def expand(
           "stubs":  [Stub, ...],         # [] == measured-empty (NOT unsupported)
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
-          "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624); [] when all resolved
+          "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
+          "unresolved_importers": [file, ...] }  # imported_by ONLY (#668); [] when all named
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -761,6 +765,7 @@ async def trace(
           "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
+          "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are

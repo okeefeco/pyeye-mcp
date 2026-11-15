@@ -661,7 +661,10 @@ class TestResolveImportedByNonModule:
     @pytest.mark.asyncio
     async def test_a_module_nobody_imports_is_measured_empty(self, analyzer: JediAnalyzer) -> None:
         assert edge_applies("imported_by", anchor_for(_MODULE_FORMS_HANDLE, analyzer))
-        assert await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer) == EdgeResult(adjacents=[])
+        # Measured, none found, and none unnamed either (#668).
+        assert await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer) == EdgeResult(
+            adjacents=[], unresolved_importers=[]
+        )
 
 
 class TestResolveImportedByNeverReverseSearch:

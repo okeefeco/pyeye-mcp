@@ -140,12 +140,15 @@ Not covered: `trace` (`unresolved_roots`), and the error channel for invalid arg
 
 **Anchor:** `JediAnalyzer.find_importers` (whole-file `ast.walk`) vs `pyeye._module_scope.iter_module_scope_imports` (#360); the `expand` tool description in `pyeye.mcp.server`; `skills/python-explore/SKILL.md` edge table; `docs/superpowers/specs/2026-06-10-imported-by-edge-design.md` ceiling; #619, #360, #625.
 
+**Amended 2026-11-15 (#668):** `imported_by` must also never *drop* a dependent. A file that imports the target but has no module name (a path part that isn't a Python identifier: `my-script.py`, `tools-dir/x.py`) can't be a stub, so it used to vanish silently, a confident under-count of fan-in. It is now listed in `unresolved_importers` (POSIX paths; `[]` when every importer is named), on `expand` and per node on `trace`, mirroring `unresolved_imports` on `imports` (#494). The file↔module mapper (`project_layout.module_name_for_file`) returns `None` for such files rather than inventing a name, and no longer treats `root/../other/x.py` as under `root`. A relative import from an unnamed file can't be anchored, so only its absolute imports count. The root cause #668 reported (unnormalised `..` in configured namespace paths) is fixed once, in `ProjectConfig` (#676).
+
 **Applies-to:** both edges: `edges.resolve_imported_by` → `JediAnalyzer.find_importers`, and `edges.resolve_imports`.
 
 **Verify:** gold. `uv run pytest tests/test_imports_imported_by.py` passes:
 
 - the forward property over every `_SWEEP_CORPORA` fixture and over a project with every import form (plain, aliased, `from pkg import mod`, `from pkg.sub import mod`, relative, `TYPE_CHECKING`, try/except shim);
 - the asymmetry is pinned: a function-body importer (`app.lazy`) and a class-body importer (`app.class_body`) are in `imported_by` of their target but don't show it in their own `imports`.
+- #668: `tests/unit/mcp/operations/test_unresolved_importers.py` (expand, trace, find_importers, other edges never carry the field), the mapper cases in `tests/test_project_layout.py`, and linter rules E.6/T.10.
 
 ## 2026-11-15 — One canonical handle resolver; every tool echoes the canonical handle (#623)
 
