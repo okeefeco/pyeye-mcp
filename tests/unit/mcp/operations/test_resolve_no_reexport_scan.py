@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
-from pyeye.canonicalization import resolve_canonical
 from pyeye.mcp.operations.resolve import resolve
 
 _FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "resolve_project"
@@ -53,23 +52,6 @@ async def test_resolve_runs_no_reexport_scan(identifier: str, scans: list[tuple[
     result = await resolve(identifier, JediAnalyzer(str(_FIXTURE)))
     assert result["found"] is True
     assert scans == [], f"resolve({identifier!r}) ran find_reexports {len(scans)} time(s)"
-
-
-async def test_canonical_resolution_runs_no_reexport_scan(
-    scans: list[tuple[Any, ...]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    lookups: list[str] = []
-    original = JediAnalyzer.find_symbol
-
-    async def counting(self: JediAnalyzer, name: str, *args: Any, **kwargs: Any) -> Any:
-        lookups.append(name)
-        return await original(self, name, *args, **kwargs)
-
-    monkeypatch.setattr(JediAnalyzer, "find_symbol", counting)
-    # A prefix that is neither a module nor a class falls back to find_symbol.
-    await resolve_canonical("mypackage.nosuchmodule.Widget", JediAnalyzer(str(_FIXTURE)))
-    assert lookups, "resolve_canonical didn't reach find_symbol; the test is vacuous"
-    assert scans == []
 
 
 async def test_import_paths_still_available_on_request() -> None:

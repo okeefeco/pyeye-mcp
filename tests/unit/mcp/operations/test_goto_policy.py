@@ -163,11 +163,6 @@ class TestInspectSuperclassesFieldReadsTheEdge:
 
 class TestTyperefForwardRef:
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#623 slice 5 moves typeref forward refs onto the shared resolver; until "
-        'then "Foo" is a project-wide bare-name search and finds two Foo classes',
-    )
     async def test_quoted_and_unquoted_annotation_name_the_same_class(self, analyzer) -> None:  # type: ignore[no-untyped-def]
         params = {p["name"]: p for p in (await inspect("gp.fwd.takes", analyzer))["parameters"]}
         assert params["direct"]["type"].get("handle") == "gp.fwd.Foo"
