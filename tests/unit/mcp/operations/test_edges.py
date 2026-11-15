@@ -1970,3 +1970,45 @@ class TestGuardedImportsIncludedInImports:
         for guarded in (_WIDGETS_WIDGET, _WIDGETS_PREMIUM, _WIDGETS_CONFIG):
             assert guarded in import_handles
             assert guarded not in member_handles
+
+
+class TestCollectMembers:
+    """``_collect_members`` is the one member-collection loop (#686).
+
+    ``_class_members`` and ``_module_members`` keep only their name selection;
+    both build each handle through ``_handle_for_name`` and dedupe on the
+    handle it EMITS, which can differ from Jedi's ``full_name`` (#544, #714).
+    """
+
+    @staticmethod
+    def _name(name: str) -> Mock:
+        m = Mock()
+        m.name = name
+        m.module_path = None
+        return m
+
+    def test_dedupes_on_the_emitted_handle_keeping_the_first_name(self) -> None:
+        from pyeye.mcp.operations.edges import _collect_members
+
+        first, second = self._name("a"), self._name("a")
+        analyzer = Mock()
+        with patch(
+            "pyeye.mcp.operations.edges._handle_for_name",
+            return_value=Handle("pkg.mod.a"),
+        ):
+            # Two different full_names that emit the same handle: one member.
+            members = _collect_members([(first, "pkg._mod.a"), (second, "pkg.mod.a")], analyzer)
+
+        assert members == [(Handle("pkg.mod.a"), first)]
+
+    def test_unplaceable_names_are_skipped(self) -> None:
+        from pyeye.mcp.operations.edges import _collect_members
+
+        kept, dropped = self._name("ok"), self._name("bad")
+        with patch(
+            "pyeye.mcp.operations.edges._handle_for_name",
+            side_effect=lambda n, _an, full: None if n is dropped else Handle(full),
+        ):
+            members = _collect_members([(dropped, "x.bad"), (kept, "x.ok")], Mock())
+
+        assert members == [(Handle("x.ok"), kept)]

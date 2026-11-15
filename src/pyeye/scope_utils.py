@@ -4,6 +4,8 @@ import asyncio
 import logging
 import time
 import warnings
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,177 @@ logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
 Scope = str | list[str]
+
+
+@dataclass(frozen=True)
+class ScopeLayout:
+    """What a search scope can name: the one layout every scope→paths call reads (#690).
+
+    Attributes:
+        project_path: The main project.
+        packages: Configured packages, excluding the main project and the
+            namespace roots (``ProjectConfig.get_package_paths`` mixes both in,
+            which made ``scope="packages"`` search them too, #594).
+        namespace_paths: Namespace name → its repository roots.
+        standalone_paths: Standalone script directories.
+    """
+
+    project_path: Path
+    packages: tuple[Path, ...] = ()
+    namespace_paths: Mapping[str, tuple[Path, ...]] = field(default_factory=dict)
+    standalone_paths: tuple[Path, ...] = ()
+
+    @classmethod
+    def from_parts(
+        cls,
+        project_path: Path,
+        additional_paths: Iterable[Path] = (),
+        namespace_paths: Mapping[str, Iterable[Path]] | None = None,
+        standalone_paths: Iterable[Path] = (),
+    ) -> "ScopeLayout":
+        """Normalise an owner's layout attributes into a :class:`ScopeLayout`."""
+        namespaces = {
+            ns: tuple(Path(p) for p in paths) for ns, paths in (namespace_paths or {}).items()
+        }
+        not_packages = {_resolved(project_path)} | {
+            _resolved(p) for paths in namespaces.values() for p in paths
+        }
+        packages: list[Path] = []
+        seen: set[Path] = set()
+        for p in additional_paths:
+            key = _resolved(Path(p))
+            if key not in not_packages and key not in seen:
+                seen.add(key)
+                packages.append(Path(p))
+        return cls(
+            project_path=Path(project_path),
+            packages=tuple(packages),
+            namespace_paths=namespaces,
+            standalone_paths=tuple(Path(p) for p in standalone_paths),
+        )
+
+    def configured_scopes(self) -> dict[str, set[Path]]:
+        """Every configured scope and the paths it covers, in a stable order.
+
+        ``main`` always; ``packages`` and ``standalone`` when configured; then one
+        ``namespace:<name>`` per namespace, sorted. Each entry is exactly what
+        :func:`resolve_scope_paths` returns for that scope.
+        """
+        names = ["main"]
+        if self.packages:
+            names.append("packages")
+        if self.standalone_paths:
+            names.append("standalone")
+        names.extend(f"namespace:{ns}" for ns in sorted(self.namespace_paths))
+        return {name: resolve_scope_paths(name, self, warn=False) for name in names}
+
+
+def resolve_scope_paths(
+    scope: "Scope", layout: ScopeLayout, *, warn: bool = True, owner: str = ""
+) -> set[Path]:
+    """Resolve a search scope to the directories it covers: the ONE implementation (#690).
+
+    ``JediAnalyzer`` and every ``AnalyzerPlugin`` delegate here, so a scope
+    means the same thing for every tool:
+
+    - ``main``: the main project.
+    - ``packages``: configured packages only (not main, not namespaces).
+    - ``standalone``: standalone script directories.
+    - ``namespace:<name>``: a namespace's package directories; a dotted
+      ``namespace:a.b`` resolves under namespace ``a``.
+    - ``package:<path>``: that directory, if it exists.
+    - ``all``: main + packages + every namespace + standalone.
+
+    Args:
+        scope: A scope or list of scopes, aliases already expanded.
+        layout: The owner's :class:`ScopeLayout`.
+        warn: Log unknown scopes and missing paths.
+        owner: Prefix for warnings (e.g. ``"Plugin Pydantic: "``).
+
+    Returns:
+        The set of directories to search.
+    """
+    paths: set[Path] = set()
+    for s in [scope] if isinstance(scope, str) else scope:
+        if s == "main":
+            paths.add(layout.project_path)
+        elif s == "all":
+            paths.add(layout.project_path)
+            paths.update(layout.packages)
+            # Exactly the union of every ``namespace:<name>`` scope, so ``all``
+            # covers each namespace scope by construction (the #594 envelope).
+            for ns in layout.namespace_paths:
+                paths.update(_namespace_scope_paths(ns, layout))
+            paths.update(layout.standalone_paths)
+        elif s == "packages":
+            paths.update(layout.packages)
+        elif s == "standalone":
+            paths.update(layout.standalone_paths)
+        elif s.startswith("namespace:"):
+            found = _namespace_scope_paths(s[len("namespace:") :], layout)
+            if not found and warn:
+                logger.warning(f"{owner}Namespace not found: {s[len('namespace:'):]}")
+            paths.update(found)
+        elif s.startswith("package:"):
+            pkg_path = Path(s[len("package:") :])
+            if pkg_path.exists():
+                paths.add(pkg_path)
+            elif warn:
+                logger.warning(f"{owner}Package path does not exist: {pkg_path.as_posix()}")
+        elif warn:
+            logger.warning(f"{owner}Unknown scope specification: {s}")
+    return paths
+
+
+def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:
+    """The directories of *namespace* (``"aac"`` or a sub-namespace ``"aac.tools"``)."""
+    paths: set[Path] = set()
+    for ns_path in layout.namespace_paths.get(namespace, ()):
+        paths.update(namespace_directory_structure(ns_path))
+    parts = namespace.split(".")
+    for i in range(len(parts)):
+        parent_ns = ".".join(parts[: i + 1])
+        sub_parts = parts[i + 1 :]
+        for ns_path in layout.namespace_paths.get(parent_ns, ()):
+            base_path = namespace_base_path(ns_path, parent_ns)
+            if not sub_parts:
+                paths.add(base_path)
+            elif (base_path / Path(*sub_parts)).exists():
+                paths.add(base_path / Path(*sub_parts))
+    return paths
+
+
+def namespace_directory_structure(ns_path: Path) -> set[Path]:
+    """The package directories in a namespace repository (``repo`` → ``repo/aac``).
+
+    The repository itself when it holds Python files, plus each non-hidden
+    subdirectory that does; the repository root as a fallback.
+    """
+    paths: set[Path] = set()
+    if (ns_path / "__init__.py").exists() or any(ns_path.glob("*.py")):
+        paths.add(ns_path)
+    if ns_path.is_dir():
+        for subdir in ns_path.iterdir():
+            if subdir.is_dir() and not subdir.name.startswith("."):
+                if (subdir / "__init__.py").exists() or any(subdir.glob("*.py")):
+                    paths.add(subdir)
+    return paths or {ns_path}
+
+
+def namespace_base_path(ns_path: Path, namespace: str) -> Path:
+    """The directory of *namespace* inside repository *ns_path* (the root if absent)."""
+    ns_parts = namespace.split(".")
+    potential_path = ns_path / ns_parts[0]
+    if potential_path.is_dir():
+        return potential_path / Path(*ns_parts[1:]) if len(ns_parts) > 1 else potential_path
+    return ns_path
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return Path(path).resolve()
+    except OSError:
+        return Path(path)
 
 
 class SmartScopeResolver:

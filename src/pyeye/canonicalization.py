@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyeye import file_artifact_cache
+from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
 from pyeye.project_layout import (
     file_for_module,
@@ -184,7 +185,9 @@ async def _scan_package_for_handle(
     results: list[str] = []
 
     try:
-        py_files = sorted(package_root.rglob("*.py"))
+        # The shared project-scan rule (#517): a project that is itself a package
+        # has its root here, which may hold nested worktrees or a .venv.
+        py_files = sorted(filtered_rglob("*.py", package_root))
     except Exception as exc:
         logger.debug("_scan_package_for_handle: cannot list files under %s: %s", package_root, exc)
         return results

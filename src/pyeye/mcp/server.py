@@ -177,6 +177,7 @@ def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:
 
     plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
     plugin.set_namespace_paths(config.get_namespaces())
+    plugin.set_standalone_paths(config.get_standalone_paths())
 
 
 _PLUGIN_CLASSES: tuple[type[AnalyzerPlugin], ...] = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
