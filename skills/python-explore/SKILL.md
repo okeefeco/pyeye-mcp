@@ -100,7 +100,13 @@ reliably today:
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
 | `superclasses` | class → its bases | the class's direct base classes |
 | `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
-| `imported_by` | module → its importers | project modules that import this module |
+| `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
+
+**`imports` and `imported_by` are not exact inverses.** If `imports(M)` shows
+module `B`, then `M` is in `imported_by(B)`. The reverse can fail: a module that
+imports `B` only inside a function shows up in `imported_by(B)` but not in its
+own `imports`, and `imports` reports a re-exported name at its definition site,
+not the module it was imported from.
 
 **Pointer-only stubs.** `subclasses` and `imported_by` stubs are *pointers*
 (handle + location + kind) and intentionally omit `signature` — even though a
@@ -196,7 +202,7 @@ present `superclasses: 0` means measured-and-none (the class has no bases). An *
 
 ### `trace` honesty fields — an empty subgraph is not always "nothing there"
 
-A `trace` Subgraph carries two honesty fields. **Read them before treating the graph as
+A `trace` Subgraph carries several honesty fields. **Read them before treating the graph as
 complete** — an empty or clean-looking subgraph can mean a resolution miss, not a real zero:
 
 - **`unresolved_roots`** (always present): `[]` means every root resolved. A **non-empty**
@@ -204,6 +210,16 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   `unresolved_roots` is "I couldn't resolve the root" (a cold-start miss is possible, #419),
   **not** "this root has no neighbours." Retry, `resolve`/`inspect` the handle, or fall back
   to `Read`/your LSP — do not conclude the symbol calls/contains nothing.
+- **`unresolved_nodes`** (always present): interior nodes `trace` reached but could not
+  resolve (the same handles `expand` answers `found: false` for),
+  so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
+  node with no neighbours.
+- **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind
+  (e.g. `imports` on a class), with `reason: "not_applicable"`: its `detail` names the
+  kind and the kinds the edge does apply to. Those nodes were not walked along that
+  edge — that's "not applicable", not "measured, none". `expand` gives the same
+  `not_applicable` answer directly (e.g. `members` on a function, `subclasses` on a
+  module), never a `stubs: []`.
 - **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
   map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of

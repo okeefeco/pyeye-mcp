@@ -71,7 +71,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                          "wrong_kind_not_unsupported"}
 
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
-_ISSUE_621 = "#621"  # trace: wrong-kind as measured-empty; interior nodes skip resolution
 _ISSUE_623 = "#623"  # one canonical handle resolver
 
 
@@ -191,14 +190,7 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: resolve_at on `import logging` returns found `logging`; every other
     # tool rejects it.
     **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
-    # == 4. trace vs expand =================================================
-    # #621: expand says imports/imported_by is unsupported for a class or
-    # function; trace reports it as measured-empty (unsupported_edges=[]).
-    **{
-        ("trace_expand", root, edge, root, "wrong_kind_not_unsupported"): _ISSUE_621
-        for root in ("xpkg.core.Color", "xpkg.core.Widget", "xpkg.core.make_widget")
-        for edge in ("imported_by", "imports")
-    },
+    # == 4. trace vs expand: none since #621.
 }
 
 
@@ -582,11 +574,14 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
 #: (root, edge) pairs traced.  Covers project and stdlib imports, a namespace
 #: package, class hierarchies, callees, and wrong-kind edges on each kind.
 #:
-#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: trace walks
-#: ``logging`` -> ``io``/``weakref`` (interior nodes expand refuses, #621) and
-#: their ``imports`` hops recurse ~1500 frames deep in Jedi, which overflows the
-#: C stack and kills the process on Windows / CPython 3.11.  ``xpkg.text``
-#: (``import textwrap``) exercises the same interior-node gap shallowly.
+#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: an ``imports`` hop ON
+#: ``io``/``weakref`` recurses ~1500 frames deep in Jedi, which overflows the C
+#: stack and kills the process on Windows / CPython 3.11 (#650).  Since #621
+#: trace no longer walks ``logging`` (expand can't resolve it), but once #623
+#: makes stdlib modules resolvable the walk would reach ``io`` again.  #650
+#: guards that only at the server layer (a large-stack worker thread); this test
+#: calls ``trace`` directly on the main thread, so the case stays excluded.
+#: ``xpkg.text`` (``import textwrap``) stays shallow.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (

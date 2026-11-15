@@ -189,11 +189,18 @@ class TestTraceTruncationReasons:
 
     @pytest.mark.asyncio
     async def test_both_caps_report_both(self, analyzer: JediAnalyzer) -> None:
-        # Shallow depth AND a tight budget on the multi-path imported_by graph:
-        # the budget fills during root expansion, and frontier nodes still have
-        # unvisited importers cut by depth — both causes fire.
+        # Hops are all-or-nothing (#621).  A budget of exactly root + its members
+        # lets the root's members hop fit; its imported_by hop then does NOT fit
+        # (max_nodes), and the depth-1 members' own hops are cut by depth.
+        from pyeye.mcp.operations.expand import expand
+
+        members = (await expand(_WIDGETS_MODULE_HANDLE, "members", analyzer))["stubs"]
         result = await trace(
-            _WIDGETS_MODULE_HANDLE, ["imported_by"], analyzer, max_depth=1, max_nodes=3
+            _WIDGETS_MODULE_HANDLE,
+            ["members", "imported_by"],
+            analyzer,
+            max_depth=1,
+            max_nodes=1 + len(members),
         )
         assert result["truncated"] is True
         assert set(result["truncation_reasons"]) == {"max_depth", "max_nodes"}
@@ -537,7 +544,15 @@ class TestTraceMultiHopAndMultiEdge:
         # Both edge types are present and correctly labelled (not deduped across kinds).
         assert "members" in kinds
         assert "imported_by" in kinds
-        assert result["unsupported_edges"] == []
+        # #621: the module's members (classes, functions, variables) are
+        # wrong-kind for imported_by.  That is reported with expand's own
+        # kind-specific detail, never silently walked as measured-empty;
+        # members is supported everywhere, so it is never listed.
+        assert result["unsupported_edges"], "wrong-kind imported_by hops must be reported"
+        for entry in result["unsupported_edges"]:
+            assert entry["edge"] == "imported_by"
+            assert entry["reason"] == "not_yet_implemented"
+            assert "does not apply to a" in entry["detail"]
         for edge in result["edges"]:
             assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"
             assert edge["to"] in result["nodes"], f"edge to-handle not a node: {edge}"
@@ -605,3 +620,187 @@ class TestTraceCycleSafe:
         for edge in result["edges"]:
             assert edge["from"] in result["nodes"], f"edge from-handle not a node: {edge}"
             assert edge["to"] in result["nodes"], f"edge to-handle not a node: {edge}"
+
+
+# ---------------------------------------------------------------------------
+# #621 — trace walks exactly what expand supports
+# ---------------------------------------------------------------------------
+
+#: The #614 cross-tool fixture: ``xpkg.core`` imports ``logging`` (a stdlib
+#: module ``expand`` cannot resolve today, #602) and defines a class and a
+#: function; ``xpkg.text`` imports only ``textwrap``.
+_XTOOL_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "cross_tool"
+
+
+@pytest.fixture
+def xtool_analyzer() -> JediAnalyzer:
+    """JediAnalyzer pointed at the cross_tool fixture (#614)."""
+    return JediAnalyzer(str(_XTOOL_FIXTURE))
+
+
+class TestTraceInteriorNodesFollowExpand:
+    """An interior node is walked along an edge only when ``expand`` would
+    answer found + supported for it (#621 item 3).  A node the shared resolver
+    rejects stays an unexpanded leaf and is listed in ``unresolved_nodes`` —
+    never a silent leaf (which reads as "measured, no neighbours").
+
+    The resolver is made to reject one chosen handle (``textwrap``) so these
+    tests pin trace's contract whatever the resolver currently covers; that
+    trace and the real resolver agree is the #614 trace-vs-expand fitness test.
+    """
+
+    _REFUSED = "textwrap"
+
+    @pytest.fixture
+    def refuse_textwrap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pyeye import resolver
+        from pyeye.mcp.operations import (
+            expand as expand_mod,
+            trace as trace_mod,
+        )
+
+        real = resolver.resolve_handle
+
+        def rejecting(path, analyzer):  # type: ignore[no-untyped-def]
+            if path == self._REFUSED:
+                return resolver.NotFound(reason="unresolved", detail="rejected by test")
+            return real(path, analyzer)
+
+        # trace and expand both resolve through the one resolver (#623).
+        monkeypatch.setattr(trace_mod, "resolve_handle", rejecting)
+        monkeypatch.setattr(expand_mod, "resolve_handle", rejecting)
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("refuse_textwrap")
+    async def test_interior_node_expand_refuses_is_not_walked(
+        self, xtool_analyzer: JediAnalyzer
+    ) -> None:
+        from pyeye.mcp.operations.expand import expand
+
+        assert (await expand(self._REFUSED, "imports", xtool_analyzer))["found"] is False
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
+        assert self._REFUSED in result["nodes"]  # emitted as an adjacent stub...
+        walked_from = {e["from"] for e in result["edges"]}
+        assert self._REFUSED not in walked_from  # ...but never walked
+        assert result["unresolved_nodes"] == [self._REFUSED]
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("refuse_textwrap")
+    async def test_refused_interior_hop_never_runs_the_edge_resolver(
+        self, xtool_analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye.mcp.operations import edges
+
+        real = edges.EDGE_RESOLVERS["imports"]
+
+        def spy(jedi_name, analyzer):  # type: ignore[no-untyped-def]
+            if getattr(jedi_name, "full_name", None) == self._REFUSED:
+                raise AssertionError(f"trace walked {self._REFUSED!r}, which expand refuses")
+            return real(jedi_name, analyzer)
+
+        monkeypatch.setitem(edges.EDGE_RESOLVERS, "imports", spy)
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
+        assert self._REFUSED in result["unresolved_nodes"]
+
+    @pytest.mark.asyncio
+    async def test_resolvable_interior_node_is_walked(self, xtool_analyzer: JediAnalyzer) -> None:
+        # The converse: once the resolver finds a node (#623 resolves stdlib
+        # modules), trace walks it exactly as expand would.
+        from pyeye.mcp.operations.expand import expand
+
+        hop = await expand("textwrap", "imports", xtool_analyzer)
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=2)
+        if hop.get("found") and not hop.get("unsupported"):
+            assert "textwrap" not in result["unresolved_nodes"]
+            walked = {e["to"] for e in result["edges"] if e["from"] == "textwrap"}
+            assert walked <= {s["handle"] for s in hop["stubs"]}
+        else:
+            assert "textwrap" in result["unresolved_nodes"]
+
+    @pytest.mark.asyncio
+    async def test_unresolved_nodes_always_present(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(_WIDGET_HANDLE, ["members"], analyzer, max_depth=2)
+        assert result["unresolved_nodes"] == []
+
+    @pytest.mark.asyncio
+    async def test_unresolved_root_is_not_an_unresolved_node(self, analyzer: JediAnalyzer) -> None:
+        result = await trace("does.not.exist.Sym", ["members"], analyzer)
+        assert result["unresolved_roots"] == ["does.not.exist.Sym"]
+        assert result["unresolved_nodes"] == []
+
+
+class TestTraceWrongKindIsUnsupported:
+    """A wrong-kind edge is reported in ``unsupported_edges`` with expand's own
+    reason and detail — not as a measured-empty walk (#621 item 1)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("root", "edge"),
+        [
+            ("xpkg.core.Widget", "imports"),
+            ("xpkg.core.Widget", "imported_by"),
+            ("xpkg.core.make_widget", "imports"),
+        ],
+    )
+    async def test_wrong_kind_root_edge_is_unsupported(
+        self, xtool_analyzer: JediAnalyzer, root: str, edge: str
+    ) -> None:
+        from pyeye.mcp.operations.expand import expand
+
+        expanded = await expand(root, edge, xtool_analyzer)
+        assert expanded.get("unsupported") is True  # precondition: expand refuses
+
+        result = await trace(root, [edge], xtool_analyzer)
+        expected = {k: expanded[k] for k in ("reason", "detail")} | {"edge": edge}
+        assert result["unsupported_edges"] == [expected]
+        assert "report_issues" in result
+
+    @pytest.mark.asyncio
+    async def test_wrong_kind_only_edge_is_not_reported_as_measured(
+        self, xtool_analyzer: JediAnalyzer
+    ) -> None:
+        # imports was never walked on any node, so "all imports resolved" ({})
+        # would be a measured-zero claim about something never measured.
+        result = await trace("xpkg.core.Widget", ["imports"], xtool_analyzer)
+        assert "unresolved_imports" not in result
+
+    @pytest.mark.asyncio
+    async def test_supported_edge_reports_nothing_unsupported(
+        self, xtool_analyzer: JediAnalyzer
+    ) -> None:
+        result = await trace("xpkg.text", ["imports"], xtool_analyzer, max_depth=1)
+        assert result["unsupported_edges"] == []
+        assert "unresolved_imports" in result  # imports WAS walked on xpkg.text
+
+
+class TestTraceHopBudgetIsAllOrNothing:
+    """``max_nodes`` is reserved per hop: a node's adjacents along an edge are
+    added all together or not at all (#621 item 2, the #358 outline rule), so a
+    walked hop is never silently partial."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("max_nodes", [1, 2, 3, 4, 6, 9, 50])
+    async def test_every_walked_hop_is_complete(
+        self, analyzer: JediAnalyzer, max_nodes: int
+    ) -> None:
+        from pyeye.mcp.operations.expand import expand
+
+        result = await trace(
+            _WIDGETS_MODULE_HANDLE, ["members"], analyzer, max_depth=3, max_nodes=max_nodes
+        )
+        assert len(result["nodes"]) <= max_nodes
+        walked: dict[str, set[str]] = {}
+        for e in result["edges"]:
+            walked.setdefault(e["from"], set()).add(e["to"])
+        for node, targets in walked.items():
+            full = {s["handle"] for s in (await expand(node, "members", analyzer))["stubs"]}
+            assert targets == full, f"partial hop from {node}: {sorted(targets)} of {sorted(full)}"
+
+    @pytest.mark.asyncio
+    async def test_hop_that_does_not_fit_reports_max_nodes(self, analyzer: JediAnalyzer) -> None:
+        result = await trace(
+            _WIDGETS_MODULE_HANDLE, ["members"], analyzer, max_depth=3, max_nodes=2
+        )
+        assert result["edges"] == []  # the module's members don't fit in 1 slot
+        assert list(result["nodes"]) == [_WIDGETS_MODULE_HANDLE]
+        assert result["truncation_reasons"] == ["max_nodes"]

@@ -586,9 +586,12 @@ async def expand(
       - ``imported_by``  — module → the project modules that import it (module
         Stubs), computed by static AST import-graph reversal (no reverse symbol
         search).  Covers importers anywhere in the project including tests and
-        standalone scripts.  Non-module handles return the unsupported branch
-        with ``reason: "not_yet_implemented"`` (symbol-level ``imported_by`` is
-        not yet implemented).  Ceiling: runtime-dynamic imports
+        standalone scripts, and imports anywhere in a file: guarded, and inside
+        a function or class body too (a lazy import is still a dependency).
+        So it is NOT the exact inverse of ``imports``: if ``imports(M)`` shows
+        module ``B``, then ``M`` is in ``imported_by(B)``, but a function-body
+        importer appears only here.  Non-module handles return the unsupported branch
+        with ``reason: "not_applicable"`` (#626).  Ceiling: runtime-dynamic imports
         (``importlib``/``__import__`` with computed targets) are not detected.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
@@ -602,33 +605,39 @@ async def expand(
         reference backend / class-graph cache (#333/#397), because even the direct
         count is a reverse query needing the same project-wide scan as
         ``callers``/``references``.  ``stubs: []`` means the class has no project
-        subclasses (measured-none).  A non-class handle also returns the supported
-        branch with ``stubs: []`` (and no ``transitive_hint``) — only a class CAN
-        be subclassed, so ``[]`` is true by definition, not an absence-vs-zero
-        lie.  Static-surface ceiling: the result is complete only over literal
+        subclasses (measured-none).  A non-class handle returns the unsupported
+        branch with ``reason: "not_applicable"`` (#626).  Static-surface ceiling: the result is complete only over literal
         ``class B(A):`` subclassing; dynamically-created subclasses
         (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
         registration) are NOT captured.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle
-        returns ``stubs: []`` (``[]`` true by definition, as with ``subclasses``).
+        returns the unsupported branch with ``reason: "not_applicable"``.
       - ``imports``  — module → the symbols/modules it imports (Stubs), computed
-        by static AST + forward ``goto``.  ``stubs: []`` is measured-none.  A
+        by static AST + forward ``goto``.  Counts the imports that bind a
+        module-scope name (guarded ones included; imports inside a function or
+        class body are not), and reports each imported symbol at its canonical
+        definition site.  ``stubs: []`` is measured-none.  A
         non-module handle returns the unsupported branch with
-        ``reason: "not_yet_implemented"`` (mirrors ``imported_by``).
+        ``reason: "not_applicable"`` (mirrors ``imported_by``).
       - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope
         (the inverse of ``members``), resolved by Jedi ``parent()``: a method →
         its class, a nested def/class → its enclosing def/class, a top-level
         def/class/variable → its module.  At most ONE Stub.  A module returns
-        ``stubs: []`` (a module has no enclosing lexical scope — packages are not
-        lexical scopes); ``[]`` is therefore measured-empty, never unsupported.
+        the unsupported branch with ``reason: "not_applicable"``: a module has no
+        enclosing lexical scope (packages are not lexical scopes).
 
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (``callers``, ``references``,
         ``overrides``, …) require the Pyright reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
-      - Wrong-kind handles (e.g. ``imported_by`` on a non-module) return the
-        unsupported branch with ``reason: "not_yet_implemented"``.
+      - Wrong-kind handles (an edge that doesn't apply to the handle's kind, e.g.
+        ``imported_by`` on a class or ``members`` on a function) return the
+        unsupported branch with ``reason: "not_applicable"`` (#626). Which kinds
+        each edge applies to is one table, ``edges.EDGE_APPLIES_TO``:
+        members → class, module; callees → function, method; imports,
+        imported_by, submodules → module; subclasses, superclasses → class;
+        enclosing_scope → every kind except module.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union.  ``found`` is always present.
@@ -659,7 +668,8 @@ async def expand(
           "edge":   str,
           "unsupported": True,
           "reason":  str,               # deferred_reference_backend |
-                                        # not_yet_implemented | unknown_edge
+                                        # not_yet_implemented | unknown_edge |
+                                        # not_applicable
           "detail":  str,               # human-readable explanation
           "report_issues": str }        # #458 — URL to report this limitation
 
@@ -712,7 +722,15 @@ async def trace(
     ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in
     ``follow`` (deferred reference edges, unknown names) is reported in
     ``unsupported_edges`` rather than silently dropped — a silent drop would
-    falsely read as "no such neighbours".
+    falsely read as "no such neighbours".  So is an implemented edge that does
+    not apply to a node's kind (e.g. ``imports`` on a class), with ``expand``'s
+    own reason and detail (#621).
+
+    Every hop is exactly what ``expand(node, edge)`` would return: a node
+    ``expand`` cannot resolve is not walked and is listed in
+    ``unresolved_nodes``; a hop's adjacents are added all together or not at
+    all, so a walked hop is never partial — a hop cut by ``max_depth`` or
+    ``max_nodes`` records no edges and sets the matching truncation reason.
 
     Response shape — ``Subgraph``::
 
@@ -722,8 +740,9 @@ async def trace(
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
           "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
-          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
-          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
+          "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
+          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
+          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are

@@ -89,6 +89,10 @@ T.7 ``unresolved_call_sites`` (#488), when present (only if ``callees`` was
 T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced),
     is a dict ``{handle: [target, ...]}`` of non-empty single-line handle keys
     and non-empty lists of non-empty single-line target strs.  Optional.
+T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
+    handle strings, each a key of ``nodes`` — the interior nodes ``expand``
+    could not resolve, so trace never walked them.  ``[]`` when every interior
+    node resolved; absence is rejected (like ``unresolved_roots``).
 
 Check O — outline OutlineTree structural floors (operation == "outline")
 ------------------------------------------------------------------------
@@ -1315,6 +1319,38 @@ def _check_trace_structural_floor(
                     f"[T.6 trace unresolved_roots entry single-line] unresolved_roots[{idx}]: "
                     f"must be single-line; got {_truncate(item)}."
                 )
+
+    # T.9 — unresolved_nodes (#621): REQUIRED, like unresolved_roots. Interior
+    # resolution is always measured (every discovered node is resolved before it
+    # is walked), so absence is a broken trace. Each entry was discovered as an
+    # adjacent, so it must also be a node.
+    if "unresolved_nodes" not in response:
+        violations.append(
+            "[T.9 trace required key] 'unresolved_nodes' is missing. It is [] when every "
+            "interior node resolved, or lists the nodes expand could not resolve and "
+            "trace therefore did not walk (#621) — never absent."
+        )
+    else:
+        unresolved_nodes = response["unresolved_nodes"]
+        node_keys = response.get("nodes") if isinstance(response.get("nodes"), dict) else {}
+        if not isinstance(unresolved_nodes, list):
+            violations.append(
+                f"[T.9 trace unresolved_nodes type] 'unresolved_nodes' must be a list; "
+                f"got {type(unresolved_nodes).__name__!r}."
+            )
+        else:
+            for idx, item in enumerate(unresolved_nodes):
+                if not isinstance(item, str) or not item.strip() or "\n" in item:
+                    violations.append(
+                        f"[T.9 trace unresolved_nodes entry] unresolved_nodes[{idx}]: must be "
+                        f"a non-empty single-line handle string; got {_truncate(item)}."
+                    )
+                elif item not in node_keys:
+                    violations.append(
+                        f"[T.9 trace unresolved_nodes not a node] unresolved_nodes[{idx}] "
+                        f"{item!r} is not a key of 'nodes' — an unresolved node was "
+                        "discovered as an adjacent, so it must have a stub."
+                    )
 
     # T.7 — unresolved_call_sites (#488 interior honesty): OPTIONAL map, present
     # only when ``callees`` was traced (absent ⇒ call sites not measured, the
