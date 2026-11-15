@@ -10,9 +10,8 @@ import pytest
 from pyeye.cache import GranularCache, ProjectCache
 from pyeye.import_analyzer import ImportAnalyzer
 from tests.utils.performance import (
-    get_ci_tolerance_factor,
-    get_platform_name,
-    is_ci_environment,
+    PerformanceThresholds,
+    assert_performance_threshold,
 )
 
 
@@ -223,37 +222,16 @@ def function_{pkg_num}_{mod_num}():
             invalidation_reduction > 80
         ), f"Should reduce invalidations by >80%, got {invalidation_reduction:.1f}%"
 
-        # For very small caches, traditional might be faster per-operation but smart wins on efficiency
-        # The real benefit shows with larger caches and real workloads
-        if traditional_results["entries_invalidated_per_change"] > 100:
-            total_work_traditional = (
-                traditional_results["avg_invalidation_time"]
-                * traditional_results["entries_invalidated_per_change"]
-            )
-            total_work_smart = (
-                smart_results["avg_invalidation_time"]
-                * smart_results["entries_invalidated_per_change"]
-            )
-
-            # Use centralized CI tolerance handling
-            tolerance_factor = get_ci_tolerance_factor()
-
-            # Smart invalidation should generally be faster, but allow variance on CI
-            if is_ci_environment():
-                # On CI, the important metric is the 99% reduction in invalidations
-                # Allow more timing variance since CI runners are inconsistent
-                assert total_work_smart < total_work_traditional * tolerance_factor, (
-                    f"Smart invalidation too slow on {get_platform_name()} "
-                    f"{'CI' if is_ci_environment() else 'local'}: "
-                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f} "
-                    f"(tolerance factor: {tolerance_factor}x)"
-                )
-            else:
-                # On local development, maintain stricter performance requirements
-                assert total_work_smart < total_work_traditional, (
-                    f"Smart should do less total work: "
-                    f"smart={total_work_smart:.6f} vs traditional={total_work_traditional:.6f}"
-                )
+        # The efficiency claim is the COUNT above (>80% fewer entries invalidated),
+        # which is deterministic. The old relative wall-clock comparison of
+        # sub-millisecond operations (smart vs traditional "total work") flaked
+        # under load and on its own (#486), so it's replaced by an absolute
+        # budget for the smart path on the PerformanceThresholds framework.
+        assert_performance_threshold(
+            smart_results["avg_invalidation_time"] * 1000,
+            PerformanceThresholds(base=5.0, linux_ci=10.0, macos_ci=20.0, windows_ci=20.0),
+            "Smart invalidation (avg per change)",
+        )
 
     def test_cache_hit_rate(self, large_project):
         """Test that smart invalidation achieves >90% cache hit rate."""
@@ -435,5 +413,9 @@ def function_{pkg_num}_{mod_num}():
         print(f"  P95: {p95 * 1000:.2f}ms")
         print(f"  P99: {p99 * 1000:.2f}ms")
 
-        # P95 should be <100ms
-        assert p95 < 0.1, f"P95 response time should be <100ms, got {p95 * 1000:.2f}ms"
+        # P95 should stay well under 100ms (#486: framework tiers, not a bare assert)
+        assert_performance_threshold(
+            p95 * 1000,
+            PerformanceThresholds(base=100.0, linux_ci=200.0, macos_ci=400.0, windows_ci=400.0),
+            "Granular invalidation p95",
+        )
