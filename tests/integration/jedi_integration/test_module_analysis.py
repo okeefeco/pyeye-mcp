@@ -252,7 +252,7 @@ class TestFindImporters:
         robust against fixture growth.
         """
         analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        pairs = (await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")).named
 
         modules = {m for m, _ in pairs}
         # Direct ast.Import importer.
@@ -266,7 +266,7 @@ class TestFindImporters:
     async def test_find_importers_excludes_target_and_is_deduped(self):
         """The target's own file is excluded and modules are deduped."""
         analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        pairs = (await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")).named
 
         modules = [m for m, _ in pairs]
         # Target's own module never reports itself as an importer.
@@ -287,7 +287,7 @@ class TestFindImporters:
         proving coverage breadth (tests + standalone scripts).
         """
         analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        pairs = (await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")).named
 
         modules = {m for m, _ in pairs}
         assert "script_importer" in modules
@@ -305,7 +305,7 @@ class TestFindImporters:
         resolves this idiom.
         """
         analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        pairs = (await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")).named
 
         modules = {m for m, _ in pairs}
         assert "mypackage._core.submod_importer" in modules
@@ -321,7 +321,7 @@ class TestFindImporters:
         lets the AST check run — exercising the pre-filter half of the #436 fix.
         """
         analyzer = JediAnalyzer(str(_FIXTURE))
-        pairs = await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")
+        pairs = (await analyzer.find_importers(_TARGET, _TARGET_FILE, scope="all")).named
 
         modules = {m for m, _ in pairs}
         assert "submod_script_importer" in modules

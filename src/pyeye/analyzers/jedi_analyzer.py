@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import jedi
 
@@ -42,6 +42,22 @@ logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
 Scope = str | list[str]
+
+
+class Importers(NamedTuple):
+    """What :meth:`JediAnalyzer.find_importers` found (#668).
+
+    Attributes:
+        named: ``(importer_dotted_module, importer_file)`` pairs, deduped by
+            module and sorted by module name.
+        unnamed: Files that import the target but have no module name (a path
+            part that isn't a Python identifier, such as ``my-script.py`` or
+            ``tools-dir/x.py``), POSIX-sorted. They are real dependents with no
+            handle, reported so they are never silently dropped.
+    """
+
+    named: list[tuple[str, Path]]
+    unnamed: list[Path]
 
 
 def _jedi_sys_path(paths: Iterable[str | Path]) -> list[str]:
@@ -1550,7 +1566,7 @@ class JediAnalyzer:
 
     async def find_importers(
         self, module_path: str, target_file: Path, scope: Scope = "all"
-    ) -> list[tuple[str, Path]]:
+    ) -> Importers:
         """Find project files that import ``module_path`` (reverse import scan).
 
         Scans every project file in *scope* for an import of the target module,
@@ -1569,15 +1585,24 @@ class JediAnalyzer:
             scope: Search scope — "main", "all", or a namespace selector.
 
         Returns:
-            ``(importer_dotted_module, importer_file)`` pairs, deduped by
-            importer module (first occurrence wins, in sorted file path order)
-            and sorted by module name.  Files are iterated in POSIX-sorted
-            order so "first occurrence wins" is deterministic across runs and
-            platforms — the per-module ``Path`` selection does not depend on
-            filesystem or scan order.
+            :class:`Importers`. ``named`` holds ``(importer_dotted_module,
+            importer_file)`` pairs, deduped by importer module (first occurrence
+            wins, in sorted file path order) and sorted by module name.  Files
+            are iterated in POSIX-sorted order so "first occurrence wins" is
+            deterministic across runs and platforms.  ``unnamed`` holds the
+            importing files that have no module name (#668); a relative import
+            from such a file can't be anchored, so only its absolute imports
+            count.
         """
         target_root = module_path.split(".")[0]
         importers: dict[str, Path] = {}
+        unnamed: list[Path] = []
+
+        def record(importer: str | None, py_file: Path) -> None:
+            if importer is None:
+                unnamed.append(py_file)
+            elif importer not in importers:
+                importers[importer] = py_file
 
         py_files = sorted(
             await self.get_project_files("*.py", scope),
@@ -1623,10 +1648,11 @@ class JediAnalyzer:
                                 or alias.name.startswith(module_path + ".")
                                 for alias in node.names
                             ):
-                                if importer_module and importer_module not in importers:
-                                    importers[importer_module] = py_file
+                                record(importer_module, py_file)
                                 break
                         elif isinstance(node, ast.ImportFrom):
+                            if node.level and importer_module is None:
+                                continue  # no module to anchor a relative import
                             resolved = self._resolve_relative_import(
                                 node.level,
                                 node.module,
@@ -1650,14 +1676,16 @@ class JediAnalyzer:
                                     if alias.name != "*"
                                 )
                             ):
-                                if importer_module and importer_module not in importers:
-                                    importers[importer_module] = py_file
+                                record(importer_module, py_file)
                                 break
             except Exception as e:
                 logger.warning(f"Could not analyze {py_file} for imports: {e}")
                 continue
 
-        return [(module, importers[module]) for module in sorted(importers)]
+        return Importers(
+            named=[(module, importers[module]) for module in sorted(importers)],
+            unnamed=unnamed,  # files were walked in POSIX-sorted order
+        )
 
     def _build_navigable_ref(self, name: jedi.api.classes.Name) -> dict[str, Any]:
         """Build a minimal navigable reference dict from a Name-like object.

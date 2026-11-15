@@ -673,7 +673,8 @@ class TestResolveImportedByNonModule:
         wrong_kind = await _imported_by_for(_WIDGET_HANDLE, analyzer)
         measured_empty = await _imported_by_for(_MODULE_FORMS_HANDLE, analyzer)
         assert wrong_kind is None
-        assert measured_empty == EdgeResult(adjacents=[])
+        # Measured, none found, and none unnamed either (#668).
+        assert measured_empty == EdgeResult(adjacents=[], unresolved_importers=[])
         assert wrong_kind != measured_empty
 
 

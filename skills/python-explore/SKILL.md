@@ -233,10 +233,17 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   (each entry is the intended dotted target). A node listed here has an **incomplete import
   set** — a dependency closure is missing those edges. `expand(handle, "imports")` carries
   the same signal as a flat `unresolved_imports: [target, …]` list (`[]` when all resolved).
+- **`unresolved_importers`** (present only when you traced `imported_by`): a
+  `{handle: [file, …]}` map of files that import that module but have **no module name**
+  (a path part that isn't a Python identifier, e.g. `my-script.py`, `tools-dir/x.py`), so
+  they can't be stubs. They are still dependents: count them when sizing fan-in.
+  `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
+  list (`[]` when every importer has a handle).
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
-claim from `imports` likewise requires the node absent from `unresolved_imports`.
+claim from `imports` likewise requires the node absent from `unresolved_imports`, and a
+"nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`.
 
 ### Framework plugin tools — always pass `envelope=true`
 

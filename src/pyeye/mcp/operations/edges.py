@@ -118,11 +118,16 @@ class EdgeResult:
             Unlike call sites these ARE nameable from the AST, so they are listed
             (sorted, deduped), not merely counted.  ``None`` for every non-
             ``imports`` edge (the notion is imports-only).
+        unresolved_importers: For ``imported_by`` (#668), the POSIX paths of
+            files that import the target but have no module name, so no handle
+            (``my-script.py``, ``tools-dir/x.py``).  Listed, never dropped.
+            ``None`` for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
     unresolved_call_sites: int | None = None
     unresolved_imports: list[str] | None = None
+    unresolved_importers: list[str] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -682,21 +687,25 @@ async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeRes
     module_path = getattr(jedi_name, "full_name", None)
     target_file = getattr(jedi_name, "module_path", None)
     if not module_path or target_file is None:
-        return EdgeResult(adjacents=[])
+        return EdgeResult(adjacents=[], unresolved_importers=[])
 
-    importer_pairs = await analyzer.find_importers(module_path, Path(target_file), scope="all")
+    found = await analyzer.find_importers(module_path, Path(target_file), scope="all")
 
     adjacents: list[tuple[Handle, Any]] = []
-    for importer_module, importer_file in importer_pairs:
+    unnamed = [f.as_posix() for f in found.unnamed]
+    for importer_module, importer_file in found.named:
         h = _try_handle(importer_module)
         if h is None:
+            # A name the mapper produced but Handle rejects: still a dependent.
+            unnamed.append(importer_file.as_posix())
             continue
         # Build the Name from the importer's FILE, not by re-resolving the
         # handle — re-resolution drops non-package scripts (see docstring).
         name = ModuleSentinel(importer_file, str(h), analyzer)
         adjacents.append((h, name))
 
-    return EdgeResult(adjacents=adjacents)
+    # #668: an importer without a handle is listed, never silently dropped.
+    return EdgeResult(adjacents=adjacents, unresolved_importers=sorted(unnamed))
 
 
 # ---------------------------------------------------------------------------
