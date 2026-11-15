@@ -1385,13 +1385,10 @@ class JediAnalyzer:
         """
         if identifier not in canonical_cache:
             resolved = resolve_handle(identifier, self)
-            canonical: Handle | None = None
-            if isinstance(resolved, Resolved):
-                try:
-                    canonical = Handle(resolved.handle)
-                except ValueError:
-                    canonical = None
-            canonical_cache[identifier] = canonical
+            # A Resolved handle is always a valid dotted path (the resolver checks).
+            canonical_cache[identifier] = (
+                Handle(resolved.handle) if isinstance(resolved, Resolved) else None
+            )
         return canonical_cache[identifier]
 
     def _build_ast_resolution_tables(

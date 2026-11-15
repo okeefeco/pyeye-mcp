@@ -669,9 +669,7 @@ def _canonical_import_targets(
         if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
             resolved = resolve_handle(str(handle), analyzer)
             if isinstance(resolved, Resolved) and resolved.handle != str(handle):
-                canonical = _try_handle(resolved.handle)
-                if canonical is not None:
-                    handle, name = canonical, resolved.anchor
+                handle, name = Handle(resolved.handle), resolved.anchor
         key = str(handle)
         if key == source or key in seen:
             continue

@@ -512,10 +512,7 @@ async def _resolve_head_in_scope(
     for path in paths:
         resolved = resolve_handle(path, analyzer)
         if isinstance(resolved, Resolved):
-            try:
-                return Handle(resolved.handle)
-            except ValueError:
-                return None
+            return Handle(resolved.handle)  # always a valid dotted path
     return None
 
 
