@@ -64,6 +64,7 @@ _XTOOL = _FIXTURES / "cross_tool"
 #                 check ∈ {"inspect_found", "resolve_found", "same_handle",
 #                          "stub_matches_inspect"}
 #   counts:       ("counts", corpus, handle, edge)
+#   superclasses: ("superclasses", corpus, class_handle)
 #   agree:        ("agree", corpus, analyzer_mode, entry_id, field)
 #                 field ∈ {"found", "handle", "kind", "scope"}
 #   trace_expand: ("trace_expand", root, edge, node, check)
@@ -388,6 +389,42 @@ async def test_count_equals_expand_all_edges(corpus: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 3b. inspect's superclasses field IS the superclasses edge (#624)
+# ---------------------------------------------------------------------------
+
+
+def _superclasses_violations(corpus: str, sweep: _Sweep) -> dict[tuple[str, ...], str]:
+    """Field == edge: the resolved bases in declaration order, raw text for the rest."""
+    out: dict[tuple[str, ...], str] = {}
+    for handle, node in sweep.inspected.items():
+        if node.get("kind") != "class" or "superclasses" not in node:
+            continue
+        edge = sweep.expanded[handle].get("superclasses") or {}
+        resolved = [s["handle"] for s in edge.get("stubs") or []]
+        unresolved = edge.get("unresolved_superclasses")
+        field = node["superclasses"]
+        if unresolved is None:
+            out[("superclasses", corpus, handle)] = f"edge has no unresolved_superclasses: {edge}"
+            continue
+        if [b for b in field if b not in unresolved] != resolved or sorted(
+            b for b in field if b in unresolved
+        ) != sorted(unresolved):
+            out[("superclasses", corpus, handle)] = (
+                f"field {field} != edge stubs {resolved} + unresolved {unresolved}"
+            )
+    return out
+
+
+@pytest.mark.parametrize("corpus", sorted(_SWEEP_CORPORA))
+async def test_superclasses_field_is_the_edge(corpus: str) -> None:
+    """``inspect(cls).superclasses`` shows exactly what ``expand(cls, "superclasses")`` does."""
+    sweep = await _sweep(corpus)
+    _assert_matches_allowlist(
+        _superclasses_violations(corpus, sweep), ("superclasses", corpus), f"superclasses[{corpus}]"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 2. Tools agree on a handle
 # ---------------------------------------------------------------------------
 
@@ -673,4 +710,4 @@ class TestAllowListIsExact:
     def test_every_entry_names_an_issue(self) -> None:
         for key, issue in KNOWN_GAPS.items():
             assert issue.startswith("#"), f"{key!r} must name the issue that removes it"
-            assert key[0] in {"round_trip", "counts", "agree", "trace_expand"}, key
+            assert key[0] in {"round_trip", "counts", "superclasses", "agree", "trace_expand"}, key

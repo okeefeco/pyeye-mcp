@@ -25,7 +25,8 @@ is then supported or unsupported, distinguished by the presence of
       "edge": str,
       "stubs": [Stub, ...],         # [] means MEASURED, none found
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
-      "unresolved_imports": [target, ...] }  # imports ONLY (#494) — ABSENT otherwise
+      "unresolved_imports": [target, ...],  # imports ONLY (#494) — ABSENT otherwise
+      "unresolved_superclasses": [text, ...] }  # superclasses ONLY (#624) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, an unknown name, or ``not_applicable``: an implemented edge that
@@ -261,6 +262,10 @@ async def expand_resolved(
     # import that goto missed is surfaced, never silently dropped.
     if edge_result.unresolved_imports is not None:
         result["unresolved_imports"] = edge_result.unresolved_imports
+    # unresolved_superclasses (#624): superclasses ONLY — the declared bases
+    # whose goto named no single class, by source text ([] when all resolved).
+    if edge_result.unresolved_superclasses is not None:
+        result["unresolved_superclasses"] = edge_result.unresolved_superclasses
     # subclasses is direct-only (#422); its (class-only, #626) result carries a
     # static pointer to the trace route for the full closure.
     if edge == "subclasses":

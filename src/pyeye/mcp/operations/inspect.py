@@ -47,7 +47,6 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import (
-    attr_target_position as _attr_target_position,
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
@@ -58,6 +57,7 @@ from pyeye.mcp.operations.edges import (
     edge_applies,
     resolve_members,
     resolve_superclasses,
+    superclass_bases,
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
@@ -417,99 +417,24 @@ async def _extract_attribute_info(
 
 
 def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str]:
-    """Extract direct superclasses from a class definition.
+    """Return a class's direct superclasses for the ``superclasses`` field.
 
-    NOTE: This is intentionally a parallel implementation to
-    JediAnalyzer._get_class_inheritance_info (jedi_analyzer.py line ~3278),
-    which uses Jedi's MRO via py__mro__() with C3 linearization. The two
-    implementations may diverge if the analyzer's logic is improved without
-    matching changes here. A future refactor should consolidate by extracting
-    shared base-extraction logic into a public helper.
-
-    Approach: ast.parse + ast.ClassDef.bases for source-level extraction,
-    then jedi script.goto() per base to resolve to canonical handles.
-    Falls back to ast.unparse of the base expression when goto fails.
-
-    NOTE — field-vs-count divergence: this function keeps ALL declared bases
-    (including raw ``ast.unparse`` fallback strings when goto fails).  Such
-    fallback entries appear in the ``superclasses`` field but are EXCLUDED from
-    ``edge_counts.superclasses``, which counts only goto-resolvable bases
-    (see ``_count_superclasses``).
+    Reads the ``superclasses`` edge's own walk, :func:`superclass_bases`
+    (#624), so the field and the edge can't drift: declaration order, the
+    canonical handle for each base that resolves, and the base's source text
+    (``ast.unparse``) for one that doesn't.  The edge lists those unresolved
+    bases in ``unresolved_superclasses``; ``edge_counts.superclasses`` counts
+    only the resolved ones (see ``_count_superclasses``).
 
     Args:
         jedi_name: A Jedi ``Name`` object for a class.
         analyzer: Active analyzer for file-level Jedi access.
 
     Returns:
-        A list of dotted-name strings for direct superclasses.
+        A list of dotted-name strings (or raw base text) for direct superclasses.
     """
-    file_path = jedi_name.module_path
-    if file_path is None:
-        return []
-
-    line = jedi_name.line
-    superclasses: list[str] = []
-
-    try:
-        # Reuse the mtime-keyed cached AST instead of read_text() + ast.parse()
-        # (issue #339).
-        tree = file_artifact_cache.get_ast(file_path)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.lineno == line:
-                for base in node.bases:
-                    base_str = ast.unparse(base)
-                    # Attempt Jedi-based resolution for the base class handle
-                    resolved = _resolve_base_class_via_jedi(
-                        file_path.as_posix(), base, base_str, analyzer
-                    )
-                    superclasses.append(resolved)
-                break
-    except Exception:
-        pass
-
-    return superclasses
-
-
-def _resolve_base_class_via_jedi(
-    file_str: str,
-    base_node: ast.expr,
-    base_str: str,
-    analyzer: JediAnalyzer,
-) -> str:
-    """Attempt to resolve a base class AST node to a full dotted name via Jedi.
-
-    Uses ``jedi.Script.goto()`` at the rightmost identifier in the base class
-    expression to navigate to its definition.  Falls back to the raw
-    ``ast.unparse`` representation on failure.
-
-    For attribute-chain bases (e.g. ``pkg.sub.Widget``), positions goto at
-    ``Widget`` rather than ``pkg`` to avoid resolving to the package instead of
-    the class.  Results are filtered to prefer ``class``-kind definitions.
-
-    Args:
-        file_str: POSIX path to the file containing the class definition.
-        base_node: The AST node representing the base class expression.
-        base_str: The ``ast.unparse``-formatted string of the base class.
-        analyzer: Active analyzer.
-
-    Returns:
-        The resolved full dotted name, or *base_str* as fallback.
-    """
-    try:
-        base_line, base_col = _attr_target_position(base_node)
-        file_path = Path(file_str)
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        defs = script.goto(base_line, base_col, follow_imports=True)
-        # Part B: prefer class-kind results; fall back to any named result.
-        class_defs = [d for d in defs if d.type == "class" and d.full_name]
-        if class_defs:
-            return str(class_defs[0].full_name)
-        named_defs = [d for d in defs if d.full_name]
-        if named_defs:
-            return str(named_defs[0].full_name)
-    except Exception:
-        pass
-    return base_str
+    bases = superclass_bases(jedi_name, analyzer) or []
+    return [str(pair[0]) if pair is not None else text for text, pair in bases]
 
 
 # ---------------------------------------------------------------------------

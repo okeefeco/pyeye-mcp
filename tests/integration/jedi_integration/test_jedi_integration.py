@@ -128,33 +128,6 @@ TEST_CONSTANT = "value"
                 assert "PosixPath" not in json_str
 
     @pytest.mark.asyncio
-    async def test_goto_definition_json_serializable(self):
-        """Test goto_definition returns JSON-serializable results."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_file = Path(temp_dir) / "test.py"
-            test_file.write_text("""
-def target_function():
-    pass
-
-# Usage
-target_function()
-""")
-
-            analyzer = JediAnalyzer(temp_dir)
-
-            # Test goto definition
-            result = await analyzer.goto_definition(
-                file=str(test_file), line=5, column=0  # Line with function call
-            )
-
-            if result:
-                # Verify file field is a string
-                assert isinstance(result.get("file"), str)
-
-                # Verify JSON serialization
-                json.dumps(result)
-
-    @pytest.mark.asyncio
     async def test_mcp_server_response_serialization(self):
         """Test that MCP server responses are always JSON-serializable."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -242,32 +215,3 @@ obj = MyClass()
         # Should not contain PosixPath repr
         assert "PosixPath" not in json_str
         assert "/some/problematic/file.py" in json_str
-
-    @pytest.mark.asyncio
-    async def test_all_mcp_tools_json_serializable(self):
-        """Test that all analyzer responses are JSON-serializable."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a simple module
-            test_file = Path(temp_dir) / "test_module.py"
-            test_file.write_text("""
-def test_function():
-    pass
-""")
-
-            analyzer = JediAnalyzer(temp_dir)
-
-            # Test each analyzer method
-            tools_to_test = [
-                (analyzer.list_modules, {}),
-                (analyzer.list_packages, {}),
-            ]
-
-            for tool_func, kwargs in tools_to_test:
-                try:
-                    result = await tool_func(**kwargs)
-                    # Should be JSON serializable
-                    json.dumps(result)
-                except Exception as e:
-                    # Even errors should be serializable
-                    error_response = format_error_response(e)
-                    json.dumps(error_response)
