@@ -21,8 +21,8 @@ import pyeye.file_artifact_cache as file_artifact_cache
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.edges import resolve_subclasses
 from pyeye.mcp.operations.expand import expand
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 from pyeye.mcp.operations.trace import trace
+from tests.utils.resolver_helpers import anchor_for
 
 _SUBCLASSES_FIXTURE = Path(__file__).parent.parent.parent.parent / "fixtures" / "subclasses_edge"
 _ANIMAL_HANDLE = "pkg.base.Animal"
@@ -59,7 +59,7 @@ async def test_resolve_subclasses_keeps_all_when_jedi_name_unavailable(
     ``None``. The old code dropped every adjacency here; the sentinel-based
     resolver must return the full set.
     """
-    jedi_name = _find_jedi_name_for_handle(_ANIMAL_HANDLE, subclasses_analyzer)
+    jedi_name = anchor_for(_ANIMAL_HANDLE, subclasses_analyzer)
     assert jedi_name is not None
 
     ground_truth = [
