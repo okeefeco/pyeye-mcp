@@ -186,7 +186,7 @@ repos:
         name: Path ownership ratchet
         entry: uv run --frozen python scripts/check_cross_platform_paths.py
         language: system
-        files: ^src/pyeye/.*\.py$
+        files: ^(src/pyeye/.*|scripts/check_cross_platform_paths)\.py$
         pass_filenames: false
 
   # JSON validation
