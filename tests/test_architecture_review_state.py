@@ -332,23 +332,20 @@ class TestFindingsEquivalent:
         f2 = _make_finding(["h"], grade="ambiguous", claim="swallows exception")
         assert findings_equivalent(f1, f2) is False
 
-    def test_axis_field_does_not_affect_equivalence(self) -> None:
-        """The spec says equivalence is handle-set + grade + claim. Different
-        axis values with same handles/grade/claim must still be equivalent.
-        (Axis is not part of the equivalence predicate per spec.)"""
-        f1 = {
-            "handles": ["h"],
-            "grade": "ambiguous",
-            "claim": "x",
-            "axis": "layering",
-        }
-        f2 = {
-            "handles": ["h"],
-            "grade": "ambiguous",
-            "claim": "x",
-            "axis": "error_handling",
-        }
-        assert findings_equivalent(f1, f2) is True
+    def test_axis_is_part_of_equivalence(self) -> None:
+        """#498 inverts the old exclusion: the axis is in the key, as the facet's
+        namespace.  It used to be excluded, which was safe only because cross-axis
+        duplicates (spec §15 axis overlap) happened to carry different claim
+        strings; with identity keyed on axis + facet, the same handles on two axes
+        are two observations and stay separate by design (any cross-axis dedupe is
+        a later, explicit, empirical step).  The unkeyed fallback compares the
+        axis too, which only ever under-merges."""
+        f1 = {"handles": ["h"], "grade": "ambiguous", "claim": "x", "axis": "layering"}
+        f2 = {"handles": ["h"], "grade": "ambiguous", "claim": "x", "axis": "error_handling"}
+        assert findings_equivalent(f1, f2) is False
+        keyed1 = {**f1, "facet": "import_direction"}
+        keyed2 = {**f2, "facet": "catch_site"}
+        assert findings_equivalent(keyed1, keyed2) is False
 
 
 # ---------------------------------------------------------------------------

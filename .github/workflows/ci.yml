@@ -1,10 +1,15 @@
 # CI Workflow
 #
 # PR matrix strategy (Issue #65): on PRs, test every supported Python (3.11,
-# 3.12, 3.13) on Linux, the oldest and newest (3.11, 3.13) on Windows, and
-# only the newest (3.13) on macOS. Pushes to main run the full 3-OS x
-# 3-version matrix. macOS combinations are dropped
-# on PRs first because macOS bills at 10x (see the multiplier table below).
+# 3.12, 3.13, 3.14) on Linux, the oldest and newest (3.11, 3.14) on Windows,
+# and only the newest on macOS. Pushes to main run the full 3-OS x 4-version
+# matrix. macOS combinations are dropped on PRs first because macOS bills at
+# 10x (see the multiplier table below).
+#
+# Python 3.14 (#543) was added as extra legs, not by renaming the 3.13 legs,
+# so the required check names below stay valid. The 3.13 Windows/macOS legs
+# remain until the `main` ruleset's required checks move to 3.14 (a repo
+# setting); the 3.14 legs are not required checks until then.
 #
 # Merge queue (#649): a `merge_group` run must report EVERY required check
 # exactly once, or the queue waits forever. The required names are pre-commit,
@@ -98,7 +103,7 @@ jobs:
 
   test-pr:
     # Runs on PRs and merge-queue groups - reduced endpoint matrix (see header).
-    # Its 6 job names are required checks. Skipped only for docs-only PRs, when
+    # Its 6 non-3.14 job names are required checks. Skipped only for docs-only PRs, when
     # test-pr-dummy reports the same names instead; merge_group always has
     # code == 'true'.
     needs: [changes]
@@ -118,14 +123,21 @@ jobs:
             python-version: '3.12'
           - os: ubuntu-latest
             python-version: '3.13'
-          # Windows - oldest and newest
+          - os: ubuntu-latest
+            python-version: '3.14'
+          # Windows - oldest and newest (3.13 kept while it is a required check)
           - os: windows-latest
             python-version: '3.11'
           - os: windows-latest
             python-version: '3.13'
-          # macOS - newest only (biggest savings)
+          - os: windows-latest
+            python-version: '3.14'
+          # macOS - newest only (biggest savings; 3.13 kept while required).
+          # 3.14 also exercises watchdog, which has no macOS cp314 wheel.
           - os: macos-latest
             python-version: '3.13'
+          - os: macos-latest
+            python-version: '3.14'
 
     steps:
       - uses: actions/checkout@v7
@@ -165,7 +177,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11', '3.12', '3.13']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
 
     steps:
       - uses: actions/checkout@v7
@@ -409,12 +421,18 @@ jobs:
             python-version: '3.12'
           - os: ubuntu-latest
             python-version: '3.13'
+          - os: ubuntu-latest
+            python-version: '3.14'
           - os: windows-latest
             python-version: '3.11'
           - os: windows-latest
             python-version: '3.13'
+          - os: windows-latest
+            python-version: '3.14'
           - os: macos-latest
             python-version: '3.13'
+          - os: macos-latest
+            python-version: '3.14'
     steps:
       - name: Skip tests for docs-only changes
         run: echo "Skipping tests - documentation only changes detected"

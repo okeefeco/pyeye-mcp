@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
+from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye._stdlib_static import is_stdlib, public_handle
@@ -420,7 +421,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     seen: set[str] = set()
     for name in names:
         full_name = name.full_name or ""
-        if not full_name.startswith(prefix):
+        if not full_name.startswith(prefix) or is_attribute_target(name):
             continue
         if len(full_name.split(".")) != handle_depth + 1:
             continue
@@ -507,7 +508,8 @@ def _module_members(
     members: list[tuple[Handle, Any]] = []
     seen: set[str] = set()
     for name in names:
-        if name.name in import_bound_names:
+        # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
+        if name.name in import_bound_names or is_attribute_target(name):
             continue
         full_name = name.full_name or f"{handle}.{name.name}"
         if full_name in seen:
@@ -844,8 +846,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     ``references``).
 
     Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
-    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1,
-    ``include_indirect=False``) — symmetric with ``superclasses`` (direct bases).
+    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1;
+    ``find_subclasses`` is direct-only since #628) — symmetric with
+    ``superclasses`` (direct bases).
     The full transitive closure is served exclusively by
     ``trace(follow=["subclasses"], max_depth=k, max_nodes=N)``, which already owns
     the cap + ``truncated`` contract; ``expand`` carries a static pointer to that
@@ -904,12 +907,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # which already owns the cap + ``truncated`` contract; routing it there also
     # makes trace's per-hop BFS correct (a closure-per-hop resolver collapsed the
     # whole closure onto depth 1).
-    result = await analyzer.find_subclasses(
-        handle,
-        scope=_project_search_scope(analyzer),
-        include_indirect=False,
-        show_hierarchy=False,
-    )
+    result = await analyzer.find_subclasses(handle, scope=_project_search_scope(analyzer))
     # An FQN input never triggers the ambiguous variant.  Carry a defensive
     # assert so a future regression surfaces loudly instead of silently yielding
     # an empty list.
