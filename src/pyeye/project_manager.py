@@ -212,10 +212,11 @@ class ProjectManager:
                 resolved_paths.append(str(resolved))
             namespace_config[ns] = resolved_paths
             # Also register with namespace_resolver for scope-based file searching
-            self.namespace_resolver.register_namespace(ns, resolved_paths)
+            self.namespace_resolver.register_namespace(ns, resolved_paths, project=path_key)
             logger.info(f"Bridged namespace '{ns}' from config to namespace resolver")
-        # Include namespaces from prior configure_packages calls
-        for ns_key, ns_path_list in self.namespace_resolver.namespace_paths.items():
+        # Include namespaces registered FOR THIS PROJECT by prior configure_packages
+        # calls, never another project's (#748).
+        for ns_key, ns_path_list in self.namespace_resolver.namespaces_for(path_key).items():
             if ns_key not in namespace_config:
                 namespace_config[ns_key] = [str(p) for p in ns_path_list]
 
