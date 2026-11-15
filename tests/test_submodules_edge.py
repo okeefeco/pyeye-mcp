@@ -40,8 +40,8 @@ from pyeye.mcp.operations.edges import (
     resolve_submodules,
 )
 from pyeye.mcp.operations.expand import expand
-from pyeye.mcp.operations.inspect import _find_jedi_name_for_handle
 from pyeye.mcp.operations.trace import trace
+from tests.utils.resolver_helpers import anchor_for
 
 _CONTAINMENT = Path(__file__).parent / "fixtures" / "containment"
 _REGULAR = _CONTAINMENT / "regular"
@@ -91,7 +91,7 @@ class TestPackageDirsEmpty:
         # A class handle (resolved through the real analyzer/Jedi): not a
         # package — its module_path is alpha.py, so the regular branch is not
         # taken and Task 2's namespace branch returns [].
-        jedi_name = _find_jedi_name_for_handle(_A_HANDLE, analyzer)
+        jedi_name = anchor_for(_A_HANDLE, analyzer)
         assert jedi_name is not None, f"Could not resolve handle {_A_HANDLE!r}"
         assert _package_dirs(jedi_name, analyzer) == []
 
@@ -153,7 +153,7 @@ class TestEnumerateSubmodulePathsRegular:
 
     def test_class_handle_returns_empty(self, analyzer: JediAnalyzer) -> None:
         # A class handle resolved through the real analyzer/Jedi → not a package.
-        jedi_name = _find_jedi_name_for_handle(_A_HANDLE, analyzer)
+        jedi_name = anchor_for(_A_HANDLE, analyzer)
         assert jedi_name is not None, f"Could not resolve handle {_A_HANDLE!r}"
         assert _enumerate_submodule_paths(jedi_name, analyzer) == []
 
