@@ -6,7 +6,9 @@ handle (so a result couldn't be passed to ``inspect`` without an ambiguous
 
 Every plugin result now also carries:
 
-- ``location: {file, line}``: an absolute posix path, mirroring the primitives;
+- ``location``: the primitives' ``Location`` shape. For a placed symbol it equals
+  ``inspect(handle)["location"]``; otherwise the ``{file, line_start, line_end}``
+  (or ``{file}``) subset. ``file`` is an absolute posix path;
 - ``scope``: ``"project"`` or ``"external"``;
 - for a result that names a symbol, ``handle`` from ``pyeye.resolver.resolve_handle``
   (the one canonical resolver), or, when the resolver can't place it,
@@ -231,6 +233,9 @@ class TestSymbolHandles:
         inspected = await server.inspect(record["handle"], project_path=str(project))
         assert inspected.get("found", True) is not False
         assert inspected["handle"] == expected_handle
+        # Drift guard: the record's location IS inspect's location (#627).
+        for record in records:
+            assert record["location"] == inspected["location"]
 
     async def test_reexported_model_gets_the_definition_site_handle(self, project: Path) -> None:
         """``shop.Product`` is a re-export; the canonical handle is where it's defined."""
@@ -261,8 +266,12 @@ class TestUnplaceableSymbols:
         assert "handle" not in record
         assert record["unresolved"]["reason"] == "unresolved"
         assert "nested_route" in record["unresolved"]["detail"]
-        # Location and scope are still known.
-        assert record["location"]["line"] == record["line"]
+        # Location and scope are still known: the record's line, as a Location subset.
+        assert record["location"] == {
+            "file": Path(record["file"]).resolve().as_posix(),
+            "line_start": record["line"],
+            "line_end": record["line"],
+        }
         assert record["scope"] == "project"
 
 
@@ -287,14 +296,14 @@ class TestLocationAndScope:
 
         assert "handle" not in record
         assert "unresolved" not in record
-        assert "line" not in record["location"]
+        assert set(record["location"]) == {"file"}
 
     async def test_template_render_calls_are_located(self, project: Path) -> None:
         payload = await _call(_server(project), "find_flask_templates", scope="main")
         records = _records("find_flask_templates", payload)
 
         call = _by(records, "template", "index.html")
-        assert call["location"]["line"] == call["line"]
+        assert call["location"]["line_start"] == call["line"] == call["location"]["line_end"]
         assert "handle" not in call
 
 
