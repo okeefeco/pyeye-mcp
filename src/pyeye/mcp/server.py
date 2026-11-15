@@ -478,7 +478,12 @@ async def resolve(
         ResolveResult dict — one of:
         - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
-        - Not found: {"found": False, "reason": str}
+        - Not found: {"found": False, "identifier": str, "reason": str, "detail": str}
+          with reason "unresolved", "file_not_found" or "no_symbol_at_position".
+          The identifier is echoed verbatim; it is never put in "handle".
+
+        A lookup miss never raises. The call errors (an MCP tool error, not a
+        response) only for invalid arguments or a project_path that doesn't exist.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
@@ -511,7 +516,13 @@ async def resolve_at(
         project_path: Project root path (default: current directory)
 
     Returns:
-        ResolveResult dict (see resolve() for shape).
+        ResolveResult dict, the same success/ambiguous shapes as resolve(). Not found:
+        {"found": False, "file": str, "line": int, "column": int, "reason": str,
+        "detail": str}, echoing the arguments as given, with reason
+        "file_not_found", "no_symbol_at_position" or "unresolved".
+
+        A lookup miss never raises. The call errors (an MCP tool error, not a
+        response) only for invalid arguments or a project_path that doesn't exist.
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
@@ -685,8 +696,9 @@ async def expand(
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
-        Never raises.  ``stubs: []`` always means "measured, none found" — it is
-        never returned for an unresolvable handle.
+        A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        ``stubs: []`` always means "measured, none found" — it is never returned
+        for an unresolvable handle.
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
@@ -719,7 +731,15 @@ async def trace(
     ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in
     ``follow`` (deferred reference edges, unknown names) is reported in
     ``unsupported_edges`` rather than silently dropped — a silent drop would
-    falsely read as "no such neighbours".
+    falsely read as "no such neighbours".  So is an implemented edge that does
+    not apply to a node's kind (e.g. ``imports`` on a class), with ``expand``'s
+    own reason and detail (#621).
+
+    Every hop is exactly what ``expand(node, edge)`` would return: a node
+    ``expand`` cannot resolve is not walked and is listed in
+    ``unresolved_nodes``; a hop's adjacents are added all together or not at
+    all, so a walked hop is never partial — a hop cut by ``max_depth`` or
+    ``max_nodes`` records no edges and sets the matching truncation reason.
 
     Response shape — ``Subgraph``::
 
@@ -729,8 +749,9 @@ async def trace(
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
           "unresolved_roots": [ handle, ... ],  # #488 — always present; [] when every root resolved
-          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees traced
-          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports traced
+          "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
+          "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
+          "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "report_issues": str }   # #458 — present ONLY when unsupported_edges non-empty
 
     Edges are NOT deduped across kinds; edges to already-visited handles are
@@ -755,8 +776,8 @@ async def trace(
             common ``callees`` case).
 
     Returns:
-        A ``Subgraph`` dict (plain, JSON-serialisable).  Never raises; an
-        unresolvable root contributes no node but is listed in the always-present
+        A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        An unresolvable root contributes no node but is listed in the always-present
         ``unresolved_roots`` (#488) — so an empty ``nodes`` is never silently
         ambiguous between "root has no neighbours" (``unresolved_roots: []``) and
         "root did not resolve" (handle listed).  When ``callees`` is traced,
@@ -877,8 +898,8 @@ async def outline(
 
     Returns:
         ``OutlineTree`` dict — ``{"found": True, "node": Stub, "children":
-        [OutlineTree, ...]}`` (``found`` on the root only).  Never raises; an
-        unresolvable handle yields
+        [OutlineTree, ...]}`` (``found`` on the root only).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only for invalid arguments or a ``project_path`` that doesn't exist.
+        An unresolvable handle yields
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
         — no placeholder tree.  Children within each parent are in source order
         (sorted by ``(line_start, handle)``); BFS inclusion order bounds the budget

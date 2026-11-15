@@ -65,9 +65,60 @@ class TestN1FoundRequired:
         with pytest.raises(ConformanceViolation, match=r"N\.1"):
             lint_response(response, "inspect")
 
-    def test_resolve_does_not_require_found_check(self) -> None:
-        """Check N is scoped to inspect/outline/expand; resolve has its own shape."""
-        lint_response({"found": False, "reason": "unresolved"}, "resolve")
+    def test_legacy_resolve_shape_is_no_longer_exempt(self) -> None:
+        """#626 moved resolve onto N.2; the old ``{found, reason}`` shape now fails."""
+        with pytest.raises(ConformanceViolation, match=r"N\.2.*missing=\['detail', 'identifier'\]"):
+            lint_response({"found": False, "reason": "unresolved"}, "resolve")
+
+
+class TestN2PerOperation:
+    """#626: echo keys and reasons are per operation."""
+
+    _RESOLVE = {
+        "found": False,
+        "identifier": "pkg.Thing",
+        "reason": "unresolved",
+        "detail": "Call resolve('Thing').",
+    }
+    _RESOLVE_AT = {
+        "found": False,
+        "file": "src/x.py",
+        "line": 3,
+        "column": 0,
+        "reason": "no_symbol_at_position",
+        "detail": "Point at a name.",
+    }
+
+    def test_valid_resolve_and_resolve_at_pass(self) -> None:
+        lint_response(self._RESOLVE, "resolve")
+        for reason in ("unresolved", "file_not_found", "no_symbol_at_position"):
+            lint_response({**self._RESOLVE_AT, "reason": reason}, "resolve_at")
+
+    def test_resolve_must_not_echo_handle(self) -> None:
+        bad = {**self._RESOLVE, "handle": "pkg.Thing"}
+        with pytest.raises(ConformanceViolation, match=r"extra=\['handle'\]"):
+            lint_response(bad, "resolve")
+
+    def test_resolve_at_echo_is_flat(self) -> None:
+        nested = {k: v for k, v in self._RESOLVE_AT.items() if k not in ("file", "line", "column")}
+        nested["position"] = {"file": "src/x.py", "line": 3, "column": 0}
+        with pytest.raises(ConformanceViolation, match=r"N\.2 not-found exact shape"):
+            lint_response(nested, "resolve_at")
+
+    def test_resolve_at_line_and_column_are_ints(self) -> None:
+        with pytest.raises(ConformanceViolation, match=r"'line' must be a plain int"):
+            lint_response({**self._RESOLVE_AT, "line": "3"}, "resolve_at")
+        with pytest.raises(ConformanceViolation, match=r"'column' must be a plain int"):
+            lint_response({**self._RESOLVE_AT, "column": True}, "resolve_at")
+
+    def test_position_reasons_are_not_valid_for_handle_operations(self) -> None:
+        bad = {**_NOT_FOUND, "reason": "file_not_found"}
+        with pytest.raises(ConformanceViolation, match=r"not recognised for 'inspect'"):
+            lint_response(bad, "inspect")
+
+    def test_identifier_must_be_single_line(self) -> None:
+        with pytest.raises(ConformanceViolation, match=r"'identifier' must be a non-empty"):
+            lint_response({**self._RESOLVE, "identifier": "a\nb"}, "resolve")
 
 
 class TestN2NotFoundExactShape:

@@ -352,7 +352,14 @@ async def test_io_imports_resolve_on_the_worker_and_report_the_stub_as_unresolve
 
 
 async def test_trace_into_io_through_the_tool_layer(tmp_path: Path) -> None:
-    """End to end: ``trace`` walks into ``io`` today, and must return."""
+    """End to end: a ``trace`` that reaches ``io`` through the tool layer returns.
+
+    Since #621 trace walks a node only when ``expand`` resolves it.  While
+    ``expand("io", ...)`` is not found, ``io`` is reported in ``unresolved_nodes``
+    and not walked; once #623 makes stdlib modules resolvable, trace walks it
+    and the worker's large stack turns Jedi's deep recursion into an unresolved
+    import.  Either way the call must return, and must say which happened.
+    """
     _write(tmp_path / "iopkg" / "__init__.py")
     _write(tmp_path / "iopkg" / "m.py", "import io\n\n\ndef f():\n    return io.StringIO()\n")
 
@@ -361,7 +368,8 @@ async def test_trace_into_io_through_the_tool_layer(tmp_path: Path) -> None:
     )
 
     assert "io" in traced["nodes"]
-    assert "_io.UnsupportedOperation" in str(traced)
+    walked_io_imports = traced.get("unresolved_imports", {}).get("io", [])
+    assert "io" in traced["unresolved_nodes"] or "_io.UnsupportedOperation" in walked_io_imports
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the C stack overflow is Windows-only")

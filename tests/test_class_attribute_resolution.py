@@ -95,7 +95,12 @@ class TestResolveClassAttribute:
     async def test_unknown_member_is_not_found(self, analyzer: JediAnalyzer) -> None:
         result = await resolve("mypackage._core.widgets.Widget.nope", analyzer)
 
-        assert result == {"found": False, "reason": "unresolved"}
+        # The shared not-found shape (#626): the identifier is echoed, never as `handle`.
+        assert result["found"] is False
+        assert result["identifier"] == "mypackage._core.widgets.Widget.nope"
+        assert result["reason"] == "unresolved"
+        assert "handle" not in result
+        assert result["detail"]
 
 
 class TestInspectAgreesWithResolve:
