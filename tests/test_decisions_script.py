@@ -46,7 +46,7 @@ def _entry(
     }
     body = f"## {date} — {title}\n\n**Friction:** x\n**Decision:** y\n**Anchor:** `pkg.mod.Thing`\n"
     path = directory / name
-    path.write_text(decisions.render(meta, body), encoding="utf-8")
+    path.write_text(decisions.render(meta, body), encoding="utf-8", newline="\n")
     return path
 
 
@@ -149,7 +149,9 @@ def test_bad_front_matter_is_reported(
 
 def test_missing_and_unknown_keys(tmp_path: Path) -> None:
     (tmp_path / "2026-01-01-1-a.md").write_text(
-        '---\ndate: "2026-01-01"\ncolour: "red"\n---\n\n## 2026-01-01 — x\n', encoding="utf-8"
+        '---\ndate: "2026-01-01"\ncolour: "red"\n---\n\n## 2026-01-01 — x\n',
+        encoding="utf-8",
+        newline="\n",
     )
     problems = _problems(tmp_path)
     assert any("missing front-matter keys" in p for p in problems)
@@ -158,7 +160,9 @@ def test_missing_and_unknown_keys(tmp_path: Path) -> None:
 
 def test_heading_must_match_front_matter(tmp_path: Path) -> None:
     path = _entry(tmp_path, "2026-01-01-1-a.md")
-    path.write_text(path.read_text().replace("## 2026-01-01 — A decision", "## 2026-01-01 — Other"))
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("## 2026-01-01 — A decision", "## 2026-01-01 — Other")
+    path.write_text(text, encoding="utf-8", newline="\n")
     assert any("body heading doesn't match" in p for p in _problems(tmp_path))
 
 
@@ -173,7 +177,7 @@ def test_heading_must_match_front_matter(tmp_path: Path) -> None:
     ],
 )
 def test_unparseable_files_are_errors(tmp_path: Path, text: str, expected: str) -> None:
-    (tmp_path / "2026-01-01-1-a.md").write_text(text, encoding="utf-8")
+    (tmp_path / "2026-01-01-1-a.md").write_text(text, encoding="utf-8", newline="\n")
     assert any(expected in p for p in _problems(tmp_path))
 
 
@@ -183,7 +187,11 @@ def test_check_cli_hints_at_migrate_for_entries_left_in_the_log(
     entries = tmp_path / "entries"
     entries.mkdir()
     log = tmp_path / "DECISIONS.md"
-    log.write_text(decisions.STATIC_HEADER + "\n## 2026-03-01 — Late entry (#5)\n\nbody\n")
+    log.write_text(
+        decisions.STATIC_HEADER + "\n## 2026-03-01 — Late entry (#5)\n\nbody\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     assert decisions.main(["--dir", str(entries), "--log", str(log), "check"]) == 1
     assert "python scripts/decisions.py migrate" in capsys.readouterr().err
 
@@ -249,38 +257,40 @@ _LOG_ENTRY_2 = """## 2026-03-01 — First rule (#8)
 def test_migrate_splits_verifies_and_is_idempotent(tmp_path: Path) -> None:
     entries = tmp_path / "entries"
     log = tmp_path / "DECISIONS.md"
-    log.write_text("# Old header\n\n" + _LOG_ENTRY + _LOG_ENTRY_2, encoding="utf-8")
+    log.write_text("# Old header\n\n" + _LOG_ENTRY + _LOG_ENTRY_2, encoding="utf-8", newline="\n")
 
     notes = decisions.migrate(log, entries)
 
     names = sorted(p.name for p in entries.iterdir())
     assert names == ["2026-03-01-8-first-rule.md", "2026-03-02-9-second-rule-amends-the-first.md"]
     assert any("link it: 2026-03-02-9" in n for n in notes)
-    assert log.read_text() == decisions.STATIC_HEADER
-    second = decisions.parse(names[1], (entries / names[1]).read_text())
+    assert log.read_text(encoding="utf-8") == decisions.STATIC_HEADER
+    second = decisions.parse(names[1], (entries / names[1]).read_text(encoding="utf-8"))
     assert second.body == _LOG_ENTRY.rstrip("\n") + "\n"  # verbatim
     assert second.meta["issues"] == [9] and second.meta["anchors"] == ["pkg.second"]
     assert _problems(entries) == []
 
     # Re-running, or re-running after a merge brings the same entries back, changes nothing.
-    log.write_text(decisions.STATIC_HEADER + "\n" + _LOG_ENTRY_2, encoding="utf-8")
-    before = {p.name: p.read_text() for p in entries.iterdir()}
+    log.write_text(decisions.STATIC_HEADER + "\n" + _LOG_ENTRY_2, encoding="utf-8", newline="\n")
+    before = {p.name: p.read_text(encoding="utf-8") for p in entries.iterdir()}
     notes = decisions.migrate(log, entries)
-    assert {p.name: p.read_text() for p in entries.iterdir()} == before
+    assert {p.name: p.read_text(encoding="utf-8") for p in entries.iterdir()} == before
     assert any(n.startswith("unchanged: 2026-03-01-8-first-rule.md") for n in notes)
 
 
 def test_migrate_refuses_to_overwrite_a_different_body(tmp_path: Path) -> None:
     entries = tmp_path / "entries"
     log = tmp_path / "DECISIONS.md"
-    log.write_text(_LOG_ENTRY_2, encoding="utf-8")
+    log.write_text(_LOG_ENTRY_2, encoding="utf-8", newline="\n")
     decisions.migrate(log, entries)
     log.write_text(
-        _LOG_ENTRY_2.replace("**Friction:** a", "**Friction:** changed"), encoding="utf-8"
+        _LOG_ENTRY_2.replace("**Friction:** a", "**Friction:** changed"),
+        encoding="utf-8",
+        newline="\n",
     )
     with pytest.raises(decisions.EntryError, match="different body"):
         decisions.migrate(log, entries)
-    assert "changed" not in (entries / "2026-03-01-8-first-rule.md").read_text()
+    assert "changed" not in (entries / "2026-03-01-8-first-rule.md").read_text(encoding="utf-8")
     assert decisions.main(["--dir", str(entries), "--log", str(log), "migrate"]) == 1
 
 
@@ -288,24 +298,46 @@ def test_migrate_with_nothing_to_do(tmp_path: Path) -> None:
     entries = tmp_path / "entries"
     entries.mkdir()
     log = tmp_path / "DECISIONS.md"
-    log.write_text(decisions.STATIC_HEADER, encoding="utf-8")
+    log.write_text(decisions.STATIC_HEADER, encoding="utf-8", newline="\n")
     assert decisions.migrate(log, entries)[-1] == "0 entries in DECISIONS.md, 0 split out"
 
 
 def test_migrate_update_takes_the_log_body_and_keeps_front_matter(tmp_path: Path) -> None:
     entries = tmp_path / "entries"
     log = tmp_path / "DECISIONS.md"
-    log.write_text(_LOG_ENTRY_2, encoding="utf-8")
+    log.write_text(_LOG_ENTRY_2, encoding="utf-8", newline="\n")
     decisions.migrate(log, entries)
     path = entries / "2026-03-01-8-first-rule.md"
-    path.write_text(path.read_text().replace('"status": "active"', '"status": "active"'))
     edited = _LOG_ENTRY_2.replace("**Friction:** a", "**Friction:** amended later")
-    log.write_text(edited, encoding="utf-8")
+    log.write_text(edited, encoding="utf-8", newline="\n")
 
     notes = decisions.migrate(log, entries, update=True)
 
     assert "updated body: 2026-03-01-8-first-rule.md" in notes
-    entry = decisions.parse(path.name, path.read_text())
+    entry = decisions.parse(path.name, path.read_text(encoding="utf-8"))
     assert entry.body == edited.rstrip("\n") + "\n"
     assert entry.meta["issues"] == [8]
-    assert log.read_text() == decisions.STATIC_HEADER
+    assert log.read_text(encoding="utf-8") == decisions.STATIC_HEADER
+
+
+def test_index_prints_non_ascii_titles_on_a_cp1252_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows consoles default to cp1252, which can't encode ``↔`` (#679, Windows CI)."""
+    import io
+
+    _entry(tmp_path, "2026-01-01-1-a.md", title="One file↔module mapper · roots — policy (#1)")
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    assert decisions.main(["--dir", str(tmp_path), "index"]) == 0
+    sys.stdout.flush()
+    assert "file↔module" in raw.getvalue().decode("utf-8")
+
+
+def test_written_entries_use_lf_line_endings(tmp_path: Path) -> None:
+    """Byte-for-byte checks need LF everywhere, even where the OS default is CRLF."""
+    log = tmp_path / "DECISIONS.md"
+    log.write_text(_LOG_ENTRY_2, encoding="utf-8", newline="\n")
+    decisions.migrate(log, tmp_path / "entries")
+    for path in [log, *(tmp_path / "entries").iterdir()]:
+        assert b"\r\n" not in path.read_bytes(), path.name

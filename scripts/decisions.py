@@ -309,13 +309,13 @@ def migrate(
         plan.append((name, meta, body))
     directory.mkdir(parents=True, exist_ok=True)
     for have, body in updates:
-        (directory / have.name).write_text(render(have.meta, body), encoding="utf-8")
+        (directory / have.name).write_text(render(have.meta, body), encoding="utf-8", newline="\n")
         written = parse(have.name, (directory / have.name).read_text(encoding="utf-8"))
         if written.body.rstrip("\n") != body.rstrip("\n"):
             raise EntryError(f"{have.name}: body changed on the round trip")
         notes.append(f"updated body: {have.name}")
     for name, meta, body in plan:
-        (directory / name).write_text(render(meta, body), encoding="utf-8")
+        (directory / name).write_text(render(meta, body), encoding="utf-8", newline="\n")
         written = parse(name, (directory / name).read_text(encoding="utf-8"))
         if written.body.rstrip("\n") != body.rstrip("\n"):
             raise EntryError(f"{name}: body changed on the round trip")
@@ -323,7 +323,7 @@ def migrate(
         if re.search(r"\b(amend|supersed)", body, re.I):
             notes.append(f"  link it: {name} mentions amending/superseding another entry")
     if log_file.exists() and log_file.read_text(encoding="utf-8") != STATIC_HEADER:
-        log_file.write_text(STATIC_HEADER, encoding="utf-8")
+        log_file.write_text(STATIC_HEADER, encoding="utf-8", newline="\n")
         notes.append(f"reset {log_file.name} to the static header")
     notes.append(
         f"{len(found)} entr{'y' if len(found) == 1 else 'ies'} in DECISIONS.md, "
@@ -370,6 +370,11 @@ def format_index(entries: list[Entry]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     """Command-line entry point."""
+    # Titles carry non-ASCII (—, ·, ↔). A Windows console defaults to cp1252.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--dir", type=Path, default=ENTRIES_DIR, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command", required=True)
