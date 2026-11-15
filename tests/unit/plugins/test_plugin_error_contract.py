@@ -267,7 +267,8 @@ class TestPluginLoadFailureIsReported:
             raise RuntimeError("detect broke")
 
         monkeypatch.setattr(FlaskPlugin, "detect", broken_detect)
-        monkeypatch.setattr(server_module, "register_plugin_tools", lambda *_a, **_k: None)
+        # register_plugin_tools returns the names it registered (#659 records them).
+        monkeypatch.setattr(server_module, "register_plugin_tools", lambda *_a, **_k: [])
         caplog.set_level(logging.WARNING)
 
         server_module.initialize_plugins(str(tmp_path))
