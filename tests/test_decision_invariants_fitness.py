@@ -297,13 +297,10 @@ def _patches_project_search(unit: ast.AST) -> bool:
 # ---------------------------------------------------------------------------
 
 # 1. Synthetic-import inference: ``jedi.Script(code=...)`` in exactly ONE
-#    function, the resolver's (#623 slice 2).  The two copies left go when
-#    ``resolve`` and ``canonicalization`` move onto the resolver (slice 3).
+#    function, the resolver's (#623).  Empty allow-list since slice 3 removed
+#    the ``resolve`` and ``canonicalization`` copies; kept so a new copy fails.
 SYNTHETIC_IMPORT_SANCTIONED: Site | None = ("resolver.py", "_synthetic_import")
-SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {
-    ("canonicalization.py", "_resolve_via_external_inference"): "#623",
-    ("mcp/operations/resolve.py", "_resolve_external_dotted_name"): "#623",
-}
+SYNTHETIC_IMPORT_ALLOWLIST: dict[Site, str] = {}
 
 # 2. ``project.search(`` appears nowhere (#457: use the AST name-index).
 PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {

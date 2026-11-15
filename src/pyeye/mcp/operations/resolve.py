@@ -54,17 +54,14 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
-from pyeye.canonicalization import (
-    find_definition_name,
-    find_namespace_package_dirs,
-    resolve_canonical,
-)
+from pyeye.canonicalization import resolve_canonical
 from pyeye.handle import Handle
 from pyeye.kinds import (
     normalise_kind as _normalise_kind,
     normalise_kind_from_name as _normalise_kind_from_name,
 )
-from pyeye.project_layout import RootsBoundary, project_roots
+from pyeye.project_layout import RootsBoundary, find_namespace_package_dirs, project_roots
+from pyeye.resolver import NotFound, Resolved, resolve_handle
 from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
@@ -386,27 +383,10 @@ async def _resolve_at_position(
     if not full_name:
         return _NotFoundResult(found=False, reason="no_symbol_at_position")
 
-    # Canonicalise (may follow import chain)
-    handle = await resolve_canonical(full_name, analyzer)
-    if handle is None:
-        # Fall back to raw full_name if it's a valid handle
-        try:
-            handle = Handle(full_name)
-        except ValueError:
-            return _NotFoundResult(found=False, reason="unresolved")
-
-    # Determine file for scope classification
-    def_file = name.module_path.as_posix() if name.module_path else file_path.as_posix()
-    scope = classify_scope(def_file, analyzer)
-    kind = _normalise_kind_from_name(name)
-
-    return _SuccessResult(
-        found=True,
-        handle=str(handle),
-        kind=kind,
-        scope=scope,
-        location=cast(_Location, location_from_name(def_file, name)),
-    )
+    # Canonicalise through the one resolver (#623).  A definition the resolver
+    # can't place is not-found: returning Jedi's raw full_name would hand the
+    # caller a handle no other tool accepts (audit row 3).
+    return _from_resolver(full_name, analyzer)
 
 
 async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> ResolveResult:
@@ -541,7 +521,10 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
             return anchored
 
     if not valid_matches:
-        return _NotFoundResult(found=False, reason="unresolved")
+        # No project symbol by that name: an exact top-level module (``os``,
+        # ``io``, ``logging``) resolves to itself (#623, #602).  With index hits
+        # the "exact module wins" policy is #623 slice 4.
+        return _from_resolver(name, analyzer)
 
     if len(valid_matches) == 1:
         return await _build_success_from_match(valid_matches[0], analyzer)
@@ -728,175 +711,31 @@ def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     return "variable"
 
 
-async def _resolve_external_dotted_name(name: str, analyzer: JediAnalyzer) -> _SuccessResult | None:
-    """Resolve an external (stdlib/site-packages) dotted name via synthetic import.
-
-    Used when project-scoped resolution misses. Writes a tiny in-memory script
-    that imports the parent module and references the leaf symbol, then asks
-    Jedi to infer the symbol — Jedi follows into stdlib/site-packages on demand.
-
-    A second copy of :func:`pyeye.resolver._synthetic_import`'s guarded
-    inference, removed when ``resolve`` moves onto the resolver (#623 slice 3).
-
-    Returns ``None`` when Jedi cannot infer the symbol (bogus name, module not
-    installed, etc.). Caller (``_resolve_dotted_name``) guarantees the input
-    contains at least one dot.
-
-    An inferred definition is accepted only when its name equals the requested
-    leaf, matching ``canonicalization._resolve_via_external_inference`` (#529).
-    Inference answers "what value is this?", so it can land on a different
-    object: ``collections.abc.Mapping`` infers to ``typing._SpecialGenericAlias``
-    (#544), and a class attribute infers to its value's type (#506). Reporting
-    that object would be a confident wrong answer; ``None`` is an honest miss.
-    """
-    parts = name.split(".")
-    module_dotted = ".".join(parts[:-1])
-    leaf = parts[-1]
-
-    try:
-        import jedi
-
-        fake_code = f"import {module_dotted}\n{module_dotted}.{leaf}"
-        script = jedi.Script(code=fake_code, project=analyzer.project)
-        # Line 2 (1-indexed), column at the leaf identifier
-        inferred = script.infer(2, len(module_dotted) + 1 + len(leaf))
-    except Exception as exc:
-        logger.debug("_resolve_external_dotted_name(%r): infer failed: %s", name, exc)
-        return None
-
-    for jedi_name in inferred:
-        full_name = jedi_name.full_name
-        if not full_name or jedi_name.name != leaf:
-            continue
-        try:
-            handle = Handle(full_name)
-        except ValueError:
-            continue
-
-        def_file = jedi_name.module_path.as_posix() if jedi_name.module_path else ""
-        scope = classify_scope(def_file, analyzer) if def_file else "external"
-        kind = _normalise_kind_from_name(jedi_name)
-
-        if def_file:
-            location = cast(_Location, location_from_name(def_file, jedi_name))
-        else:
-            location = _make_location("", jedi_name.line, jedi_name.column)
-
-        return _SuccessResult(
-            found=True,
-            handle=str(handle),
-            kind=kind,
-            scope=scope,
-            location=location,
-        )
-
-    return None
-
-
 async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
-    """Resolve a dotted name (FQN or re-exported path) to a canonical handle."""
-    handle = await resolve_canonical(name, analyzer)
-    if handle is None:
-        # Project-scoped resolution missed. Per the API design spec
-        # (docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md
-        # lines 138-152), external symbols (stdlib, site-packages) are reachable
-        # as handles with scope='external'; pyeye lazily resolves them via
-        # Jedi's import-following.
-        external = await _resolve_external_dotted_name(name, analyzer)
-        if external is not None:
-            return external
+    """Resolve a dotted name (FQN or re-exported path) through the one resolver (#623)."""
+    return _from_resolver(name, analyzer)
+
+
+def _from_resolver(path: str, analyzer: JediAnalyzer) -> ResolveResult:
+    """Render :func:`pyeye.resolver.resolve_handle` as a resolve result."""
+    resolved = resolve_handle(path, analyzer)
+    if isinstance(resolved, NotFound):
         return _NotFoundResult(found=False, reason="unresolved")
+    return _success_from_resolved(resolved)
 
-    # Find the definition file to classify scope and get kind.
-    # We try to locate the definition by searching for the leaf symbol.
-    leaf = name.split(".")[-1]
-    try:
-        matches = await analyzer.find_symbol(leaf)
-    except Exception:
-        matches = []
 
-    # Try to find the match whose full_name matches our canonical handle
-    file_str = ""
-    matched_type: str | None = None
-    match_found = False
-    match_line: int | None = None
-    match_column: int | None = None
-    definition_name: Any | None = None
-    for match in matches:
-        if match.get("full_name") == str(handle):
-            file_str = match.get("file", "")
-            matched_type = match.get("type")
-            match_line = match.get("line")
-            match_column = match.get("column")
-            match_found = True
-            break
-    else:
-        # Not in the name index (class attributes, methods): place the definition
-        # directly, which also handles symbols nested in classes (#506).
-        definition_name = find_definition_name(str(handle), analyzer)
-        if definition_name is not None and definition_name.module_path:
-            file_str = definition_name.module_path.as_posix()
-        else:
-            file_str = _handle_to_file(handle, analyzer) or ""
-
-    if not file_str:
-        # Neither project lookup can place the canonical handle, so the
-        # definition is external (stdlib / site-packages). resolve_canonical
-        # follows external re-exports (#529); take kind and location from the
-        # external resolver rather than degrading to a placeholder.
-        external = await _resolve_external_dotted_name(str(handle), analyzer)
-        if external is not None:
-            return external
-
-    scope = classify_scope(file_str, analyzer) if file_str else "external"
-    file_posix = Path(file_str).as_posix() if file_str else ""
-
-    # Attempt span location via Jedi Name; fall back to degenerate point location.
-    # The Jedi Name is also the only source that can promote function → method
-    # (the flat match ``type`` cannot see class nesting, #406); prefer it for
-    # kind, then fall back to the match type, then to canonical re-derivation.
-    jedi_name = definition_name or _get_jedi_name_from_match(
-        file_posix, match_line, match_column, analyzer
-    )
-    if jedi_name is not None:
-        location = cast(_Location, location_from_name(file_posix, jedi_name))
-        kind = _normalise_kind_from_name(jedi_name)
-    else:
-        location = _make_location(file_posix, match_line, match_column)
-        if match_found:
-            kind = _normalise_kind(matched_type)
-        else:
-            # Leaf search missed — recover kind from the canonical definition site
-            kind = _kind_for_canonical(str(handle), analyzer)
-
+def _success_from_resolved(resolved: Resolved) -> _SuccessResult:
+    """Build a success result from a :class:`~pyeye.resolver.Resolved`."""
+    anchor = resolved.anchor
+    module_path = getattr(anchor, "module_path", None)
+    file_str = module_path.as_posix() if module_path else ""
     return _SuccessResult(
         found=True,
-        handle=str(handle),
-        kind=kind,
-        scope=scope,
-        location=location,
+        handle=resolved.handle,
+        kind=resolved.kind,
+        scope=resolved.scope,
+        location=cast(_Location, location_from_name(file_str, anchor)),
     )
-
-
-def _handle_to_file(handle: Handle, analyzer: JediAnalyzer) -> str | None:
-    """Attempt to derive a file path from a canonical handle.
-
-    Used as a fallback when find_symbol doesn't return the exact match.
-    Converts the handle's module portion to a file path via the same logic
-    as ``canonicalization.find_module_file``.
-    # NOTE: relies on JediAnalyzer._get_import_path_for_file (private).
-    # Stable in practice; revisit if jedi_analyzer is refactored.
-    """
-    from pyeye.canonicalization import find_module_file
-
-    parts = str(handle).split(".")
-    if len(parts) < 2:
-        return None
-
-    # The module is everything except the last component (the symbol name)
-    module_dotted = ".".join(parts[:-1])
-    module_file = find_module_file(module_dotted, analyzer)
-    return module_file.as_posix() if module_file else None
 
 
 # ---------------------------------------------------------------------------
