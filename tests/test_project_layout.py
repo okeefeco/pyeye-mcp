@@ -79,9 +79,12 @@ class TestProjectRoots:
         return [r.name for r in roots]
 
     def test_each_boundary_names_its_subset_in_order(self, layout: SimpleNamespace) -> None:
+        # SCOPE is the namespace-portion boundary: configured namespaces count
+        # as project (#623 decision 7).
         assert self._names(project_roots(layout, RootsBoundary.SCOPE)) == [
-            "proj",
             "src",
+            "proj",
+            "ns-repo",
             "shared",
         ]
         assert self._names(project_roots(layout, RootsBoundary.TOP_LEVEL_PACKAGE)) == [

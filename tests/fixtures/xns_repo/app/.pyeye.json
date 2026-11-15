@@ -1,0 +1,7 @@
+{
+  "namespaces": {
+    "acme": [
+      "../acme-repo"
+    ]
+  }
+}

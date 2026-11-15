@@ -34,7 +34,8 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations import stubs as stubs_mod
-from pyeye.mcp.operations.stubs import _names_project_module, build_stub
+from pyeye.mcp.operations.stubs import build_stub
+from pyeye.resolver import _names_project_module
 
 _HANDLE = "extpkg.mod.Thing"
 
