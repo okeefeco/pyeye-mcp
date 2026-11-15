@@ -63,11 +63,9 @@ uv run python scripts/duplicate_code_report.py --fail-on-findings  # exit 1 on A
 
 By the time the check became blocking, #623 had removed four of the five
 original regions. Two sites remained; #674 (#626) then removed the
-`edges.resolve_imported_by` / `edges.superclass_bases` copy. One site remains:
-
-| Site | What it is | Removed by |
-|------|-----------|------------|
-| `edges._class_members` / `edges._module_members` | the same skip-seen, `_try_handle`, append loop | #686 |
+`edges.resolve_imported_by` / `edges.superclass_bases` copy, and #714 the
+`edges._class_members` / `edges._module_members` one (#686): `_class_members`
+now dedupes on the emitted handle. The baseline is empty.
 
 ## Findings at introduction (2026-11-15, `main` @ `d615b3a`)
 

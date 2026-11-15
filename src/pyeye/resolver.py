@@ -495,34 +495,40 @@ def _anchor_on_definition(name: Any, handle: str) -> Any:
 _JEDI_UNPLACED_MODULE = "__main__"
 
 
-def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
-    """The canonical handle for *anchor*, or ``None`` if it can't be placed (#714).
+def handle_for_anchor(anchor: Any, full_name: str, analyzer: JediAnalyzer) -> str | None:
+    """The canonical handle for *anchor*, named *full_name* by Jedi, or ``None`` (#714).
 
-    A definition in a file the one file → module mapper can name takes its
-    module part from the mapper, with Jedi's qualname after it. Jedi's own
-    module guess is wrong when the file's spelling differs from its roots: a
-    symlinked root gives ``src.pkg.mod.X``, or ``__main__.X`` for a file it
-    can't place at all. Elsewhere (stdlib, site-packages) Jedi's ``full_name``
-    stands. A ``__main__.*`` name is never a handle: such a definition is
-    ``None``, which the caller reports as not found.
+    The one project-anchor rule, shared by the resolver and every edge handle
+    (``edges._handle_for_name``). A definition in a file the one file -> module
+    mapper can name takes its module part from the mapper, with Jedi's qualname
+    after it. Jedi's own module guess is wrong when the file's spelling differs
+    from its roots (``src.pkg.mod.X``, or ``__main__.X`` for a file it can't
+    place at all). Elsewhere (stdlib, site-packages) *full_name* stands. A
+    ``__main__.*`` name is never a handle: such a definition is ``None``, which
+    callers report as not found or skip.
     """
-    full_name = getattr(anchor, "full_name", None)
-    if not (full_name and _is_dotted_path(full_name)):
-        full_name = fallback
     module_path = getattr(anchor, "module_path", None)
     module = module_name_for_file(analyzer, Path(module_path)) if module_path else None
     if module is not None:
         if normalise_kind_from_name(anchor) == "module":
             return module
         jedi_module = getattr(anchor, "module_name", None) or ""
-        if jedi_module and full_name.startswith(f"{jedi_module}."):
-            return f"{module}.{full_name[len(jedi_module) + 1 :]}"
         if full_name.startswith(f"{module}."):
             return full_name
+        if jedi_module and full_name.startswith(f"{jedi_module}."):
+            return f"{module}.{full_name[len(jedi_module) + 1 :]}"
         return None
     if full_name == _JEDI_UNPLACED_MODULE or full_name.startswith(f"{_JEDI_UNPLACED_MODULE}."):
         return None
     return full_name
+
+
+def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
+    """:func:`handle_for_anchor` of *anchor*'s ``full_name``, or of *fallback* if it has none."""
+    full_name = getattr(anchor, "full_name", None)
+    if not (full_name and _is_dotted_path(full_name)):
+        full_name = fallback
+    return handle_for_anchor(anchor, full_name, analyzer)
 
 
 # ---------------------------------------------------------------------------

@@ -76,7 +76,7 @@ from pyeye._stdlib_static import is_stdlib, public_handle
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
-from pyeye.resolver import Resolved, resolve_handle
+from pyeye.resolver import Resolved, handle_for_anchor, resolve_handle
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -348,7 +348,9 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
 
 
-def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
+def _handle_for_name(
+    name: Any, analyzer: JediAnalyzer, full_name: str | None = None
+) -> Handle | None:
     """The ONE builder for an edge handle from a Jedi ``Name`` (#544).
 
     *full_name* defaults to ``name.full_name``. When the name's definition is a
@@ -357,8 +359,12 @@ def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
     member of ``_collections_abc.Mapping`` is emitted as
     ``collections.abc.Mapping.<m>``, the handle ``resolve`` and ``inspect``
     report. The file check keeps a
-    project package that shares a stdlib name untouched. Everything else is
-    :func:`_try_handle` of *full_name*.
+    project package that shares a stdlib name untouched.
+
+    Every other definition goes through the resolver's project-anchor rule
+    (:func:`pyeye.resolver.handle_for_anchor`, #714): a file the mapper can name
+    gives the module part, and a definition it can't place (Jedi's
+    ``__main__.*``) has no handle, so ``None``.
     """
     if full_name is None:
         full_name = getattr(name, "full_name", None)
@@ -367,6 +373,11 @@ def _handle_for_name(name: Any, full_name: str | None = None) -> Handle | None:
     module_path = getattr(name, "module_path", None)
     if module_path is not None and is_stdlib_source(module_path):
         full_name = public_handle(full_name) or full_name
+    else:
+        placed = handle_for_anchor(name, full_name, analyzer)
+        if placed is None:
+            return None
+        full_name = placed
     return _try_handle(full_name)
 
 
@@ -425,12 +436,13 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
             continue
         if len(full_name.split(".")) != handle_depth + 1:
             continue
-        if full_name in seen:
+        h = _handle_for_name(name, analyzer, full_name)
+        # Dedupe on the handle actually emitted: the stdlib and project-anchor
+        # rules can rewrite the module part (#544, #714).
+        if h is None or str(h) in seen:
             continue
-        seen.add(full_name)
-        h = _handle_for_name(name, full_name)
-        if h is not None:
-            members.append((h, name))
+        seen.add(str(h))
+        members.append((h, name))
     return members
 
 
@@ -515,7 +527,7 @@ def _module_members(
         if full_name in seen:
             continue
         seen.add(full_name)
-        h = _handle_for_name(name, full_name)
+        h = _handle_for_name(name, analyzer, full_name)
         if h is not None:
             members.append((h, name))
     return members
@@ -634,7 +646,7 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
             # No single identifier to goto (e.g. f()(), subscript call).
             unresolved += 1
             continue
-        resolved = _resolve_call_target(script, target)
+        resolved = _resolve_call_target(script, target, analyzer)
         if resolved is None:
             unresolved += 1
             continue
@@ -666,7 +678,9 @@ def _call_target_position(func: ast.expr) -> tuple[int, int] | None:
     return None
 
 
-def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, Any] | None:
+def _resolve_call_target(
+    script: Any, target: tuple[int, int], analyzer: JediAnalyzer
+) -> tuple[Handle, Any] | None:
     """Forward-resolve a call target's (line, col) to a ``(Handle, Name)`` pair.
 
     Uses ``goto(line, col, follow_imports=True)`` — the import-following
@@ -690,7 +704,7 @@ def _resolve_call_target(script: Any, target: tuple[int, int]) -> tuple[Handle, 
     d = goto_target(script, line, col)
     if d is None:
         return None
-    h = _handle_for_name(d)
+    h = _handle_for_name(d, analyzer)
     return (h, d) if h is not None else None
 
 
@@ -1078,7 +1092,7 @@ def superclass_bases(
             bases.append((text, None))
             continue
         d = goto_target(script, base_line, base_col, prefer="class")
-        h = _handle_for_name(d) if d is not None else None
+        h = _handle_for_name(d, analyzer) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases
 
@@ -1202,7 +1216,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
             for alias in node.names:
                 last = alias.name.split(".")[-1]
                 col = alias.col_offset + len(alias.name) - len(last)
-                pair = _resolve_call_target(script, (alias.lineno, col))
+                pair = _resolve_call_target(script, (alias.lineno, col), analyzer)
                 if pair is None:
                     unresolved.add(alias.name)
                     continue
@@ -1226,7 +1240,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
                 # Otherwise alias.col_offset is the column of the imported name
                 # itself (Jedi resolves the symbol/module at that position).
                 pair = _stdlib_import_target(node, alias.name, analyzer) or _resolve_call_target(
-                    script, (alias.lineno, alias.col_offset)
+                    script, (alias.lineno, alias.col_offset), analyzer
                 )
                 if pair is None:
                     unresolved.add(_import_from_target(node, alias.name))
@@ -1315,7 +1329,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     if not full_name:
         return EdgeResult(adjacents=[])
 
-    h = _handle_for_name(parent, full_name)
+    h = _handle_for_name(parent, analyzer, full_name)
     if h is None:
         return EdgeResult(adjacents=[])
 

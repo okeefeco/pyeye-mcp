@@ -245,3 +245,17 @@ async def test_flat_layout_edges_on_a_cold_cache(tmp_path: Path, with_config: bo
         "flatpkg.core.MyClass",
         "flatpkg.core.my_function",
     ], members
+
+
+def test_edge_handles_share_the_project_anchor_rule(analyzer: JediAnalyzer, tmp_path: Path) -> None:
+    """``edges._handle_for_name`` (every edge's handle) applies the same rule as the resolver."""
+    from pyeye.mcp.operations.edges import _handle_for_name
+
+    mapped = _Anchor("__main__.MyClass", "__main__", _link_core(analyzer), "class")
+    assert str(_handle_for_name(mapped, analyzer)) == "mypackage.core.MyClass"
+
+    unplaceable = _Anchor("__main__.f", "__main__", tmp_path / "loose" / "tool.py", "function")
+    assert _handle_for_name(unplaceable, analyzer) is None
+
+    external = _Anchor("json.decoder.JSONDecoder", "json.decoder", None, "class")
+    assert str(_handle_for_name(external, analyzer)) == "json.decoder.JSONDecoder"
