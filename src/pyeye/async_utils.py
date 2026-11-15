@@ -7,6 +7,8 @@ from pathlib import Path, PurePosixPath
 
 import aiofiles
 
+from .path_utils import relative_within
+
 logger = logging.getLogger(__name__)
 
 
@@ -139,7 +141,8 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
                 continue
             candidate = here / name
             # ``rglob(pattern)`` semantics: *pattern* matches the path's tail at any depth.
-            if PurePosixPath(candidate.relative_to(path).as_posix()).match(pattern):
+            below = relative_within(candidate, path)
+            if below is not None and PurePosixPath(below.as_posix()).match(pattern):
                 results.append(candidate)
     return results
 
