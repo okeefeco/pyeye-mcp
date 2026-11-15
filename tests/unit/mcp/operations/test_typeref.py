@@ -203,23 +203,30 @@ class TestPureHelpers:
 class TestCacheKey:
     """Invariants of the per-process TypeRef cache key."""
 
+    @staticmethod
+    def _ann(source: str) -> ast.expr:
+        node = ast.parse(source).body[0]
+        assert isinstance(node, ast.AnnAssign)
+        return node.annotation
+
     def test_cache_key_none_when_file_path_is_none(self) -> None:
         """``file_path=None`` means uncacheable."""
-        assert _cache_key(None, "Path") is None
+        assert _cache_key(None, self._ann("x: Path\n"), "/p") is None
 
     def test_cache_key_none_on_oserror(self, tmp_path: Path) -> None:
         """If ``os.stat`` fails (file gone), key is ``None``."""
         ghost = tmp_path / "does_not_exist.py"
-        assert _cache_key(ghost, "X") is None
+        assert _cache_key(ghost, self._ann("x: X\n"), "/p") is None
 
     def test_cache_key_includes_mtime_ns(self, tmp_path: Path) -> None:
         """The mtime_ns component participates in the key."""
         f = tmp_path / "a.py"
         f.write_text("x: int\n")
-        key1 = _cache_key(f, "int")
+        ann = self._ann("x: int\n")
+        key1 = _cache_key(f, ann, "/p")
         # Bump mtime to a stable larger value
         os.utime(f, ns=(0, os.stat(f).st_mtime_ns + 1_000_000))
-        key2 = _cache_key(f, "int")
+        key2 = _cache_key(f, ann, "/p")
         assert key1 is not None and key2 is not None
         assert key1 != key2, "different mtime_ns must produce different keys"
 
@@ -343,13 +350,13 @@ class TestForwardRefRecursion:
 
 
 class TestCaching:
-    """The TypeRef cache is keyed by (file, mtime_ns, raw) and reuses results."""
+    """The TypeRef cache is keyed per annotation site and reuses results."""
 
     @pytest.mark.asyncio
     async def test_repeated_build_for_same_annotation_hits_cache(
         self, analyzer: JediAnalyzer
     ) -> None:
-        """Two builds for the same (file, raw) return the same dict object."""
+        """Two builds for the same annotation site return the same dict object."""
         services = _FIXTURE / "mypackage" / "services.py"
         ann = ast.parse("x: Path\n").body[0]
         assert isinstance(ann, ast.AnnAssign)
