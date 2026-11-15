@@ -43,6 +43,7 @@ from typing import Any
 import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.mcp.jedi_worker import run_on_jedi_worker
 from pyeye.mcp.operations.edges import EDGE_RESOLVERS
 from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
@@ -73,7 +74,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
 _ISSUE_623 = "#623"  # one canonical handle resolver
-_ISSUE_626 = "#626"  # one edge-applicability table
 
 
 def _round_trip(corpus: str, issue: str, checks: tuple[str, ...], *handles: str) -> dict:
@@ -117,54 +117,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
         "typing.List",
     ),
     #
-    # #626: `submodules` applies to a NON-module symbol defined in a package
-    # `__init__` (`pkg.__all__`, `pkg.init_fn`) and fabricates
-    # `<symbol>.<child>` handles from the package's directory.
-    **_round_trip(
-        "canonicalization_multihop",
-        _ISSUE_626,
-        _MISS,
-        "package.__all__._impl",
-        "package.__all__.legacy",
-        "package.__all__.subpkg",
-        "self_reexport_pkg.__all__.submodule",
-    ),
-    **_round_trip(
-        "containment",
-        _ISSUE_626,
-        _MISS,
-        "regular.mypkg.__all__.alpha",
-        "regular.mypkg.__all__.beta",
-        "regular.mypkg.__all__.sub",
-        "survey.svpkg.both.both_fn.leaf",
-        "survey.svpkg.init_fn.bare",
-        "survey.svpkg.init_fn.both",
-        "survey.svpkg.init_fn.empty",
-        "survey.svpkg.init_fn.full",
-        "survey.svpkg.init_fn.initonly",
-        "survey.svpkg.init_fn.nested",
-    ),
-    **_round_trip(
-        "cross_tool",
-        _ISSUE_626,
-        _MISS,
-        "xpkg.__all__.consumer",
-        "xpkg.__all__.core",
-        "xpkg.__all__.text",
-    ),
-    **_round_trip(
-        "resolve_project",
-        _ISSUE_626,
-        _MISS,
-        "mypackage.__all__._core",
-        "mypackage.__all__.collision_demo",
-        "mypackage.__all__.external_subclass_demo",
-        "mypackage.__all__.helpers",
-        "mypackage.__all__.inheritance_via_attr",
-        "mypackage.__all__.usage",
-        "mypackage.__all__.use_widget",
-    ),
-    **_round_trip("subclasses_resolution", _ISSUE_626, _MISS, "pkg.__all__.core"),
     #
     # -- opt-in self-dogfood corpus (src/pyeye; captured on CPython 3.12) --
     # #602/#623: stdlib and third-party symbols emitted by `imports` that no
@@ -201,13 +153,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #667 multi-repo namespace scenario: the same classes of gap, no new ones.
     **_round_trip(
         "multirepo_namespace", _ISSUE_602, _MISS, "__future__.annotations", "typing.TYPE_CHECKING"
-    ),
-    **_round_trip(
-        "multirepo_namespace",
-        _ISSUE_626,
-        _MISS,
-        "corp.tools.__all__.sub",
-        "corp.tools.__all__.widgets",
     ),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
@@ -706,14 +651,10 @@ async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> 
 #: (root, edge) pairs traced.  Covers project and stdlib imports, a namespace
 #: package, class hierarchies, callees, and wrong-kind edges on each kind.
 #:
-#: ``(xpkg.core, imports)`` is deliberately EXCLUDED: an ``imports`` hop ON
-#: ``io``/``weakref`` recurses ~1500 frames deep in Jedi, which overflows the C
-#: stack and kills the process on Windows / CPython 3.11 (#650).  Since #621
-#: trace no longer walks ``logging`` (expand can't resolve it), but once #623
-#: makes stdlib modules resolvable the walk would reach ``io`` again.  #650
-#: guards that only at the server layer (a large-stack worker thread); this test
-#: calls ``trace`` directly on the main thread, so the case stays excluded.
-#: ``xpkg.text`` (``import textwrap``) stays shallow.
+#: Every case runs on the Jedi worker thread (#650), as the MCP tools do: an
+#: ``imports`` hop into the stdlib (``io``/``weakref`` under ``logging``)
+#: recurses ~1500 frames deep in Jedi, which overflows the default C stack on
+#: Windows / CPython 3.11.  So no case has to be excluded for the stack.
 _TRACE_CASES = tuple(
     (root, edge)
     for root in (
@@ -726,7 +667,6 @@ _TRACE_CASES = tuple(
         "xpkg.core.make_widget",
     )
     for edge in EDGE_RESOLVERS
-    if (root, edge) != ("xpkg.core", "imports")
 )
 
 
@@ -772,14 +712,8 @@ async def _trace_expand_violations(
     return out
 
 
-#: trace/expand roots in the #667 scenario: cross-repo hierarchy, calls and imports.
-#:
-#: The ``imports`` traces of modules that import the stdlib are EXCLUDED, like
-#: ``(xpkg.core, imports)`` above: trace walks into ``logging`` / ``pathlib`` /
-#: ``sys`` and Jedi's import following recurses deep enough to overflow the C
-#: stack on Windows / CPython 3.11.  The cross-repo import closure is covered by
-#: ``tests/integration/test_multirepo_namespace_scenario.py``, which traces with
-#: ``exclude_external``.
+#: trace/expand roots in the #667 scenario: cross-repo hierarchy, calls and imports
+#: (including the stdlib-importing roots, which need the worker's stack).
 _MULTIREPO_TRACE_CASES = tuple(
     (root, edge)
     for root in (
@@ -792,12 +726,6 @@ _MULTIREPO_TRACE_CASES = tuple(
         "corp.web.views.render",
     )
     for edge in EDGE_RESOLVERS
-    if (root, edge)
-    not in {
-        ("app.main", "imports"),
-        ("corp.core.models", "imports"),
-        ("corp.web.views", "imports"),
-    }
 )
 
 
@@ -814,7 +742,8 @@ async def test_trace_expand_agree(project: Path, cases: tuple[tuple[str, str], .
     roots = {root for root, _ in cases}
     observed: dict[tuple[str, ...], str] = {}
     for root, edge in cases:
-        observed.update(await _trace_expand_violations(root, edge, analyzer))
+        # On the large-stack Jedi worker, like the MCP tools (#650): see _TRACE_CASES.
+        observed.update(await run_on_jedi_worker(_trace_expand_violations(root, edge, analyzer)))
     owned = {k: v for k, v in KNOWN_GAPS.items() if k[0] == "trace_expand" and k[1] in roots}
     _assert_matches_allowlist(
         observed, ("trace_expand",), f"trace-expand[{project.name}]", allowed=owned

@@ -826,8 +826,8 @@ class TestRealExpandOutputConforms:
     async def test_real_imported_by_non_module_output_conforms(self) -> None:
         """Real expand(Widget class, imported_by) unsupported branch passes the linter.
 
-        The ``not_yet_implemented`` reason is already in the linter's
-        ``_VALID_UNSUPPORTED_REASONS`` set — no linter change needed.
+        Wrong kind answers ``not_applicable`` (#626), which is in the linter's
+        ``_VALID_UNSUPPORTED_REASONS`` set.
         """
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
         from pyeye.mcp.operations.expand import expand
@@ -836,9 +836,9 @@ class TestRealExpandOutputConforms:
         result = await expand("mypackage._core.widgets.Widget", "imported_by", analyzer)
 
         assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
-        # Unsupported branch — reason=not_yet_implemented.
+        # Unsupported branch — reason=not_applicable (#626).
         assert result.get("unsupported") is True
-        assert result.get("reason") == "not_yet_implemented"
+        assert result.get("reason") == "not_applicable"
         lint_response(result, "expand")  # must not raise
 
     @pytest.mark.asyncio
@@ -866,13 +866,10 @@ class TestRealExpandOutputConforms:
 
     @pytest.mark.asyncio
     async def test_real_subclasses_non_class_output_conforms(self) -> None:
-        """Real expand(pkg.base module, subclasses) measured-empty branch passes the linter.
+        """Real expand(pkg.base module, subclasses) passes the linter.
 
-        A non-class handle yields the SUPPORTED measured-empty result
-        (``stubs: []``) — NOT the unsupported branch (decision 1, #348).  The
-        existing rule that accepts ``stubs=[]`` as a valid supported result
-        (``test_supported_members_empty_stubs_passes``) covers this with NO
-        linter change.
+        A non-class handle is ``not_applicable`` (#626's applicability table),
+        not the measured-empty ``stubs: []`` it used to be (#348 decision 1).
         """
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
         from pyeye.mcp.operations.expand import expand
@@ -881,12 +878,9 @@ class TestRealExpandOutputConforms:
         result = await expand("pkg.base", "subclasses", analyzer)
 
         assert isinstance(result, dict), f"result must be a dict; got {type(result)!r}"
-        # Supported measured-empty branch — stubs present and empty, no unsupported.
-        assert (
-            result.get("stubs") == []
-        ), f"expected measured-empty supported branch; got {result!r}"
-        assert "unsupported" not in result
-        assert "reason" not in result
+        assert result.get("unsupported") is True, f"expected unsupported; got {result!r}"
+        assert result.get("reason") == "not_applicable"
+        assert "stubs" not in result
         lint_response(result, "expand")  # must not raise
 
 

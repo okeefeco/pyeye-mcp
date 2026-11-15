@@ -48,7 +48,8 @@ E.1 Required fields — ``source`` (str, single-line) and ``edge`` (str, single-
 E.2 Discriminated-union exclusivity — exactly one of supported (has ``stubs``
     list) or unsupported (has ``unsupported: True``) branch; garbled/blended
     results are rejected.  The unsupported branch requires ``reason`` ∈
-    {``deferred_reference_backend``, ``not_yet_implemented``, ``unknown_edge``}
+    {``deferred_reference_backend``, ``not_yet_implemented``, ``unknown_edge``,
+    ``not_applicable``}
     and a non-empty ``detail`` str.
 E.3 ``unresolved_call_sites`` placement — only allowed on the supported branch
     when ``edge == "callees"``; must be a plain ``int`` (not bool).
@@ -756,6 +757,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "deferred_reference_backend",
         "not_yet_implemented",
         "unknown_edge",
+        # #626: an implemented edge that doesn't apply to the source's kind.
+        "not_applicable",
     }
 )
 
