@@ -59,19 +59,7 @@ _PATHLIKE = re.compile(r"^(?:path|file|root|dir)$|_(?:path|file|root|dir)$")
 
 #: Known sites -> count. Only shrinks: each migration through path_utils lowers
 #: or deletes an entry (#717). Generate with ``--print-baseline``.
-BASELINE: dict[tuple[str, str], int] = {
-    ("src/pyeye/config.py::ProjectConfig.__init__", "resolve"): 1,
-    ("src/pyeye/config.py::ProjectConfig._normalise_config_path", "resolve"): 1,
-    ("src/pyeye/config.py::ProjectConfig._read_pyright_extra_paths", "resolve"): 1,
-    ("src/pyeye/mcp/operations/resolve.py::_resolve_file_only", "resolve"): 1,
-    ("src/pyeye/mcp/operations/typeref.py::_cache_key", "resolve"): 1,
-    ("src/pyeye/mcp/operations/typeref.py::_project_root", "resolve"): 1,
-    ("src/pyeye/mcp/operations/typeref.py::invalidate_project", "resolve"): 1,
-    ("src/pyeye/mcp/server.py::configure_packages", "resolve"): 1,
-    ("src/pyeye/resolver.py::_top_level_shadow", "resolve"): 1,
-    ("src/pyeye/validation.py::PathValidator.validate_path", "relative_to"): 1,
-    ("src/pyeye/validation.py::PathValidator.validate_path", "resolve"): 3,
-}
+BASELINE: dict[tuple[str, str], int] = {}
 
 
 @dataclass(frozen=True)

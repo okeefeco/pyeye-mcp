@@ -54,6 +54,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
+from pyeye.path_utils import path_to_key
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -244,7 +245,7 @@ def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:
     for root in project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE):
         for candidate in (root / bare / "__init__.py", root / f"{bare}.py"):
             if candidate.is_file():
-                files.setdefault(candidate.resolve().as_posix(), candidate)
+                files.setdefault(path_to_key(candidate), candidate)
                 break
     if len(files) < 2:
         return []

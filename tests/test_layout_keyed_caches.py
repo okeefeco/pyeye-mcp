@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -296,6 +297,22 @@ class TestConfigurePackages:
             "AppModel",
             "LibModel",
         }
+
+    @pytest.mark.usefixtures("fresh_server")
+    @pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+    async def test_a_plugin_under_a_symlinked_spelling_gets_the_paths(
+        self, two_repos: tuple[Path, Path], tmp_path: Path
+    ) -> None:
+        """The plugin and the call name the project differently: paths_equal matches them (#717)."""
+        root, lib = two_repos
+        link = tmp_path / "root-link"
+        link.symlink_to(root, target_is_directory=True)
+        plugin = PydanticPlugin(str(link))
+        server._plugins.append(plugin)
+
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+
+        assert plugin.additional_paths != []
 
     @pytest.mark.usefixtures("fresh_server")
     async def test_plugins_of_other_projects_are_left_alone(

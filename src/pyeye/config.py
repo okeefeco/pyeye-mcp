@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import CONFIG_DIR, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
+from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
 
@@ -40,7 +41,7 @@ class ProjectConfig:
         Args:
             project_path: Root path of the project
         """
-        self.project_path = Path(project_path).resolve()
+        self.project_path = normalize_path(project_path)
         self.config: dict[str, Any] = {}
         self.has_explicit_config: bool = False
         self.load_config()
@@ -304,7 +305,7 @@ class ProjectConfig:
             path = Path(p)
             if not path.is_absolute():
                 path = self.project_path / path
-            path = path.resolve()
+            path = normalize_path(path)
             if path.exists() and path.as_posix() not in resolved:
                 resolved.append(path.as_posix())
 
@@ -547,7 +548,7 @@ class ProjectConfig:
             path = self.project_path / path
         if "*" in entry:
             return path.as_posix()
-        return path.resolve().as_posix()
+        return path_to_key(path)
 
     def get_scope_defaults(self) -> dict[str, Any]:
         """Get configured scope defaults.

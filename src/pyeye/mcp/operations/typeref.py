@@ -89,6 +89,7 @@ from pyeye._ast_targets import attr_target_position
 from pyeye._goto import binding_target, goto_target
 from pyeye._stdlib_static import is_stdlib
 from pyeye.handle import Handle
+from pyeye.path_utils import path_to_key
 from pyeye.project_layout import module_name_for_file
 from pyeye.resolver import Resolved, resolve_item
 
@@ -165,7 +166,7 @@ def invalidate_project(root: Path | str) -> None:
     resolve to (a referenced type moved or was renamed), so invalidation is
     per project, not per file.
     """
-    key = Path(root).resolve().as_posix()
+    key = path_to_key(root)
     with _typeref_lock:
         for cached in [k for k in _typeref_cache if k[0] == key]:
             del _typeref_cache[cached]
@@ -237,7 +238,7 @@ def _cache_key(
     end_col = getattr(annotation, "end_col_offset", None)
     return (
         project_root,
-        file_path.resolve().as_posix(),
+        path_to_key(file_path),
         mtime_ns,
         lineno,
         col,
@@ -249,7 +250,7 @@ def _cache_key(
 
 def _project_root(analyzer: JediAnalyzer) -> str:
     """The analyzer's project root, as the cache's project component."""
-    return Path(analyzer.project_path).resolve().as_posix()
+    return path_to_key(analyzer.project_path)
 
 
 # ---------------------------------------------------------------------------
