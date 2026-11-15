@@ -802,8 +802,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     ``references``).
 
     Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
-    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1,
-    ``include_indirect=False``) — symmetric with ``superclasses`` (direct bases).
+    neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1;
+    ``find_subclasses`` is direct-only since #628) — symmetric with
+    ``superclasses`` (direct bases).
     The full transitive closure is served exclusively by
     ``trace(follow=["subclasses"], max_depth=k, max_nodes=N)``, which already owns
     the cap + ``truncated`` contract; ``expand`` carries a static pointer to that
@@ -862,12 +863,7 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     # which already owns the cap + ``truncated`` contract; routing it there also
     # makes trace's per-hop BFS correct (a closure-per-hop resolver collapsed the
     # whole closure onto depth 1).
-    result = await analyzer.find_subclasses(
-        handle,
-        scope=_project_search_scope(analyzer),
-        include_indirect=False,
-        show_hierarchy=False,
-    )
+    result = await analyzer.find_subclasses(handle, scope=_project_search_scope(analyzer))
     # An FQN input never triggers the ambiguous variant.  Carry a defensive
     # assert so a future regression surfaces loudly instead of silently yielding
     # an empty list.

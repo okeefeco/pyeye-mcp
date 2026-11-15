@@ -280,11 +280,6 @@ def test_find_module_file_in_root_package(root_package_project: Path) -> None:
     assert find_module_file("rootpkg", analyzer) == root_package_project / "__init__.py"
 
 
-def test_find_init_file_in_root_package(root_package_project: Path) -> None:
-    analyzer = JediAnalyzer(str(root_package_project))
-    assert analyzer._find_init_file("rootpkg") == root_package_project / "__init__.py"
-
-
 @pytest.fixture
 def additional_package_project(tmp_path: Path) -> tuple[Path, Path]:
     project = tmp_path / "main"

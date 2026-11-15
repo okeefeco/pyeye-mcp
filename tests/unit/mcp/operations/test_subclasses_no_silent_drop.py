@@ -95,9 +95,7 @@ async def test_expand_subclasses_matches_find_subclasses_set(
     subclasses_analyzer: JediAnalyzer,
 ) -> None:
     """expand(subclasses) returns exactly the find_subclasses direct set (parity)."""
-    ground_truth = await subclasses_analyzer.find_subclasses(
-        _ANIMAL_HANDLE, scope="main", include_indirect=False
-    )
+    ground_truth = await subclasses_analyzer.find_subclasses(_ANIMAL_HANDLE, scope="main")
     gt_handles = {s["full_name"] for s in ground_truth["subclasses"]}
 
     result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
