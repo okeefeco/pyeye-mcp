@@ -49,7 +49,7 @@ class TestAddedSysPathAttribute:
         """The stored attribute equals the list handed to ``jedi.Project``.
 
         No second computation path: the attribute is the same set of paths,
-        in the same order, just typed as ``Path`` instead of posix ``str``.
+        in the same order, just typed as ``Path`` instead of native ``str``.
         """
         from unittest.mock import Mock, patch
 
@@ -59,8 +59,10 @@ class TestAddedSysPathAttribute:
             analyzer = JediAnalyzer(str(_FIXTURE), config=config)
 
         passed = mock_project.call_args.kwargs["added_sys_path"]
-        attr_posix = [p.as_posix() for p in analyzer.added_sys_path]
-        assert attr_posix == list(passed)
+        # Jedi gets OS-native strings (it matches them textually against
+        # native module paths, #625); the attribute holds the same paths.
+        assert [Path(p) for p in passed] == analyzer.added_sys_path
+        assert list(passed) == [os.fspath(p) for p in analyzer.added_sys_path]
 
     def test_added_sys_path_without_config_matches_config(self) -> None:
         """Without config, the src/ root is still detected (#625 slice 3).
