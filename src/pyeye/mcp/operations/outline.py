@@ -90,7 +90,7 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
-from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
+from pyeye.mcp.operations.edges import EDGE_APPLIES_TO, resolve_members, resolve_submodules
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.project_layout import package_kind
@@ -116,11 +116,11 @@ _MEMBER_COUNT: str = "member_count"
 _SUBMODULE_COUNT: str = "submodule_count"
 
 # ---------------------------------------------------------------------------
-# Container kinds — resolve_members returns [] for non-containers by definition,
-# so non-container nodes always get children: [] without calling resolve_members.
+# Container kinds — the kinds ``members`` applies to (#626's table), so a
+# non-container node gets children: [] without calling resolve_members.
 # ---------------------------------------------------------------------------
 
-_CONTAINER_KINDS: frozenset[str] = frozenset({"class", "module"})
+_CONTAINER_KINDS: frozenset[str] = EDGE_APPLIES_TO["members"]
 
 
 def _is_container(kind: str) -> bool:

@@ -227,8 +227,11 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
   node with no neighbours.
 - **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind
-  (e.g. `imports` on a class): its `detail` names the kind. Those nodes were not walked
-  along that edge — that's "not applicable", not "measured, none".
+  (e.g. `imports` on a class), with `reason: "not_applicable"`: its `detail` names the
+  kind and the kinds the edge does apply to. Those nodes were not walked along that
+  edge — that's "not applicable", not "measured, none". `expand` gives the same
+  `not_applicable` answer directly (e.g. `members` on a function, `subclasses` on a
+  module), never a `stubs: []`.
 - **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
   map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of
