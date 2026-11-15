@@ -64,7 +64,8 @@ E.7 ``unresolved_importers`` (#668) placement — only allowed on the supported
     branch when ``edge == "imported_by"``; a list of non-empty single-line strs
     (the POSIX paths of importing files that have no module name).
 E.8 ``unparseable_files`` (#729) placement — only allowed on the supported
-    branch when ``edge`` is ``"subclasses"`` or ``"imported_by"``; a list of
+    branch when ``edge`` is ``"subclasses"``, ``"imported_by"`` or
+    ``"re_exports"`` (#393); a list of
     non-empty single-line strs (the POSIX paths of files the server couldn't
     parse).
 
@@ -101,7 +102,7 @@ T.8 ``unresolved_imports`` (#494), when present (only if ``imports`` was traced)
     and non-empty lists of non-empty single-line target strs.  Optional.
 T.10 ``unresolved_importers`` (#668), when present (only if ``imported_by`` was
     traced), is a dict ``{handle: [file, ...]}`` shaped like T.8.  Optional.
-T.11 ``unparseable_files`` (#729), when present (only if ``subclasses`` or
+T.11 ``unparseable_files`` (#729), when present (only if ``subclasses``, ``re_exports`` or
     ``imported_by`` was traced), is a dict ``{handle: [file, ...]}`` shaped like
     T.8.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
@@ -1122,7 +1123,7 @@ _EDGE_LOSS_LISTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("E.5", "unresolved_imports", ("imports",)),  # #494
     ("E.6", "unresolved_superclasses", ("superclasses",)),  # #624
     ("E.7", "unresolved_importers", ("imported_by",)),  # #668
-    ("E.8", "unparseable_files", ("subclasses", "imported_by")),  # #729
+    ("E.8", "unparseable_files", ("subclasses", "imported_by", "re_exports")),  # #729, #393
 )
 #: The same losses carried onto a trace Subgraph, keyed by node: (rule, key).
 _TRACE_LOSS_MAPS = (

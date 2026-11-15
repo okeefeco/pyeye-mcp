@@ -39,6 +39,19 @@ def _no_real_file_watchers(request: pytest.FixtureRequest, monkeypatch: pytest.M
 
 
 @pytest.fixture(autouse=True)
+def _cold_re_export_cache() -> None:
+    """Each test starts with an empty re-export cache (#393).
+
+    It is process-wide and keyed on project, layout and handle, so a test that
+    patches the scan, or edits a file in place without a watcher, would
+    otherwise read an earlier test's answer.
+    """
+    from pyeye.canonicalization import invalidate_re_exports
+
+    invalidate_re_exports()
+
+
+@pytest.fixture(autouse=True)
 def _reset_jedi_worker() -> Generator[None, None, None]:
     """Stop the Jedi worker thread after each test (#650), so none leaks.
 

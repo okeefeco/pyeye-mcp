@@ -57,6 +57,7 @@ def test_the_table() -> None:
         "superclasses": {"class"},
         "submodules": {"module"},
         "enclosing_scope": KINDS - {"module"},
+        "re_exports": KINDS - {"module"},  # a module is re-exported as itself (#393)
     } == EDGE_APPLIES_TO
 
 

@@ -36,7 +36,7 @@ from tests.test_plugin_envelope import (
 )
 
 _PATH_KEYS = frozenset({"file", "config_file"})
-_PATH_LIST_KEYS = frozenset({"packages", "unresolved_importers", "dirs"})
+_PATH_LIST_KEYS = frozenset({"packages", "unresolved_importers", "unparseable_files", "dirs"})
 
 #: corpus name -> (directory copied into tmp, root relative to that copy)
 _CORPORA: dict[str, tuple[Path, str]] = {

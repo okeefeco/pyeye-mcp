@@ -74,9 +74,15 @@ from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye._stdlib_static import is_stdlib, public_handle
+from pyeye.canonicalization import re_export_scan
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
-from pyeye.project_layout import dir_shallow_qualifies, find_namespace_package_dirs, package_kind
+from pyeye.project_layout import (
+    dir_shallow_qualifies,
+    file_for_module,
+    find_namespace_package_dirs,
+    package_kind,
+)
 from pyeye.resolver import Resolved, handle_for_anchor, resolve_item
 from pyeye.scope import classify_scope, is_stdlib_source
 
@@ -137,6 +143,9 @@ class EdgeResult:
     unresolved_superclasses: list[str] | None = None
     unresolved_importers: list[str] | None = None
     unparseable_files: list[str] | None = None
+    #: Extra stub fields per adjacent handle, merged into the stub by ``expand``.
+    #: ``re_exports`` (#393) uses it for ``bindings``; ``None`` for other edges.
+    stub_extras: dict[str, dict[str, Any]] | None = None
 
     @property
     def handles(self) -> list[Handle]:
@@ -256,6 +265,7 @@ _IMPLEMENTED_EDGES = frozenset(
         "imports",
         "enclosing_scope",
         "submodules",
+        "re_exports",  # #393
     }
 )
 
@@ -325,6 +335,9 @@ EDGE_APPLIES_TO: dict[str, frozenset[str]] = {
     # directory as if it were the package.
     "submodules": frozenset({"module"}),
     "enclosing_scope": KINDS - {"module"},
+    # Re-exports of a symbol (#393); a module's own re-exports are a different
+    # question, so a module handle is unsupported, as inspect's field is absent.
+    "re_exports": KINDS - {"module"},
 }
 
 
@@ -1645,6 +1658,51 @@ def resolve_submodules(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
 
 # ---------------------------------------------------------------------------
+# re_exports resolver (#393)
+# ---------------------------------------------------------------------------
+
+
+async def resolve_re_exports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
+    """The public modules that re-export a symbol, one stub per module (#393).
+
+    A re-export path such as ``pkg.Foo`` is an alias of the symbol itself, not a
+    different canonical handle, so the stub is the **module** that binds it
+    (canonical, ``kind: "module"``). Its ``bindings`` list holds the public
+    dotted paths that module provides, e.g. ``["pkg.Foo", "pkg.Bar"]`` for
+    ``from ._impl import Foo, Foo as Bar``. "Public" is the #712 definition
+    (:func:`pyeye.canonicalization.re_export_scan`, shared with ``inspect``'s
+    deprecated ``re_exports`` field and its cache).
+
+    ``unparseable_files`` (#729) lists the package files the server couldn't
+    parse. The paths found in every other file are still returned. ``[]`` when
+    every file parsed.
+    """
+    handle = _handle_for_name(jedi_name, analyzer)
+    if handle is None:
+        return EdgeResult(adjacents=[], unparseable_files=[], stub_extras={})
+    scan = await re_export_scan(handle, analyzer)
+    by_module: dict[str, list[str]] = {}
+    for path in scan.paths:
+        module = path.rsplit(".", 1)[0]
+        by_module.setdefault(module, []).append(path)
+
+    adjacents: list[tuple[Handle, Any]] = []
+    extras: dict[str, dict[str, Any]] = {}
+    for module in sorted(by_module):
+        mod_handle = _try_handle(module)
+        mod_file = file_for_module(analyzer, module)
+        if mod_handle is None or mod_file is None:
+            continue
+        adjacents.append((mod_handle, ModuleSentinel(mod_file, module, analyzer)))
+        extras[module] = {"bindings": sorted(by_module[module])}
+    return EdgeResult(
+        adjacents=adjacents,
+        unparseable_files=list(scan.unparseable_files),
+        stub_extras=extras,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Resolver registry
 # ---------------------------------------------------------------------------
 
@@ -1660,4 +1718,5 @@ EDGE_RESOLVERS: dict[str, Callable[[Any, JediAnalyzer], EdgeResult | Awaitable[E
     "imports": resolve_imports,
     "enclosing_scope": resolve_enclosing_scope,
     "submodules": resolve_submodules,
+    "re_exports": resolve_re_exports,
 }

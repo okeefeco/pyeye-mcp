@@ -20,9 +20,12 @@ Design notes
   expand-only edge (``expand(handle, "subclasses")``) (#392).  ``callers`` and
   ``references`` are likewise OMITTED — deferred to the Pyright reference backend
   (#333).  Unmeasured edge types are ABSENT (not 0).
-- ``re_exports`` (non-module kinds): present when measured (``[]`` = measured,
-  none found), or ABSENT if collection failed (couldn't measure).  ABSENT for
-  module kind (not computed for this kind).  Per the absence-vs-zero invariant,
+- ``re_exports`` (non-module kinds) — **deprecated** in favour of
+  ``expand(handle, "re_exports")`` (#393; removed in v3.0, tracked in #749):
+  present when measured (``[]`` = measured, none found), or ABSENT if
+  collection failed or any file in the package couldn't be parsed (couldn't
+  measure; the edge lists such files in ``unparseable_files`` instead).  ABSENT
+  for module kind (not computed for this kind).  Per the absence-vs-zero invariant,
   absence never means "none".  ``highlights``, ``tags``, ``properties`` are not
   currently computed and are therefore ABSENT.
 - ``Param.kind`` values: lowercase 5-value enum
@@ -878,14 +881,9 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     # Module kind is ABSENT — the BFS-based collect_re_exports walks __init__.py for
     # symbol names; traversing module re-exports requires a different strategy and is
     # deferred to a future phase.
-    # No new cache is added here: collect_re_exports calls file_artifact_cache.get_script
-    # per file, so each source file is loaded at most once across all calls. The BFS
-    # walk is O(package_files) per inspect call and typically completes in single-digit ms.
-    # If profiling reveals a bottleneck, a per-handle cache on JediAnalyzer can be wired
-    # in a later phase (see TODO below).
-    # TODO(perf): if repeated inspect calls on the same handle become a bottleneck,
-    # add a dict[str, list[str]] on JediAnalyzer, lazily populated and invalidated
-    # by the existing file watcher on source changes.
+    # Deprecated (#393, removal in v3.0, #749): the expand edge is the surface.
+    # It reads the same cached scan (canonicalization.re_export_scan, invalidated
+    # per project by the file watcher), so a repeat inspect costs a dict lookup.
     if kind != "module":
         try:
             raw_re_exports = await collect_re_exports(Handle(handle), analyzer)
