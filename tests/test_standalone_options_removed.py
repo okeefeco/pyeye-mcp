@@ -52,6 +52,8 @@ class TestConfigurePackagesSurface:
             "namespaces",
             "standalone_dirs",
             "save",
+            # Added in #618: the project to configure (it was hard-wired to ".").
+            "project_path",
         ]
 
     def test_saves_only_dirs_under_standalone(self, project):

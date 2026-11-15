@@ -18,7 +18,7 @@ from ..dependency_tracker import DependencyTracker
 from ..exceptions import AnalysisError, FileAccessError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import ImportAnalyzer, resolve_relative_import
-from ..project_layout import file_for_module, module_name_for_file
+from ..project_layout import file_for_module, layout_key, module_name_for_file
 from ..scope_utils import (
     LazyNamespaceLoader,
     ScopedCache,
@@ -159,6 +159,16 @@ class JediAnalyzer:
                 error=str(e),
             ) from e
 
+    @property
+    def layout_key(self) -> str:
+        """This analyzer's effective-layout identity (:func:`pyeye.project_layout.layout_key`).
+
+        Computed on each access rather than cached: ``set_additional_paths``,
+        ``set_namespace_paths`` and ``set_standalone_paths`` change the layout
+        after construction.
+        """
+        return layout_key(self)
+
     def set_additional_paths(self, paths: list[Path]) -> None:
         """Set additional paths from ProjectManager.
 
@@ -285,6 +295,7 @@ class JediAnalyzer:
             all_files,
             file_to_module,
             generation,
+            layout_key=self.layout_key,
         )
 
         if fuzzy:

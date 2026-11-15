@@ -40,7 +40,11 @@ NameIndex = dict[str, list[DefinitionSentinel]]
 # Guards _name_indices and serialises builds (single-flight). Module-global: the
 # store is process-wide, mirroring file_artifact_cache's default singleton.
 _lock = threading.Lock()
-_name_indices: dict[str, NameIndex] = {}
+#: root -> layout key -> index. Keyed on the layout too (#618): module names are
+#: baked in at build time and depend on the analyzer's source roots, sys.path,
+#: packages and namespaces, so analyzers with different layouts on one root
+#: must not share an index. Invalidating a root drops every layout under it.
+_name_indices: dict[str, dict[str, NameIndex]] = {}
 
 #: A project's invalidation count, plus a store-wide epoch bumped by a full clear.
 #: ``get_name_index`` stores a build only if neither moved since the caller read
@@ -175,6 +179,8 @@ def get_name_index(
     py_files: list[Path],
     file_to_module: dict[Path, str | None],
     generation: Generation | None = None,
+    *,
+    layout_key: str = "",
 ) -> NameIndex:
     """Return the cached whole-project name-index, building it on first use.
 
@@ -192,21 +198,23 @@ def get_name_index(
         generation: The :func:`generation` taken before *py_files* was read. If
             the project was invalidated since, the index is built and returned
             but not cached, because it may predate the change.
+        layout_key: The analyzer's :func:`pyeye.project_layout.layout_key`.
+            Analyzers with different layouts on one root get separate indices.
 
     Returns:
         The cached :data:`NameIndex` for *project_key*.
     """
     key = _normalize(project_key)
-    cached = _name_indices.get(key)
+    cached = _name_indices.get(key, {}).get(layout_key)
     if cached is not None:
         return cached
     with _lock:
-        cached = _name_indices.get(key)  # double-checked under lock
+        cached = _name_indices.get(key, {}).get(layout_key)  # double-checked under lock
         if cached is not None:
             return cached
         index = build_name_index(py_files, file_to_module)
         if generation is None or generation == (_epoch, _generations.get(key, 0)):
-            _name_indices[key] = index
+            _name_indices.setdefault(key, {})[layout_key] = index
         return index
 
 

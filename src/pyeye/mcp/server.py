@@ -136,11 +136,7 @@ def initialize_plugins(project_path: str = ".") -> None:
         try:
             plugin = plugin_class(project_path)
             if plugin.detect():
-                # Pass namespace configuration to the plugin
-                from pathlib import Path
-
-                plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
-                plugin.set_namespace_paths(config.get_namespaces())
+                _apply_plugin_paths(plugin, config)
 
                 _plugins.append(plugin)
                 logger.info(f"Activated {plugin.name()} plugin with namespace support")
@@ -165,6 +161,18 @@ def initialize_plugins(project_path: str = ".") -> None:
     # Outside the per-plugin try: a duplicate name is a bug in the declared names,
     # not an optional plugin failing to load, so it must not be swallowed.
     register_plugin_tools(mcp, _plugins, resolver)
+
+
+def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:
+    """Give *plugin* the package and namespace paths from *config*.
+
+    Shared by ``initialize_plugins`` and ``configure_packages`` (#618), so a
+    reconfigured project's plugins see the same paths a restart would give them.
+    """
+    from pathlib import Path
+
+    plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
+    plugin.set_namespace_paths(config.get_namespaces())
 
 
 _PLUGIN_CLASSES: tuple[type[AnalyzerPlugin], ...] = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
@@ -377,6 +385,7 @@ def configure_packages(
     namespaces: dict[str, list[str]] | None = None,
     standalone_dirs: list[str] | None = None,
     save: bool = True,
+    project_path: str = ".",
 ) -> dict[str, Any]:
     """Python: Configure additional packages, namespaces, and standalone scripts for analysis.
 
@@ -386,10 +395,17 @@ def configure_packages(
         standalone_dirs: Directories containing standalone Python scripts.
             Every ``.py`` file under them is analysed.
         save: Save configuration to .pyeye.json
+        project_path: Project root to configure (default: current directory)
     """
-    # Load existing config
+    from pathlib import Path
+
+    from ..analyzers import project_graph
+    from .operations import typeref
+
+    # Load existing config for the project being configured (#618: was always ".")
     global project_config
-    project_config = ProjectConfig(".")
+    root = Path(project_path).resolve()
+    project_config = ProjectConfig(root.as_posix())
     config = project_config
 
     # Update configuration
@@ -424,11 +440,22 @@ def configure_packages(
     # rebuilds with the updated package paths, namespaces, and standalone
     # directories.  Multi-project / namespace scenarios can have stale
     # analyzers for secondary paths too.
-    if all_paths:
-        for path in all_paths:
-            manager.invalidate_analyzer(path)
-    else:
-        manager.invalidate_analyzer(".")
+    manager.invalidate_analyzer(root.as_posix())
+    for path in all_paths:
+        manager.invalidate_analyzer(path)
+
+    # Drop the project's process-wide caches. Layout keying (#618) already keeps
+    # a new layout from reading the old entries; this frees them and covers the
+    # TypeRef cache, which is keyed on the root alone (#620).
+    project_graph.invalidate(root.as_posix())
+    typeref.invalidate_project(root)
+
+    # Plugins are configured once at startup; give this project's plugins the new
+    # paths. Re-detection (a new package bringing a new framework) still needs a
+    # restart.
+    for plugin in _plugins:
+        if plugin.project_path.resolve() == root:
+            _apply_plugin_paths(plugin, config)
 
     result: dict[str, Any] = {
         "packages": config.get_package_paths(),
