@@ -71,6 +71,12 @@ Notes that matter:
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
   dotted handle.
+- **A bare name that is a top-level module resolves to that module.** `resolve("functools")`
+  is stdlib `functools` and `resolve("inspect")` is stdlib `inspect`, even when the project
+  also defines something with that name. To reach the project's symbol or submodule, use
+  its dotted handle: `resolve("jaraco.functools")`, or `pyeye.mcp.operations.inspect` in
+  pyeye's own repo. Only two top-level packages sharing a name across project roots stay
+  ambiguous.
 - **Not found:** check `found` on every `resolve`/`resolve_at`/`inspect`/`outline`/`expand`
   result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
   node, tree, or stubs, and `detail` naming the next step:
@@ -361,16 +367,10 @@ trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (cap
 Then drill: `resolve(root) → outline(pkg) | expand(pkg, "submodules") → pick a
 module → inspect / expand("members") / trace`.
 
-> **Cold-start limit — namespace-rooted packages.** The bare-name entry above
-> (`resolve("myapp")`) is reliable for a **regular** package (one with an
-> `__init__.py`). A PEP 420 **namespace** package (no `__init__.py` at its root)
-> may surface as an `external`/`namespace` handle that `resolve`/`inspect` can't
-> anchor, so `resolve("<name>")` can come back ambiguous/not-found and
-> `inspect(<namespace-pkg>)` omits its `submodules` count — even though
-> `expand(<namespace-pkg>, "submodules")` still enumerates children once you hold
-> the handle. End-to-end namespace cold-start is deferred to #444; until then,
-> orient a namespace package via a child handle you already know, or by resolving
-> a concrete module inside it.
+> **Namespace-rooted packages work the same way.** A PEP 420 namespace package
+> (no `__init__.py` at its root) resolves to `kind: "module"`, anchored on its
+> directory, and namespaces configured in `.pyeye.json` count as `scope:
+> "project"`, including repos that live outside the project root.
 
 **"What does this function call?"** — forward, reliable:
 
