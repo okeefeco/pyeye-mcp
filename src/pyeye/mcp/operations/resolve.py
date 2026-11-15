@@ -63,6 +63,7 @@ from pyeye._jedi_location import location_from_name
 from pyeye._jedi_names import is_attribute_target
 from pyeye.handle import Handle
 from pyeye.mcp.operations.not_found import not_found_for
+from pyeye.path_utils import normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
 
@@ -491,7 +492,7 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
     # source_roots and project_path; a relative input would silently miss
     # those and fall through to either an unresolved result or a wrongly
     # path-prefixed handle (e.g. "src.pkg.mod" instead of "pkg.mod").
-    file_path = file_path.resolve()
+    file_path = normalize_path(file_path)
 
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:

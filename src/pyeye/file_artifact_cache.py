@@ -93,11 +93,6 @@ def _stat_version(path: Path) -> _Version:
     return st.st_mtime_ns, st.st_size
 
 
-def _resolve_posix(path: Path | str) -> str:
-    """Return the canonical, POSIX-format absolute path string for *path*."""
-    return path_to_key(path)
-
-
 def _project_key(project: jedi.Project) -> str:
     """Return a stable string key for *project*'s import resolution.
 
@@ -197,7 +192,7 @@ class FileArtifactCache:
         ast.Module
             Parsed abstract syntax tree.
         """
-        resolved = _resolve_posix(path)
+        resolved = path_to_key(path)
         key: _FileKey = (resolved, _stat_version(Path(path)))
 
         with self._lock:
@@ -243,7 +238,7 @@ class FileArtifactCache:
         jedi.Script
             Constructed jedi Script object.
         """
-        resolved = _resolve_posix(path)
+        resolved = path_to_key(path)
         version = _stat_version(Path(path))
         proj_key = _project_key(project)
         key: _ScriptKey = (resolved, version, proj_key)
@@ -280,7 +275,7 @@ class FileArtifactCache:
         path:
             Path whose entries should be dropped from the cache.
         """
-        resolved = _resolve_posix(path)
+        resolved = path_to_key(path)
         with self._lock:
             self._evict_all_for_resolved(resolved)
 

@@ -20,7 +20,7 @@ from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
-from ..path_utils import absolute_path, paths_equal, respell_paths
+from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -609,7 +609,7 @@ def configure_packages(
 
     # Load existing config for the project being configured (#618: was always ".")
     global project_config
-    root = Path(project_path).resolve()
+    root = normalize_path(project_path)
     project_config = ProjectConfig(root.as_posix())
     config = project_config
 
@@ -658,7 +658,7 @@ def configure_packages(
 
     # Give this project's active plugins the new paths (#618).
     for plugin in _plugins:
-        if plugin.project_path.resolve() == root:
+        if paths_equal(plugin.project_path, root):
             _apply_plugin_paths(plugin, config)
     # Then re-detect on the startup project, whose tools plugins are bound to: a
     # framework used only in a newly added package activates now (#659).
