@@ -17,12 +17,15 @@ the edge resolver reports the import as unresolved. These tests pin:
 from __future__ import annotations
 
 import asyncio
+import gc
 import importlib
 import inspect
 import io
 import sys
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +56,26 @@ def _write(path: Path, text: str = "") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+@contextmanager
+def _gc_paused() -> Iterator[None]:
+    """Run a block with the cyclic garbage collector off (#688).
+
+    A test that recurses to the recursion limit must not let a finaliser run
+    while the stack is that deep: the unraisable hook would then run at the
+    limit too, fail inside ``traceback.format_exception``, and pytest would
+    blame the test.  Collect first so nothing is pending, then pause gc and
+    restore the previous state afterwards.
+    """
+    was_enabled = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +166,26 @@ class TestWorker:
         def recurse(n: int) -> int:
             return recurse(n + 1) + 1
 
-        with pytest.raises(RecursionError):
+        with pytest.raises(RecursionError), _gc_paused():
             await run_on_jedi_worker(lambda: recurse(0))
         # The worker survives and keeps serving.
         assert await run_on_jedi_worker(lambda: "alive") == "alive"
+
+    def test_gc_paused_restores_the_previous_gc_state(self) -> None:
+        assert gc.isenabled()
+        with _gc_paused():
+            assert not gc.isenabled()
+        assert gc.isenabled()
+        with pytest.raises(RuntimeError), _gc_paused():
+            raise RuntimeError("boom")
+        assert gc.isenabled()
+        gc.disable()
+        try:
+            with _gc_paused():
+                pass
+            assert not gc.isenabled()
+        finally:
+            gc.enable()
 
     async def test_cancelling_the_caller_cancels_the_worker_task(self) -> None:
         started = threading.Event()
