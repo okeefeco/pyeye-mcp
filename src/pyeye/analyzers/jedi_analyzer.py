@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 import jedi
 
 from .. import file_artifact_cache, settings
+from .._jedi_project import make_project
 from ..async_utils import read_file_async
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
@@ -190,13 +191,12 @@ class JediAnalyzer:
                 jedi_root = jedi_root.parent
                 self._jedi_root_is_parent = True
 
-            if added_sys_path:
-                self.project = jedi.Project(
-                    path=jedi_root.as_posix(),
-                    added_sys_path=_jedi_sys_path(added_sys_path),
-                )
-            else:
-                self.project = jedi.Project(path=jedi_root.as_posix())
+            # #722: never jedi.Project directly; make_project drops Jedi's own
+            # subprocess directory from the base sys.path.
+            self.project = make_project(
+                jedi_root,
+                added_sys_path=_jedi_sys_path(added_sys_path) if added_sys_path else (),
+            )
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
             logger.error(f"Failed to initialize Jedi project: {e}")
@@ -259,10 +259,7 @@ class JediAnalyzer:
             existing = list(self.project.added_sys_path or [])
             merged = _jedi_sys_path(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
-            self.project = jedi.Project(
-                path=Path(jedi_root).as_posix(),
-                added_sys_path=merged,
-            )
+            self.project = make_project(jedi_root, added_sys_path=merged)
             logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
