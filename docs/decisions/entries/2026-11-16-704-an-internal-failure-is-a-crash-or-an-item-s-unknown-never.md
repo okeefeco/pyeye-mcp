@@ -32,7 +32,7 @@ Slice C of #626 already said that anything but a caller error "is a genuine bugâ
   - a plugin record: its `unresolved` marker;
   - subclass base canonicalisation.
 - **No per-item signal â†’ crash, and the field is omitted.** `re_exports` has none, so a failing file propagates out of `collect_re_exports` to `inspect`'s guard. The field is then ABSENT (unknown), never `[]`. Fields like this are candidates for #435's shared completeness envelope; no new field is invented here.
-- Parse failures stay #703's `unparseable`. Honest expected misses are unchanged: `goto_target`'s counted `unresolved_*` (including #650's `RecursionError`), shape probes, and optional-field probes (absent = unknown).
+- Parse failures are #703's to report as `unparseable`. Until #703 lands, the edges' own-file loads catch ONLY `SyntaxError` and keep its old answer; whichever of the two PRs lands second resolves those six sites. Honest expected misses are unchanged: `goto_target`'s counted `unresolved_*` (including #650's `RecursionError`), shape probes, and optional-field probes (absent = unknown).
 - Rejected: a typed `internal_error` reason in the not-found shape. It would put bugs back in the lookup-ran channel that #626 keeps for answers.
 
 **Anchor:** `pyeye.resolver.resolve_handle`, `resolve_item`, `resolve_name`, `_synthetic_import`, `_place_definition`; `pyeye.canonicalization.collect_re_exports`, `_scan_package_for_handle`; `pyeye.mcp.operations.resolve._resolve_at_position`; the edges' own-file loads; #704, #684, #626.

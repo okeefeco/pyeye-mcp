@@ -425,7 +425,9 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
         names = script.get_names(all_scopes=True, definitions=True, references=False)
-    except Exception:
+    # Parse failures keep their old answer until #703 marks them ``unparseable``;
+    # any other failure is internal and propagates, never a measured empty (#704).
+    except SyntaxError:
         return []
 
     selected = (
@@ -491,7 +493,9 @@ def _module_members(
         # Step 2: build the set of names bound by module-scope import statements
         # (guarded ones included — see _iter_module_scope_imports, #360).
         tree = file_artifact_cache.get_ast(file_path)
-    except Exception:
+    # Parse failures keep their old answer until #703 marks them ``unparseable``;
+    # any other failure is internal and propagates, never a measured empty (#704).
+    except SyntaxError:
         return []
 
     import_bound_names: set[str] = set()
@@ -640,7 +644,9 @@ def resolve_callees(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except Exception:
+    # Parse failures keep their old answer until #703 marks them ``unparseable``;
+    # any other failure is internal and propagates, never a measured empty (#704).
+    except SyntaxError:
         return EdgeResult(adjacents=[], unresolved_call_sites=0)
 
     seen: set[str] = set()
@@ -1080,7 +1086,9 @@ def superclass_bases(
     try:
         tree = file_artifact_cache.get_ast(file_path)
         script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except Exception:
+    # Parse failures keep their old answer until #703 marks them ``unparseable``;
+    # any other failure is internal and propagates, never a measured empty (#704).
+    except SyntaxError:
         return None
 
     class_node = next(
@@ -1201,7 +1209,9 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     try:
         tree = file_artifact_cache.get_ast(file_path)
         script = file_artifact_cache.get_script(file_path, analyzer.project)
-    except Exception:
+    # Parse failures keep their old answer until #703 marks them ``unparseable``;
+    # any other failure is internal and propagates, never a measured empty (#704).
+    except SyntaxError:
         return EdgeResult(adjacents=[])
 
     seen: set[str] = set()
@@ -1325,7 +1335,7 @@ def resolve_enclosing_scope(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResul
     # Retrieve the parent Jedi Name via the Jedi API (not dotted-name arithmetic).
     try:
         parent = jedi_name.parent()
-    except Exception:
+    except AttributeError:  # a ModuleSentinel: a module has no enclosing scope
         return EdgeResult(adjacents=[])
 
     if parent is None:

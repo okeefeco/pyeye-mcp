@@ -232,3 +232,55 @@ class TestResolveItem:
 
         assert result["found"] is True
         assert "json" in [s["handle"] for s in result["stubs"]]
+
+
+class TestEdgeOwnFileLoads:
+    """An edge loading its OWN file: internal failure → crash, never ``stubs: []`` (#704).
+
+    A ``SyntaxError`` keeps today's answer here; #703 turns it into ``unparseable``.
+    """
+
+    EDGES = [
+        ("pkg.mod.Thing", "members"),
+        ("pkg.mod", "members"),
+        ("pkg.mod.Thing.method", "callees"),
+        ("pkg.mod.Thing", "superclasses"),
+        ("pkg.mod", "imports"),
+    ]
+
+    @pytest.fixture
+    def edge_project(self, tmp_path: Path) -> Path:
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "mod.py").write_text(
+            "import json\n\n\nclass Base:\n    pass\n\n\n"
+            "class Thing(Base):\n    def method(self):\n        return json.dumps(1)\n"
+        )
+        return tmp_path
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("handle", "edge"), EDGES)
+    async def test_internal_failure_propagates(
+        self, edge_project: Path, monkeypatch: pytest.MonkeyPatch, handle: str, edge: str
+    ) -> None:
+        from pyeye.mcp.operations import edges
+        from pyeye.mcp.operations.expand import expand
+
+        analyzer = JediAnalyzer(str(edge_project))
+        node = await expand(handle, edge, analyzer)  # resolves and warms caches
+        assert node["found"] is True
+
+        monkeypatch.setattr(edges.file_artifact_cache, "get_script", _boom)
+        monkeypatch.setattr(edges.file_artifact_cache, "get_ast", _boom)
+        with pytest.raises(Boom):
+            await expand(handle, edge, analyzer)
+
+    @pytest.mark.asyncio
+    async def test_enclosing_scope_still_answers(self, edge_project: Path) -> None:
+        """The narrowed catch (``AttributeError`` only) leaves normal answers alone."""
+        from pyeye.mcp.operations.expand import expand
+
+        result = await expand("pkg.mod.Thing", "enclosing_scope", JediAnalyzer(str(edge_project)))
+
+        assert [s["handle"] for s in result["stubs"]] == ["pkg.mod"]
