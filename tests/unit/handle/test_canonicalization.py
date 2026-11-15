@@ -28,7 +28,6 @@ import pytest
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.canonicalization import (
     _collect_re_exports_impl,
-    _file_to_module_path,
     _get_full_name_from_file,
     _is_valid_handle,
     _resolve_canonical_impl,
@@ -344,60 +343,6 @@ class TestExternalReExportCanonicalizes:
 # ---------------------------------------------------------------------------
 # Coverage — new helper functions and uncovered branches
 # ---------------------------------------------------------------------------
-
-
-class TestFileToModulePath:
-    """Unit tests for the _file_to_module_path helper."""
-
-    def test_init_file_returns_package_path(self, tmp_path: Path) -> None:
-        """__init__.py maps to the package directory path (no __init__ suffix)."""
-        pkg_dir = tmp_path / "mypkg"
-        pkg_dir.mkdir()
-        init = pkg_dir / "__init__.py"
-        init.touch()
-        result = _file_to_module_path(init, [tmp_path])
-        assert result == "mypkg"
-
-    def test_regular_module_returns_module_path(self, tmp_path: Path) -> None:
-        """A regular .py file maps to module.path.without.extension."""
-        mod_dir = tmp_path / "mypkg"
-        mod_dir.mkdir()
-        mod = mod_dir / "mymodule.py"
-        mod.touch()
-        result = _file_to_module_path(mod, [tmp_path])
-        assert result == "mypkg.mymodule"
-
-    def test_no_matching_root_returns_none(self, tmp_path: Path) -> None:
-        """When no root contains the file, returns None."""
-        other_dir = tmp_path / "other"
-        other_dir.mkdir()
-        file = other_dir / "something.py"
-        file.touch()
-        unrelated = tmp_path / "unrelated"
-        unrelated.mkdir()
-        result = _file_to_module_path(file, [unrelated])
-        assert result is None
-
-    def test_non_py_file_returns_none(self, tmp_path: Path) -> None:
-        """A non-.py file is skipped and None is returned."""
-        f = tmp_path / "data.txt"
-        f.touch()
-        result = _file_to_module_path(f, [tmp_path])
-        assert result is None
-
-    def test_top_level_init_returns_none(self, tmp_path: Path) -> None:
-        """An __init__.py at the root of a search path has no parent parts — returns None."""
-        init = tmp_path / "__init__.py"
-        init.touch()
-        result = _file_to_module_path(init, [tmp_path])
-        assert result is None
-
-    def test_empty_roots_returns_none(self, tmp_path: Path) -> None:
-        """An empty roots list always returns None."""
-        f = tmp_path / "mod.py"
-        f.touch()
-        result = _file_to_module_path(f, [])
-        assert result is None
 
 
 class TestIsValidHandle:

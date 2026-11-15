@@ -89,6 +89,12 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye import file_artifact_cache
 from pyeye.handle import Handle
+from pyeye.project_layout import (
+    RootsBoundary,
+    file_for_module,
+    module_name_for_file,
+    project_roots,
+)
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -236,30 +242,11 @@ async def _resolve_canonical_impl(identifier: str, analyzer: JediAnalyzer) -> Ha
 def find_module_file(module_dotted: str, analyzer: JediAnalyzer) -> Path | None:
     """Convert a dotted module path to its ``__init__.py`` or ``module.py``.
 
-    Checks source roots, project path, and any additional configured paths
-    in the same order as ``JediAnalyzer._find_init_file``.
-
-    Returns the resolved :class:`~pathlib.Path`, or ``None`` if not found.
+    Delegates to :func:`pyeye.project_layout.file_for_module`, the one
+    module → file mapper (#625), which also handles a project that is itself a
+    package. Returns ``None`` if not found.
     """
-    path_parts = module_dotted.split(".")
-
-    # Search roots in the same priority order the analyzer uses
-    search_roots = list(getattr(analyzer, "source_roots", [])) + [analyzer.project_path]
-    if hasattr(analyzer, "additional_paths"):
-        search_roots.extend(analyzer.additional_paths)
-
-    for base in search_roots:
-        # Package: base/a/b/__init__.py
-        pkg_init: Path = base.joinpath(*path_parts) / "__init__.py"
-        if pkg_init.exists():
-            return pkg_init
-
-        # Module file: base/a/b.py  (last part is a .py, rest are directories)
-        mod_file: Path = base.joinpath(*path_parts[:-1], path_parts[-1] + ".py")
-        if mod_file.exists():
-            return mod_file
-
-    return None
+    return file_for_module(analyzer, module_dotted)
 
 
 def find_definition_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
@@ -288,34 +275,6 @@ def find_definition_name(handle: str, analyzer: JediAnalyzer) -> Any | None:
             logger.debug("find_definition_name(%r) failed in %s: %s", handle, module_file, exc)
         return None
     return None
-
-
-def _namespace_roots(analyzer: JediAnalyzer) -> list[Path]:
-    """Return the analyzer's sys.path-precedence-ordered package roots (#444).
-
-    List-derived (never set-derived) from ``source_roots``, ``project_path``,
-    ``added_sys_path``, and ``additional_paths`` so the order is stable
-    run-to-run — the order a PEP 420 namespace package's portions are searched
-    in, which is the collision-winner determinism guarantee (first-portion-wins,
-    #419 class).  Duplicate roots are dropped, keeping the first occurrence.
-    """
-    ordered: list[Path] = [
-        *getattr(analyzer, "source_roots", []),
-        analyzer.project_path,
-        *getattr(analyzer, "added_sys_path", []),
-        *getattr(analyzer, "additional_paths", []),
-    ]
-    roots: list[Path] = []
-    seen: set[str] = set()
-    for root in ordered:
-        try:
-            key = root.resolve().as_posix()
-        except OSError:
-            continue
-        if key not in seen:
-            seen.add(key)
-            roots.append(root)
-    return roots
 
 
 def _dir_shallow_qualifies(path: Path) -> bool:
@@ -402,7 +361,7 @@ def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> l
     A namespace package has **no** ``__init__.py`` (so :func:`find_module_file`
     returns ``None`` for it) and may be spread across several *portions* under
     different sys.path roots.  This returns the **union** of the matching portion
-    directories in :func:`_namespace_roots` (sys.path-precedence) order — the
+    directories in ``NAMESPACE_PORTIONS`` roots (sys.path-precedence) order — the
     anchor a top-level namespace package needs so ``resolve``/``inspect``/
     ``outline``/``expand`` can fire from the top.
 
@@ -423,7 +382,7 @@ def find_namespace_package_dirs(module_dotted: str, analyzer: JediAnalyzer) -> l
     path_parts = module_dotted.split(".")
     dirs: list[Path] = []
     seen: set[str] = set()
-    for base in _namespace_roots(analyzer):
+    for base in project_roots(analyzer, RootsBoundary.NAMESPACE_PORTIONS):
         candidate = base.joinpath(*path_parts)
         try:
             if not candidate.is_dir():
@@ -647,11 +606,6 @@ async def _scan_package_for_handle(
         logger.debug("_scan_package_for_handle: cannot list files under %s: %s", package_root, exc)
         return results
 
-    # Pre-compute the project root for module path derivation
-    project_path = analyzer.project_path
-    source_roots = list(getattr(analyzer, "source_roots", []))
-    all_roots = source_roots + [project_path]
-
     for py_file in py_files:
         try:
             script = file_artifact_cache.get_script(py_file, analyzer.project)
@@ -664,8 +618,9 @@ async def _scan_package_for_handle(
             if name.full_name != target_full_name:
                 continue
 
-            # Derive the module dotted path for this file
-            mod_path = _file_to_module_path(py_file, all_roots)
+            # Derive the module dotted path for this file (one mapper, #625:
+            # additional-package and root-package files are named too).
+            mod_path = module_name_for_file(analyzer, py_file)
             if mod_path is None:
                 continue
 
@@ -675,36 +630,6 @@ async def _scan_package_for_handle(
                 results.append(re_export_handle)
 
     return results
-
-
-def _file_to_module_path(py_file: Path, roots: list[Path]) -> str | None:
-    """Derive the dotted module path for *py_file* relative to one of *roots*.
-
-    Returns ``None`` if the file cannot be placed under any root.
-
-    For ``__init__.py`` files, returns the package path (without ``__init__``).
-    For regular ``.py`` files, returns the module path (without ``.py``).
-    """
-    for root in roots:
-        try:
-            rel = py_file.relative_to(root)
-        except ValueError:
-            continue
-
-        parts = list(rel.parts)
-        if not parts:
-            continue
-
-        if parts[-1] == "__init__.py":
-            module_parts = parts[:-1]
-        elif parts[-1].endswith(".py"):
-            module_parts = parts[:-1] + [parts[-1][:-3]]
-        else:
-            continue
-
-        return ".".join(module_parts) if module_parts else None
-
-    return None
 
 
 def _is_valid_handle(value: str) -> bool:
