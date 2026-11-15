@@ -79,7 +79,7 @@ class TestResolveClassAttribute:
 
         assert result["found"] is True
         assert result.get("handle") == handle, f"resolved to a different symbol: {result}"
-        assert result["kind"] == "variable"
+        assert result["kind"] == "attribute"  # a class-body binding (#695)
         assert result["scope"] == "project"
         assert Path(result["location"]["file"]) == file
         assert result["location"]["line_start"] == line
@@ -111,7 +111,7 @@ class TestInspectAgreesWithResolve:
         canonical_node = await inspect("mypackage._core.widgets.Widget.name", analyzer)
 
         assert alias_node["found"] is True
-        assert alias_node["kind"] == canonical_node["kind"] == "variable"
+        assert alias_node["kind"] == canonical_node["kind"] == "attribute"  # #695
         assert alias_node["scope"] == "project"
         assert alias_node["location"] == canonical_node["location"]
         assert Path(alias_node["location"]["file"]) == _WIDGETS

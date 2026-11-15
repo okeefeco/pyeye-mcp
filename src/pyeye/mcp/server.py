@@ -697,7 +697,9 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
-        - attribute/property/variable: type?, default? (simple literals only)
+        - attribute/property/variable/enum_member: type?, default? (simple literals only).
+          A class-body binding is ``attribute``; a member of an ``enum.Enum``
+          subclass is ``enum_member`` (its ``default`` is the member's value).
 
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
