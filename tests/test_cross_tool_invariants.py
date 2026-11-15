@@ -34,6 +34,7 @@ There is no blanket skip.  #629 is done when :data:`KNOWN_GAPS` is empty.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -254,11 +255,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: resolve_at on `import logging` returns found `logging`; every other
     # tool rejects it.
     **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
-    # #625: on an uninstalled src/ layout, resolve and resolve_at prefix handles
-    # with `src.`; inspect/outline/expand/trace don't.
-    **_agree("src_layout", "function", "handle", _ISSUE_625, ("get_analyzer",)),
-    **_agree("src_layout", "package", "handle", _ISSUE_625, ("get_analyzer",)),
-    **_agree("src_layout", "package_var", "handle", _ISSUE_625, ("get_analyzer",)),
     # #623/#625: under a BARE JediAnalyzer on a src/ layout, resolve/resolve_at
     # find (as `src.`...) what inspect/outline/expand/trace can't find at all.
     **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
@@ -633,9 +629,18 @@ def _analyzer(mode: str, root: Path) -> JediAnalyzer:
 
 @pytest.mark.parametrize("mode", ["bare", "get_analyzer"])
 @pytest.mark.parametrize("corpus", sorted(_AGREE_CORPORA))
-async def test_tools_agree_on_handle(corpus: str, mode: str) -> None:
-    """resolve / resolve_at / inspect / outline / expand / trace agree on one handle."""
-    root, entries = _AGREE_CORPORA[corpus]
+async def test_tools_agree_on_handle(corpus: str, mode: str, tmp_path: Path) -> None:
+    """resolve / resolve_at / inspect / outline / expand / trace agree on one handle.
+
+    Each case runs on a private COPY of its fixture (same directory name, since
+    a root-package project's handles start with it).  Process-wide caches keyed
+    by path leak state between a bare analyzer and a managed one on the same
+    root (#618): without the copy, ``src_layout`` results depended on which
+    mode ran first, and on other test files that use the same fixture.
+    """
+    source_root, entries = _AGREE_CORPORA[corpus]
+    root = tmp_path.resolve() / source_root.name
+    shutil.copytree(source_root, root)
     analyzer = _analyzer(mode, root)
     observed: dict[tuple[str, ...], str] = {}
     for entry in entries:
