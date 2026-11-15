@@ -259,3 +259,242 @@ class TestReleaseTitleIsCommittable:
     def test_pending_release_accepts_exactly_the_release_title(self):
         text = _log("", ("2.0.0", "2026-11-07", "- big\n"), _V1)
         assert cl.pending_release(text, ["1.0.0"], cl.release_title("2.0.0")) == "2.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Changelog fragments (#660): PRs add changes/<issue>.<category>.md instead of
+# editing [Unreleased]; prepare assembles them at release time.
+# ---------------------------------------------------------------------------
+
+
+def _frags(tmp_path: Path, files: dict[str, str]) -> Path:
+    d = tmp_path / "changes"
+    d.mkdir(exist_ok=True)
+    for name, text in files.items():
+        (d / name).write_text(text)
+    return d
+
+
+class TestFragmentNames:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("619.fixed.md", (619, 0, "fixed")),
+            ("623-2.fixed.md", (623, 2, "fixed")),
+            ("660.breaking.md", (660, 0, "breaking")),
+            ("12.security.md", (12, 0, "security")),
+        ],
+    )
+    def test_valid(self, name, expected):
+        assert cl.parse_fragment_name(name) == expected
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "619.fix.md",  # unknown category
+            "619.Fixed.md",  # categories are lower-case
+            "fixed.md",
+            "abc.fixed.md",
+            "619.fixed.txt",
+            "619-.fixed.md",
+            "619.fixed.extra.md",
+        ],
+    )
+    def test_invalid(self, name):
+        with pytest.raises(cl.ChangelogError):
+            cl.parse_fragment_name(name)
+
+    def test_every_category_has_a_heading_in_release_order(self):
+        assert list(cl.CATEGORIES) == [
+            "breaking",
+            "added",
+            "changed",
+            "deprecated",
+            "removed",
+            "fixed",
+            "security",
+        ]
+        assert cl.CATEGORIES["breaking"] == "BREAKING CHANGES"
+
+
+class TestFragmentProblems:
+    def test_clean_directory(self, tmp_path):
+        d = _frags(tmp_path, {"1.fixed.md": "- a\n", "README.md": "# About\n"})
+        assert cl.fragment_problems(d) == []
+
+    def test_missing_directory_is_fine(self, tmp_path):
+        assert cl.fragment_problems(tmp_path / "changes") == []
+
+    def test_reports_every_problem(self, tmp_path):
+        d = _frags(
+            tmp_path,
+            {
+                "1.fix.md": "- a\n",
+                "2.fixed.md": "",
+                "3.fixed.md": "just prose\n",
+                "4.added.md": "- a\n\n### Sneaky\n\n- b\n",
+                "notes.txt": "x",
+            },
+        )
+        problems = "\n".join(cl.fragment_problems(d))
+        assert "1.fix.md" in problems and "unknown category 'fix'" in problems
+        assert "2.fixed.md" in problems and "empty" in problems
+        assert "3.fixed.md" in problems and "'- '" in problems
+        assert "4.added.md" in problems and "heading" in problems
+        assert "notes.txt" in problems
+
+    def test_read_fragments_sorts_by_issue_then_suffix(self, tmp_path):
+        d = _frags(
+            tmp_path,
+            {"20.fixed.md": "- c\n", "3-2.fixed.md": "- b\n", "3.fixed.md": "- a\n"},
+        )
+        assert [f.path.name for f in cl.read_fragments(d)] == [
+            "3.fixed.md",
+            "3-2.fixed.md",
+            "20.fixed.md",
+        ]
+
+    def test_read_fragments_refuses_a_bad_directory(self, tmp_path):
+        d = _frags(tmp_path, {"1.oops.md": "- a\n"})
+        with pytest.raises(cl.ChangelogError, match="1.oops.md"):
+            cl.read_fragments(d)
+
+
+class TestPrepareWithFragments:
+    def _prepare(self, tmp_path, unreleased, files, version="1.1.0"):
+        d = _frags(tmp_path, files)
+        text = _log(unreleased, _V1)
+        return cl.prepare(text, version, ["1.0.0"], "2026-11-20", cl.read_fragments(d))
+
+    def test_collects_fragments_into_headings_in_release_order(self, tmp_path):
+        out = self._prepare(
+            tmp_path,
+            "",
+            {
+                "5.fixed.md": "- Fix five.\n",
+                "2.added.md": "- Add two.\n",
+                "9.security.md": "- Secure nine.\n",
+                "3.changed.md": "- Change three.\n",
+            },
+        )
+        released_body = cl.parse(out)[1].body
+        assert released_body == (
+            "### Added\n\n- Add two.\n\n"
+            "### Changed\n\n- Change three.\n\n"
+            "### Fixed\n\n- Fix five.\n\n"
+            "### Security\n\n- Secure nine."
+        )
+        assert cl.parse(out)[0].body == ""
+
+    def test_existing_bullets_come_first_and_are_kept_verbatim(self, tmp_path):
+        existing = "### Fixed\n\n- Old fix.\n  More detail.\n\n### Added\n\n- Old add.\n"
+        out = self._prepare(
+            tmp_path, existing, {"7.fixed.md": "- New fix.\n", "8.added.md": "- New add.\n"}
+        )
+        assert cl.parse(out)[1].body == (
+            "### Added\n\n- Old add.\n- New add.\n\n"
+            "### Fixed\n\n- Old fix.\n  More detail.\n- New fix."
+        )
+
+    def test_several_bullets_and_suffixed_fragments(self, tmp_path):
+        out = self._prepare(
+            tmp_path,
+            "",
+            {"4-2.fixed.md": "- Second PR.\n", "4.fixed.md": "- One.\n- Two.\n"},
+        )
+        assert cl.parse(out)[1].body == "### Fixed\n\n- One.\n- Two.\n- Second PR."
+
+    def test_unknown_existing_heading_is_kept_after_the_known_ones(self, tmp_path):
+        out = self._prepare(tmp_path, "### Notes\n\n- A note.\n", {"1.added.md": "- New.\n"})
+        assert cl.parse(out)[1].body == "### Added\n\n- New.\n\n### Notes\n\n- A note."
+
+    def test_fragments_alone_are_enough_to_release(self, tmp_path):
+        out = self._prepare(tmp_path, "", {"1.fixed.md": "- Fix.\n"}, version="1.0.1")
+        assert cl.check(out, ["1.0.0"]) == []
+
+    def test_nothing_at_all_is_refused(self, tmp_path):
+        with pytest.raises(cl.ChangelogError, match="empty"):
+            self._prepare(tmp_path, "", {})
+
+    def test_breaking_fragment_needs_a_major_bump(self, tmp_path):
+        with pytest.raises(cl.ChangelogError, match="BREAKING CHANGES"):
+            self._prepare(tmp_path, "", {"1.breaking.md": "- Gone.\n"}, version="1.1.0")
+        out = self._prepare(tmp_path, "", {"1.breaking.md": "- Gone.\n"}, version="2.0.0")
+        assert cl.parse(out)[1].body.startswith("### BREAKING CHANGES\n\n- Gone.")
+
+    def test_added_fragment_needs_a_minor_bump(self, tmp_path):
+        with pytest.raises(cl.ChangelogError, match="needs at least a minor"):
+            self._prepare(tmp_path, "", {"1.added.md": "- New.\n"}, version="1.0.1")
+
+    def test_later_sections_are_untouched(self, tmp_path):
+        d = _frags(tmp_path, {"1.fixed.md": "- Fix.\n"})
+        v0 = ("0.9.0", "2025-01-01", "### Fixed\n\n- Ancient.\n")
+        text = _log("", _V1, v0)
+        out = cl.prepare(text, "1.0.1", ["1.0.0", "0.9.0"], "2026-11-20", cl.read_fragments(d))
+        tail = text[text.index("## [1.0.0]") :]
+        assert out.endswith(tail)
+
+
+class TestNoBreaking:
+    """The v2.x guard: nothing pending may be a breaking change."""
+
+    def test_clean(self, tmp_path):
+        d = _frags(tmp_path, {"1.fixed.md": "- a\n"})
+        assert cl.breaking_pending(_log("### Fixed\n\n- x\n", _V1), d) == []
+
+    def test_unreleased_heading(self, tmp_path):
+        found = cl.breaking_pending(_log("### BREAKING CHANGES\n\n- x\n", _V1), tmp_path)
+        assert len(found) == 1 and "[Unreleased]" in found[0]
+
+    def test_released_breaking_sections_do_not_count(self, tmp_path):
+        v1 = ("1.0.0", "2025-10-04", "### BREAKING CHANGES\n\n- old\n")
+        assert cl.breaking_pending(_log("### Fixed\n\n- x\n", v1), tmp_path) == []
+
+    def test_breaking_fragment_even_if_misnamed_otherwise(self, tmp_path):
+        d = _frags(tmp_path, {"1.breaking.md": "- a\n", "x-y.breaking.md": "- b\n"})
+        found = cl.breaking_pending(_log("### Fixed\n\n- x\n", _V1), d)
+        assert sorted(found) == ["changes/1.breaking.md", "changes/x-y.breaking.md"]
+
+    def test_cli_prints_count_and_exit_code(self, tmp_path, capsys):
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(_log("### Fixed\n\n- x\n", _V1))
+        assert cl.main(["--changelog", str(path), "no-breaking"]) == 0
+        assert capsys.readouterr().out.strip() == "0"
+        _frags(tmp_path, {"3.breaking.md": "- gone\n"})
+        assert cl.main(["--changelog", str(path), "no-breaking"]) == 1
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "1"
+        assert "3.breaking.md" in captured.err
+
+
+class TestFragmentCli:
+    def test_prepare_assembles_and_deletes_fragments(self, tmp_path):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # noqa: S603, S607
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(_log("", _V1))
+        d = _frags(tmp_path, {"1.fixed.md": "- Fix.\n", "README.md": "# Fragments\n"})
+        code = cl.main(["--changelog", str(path), "prepare", "1.0.1", "--date", "2026-11-20"])
+        assert code == 0
+        assert "## [1.0.1] - 2026-11-20\n\n### Fixed\n\n- Fix." in path.read_text()
+        assert sorted(p.name for p in d.iterdir()) == ["README.md"]
+
+    def test_prepare_with_a_bad_fragment_changes_nothing(self, tmp_path, capsys):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # noqa: S603, S607
+        path = tmp_path / "CHANGELOG.md"
+        before = _log("### Fixed\n\n- x\n", _V1)
+        path.write_text(before)
+        d = _frags(tmp_path, {"1.fixed.md": "- ok\n", "2.nope.md": "- bad\n"})
+        assert cl.main(["--changelog", str(path), "prepare", "1.0.1"]) == 1
+        assert path.read_text() == before
+        assert sorted(p.name for p in d.iterdir()) == ["1.fixed.md", "2.nope.md"]
+        assert "2.nope.md" in capsys.readouterr().err
+
+    def test_check_reports_fragment_problems(self, tmp_path, capsys):
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(_log("### Fixed\n\n- x\n", _V1))
+        _frags(tmp_path, {"1.fix.md": "- a\n"})
+        assert cl.main(["--changelog", str(path), "check", "--no-tags"]) == 1
+        assert "changes/1.fix.md" in capsys.readouterr().err
+
+    def test_repo_fragments_are_valid(self):
+        assert cl.fragment_problems(_ROOT / "changes") == []

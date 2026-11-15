@@ -311,6 +311,9 @@ class JediAnalyzer:
         # build is parse-bound and paid once per project; lookups are O(1) dict
         # access. Scope is NOT baked into the build (that would poison the
         # project-keyed cache for other scopes) — it is applied below at lookup.
+        # Snapshot before listing files: a watcher invalidation landing between
+        # the listing and the build then stops a stale index being cached (#617).
+        generation = project_graph.generation(self.project_path.as_posix())
         all_files = await self.get_project_files(pattern="*.py", scope="all")
         file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         index = await asyncio.to_thread(
@@ -318,6 +321,7 @@ class JediAnalyzer:
             self.project_path.as_posix(),
             all_files,
             file_to_module,
+            generation,
         )
 
         if fuzzy:

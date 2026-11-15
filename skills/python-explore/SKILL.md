@@ -106,7 +106,13 @@ reliably today:
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
 | `superclasses` | class → its bases | the class's direct base classes |
 | `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
-| `imported_by` | module → its importers | project modules that import this module |
+| `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
+
+**`imports` and `imported_by` are not exact inverses.** If `imports(M)` shows
+module `B`, then `M` is in `imported_by(B)`. The reverse can fail: a module that
+imports `B` only inside a function shows up in `imported_by(B)` but not in its
+own `imports`, and `imports` reports a re-exported name at its definition site,
+not the module it was imported from.
 
 **Pointer-only stubs.** `subclasses` and `imported_by` stubs are *pointers*
 (handle + location + kind) and intentionally omit `signature` — even though a
