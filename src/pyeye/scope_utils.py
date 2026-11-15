@@ -298,6 +298,9 @@ class ScopeDebugger:
         }
 
 
+_MISSING = object()
+
+
 class ScopedCache:
     """Cache that maintains separate caches per scope."""
 
@@ -345,28 +348,31 @@ class ScopedCache:
         """
         scope_key = self._normalize_scope(scope)
 
-        # Ensure cache exists for this scope
-        if scope_key not in self.caches:
-            metrics.record_cache_miss()
-            return None
-
-        # Check if key exists
-        if key not in self.caches[scope_key]:
+        # Thread safety without a lock (#617): the file watcher clears this cache
+        # from its own thread. Invalidation swaps in fresh dicts rather than
+        # mutating them, and every read below is one atomic dict.get on a dict
+        # reference taken once, so a concurrent clear can't raise KeyError.
+        # This relies on single dict operations being atomic under the GIL:
+        # revisit (add a lock) before running on free-threaded Python.
+        entries = self.caches.get(scope_key)
+        value = entries.get(key, _MISSING) if entries is not None else _MISSING
+        if value is _MISSING:
             metrics.record_cache_miss()
             return None
 
         # Check TTL
-        if scope_key in self.timestamps and key in self.timestamps[scope_key]:
-            age = time.time() - self.timestamps[scope_key][key]
-            if age > self.ttl:
-                # Expired
-                del self.caches[scope_key][key]
-                del self.timestamps[scope_key][key]
-                metrics.record_cache_miss()
-                return None
+        stamps = self.timestamps.get(scope_key)
+        stamp = stamps.get(key) if stamps is not None else None
+        if stamp is not None and time.time() - stamp > self.ttl:
+            # Expired
+            entries.pop(key, None)  # type: ignore[union-attr]
+            if stamps is not None:
+                stamps.pop(key, None)
+            metrics.record_cache_miss()
+            return None
 
         metrics.record_cache_hit()
-        return self.caches[scope_key][key]
+        return value
 
     def set(self, key: str, value: Any, scope: Scope) -> None:
         """Set cache value for a specific scope.
@@ -378,13 +384,11 @@ class ScopedCache:
         """
         scope_key = self._normalize_scope(scope)
 
-        # Ensure cache exists for this scope
-        if scope_key not in self.caches:
-            self.caches[scope_key] = {}
-            self.timestamps[scope_key] = {}
-
-        self.caches[scope_key][key] = value
-        self.timestamps[scope_key][key] = time.time()
+        # setdefault, not check-then-index: a concurrent invalidation may swap
+        # the dicts in between (#617). A write that lands in a just-replaced dict
+        # is simply lost, which is a cache miss, never an error.
+        self.timestamps.setdefault(scope_key, {})[key] = time.time()
+        self.caches.setdefault(scope_key, {})[key] = value
 
     def invalidate_scope(self, scope: Scope) -> None:
         """Invalidate just one scope's cache.

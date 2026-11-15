@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from watchdog.events import FileModifiedEvent, FileSystemEventHandler
+from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
@@ -26,7 +26,8 @@ class CodebaseWatcher(FileSystemEventHandler):
 
         Args:
             project_path: Root path to watch
-            on_change_callback: Function to call when files change
+            on_change_callback: Called once per debounced batch with the sorted
+                list of every changed path (``list[str]``)
         """
         self.project_path = Path(project_path)
         self.on_change_callback = on_change_callback
@@ -66,57 +67,91 @@ class CodebaseWatcher(FileSystemEventHandler):
         }
     )
 
+    def _is_ignored(self, path: str) -> bool:
+        """Whether *path* lies in an ignored directory **below** the watched root.
+
+        Only components under the root are tested, so a project that itself lives
+        under e.g. ``~/build/`` is still watched (the scan rule from #515).
+        """
+        candidate = Path(path)
+        try:
+            parts = candidate.relative_to(self.project_path).parts
+        except ValueError:
+            parts = candidate.parts
+        return any(part in self._IGNORE_DIRS for part in parts)
+
+    def _record(self, path: Any, is_directory: bool) -> bool:
+        """Queue *path* if it can change the project's modules; return whether it did.
+
+        A ``.py`` file counts. A directory counts too, because creating, deleting
+        or moving one adds or removes whole modules. Paths under ignored
+        directories never count.
+        """
+        if not isinstance(path, str) or not path:
+            return False
+        if not is_directory and not path.endswith(".py"):
+            return False
+        if self._is_ignored(path):
+            return False
+        with self.debounce_lock:
+            self.pending_changes.add(path)
+        return True
+
+    def _schedule(self) -> None:
+        """Restart the debounce timer, so a burst of events is delivered as one batch."""
+        self.last_change = time.time()
+        with self.debounce_lock:
+            if self.debounce_timer:
+                self.debounce_timer.cancel()
+            self.debounce_timer = threading.Timer(self.debounce_delay, self._process_changes)
+            self.debounce_timer.daemon = True
+            self.debounce_timer.start()
+
     def on_modified(self, event: Any) -> None:
-        """Handle file modification events with debouncing."""
+        """A file's content changed. Directory "modified" events only echo a child change."""
         if event.is_directory:
             return
+        if self._record(event.src_path, False):
+            logger.debug(f"Python file modified: {Path(event.src_path).as_posix()}")
+            self._schedule()
 
-        # Only care about Python files
-        if isinstance(event, FileModifiedEvent):
-            src_path = event.src_path
-            if not isinstance(src_path, str) or not src_path.endswith(".py"):
-                return
+    def on_created(self, event: Any) -> None:
+        """A file or directory appeared (#617: previously ignored)."""
+        if self._record(event.src_path, event.is_directory):
+            self._schedule()
 
-            # Skip files in ignored directories
-            parts = Path(src_path).parts
-            if any(part in self._IGNORE_DIRS for part in parts):
-                return
+    def on_deleted(self, event: Any) -> None:
+        """A file or directory disappeared (#617: previously ignored)."""
+        if self._record(event.src_path, event.is_directory):
+            self._schedule()
 
-            logger.debug(f"Python file modified: {Path(src_path).as_posix()}")
-            self.last_change = time.time()
-
-            # Add to pending changes and reset debounce timer
-            with self.debounce_lock:
-                self.pending_changes.add(src_path)
-
-                # Cancel existing timer if any
-                if self.debounce_timer:
-                    self.debounce_timer.cancel()
-
-                # Start new timer
-                self.debounce_timer = threading.Timer(self.debounce_delay, self._process_changes)
-                self.debounce_timer.start()
+    def on_moved(self, event: Any) -> None:
+        """A file or directory moved: both the old and the new path changed (#617)."""
+        recorded = self._record(event.src_path, event.is_directory)
+        recorded = self._record(getattr(event, "dest_path", None), event.is_directory) or recorded
+        if recorded:
+            self._schedule()
 
     def _process_changes(self) -> None:
-        """Process accumulated changes after debounce delay."""
+        """Deliver the accumulated batch after the debounce delay.
+
+        The callback receives **every** changed path, sorted, in one call. Before
+        #617 only the first one was passed on.
+        """
         with self.debounce_lock:
             if not self.pending_changes:
                 return
 
-            changes = list(self.pending_changes)
+            changes = sorted(self.pending_changes)
             self.pending_changes.clear()
             self.debounce_timer = None
 
-        # Log all changes at once
         logger.info(f"Processing {len(changes)} file change(s) after debounce")
         for path in changes:
             logger.debug(f"  - {Path(path).as_posix()}")
 
-        # Call callback once for all changes
         if self.on_change_callback:
-            # Pass the first changed file (for compatibility)
-            # Could be enhanced to pass all files if needed
-            self.on_change_callback(changes[0])
+            self.on_change_callback(changes)
 
     def start(self) -> None:
         """Start watching the project."""
@@ -348,12 +383,6 @@ class GranularCache(ProjectCache):
                 count = self.invalidate_module(module_name)
                 invalidated_count += count
 
-            # A changed file can add or remove definitions, so drop the
-            # whole-project name index; the next lookup rebuilds it (#457).
-            from pyeye.analyzers import project_graph
-
-            project_graph.invalidate()
-
             self.metrics.total_entries = len(self.cache)
             return invalidated_count
 
@@ -433,11 +462,6 @@ class GranularCache(ProjectCache):
                 self.file_cache.clear()
                 self.module_cache.clear()
                 self.dependency_tracker.clear()
-
-            # Keep the whole-project name index consistent with the cache (#457).
-            from pyeye.analyzers import project_graph
-
-            project_graph.invalidate()
 
             self.metrics.total_entries = len(self.cache)
 

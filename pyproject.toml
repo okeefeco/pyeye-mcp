@@ -186,7 +186,8 @@ markers = [
     "e2e: End-to-end tests - complete workflows",
     "performance: Performance tests - benchmarks and load tests",
     "slow: Slow running tests that can be skipped",
-    "flaky: Tests that may fail intermittently"
+    "flaky: Tests that may fail intermittently",
+    "real_watcher: Test needs real watchdog file events (other tests get an inert observer)"
 ]
 
 [tool.coverage.run]
