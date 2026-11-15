@@ -541,7 +541,7 @@ def configure_packages(
 
     # Configure namespaces
     for namespace, ns_paths in config.get_namespaces().items():
-        manager.namespace_resolver.register_namespace(namespace, ns_paths)
+        manager.namespace_resolver.register_namespace(namespace, ns_paths, project=root)
 
     # Invalidate cached analyzers for all paths so the next get_analyzer call
     # rebuilds with the updated package paths, namespaces, and standalone
