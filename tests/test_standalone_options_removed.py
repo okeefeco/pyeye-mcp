@@ -56,18 +56,18 @@ class TestConfigurePackagesSurface:
             "project_path",
         ]
 
-    def test_saves_only_dirs_under_standalone(self, project):
-        result = configure_packages(standalone_dirs=["scripts"], save=True)
+    async def test_saves_only_dirs_under_standalone(self, project):
+        result = await configure_packages(standalone_dirs=["scripts"], save=True)
 
         assert _saved(project)["standalone"] == {"dirs": ["scripts"]}
         assert result["standalone"] == {"dirs": ["scripts"]}
         assert "warnings" not in result  # absent, not empty, when nothing is ignored
 
-    def test_reports_legacy_keys_already_in_config(self, project):
+    async def test_reports_legacy_keys_already_in_config(self, project):
         legacy = {"dirs": ["scripts"], "recursive": False, "exclude_patterns": ["*_gen.py"]}
         (project / ".pyeye.json").write_text(json.dumps({"standalone": legacy}))
 
-        result = configure_packages(packages=["."], save=False)
+        result = await configure_packages(packages=["."], save=False)
 
         assert result["standalone"] == {"dirs": ["scripts"]}
         assert len(result["warnings"]) == 1

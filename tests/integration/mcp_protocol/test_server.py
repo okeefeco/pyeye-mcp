@@ -83,7 +83,7 @@ class TestConfigurePackages:
     @patch("pyeye.mcp.server.get_project_manager")
     @patch("pyeye.mcp.server.ProjectConfig")
     @patch("pyeye.validation.PathValidator.validate_path")
-    def test_configure_packages_basic(
+    async def test_configure_packages_basic(
         self, mock_validate_path, mock_config_class, mock_get_manager
     ):
         """Test basic package configuration."""
@@ -104,7 +104,7 @@ class TestConfigurePackages:
         # Mock path validation to return resolved paths as strings
         mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
-        result = configure_packages(packages=["../lib1", "../lib2"], save=False)
+        result = await configure_packages(packages=["../lib1", "../lib2"], save=False)
 
         # Check that packages were added to config (as resolved paths)
         assert "packages" in config_dict
@@ -117,7 +117,9 @@ class TestConfigurePackages:
     @patch("pyeye.mcp.server.get_project_manager")
     @patch("pyeye.mcp.server.ProjectConfig")
     @patch("pyeye.validation.PathValidator.validate_path")
-    def test_configure_namespaces(self, mock_validate_path, mock_config_class, mock_get_manager):
+    async def test_configure_namespaces(
+        self, mock_validate_path, mock_config_class, mock_get_manager
+    ):
         """Test namespace configuration."""
         config_dict = {}
         mock_config = Mock()
@@ -134,7 +136,9 @@ class TestConfigurePackages:
         # Mock path validation
         mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
-        _ = configure_packages(namespaces={"company": ["/repos/auth", "/repos/api"]}, save=False)
+        _ = await configure_packages(
+            namespaces={"company": ["/repos/auth", "/repos/api"]}, save=False
+        )
 
         assert "namespaces" in config_dict
         assert "company" in config_dict["namespaces"]
@@ -142,7 +146,7 @@ class TestConfigurePackages:
     @patch("pyeye.mcp.server.get_project_manager")
     @patch("pyeye.mcp.server.ProjectConfig")
     @patch("pyeye.validation.PathValidator.validate_path")
-    def test_configure_save(self, mock_validate_path, mock_config_class, mock_get_manager):
+    async def test_configure_save(self, mock_validate_path, mock_config_class, mock_get_manager):
         """Test saving configuration."""
         config_dict = {}
         mock_config = Mock()
@@ -160,14 +164,16 @@ class TestConfigurePackages:
         # Mock path validation
         mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
-        _ = configure_packages(packages=["test"], save=True)
+        _ = await configure_packages(packages=["test"], save=True)
 
         mock_config.save_config.assert_called_once()
 
     @patch("pyeye.mcp.server.get_project_manager")
     @patch("pyeye.validation.PathValidator")
     @patch("pyeye.mcp.server.ProjectConfig")
-    def test_configure_validates_paths(self, mock_config_class, mock_validator, mock_get_manager):
+    async def test_configure_validates_paths(
+        self, mock_config_class, mock_validator, mock_get_manager
+    ):
         """Test that paths are validated before configuration."""
         config_dict = {}
         mock_config = Mock()
@@ -184,7 +190,7 @@ class TestConfigurePackages:
         # Mock path validation to track calls
         mock_validator.validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
 
-        configure_packages(packages=["../lib1"])
+        await configure_packages(packages=["../lib1"])
 
         # Path validator should be called via the decorator
         mock_validator.validate_path.assert_called()

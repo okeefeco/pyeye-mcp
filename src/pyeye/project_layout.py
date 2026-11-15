@@ -308,3 +308,23 @@ def package_kind(module_path: Any) -> PackageKind:
     except OSError:
         pass
     return "unknown"
+
+
+def detect_src_layout(project_path: Path | str) -> Path | None:
+    """Return ``<project>/src`` when the project uses a src layout, else ``None``.
+
+    The one src-layout rule (#625), shared by ``ProjectConfig`` auto-discovery
+    and a ``JediAnalyzer`` built without a config, so the two never name the
+    same files differently. A src layout is a ``src/`` directory holding at
+    least one regular package (a subdirectory with ``__init__.py``).
+    """
+    src_dir = Path(project_path) / "src"
+    try:
+        if not src_dir.is_dir():
+            return None
+        has_package = any(
+            (item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()
+        )
+    except OSError:
+        return None
+    return src_dir if has_package else None

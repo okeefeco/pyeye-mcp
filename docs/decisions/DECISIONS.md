@@ -2,6 +2,54 @@
 
 Contract/invariant-significant, friction-driven decisions. Each entry is a small verifiable fact: Friction · Decision · Anchor (stable ref) · Applies-to (every governed site; recommended, added from 2026-11-15 on) · Verify (checkable or honestly-labelled). Newest on top. Maintained via the `decision-log` skill.
 
+## 2026-11-15 — All Jedi work runs on one large-stack worker thread (#650)
+
+**Friction:** Jedi's `goto(follow_imports=True)` recurses about 1,500 frames in some stdlib modules (`io.py` → `_io`, `weakref.py` → `_weakref`). Python raises `RecursionError` first on Linux, macOS and 3.12+, and the per-goto handling reports an unresolved import. On Windows with CPython 3.11, the 1 MB main-thread C stack overflows first and the server process dies. `trace` reached it already, and #623 slice 2 would expose it through `expand("io", "imports")` too.
+**Decision:** every MCP tool that touches Jedi or the analyzers runs on ONE dedicated thread created with a 64 MiB stack (`pyeye.mcp.jedi_worker`). On that thread the recursion limit always fires before the C stack runs out.
+
+- The thread runs its own asyncio loop, and whole tool coroutines run there (`run_coroutine_threadsafe` + `wrap_future`). The operations await globbing and `to_thread` work and create loop-bound locks, so running only the sync Jedi calls there would split one operation across two loops.
+- Operations still interleave at their awaits exactly as they did on the main loop. Only one thread ever calls Jedi.
+- The decorator `@on_jedi_worker` sits innermost under the validation and metrics decorators, so those still measure the whole call. A nested hop runs in place; cancellation reaches the worker task at its next await.
+- Rejected: raising the recursion limit, which makes the C-stack overflow *more* likely; special-casing the `_io`/`_weakref` stubs, which is whack-a-mole; per-call threads, which would race Jedi, since Jedi isn't thread-safe.
+
+**Anchor:** `pyeye.mcp.jedi_worker.on_jedi_worker`, `run_on_jedi_worker`, `WORKER_STACK_SIZE`; `pyeye.mcp.server.register_plugin_tools`; `pyeye.mcp.__main__` cleanup (`shutdown`); #650.
+**Applies-to:** every MCP tool registered on the server:
+
+- the core tools `resolve`, `resolve_at`, `inspect`, `outline`, `expand`, `trace`;
+- `configure_packages` (it invalidates analyzers, so it is serialised with in-flight analysis);
+- every plugin tool, wrapped at registration.
+
+Deliberately off the worker: `get_performance_metrics` and `get_connection_diagnostics`, which don't touch Jedi. Not covered: code that calls `pyeye.mcp.operations.*` directly, such as library use and tests, runs on the caller's thread. Use `run_on_jedi_worker` there when it walks stdlib internals. The existing `asyncio.to_thread` uses (globbing, the AST name-index build) run no Jedi.
+**Verify:** gold. `uv run pytest tests/test_jedi_worker.py` passes:
+
+- every tool registered on `pyeye.mcp.server.mcp` except the two metrics tools carries the worker marker, and plugin tools are wrapped at registration;
+- tool bodies, including `get_analyzer`, run on the worker thread;
+- the thread is created with `WORKER_STACK_SIZE`, and the process-wide `threading.stack_size()` is restored;
+- `resolve_imports` on stdlib `io` returns on the worker with `_io.UnsupportedOperation` unresolved, and `trace` into `io` through the tool layer returns;
+- a `RecursionError` escaping a tool reaches the SDK as a tool error, and the worker keeps serving.
+
+The Windows/3.11 crash itself is only exercised on that CI job.
+
+## 2026-11-15 — An analyzer built without config detects `src/` with the same rule as `ProjectConfig` (#625)
+
+**Friction:** `src/` detection lived only in `ProjectConfig` auto-discovery. A `JediAnalyzer` built without a config passed no `added_sys_path` to Jedi and had no source roots. On a src-layout project its tools named everything `src.<pkg>…`: `resolve("mypackage")` gave `src.mypackage`, dotted handles weren't found, and inspect and resolve disagreed. #614's cross-tool test recorded this as "bare"-mode gaps. Because caches are shared and keyed on the project path (#618), a bare analyzer's `src.`-named results also leaked into a configured analyzer created later in the same process.
+**Decision:** one rule, `pyeye.project_layout.detect_src_layout` (a `src/` directory holding at least one regular package), used by both `ProjectConfig._discover_src_layout` and the `JediAnalyzer.__init__` no-config branch. So both analyzers hand Jedi the same `added_sys_path` and get the same `source_roots`. Rejected: building a full `ProjectConfig` inside a config-less analyzer. That would also pull in sibling and virtualenv discovery and the user's global config, making a bare analyzer depend on whatever surrounds it. Only `src/` is shared. The bare analyzer's src root keeps `project_path`'s own unresolved spelling (#603), because files are enumerated under that spelling. A resolved root broke on Windows CI and through symlinks: every module fell back to the project root and was named `src.<pkg>…`. The cache leak itself is #618's; this change only removes it for src layouts. Separately, every path `JediAnalyzer` hands to `jedi.Project` (`added_sys_path`) is now an OS-native string (`_jedi_sys_path`). `connection_pool.ProjectConnectionPool` still passes `as_posix()` strings to the `jedi.Project` it builds. That is the same latent Windows bug; it was reported to the cache owner and not changed here. Jedi names a module by `str(module_path).startswith(entry)`, so forward-slash entries never matched on Windows, and Jedi-derived handles (`resolve`, `resolve_at`) kept a `src.` prefix there whatever our own roots said. That also clears #640's two Windows-only src_layout entries.
+**Anchor:** `pyeye.project_layout.detect_src_layout`; `ProjectConfig._discover_src_layout`; `JediAnalyzer.__init__` (no-config branch); #625, #614, #618.
+**Applies-to:** every way an analyzer's roots are derived from the project directory:
+
+- `ProjectConfig` auto-discovery (`_discover_src_layout`);
+- a `JediAnalyzer` built without config.
+
+Build-backend layout detection (`_detect_source_layout`: setuptools, poetry, hatch, pdm) and sibling and virtualenv discovery remain config-only. So a bare analyzer on a project whose package root is declared only in `pyproject.toml` (not `src/`) still differs from a configured one.
+**Verify:** gold. `uv run pytest tests/test_bare_src_layout.py tests/test_jedi_analyzer_sys_path.py` passes:
+
+- `detect_src_layout` is positive only for `src/` holding a package;
+- `ProjectConfig` adds the same `src` root;
+- a bare analyzer on `added_sys_path_project` has `source_roots == added_sys_path == [<project>/src]`, the same as a configured one;
+- `resolve` and `inspect` agree on `mypackage`, `mypackage.module` and `mypackage.module.my_function`, with no `src.` prefix.
+- the same holds through a symlinked project path, and the root keeps the symlink's spelling (skipped where symlinks are unavailable).
+- Jedi's own `transform_path_to_dotted` names `src/mypackage/module.py` `mypackage.module` from the analyzer's `project.added_sys_path`, bare and configured; this is the check that bites on Windows.
+
 ## 2026-11-15 — Plugin tools take an opt-in `envelope` that reports searched and unsearched scopes by path (#594)
 
 **Friction:** A plugin tool returns a bare list, which reaches the client as one content item per result. An empty answer is zero items, and nothing says which scope was searched. "These are all the models" looks the same as "these are the main repo's models", and "searched, found none" looks the same as "returned nothing". The core primitives closed this gap in 2.0 (absence vs zero), but plugin tools still had it. Changing the default return from a list to an object would remove a documented shape, which is a breaking change, and #629 ships in 2.x.
@@ -236,9 +284,13 @@ Known residue: claims phrased entirely in free prose ("0 subclasses") are not ca
 
 **Decision:** One shared walk, `_iter_module_scope_imports`, consumed by both edges — `members` SUBTRACTS what it yields, `imports` EMITS it — so the two cannot drift apart again. The rule is BINDING scope, not nesting: descend every statement-bearing construct (`if`/`else`, `try`/`except`/`else`/`finally`, `with`, `for`, `while`, `match`) and stop only at `def` / `class` / `lambda`, whose imports bind a local or class attribute rather than a module name. Rejected: special-casing `if TYPE_CHECKING:` (would have left the `try`/`except` and version-guard forms leaking, and needs a new case per guard), and the issue's stated members-only scope (see Friction). Both branches of an either/or shim are emitted — each is statically present and which one runs is a runtime fact. Accepted consequence: guarded imports of C-extension symbols now reach `unresolved_imports` (stdlib `os`'s `from posix/nt import _exit`); suppressing unresolved reporting for guarded imports was rejected as a re-introduction of the #494 silent drop, so the affected trace test moved to a project-only seed instead.
 
-**Anchor:** `pyeye.mcp.operations.edges._iter_module_scope_imports` (+ `_SCOPE_BOUNDARY_NODES`), consumed by `_module_members` and `resolve_imports`; fixtures `mypackage._core.guarded_imports_fixture` / `deep_guarded_imports_fixture`; #360. Adjacent, still open: #353 (labelling imported vs locally-defined names).
+**Amended 2026-11-15 (#630):** the walk moved to the leaf module `pyeye/_module_scope.py` (imports only `ast`) so `analyzers/` can share it without importing `pyeye.mcp`, and it gained `include_guarded`. **`True` (the default) is the rule above**, used wherever the question is "is this name bound at module scope" (the edges). **`False` yields only unguarded statements directly in `tree.body`**, for callers that commit to *which object* a name is bound to: a guarded binding may never run, and in a try/except shim either branch may win. `analyzers.base_resolution` relies on it for its "never a wrong answer; `None` means ask Jedi" contract, so switching it to `True` there would make subclasses commit to bases that may not be the ones bound.
 
-**Verify:** gold — for `mypackage._core.guarded_imports_fixture`, `resolve_members` returns exactly `{_FEATURE_FLAG, DEFAULT_NAME, make_widget, guarded_consumer, load_default, Holder, guarded_function}`; `widgets.{Widget,Premium,Deluxe,Config}` appear in `resolve_imports().handles` and in no member handle; `widgets.DEFAULT_NAME` (imported inside a `def`) and `widgets.make_widget` (imported inside a `class` body) appear in NEITHER edge, while the same-named module-level definitions remain members; `imports ∩ members == ∅`. Covered by `tests/unit/mcp/operations/test_edges.py::TestGuardedImportsExcludedFromMembers` and `::TestGuardedImportsIncludedInImports`. `inspect.edge_counts.members` follows for free — `_count_module_members` delegates to `resolve_members`.
+**Anchor:** `pyeye._module_scope.iter_module_scope_imports` (+ `SCOPE_BOUNDARY_NODES`; `edges` imports it as `_iter_module_scope_imports`); fixtures `mypackage._core.guarded_imports_fixture` / `deep_guarded_imports_fixture`; #360, #630. Adjacent, still open: #353 (labelling imported vs locally-defined names).
+
+**Applies-to:** every caller. `include_guarded=True`: `edges._module_members`, `edges.resolve_imports`. `include_guarded=False`: `base_resolution.build_import_table`, `build_star_sources`, `build_module_defines`.
+
+**Verify:** gold — for `mypackage._core.guarded_imports_fixture`, `resolve_members` returns exactly `{_FEATURE_FLAG, DEFAULT_NAME, make_widget, guarded_consumer, load_default, Holder, guarded_function}`; `widgets.{Widget,Premium,Deluxe,Config}` appear in `resolve_imports().handles` and in no member handle; `widgets.DEFAULT_NAME` (imported inside a `def`) and `widgets.make_widget` (imported inside a `class` body) appear in NEITHER edge, while the same-named module-level definitions remain members; `imports ∩ members == ∅`. Covered by `tests/unit/mcp/operations/test_edges.py::TestGuardedImportsExcludedFromMembers` and `::TestGuardedImportsIncludedInImports`. `inspect.edge_counts.members` follows for free — `_count_module_members` delegates to `resolve_members`. For `include_guarded=False` (#630): `tests/unit/analyzers/test_base_resolution.py` pins that guarded imports stay out of all three base_resolution tables and that a guarded base resolves to `None` (4 of those tests fail with `True`). The ratchet `tests/test_decision_invariants_fitness.py::test_module_scope_import_walk_is_shared` allows no other `tree.body` import walk (its allow-list is empty).
 
 ## 2026-08-09 — the last three legacy tools were REMOVED, not shipped deprecated, because they answered wrongly (#505)
 

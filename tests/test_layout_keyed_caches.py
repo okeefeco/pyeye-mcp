@@ -275,7 +275,7 @@ class TestConfigurePackages:
         root, lib = two_repos
         assert (await server.resolve("LibThing", project_path=str(root)))["found"] is False
 
-        server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
 
         resolved = await server.resolve("LibThing", project_path=str(root))
         assert resolved["found"] is True
@@ -290,7 +290,7 @@ class TestConfigurePackages:
         server._plugins.append(plugin)
         assert {m["name"] for m in await plugin.find_models(scope="all")} == {"AppModel"}
 
-        server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
 
         assert {m["name"] for m in await plugin.find_models(scope="all")} == {
             "AppModel",
@@ -307,12 +307,12 @@ class TestConfigurePackages:
         plugin = PydanticPlugin(str(other))
         server._plugins.append(plugin)
 
-        server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
 
         assert plugin.additional_paths == []
 
     @pytest.mark.usefixtures("fresh_server")
-    def test_uses_the_given_project_not_the_cwd(
+    async def test_uses_the_given_project_not_the_cwd(
         self, two_repos: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         root, lib = two_repos
@@ -320,7 +320,7 @@ class TestConfigurePackages:
         cwd.mkdir()
         monkeypatch.chdir(cwd)
 
-        result = server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        result = await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
 
         assert not (cwd / ".pyeye.json").exists()
         saved = json.loads((root / ".pyeye.json").read_text())
@@ -333,7 +333,7 @@ class TestConfigurePackages:
         root, lib = two_repos
         await server.resolve("AppModel", project_path=str(root))
 
-        server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
         await server.resolve("LibThing", project_path=str(root))
 
         assert lib.resolve() in fresh_server.watchers
@@ -344,6 +344,6 @@ class TestConfigurePackages:
         key = (root.resolve().as_posix(), "f.py", 1, 0, 0, 0, 0, "X")
         typeref._store_typeref(key, {"raw": "X"})
 
-        server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
+        await server.configure_packages(packages=[lib.as_posix()], project_path=str(root))
 
         assert typeref._cached_typeref(key) is None
