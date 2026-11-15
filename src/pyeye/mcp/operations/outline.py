@@ -88,12 +88,12 @@ global bound).  In all cases ``children`` is omitted.
 from __future__ import annotations
 
 from collections import deque
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp.operations.edges import resolve_members, resolve_submodules
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
+from pyeye.project_layout import package_kind
 from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
@@ -131,19 +131,12 @@ def _is_container(kind: str) -> bool:
 def _is_package(jedi_name: Any) -> bool:
     """Return whether *jedi_name* is a package (drives survey mode, #423).
 
-    A package is a module whose ``module_path`` is an ``__init__.py`` (regular
-    package) OR a bare directory (a PEP 420 namespace subpackage, anchored on its
-    directory by the ``submodules`` resolver).  A plain ``X.py`` module is not a
-    package; in survey mode it becomes a leaf.
+    A regular package (``__init__.py``) or a PEP 420 namespace subpackage
+    anchored on its directory, per :func:`pyeye.project_layout.package_kind`
+    (#625). ``"unknown"`` is not a package here: survey mode needs a path that
+    proves it. A plain ``X.py`` module becomes a leaf in survey mode.
     """
-    module_path = getattr(jedi_name, "module_path", None)
-    if module_path is None:
-        return False
-    module_path = Path(module_path)
-    if module_path.name == "__init__.py":
-        return True
-    # A namespace-subpackage stub is anchored on its directory (never .py).
-    return module_path.is_dir()
+    return package_kind(getattr(jedi_name, "module_path", None)) in ("regular", "namespace")
 
 
 def _child_adjacents(

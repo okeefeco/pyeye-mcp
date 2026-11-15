@@ -60,6 +60,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
+from pyeye.project_layout import package_kind
 from pyeye.resolver import NotFound, resolve_handle
 
 if TYPE_CHECKING:
@@ -1045,21 +1046,15 @@ async def _build_function_fields(
 def _is_package_path(module_path: Any) -> bool:
     """Return whether *module_path* anchors a package (#423/#444).
 
-    A package is anchored either on an ``__init__.py`` (a regular package) or on
-    a bare directory (a PEP 420 namespace package, dir-anchored since #444).  The
-    single rule shared by ``_build_module_fields`` (the ``is_package`` field) and
-    ``_build_edge_counts`` (the package-only ``submodules`` gate), so the two can
-    never disagree about what counts as a package.
+    A regular package (``__init__.py``) or a PEP 420 namespace package
+    (dir-anchored since #444), per :func:`pyeye.project_layout.package_kind`,
+    the one package predicate (#625). ``"unknown"`` (a ``None`` path, a stub or
+    an extension module) is **not** a package here: ``is_package`` reports only
+    what the path proves. The single rule shared by ``_build_module_fields``
+    (the ``is_package`` field) and ``_build_edge_counts`` (the package-only
+    ``submodules`` gate), so the two can never disagree.
     """
-    if module_path is None:
-        return False
-    path = Path(module_path)
-    if path.name == "__init__.py":
-        return True
-    try:
-        return path.is_dir()
-    except OSError:
-        return False
+    return package_kind(module_path) in ("regular", "namespace")
 
 
 def _build_module_fields(jedi_name: Any, handle: str) -> dict[str, Any]:
