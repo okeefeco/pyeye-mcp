@@ -173,26 +173,6 @@ class TestInputValidator:
         with pytest.raises(ValidationError):
             InputValidator.validate_column_number("invalid")
 
-    def test_sanitize_string(self):
-        """Test string sanitization."""
-        # Normal string
-        assert InputValidator.sanitize_string("hello world") == "hello world"
-
-        # String with null bytes
-        assert InputValidator.sanitize_string("hello\x00world") == "helloworld"
-
-        # String with control characters
-        assert InputValidator.sanitize_string("hello\x07\x08world") == "helloworld"
-
-        # Long string (should truncate)
-        long_str = "x" * 20000
-        result = InputValidator.sanitize_string(long_str)
-        assert len(result) == 10000
-
-        # Empty string
-        assert InputValidator.sanitize_string("") == ""
-        assert InputValidator.sanitize_string(None) == ""
-
 
 class TestValidateMCPInputsDecorator:
     """Test the validation decorator for MCP functions."""

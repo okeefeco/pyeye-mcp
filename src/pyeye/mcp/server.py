@@ -344,6 +344,24 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
     return {"found": True, **answer}
 
 
+def _wrap_like_core_tool(tool_name: str, func: Callable[..., Any]) -> Callable[..., Any]:
+    """Give a plugin tool the decorator stack every core tool has, in the same order (#627).
+
+    Outermost first, as on ``resolve``:
+
+    - ``tool_errors``: any exception becomes an MCP tool error (#626 slice C);
+    - ``validate_mcp_inputs``: arguments it knows by name are validated;
+    - ``metrics.measure`` and ``track_mcp_operation``, under the MCP tool name;
+    - ``on_jedi_worker``: plugin tools build jedi.Scripts and share the
+      analyzers' caches, so they run on the Jedi worker like the core tools (#650).
+    """
+    return tool_errors(
+        validate_mcp_inputs(
+            metrics.measure(tool_name)(track_mcp_operation(tool_name)(on_jedi_worker(func)))
+        )
+    )
+
+
 def register_plugin_tools(
     server: MCPServer,
     plugins: list[AnalyzerPlugin],
@@ -378,10 +396,10 @@ def register_plugin_tools(
                     f"Plugin {plugin.name()} declares tool {tool_name!r}, "
                     "which another plugin already registered"
                 )
-            # Plugin tools build jedi.Scripts and share the analyzers' caches,
-            # so they run on the Jedi worker like the core tools (#650).
             server.tool(name=tool_name)(
-                tool_errors(on_jedi_worker(_plugin_tool(tool_name, tool_func, plugin, resolver)))
+                _wrap_like_core_tool(
+                    tool_name, _plugin_tool(tool_name, tool_func, plugin, resolver)
+                )
             )
             registered.append(tool_name)
     return registered

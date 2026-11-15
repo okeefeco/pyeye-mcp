@@ -266,16 +266,16 @@ async def _resolve_at_position(
     if not file_path.exists():
         return _miss("file_not_found")
 
-    try:
-        script = file_artifact_cache.get_script(file_path, analyzer.project)
-        # follow_imports=True is intentional here: position-based resolution
-        # should land on the definition site, not the use site. Callers that
-        # want the symbol AT the position rather than its definition should
-        # use a name-based form via resolve(identifier).
-        definitions = script.goto(line, column, follow_imports=True)
-    except Exception as exc:
-        logger.debug("_resolve_at_position: goto(%d, %d) failed: %s", line, column, exc)
+    # A position outside the file is the caller's miss; Jedi would raise on it.
+    # Any OTHER failure of goto is internal and propagates (#704).
+    if not _position_in_file(file_path, line, column):
         return _miss("no_symbol_at_position")
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    # follow_imports=True is intentional here: position-based resolution
+    # should land on the definition site, not the use site. Callers that
+    # want the symbol AT the position rather than its definition should
+    # use a name-based form via resolve(identifier).
+    definitions = script.goto(line, column, follow_imports=True)
 
     if not definitions:
         return _miss("no_symbol_at_position")
@@ -322,6 +322,24 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
             return fallback
 
     return result
+
+
+def _position_in_file(file_path: Path, line: int, column: int) -> bool:
+    """Whether (*line*, *column*) is a position Jedi accepts in *file_path*.
+
+    Mirrors Jedi's ``validate_line_column``: ``1 <= line <= len(lines)`` and
+    ``0 <= column <=`` that line's length without its line ending. Checked up
+    front so an out-of-range position is a miss and a Jedi failure is not
+    mistaken for one (#704).
+    """
+    import parso
+
+    lines = parso.split_lines(file_path.read_text(encoding="utf-8"), keepends=True)
+    if not 0 < line <= len(lines):
+        return False
+    text = lines[line - 1]
+    length = len(text) - (2 if text.endswith("\r\n") else 1 if text.endswith("\n") else 0)
+    return 0 <= column <= length
 
 
 def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
