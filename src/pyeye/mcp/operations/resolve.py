@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
+from pyeye._jedi_names import is_attribute_target
 from pyeye.handle import Handle
 from pyeye.mcp.operations.not_found import not_found_for
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
@@ -268,6 +269,11 @@ async def _resolve_at_position(
     full_name = name.full_name
     if not full_name:
         return _miss("no_symbol_at_position")
+    # ``goto`` on the ``x`` of ``self.x = …`` lands on the target itself, whose
+    # full_name reads as a local of the method.  It binds nothing there, and
+    # placing its full_name could find an unrelated same-named binding (#567).
+    if is_attribute_target(name):
+        return _miss("unresolved")
 
     # Canonicalise through the one resolver (#623).  A definition the resolver
     # can't place is not-found: returning Jedi's raw full_name would hand the

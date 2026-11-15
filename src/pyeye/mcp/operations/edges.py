@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
+from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye.handle import Handle
@@ -393,7 +394,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     seen: set[str] = set()
     for name in names:
         full_name = name.full_name or ""
-        if not full_name.startswith(prefix):
+        if not full_name.startswith(prefix) or is_attribute_target(name):
             continue
         if len(full_name.split(".")) != handle_depth + 1:
             continue
@@ -480,7 +481,8 @@ def _module_members(
     members: list[tuple[Handle, Any]] = []
     seen: set[str] = set()
     for name in names:
-        if name.name in import_bound_names:
+        # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
+        if name.name in import_bound_names or is_attribute_target(name):
             continue
         full_name = name.full_name or f"{handle}.{name.name}"
         if full_name in seen:
