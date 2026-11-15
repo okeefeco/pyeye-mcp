@@ -281,8 +281,14 @@ never have been judgment-layer.
 ## 10. Reproduction protocol (defines "deterministic" and the confident-path gate)
 
 - **Finding equivalence.** Two findings are "the same" iff they share: identical **cluster
-  membership** (the set of involved handles) + the same **grade** + the same **norm-claim
-  semantics** (phrasing ignored). Mechanical facts (Tier-1) are compared verbatim.
+  membership** (the set of involved handles) + the same **grade** + the same **axis and
+  facet**. The facet is a closed per-axis vocabulary (`taxonomy.AXIS_FACETS`) naming *what*
+  the finding observes on its axis; it replaces "norm-claim semantics", which in practice
+  meant comparing the free-text claim, a string LLM phrasing perturbs every run, so the gate
+  promoted nothing (#498). Phrasing is now genuinely ignored. A finding with no valid facet is
+  **unkeyed**: the gate never promotes it, and merging falls back to the exact normalised
+  claim (it can under-merge, never over-merge). Mechanical facts (Tier-1) are compared
+  verbatim.
 - **Shared dependency — handle stability.** Finding-equivalence (here), blast radius (§11),
   and non-issue keying (§14) all rest on pyeye **handles** being stable identifiers. pyeye
   handles are canonical qualname/dotted-module names anchored at the def-site —
@@ -460,7 +466,10 @@ calibrates" discipline).
   divergence fact** (the Tier-1 relationship the human adjudicated), **not** a content hash —
   a content hash re-nags on cosmetic edits (whitespace/comment/rename) that don't touch the
   divergence, while handles are content-stable (§10). Invalidated → re-surfaced only when the
-  structural fact genuinely re-diverges. Exact key granularity is open (§15).
+  structural fact genuinely re-diverges. **Key granularity (resolved, #498):** the structural
+  fact is the finding's axis + facet, so the key is hash(axis, facet, sorted handles). A
+  reworded claim or a grade change keeps a dismissal; changed handles or a changed facet
+  re-surface it. An unkeyed finding falls back to its claim string.
 - **Anti-drift, qualified.** "The norm *is* the check" prevents drift **only for the
   executable subset**. Non-executable norms ("prefer composition here") fall back to a prose
   checklist note — a smaller second source of truth, drift-**mitigated** by being minimal and
@@ -500,10 +509,11 @@ calibrates" discipline).
 - **Open design points:**
   - Tier-2 cache schema.
   - Bounded-scope unit for very large repos (package-at-a-time assumed).
-  - §10 cross-run finding-equivalence tolerance (handle-set + grade + claim-semantics assumed)
-    — *matches findings across runs*.
-  - **Non-issue key granularity** (structural-fact vs handle vs content-span) — *invalidates a
-    stored dismissal*; distinct from the equivalence tolerance above.
+  - §10 cross-run finding-equivalence tolerance — *resolved (#498)*: axis + facet +
+    handle-set + grade. Open: **facet vocabulary calibration** (granularity; whether runs pick
+    facets consistently, which fails safe as under-promotion).
+  - **Non-issue key granularity** — *resolved (#498)*: hash(axis, facet, sorted handles); see
+    §14.
   - **Blast-radius aggregation** over a finding's handle-set (max / sum / hub-centrality —
     §11 default is max).
   - **Axis-stakes bucket map + default prior vector** — the spike (bet-3) proved blast-radius
@@ -520,8 +530,9 @@ calibrates" discipline).
   - Whether to add a continuous within-ambiguous uncertainty score (§11 deferred upgrade).
   - Growth/curation of the §6.5 seed taxonomy (which axes ship in A; how new axes are added).
   - **Axis overlap** — seed axes (layering / boundaries / validation-placement) overlap, so one
-    divergence can surface under several axes as separate queue entries; §10 equivalence dedupes
-    some, not cross-axis. Expect this on the first real run; decide dedup/precedence
+    divergence can surface under several axes as separate queue entries. Since #498 the axis
+    is part of finding identity (the facet's namespace), so cross-axis duplicates stay
+    **separate by design**; any cross-axis dedupe/precedence is a later, explicit step decided
     empirically, not on paper.
 
 ## 16. Relation to existing assets

@@ -112,13 +112,24 @@ structural model with pyeye, does targeted reads only, and returns **a JSON arra
 of graded findings** — nothing else. (Run it as a fresh subagent so its judgment
 is uncontaminated by this conversation.)
 
+**Validate before merging (#498):** run `state.finding_problems(f)` on every
+returned finding and reject (re-dispatch, or drop and report) any with problems:
+a seed-axis finding must carry a `facet` from `taxonomy.AXIS_FACETS[axis]`, or
+`"other"`. This keeps unkeyed findings rare.
+
 ### 3. Merge into cross-run state
 
 Merge the new findings into prior state with
-`state.merge_findings(prior, new)`, which dedups by `state.findings_equivalent`
-(same handle-set (order-independent) + grade + normalised claim; axis is NOT part
-of equivalence). This accumulates coverage across runs rather than starting cold
-each time.
+`state.merge_findings(prior, new)`, which dedups by `state.findings_equivalent`.
+A finding's identity is `state.observation_key` = **axis + facet + handle set
+(order-independent)**, and two findings are equivalent when the key and the grade
+match (#498). The `claim` wording is ignored, so a reworded claim is the same
+finding, and two observations at one location stay apart by facet. Duplicates
+across axes stay separate entries by design. An **unkeyed** finding (facet
+missing or `other`, or an open axis) falls back to the exact normalised claim,
+which can under-merge but never over-merges. The same predicate drives the
+reproduction gate below, which never promotes an unkeyed finding. This
+accumulates coverage across runs rather than starting cold each time.
 
 ### 4. Promotion chain — two stages, in order
 
@@ -193,14 +204,16 @@ from this point.
 #### Dismissal path
 
 Call `state.build_non_issue(finding)` → append the returned `NonIssue` dict to
-`state["confirmed_non_issues"]`. Key design: `build_non_issue` sets
-`structural_fact = finding["claim"]` and `key = non_issue_key(handles,
-structural_fact)`, so:
+`state["confirmed_non_issues"]`. Key design (#498): for a keyed finding,
+`build_non_issue` sets `structural_fact = "facet:<axis>/<facet>"` and `key =
+non_issue_key(handles, structural_fact)`, so:
 
-- Cosmetic source edits that leave the finding's `handles` + `claim` intact keep
-  the **same key** — the finding stays suppressed on the next run.
-- A genuine structural re-divergence changes the claim/handles the auditor reports →
-  **new key** → the finding re-surfaces for human review.
+- Cosmetic source edits, a reworded claim or a grade change keep the **same
+  key**: the finding stays suppressed on the next run.
+- A genuine structural re-divergence changes the handles or the facet the auditor
+  reports → **new key** → the finding re-surfaces for human review.
+- An unkeyed finding falls back to `structural_fact = finding["claim"]`, which
+  re-surfaces whenever the claim is reworded.
 
 The auditor is seeded with `state["confirmed_non_issues"]` at step 2 so it skips
 findings whose `non_issue_key` matches an entry in this list.
