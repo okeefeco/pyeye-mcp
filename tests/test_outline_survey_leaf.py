@@ -176,12 +176,14 @@ class TestUnlistedMemberDisclosure:
         assert "member_count" not in _child(walked, "svpkg.nested")
 
     @pytest.mark.asyncio
-    async def test_no_count_on_depth_truncated_nodes(self, analyzer: JediAnalyzer) -> None:
-        # A max_depth cut node was not surveyed: it carries no count of any edge.
+    async def test_depth_cut_counts_what_it_withheld(self, analyzer: JediAnalyzer) -> None:
+        # #435: a max_depth cut is a BUDGET truncation, so it says how much it
+        # withheld, named for the edge walked: submodules in a survey.
         tree = await outline("svpkg", analyzer)
         both = _child(tree, "svpkg.both")
         assert both["truncation_reason"] == "max_depth"
-        assert not set(_COUNT_KEYS) & set(both)
+        assert both["submodule_count"] == (await _edge_counts("svpkg.both", analyzer))["submodules"]
+        assert "member_count" not in both
 
 
 class TestSurveyMaxNodesCount:

@@ -101,6 +101,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
+from pyeye.mcp.operations.completeness import MAX_DEPTH, MAX_NODES
 from pyeye.mcp.operations.edges import STATUS_IMPLEMENTED, edge_status
 from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
 from pyeye.mcp.operations.stubs import build_stub
@@ -328,10 +329,10 @@ async def trace(
             # depth frontier or the node budget, the hop records no edges at all,
             # so a walked hop is never silently partial.
             if new and not can_expand:
-                truncation_reasons.add("max_depth")
+                truncation_reasons.add(MAX_DEPTH)
                 continue
             if len(nodes) + len(new) > max_nodes:
-                truncation_reasons.add("max_nodes")
+                truncation_reasons.add(MAX_NODES)
                 continue
             for adj in known:
                 edges.append({"from": handle, "to": adj, "kind": edge})

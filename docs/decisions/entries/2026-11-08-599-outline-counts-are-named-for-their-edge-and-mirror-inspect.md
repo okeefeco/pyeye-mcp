@@ -3,10 +3,10 @@ date: "2026-11-08"
 title: "Outline counts are named for their edge and mirror `inspect().edge_counts` (#599)"
 issues: [599, 596, 435, 598]
 anchors: ["pyeye.mcp.operations.outline.outline", "member_count", "submodule_count", "tests/conformance/response_linter.py", "tests/test_outline_survey_leaf.py::TestCountInvariant"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-16-435-one-truncation-reason-table-budget-cuts-count-what-they-withhold.md"]
 superseded_by: []
 ---
 

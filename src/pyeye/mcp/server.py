@@ -1030,7 +1030,10 @@ async def outline(
 
     - ``"max_depth"`` — at the depth frontier; ``resolve_members`` was peeked
       once and found members (a genuine empty container at the frontier gets
-      ``children: []`` instead).
+      ``children: []`` instead).  Like ``max_nodes`` it is a budget cut, so it
+      carries ``member_count`` (or, in survey mode, ``submodule_count``): how
+      many children it withheld (#435).  Recover with a larger ``max_depth`` or
+      by outlining that node.
     - ``"max_nodes"`` — node-budget reserve-before-expand: a container is
       expanded only if the budget admits ALL its direct members, else it is cut
       off whole.  Such a node ALSO carries ``member_count`` — the count of
@@ -1048,6 +1051,15 @@ async def outline(
 
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
+
+    **Result-level summary (#435).** The root also carries
+    ``truncation_reasons``: the sorted set of every node's
+    ``truncation_reason`` (absent when nothing was cut), named like
+    ``trace``'s.  Check it first: it shows a real ``max_nodes`` cut that would
+    otherwise hide among many ``survey_leaf`` nodes.  Budget reasons
+    (``max_depth``, ``max_nodes``) mean "raise the limit" and always carry a
+    count; boundary reasons (``external``, ``survey_leaf``) mean "outline that
+    node" and carry none.
 
     **Package survey mode.** When *handle* is a package that has submodules, the
     tree walks the ``submodules`` edge instead of ``members``: children are its
