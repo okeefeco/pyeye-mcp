@@ -41,6 +41,7 @@ import ast
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from pyeye._module_scope import iter_module_scope_imports
 from pyeye._module_sentinel import DefinitionSentinel
 
 #: Kinds in ``module_defines`` that represent a real top-level definition site
@@ -143,8 +144,10 @@ def build_import_table(
 ) -> dict[str, str]:
     """Build the surface-name → target-path table for one module's AST.
 
-    Only **top-level** imports are considered (the scope a class base resolves
-    in). ``as``-aliases are captured under the alias; ``import a.b.c`` binds the
+    Only **unguarded top-level** imports are considered (the scope a class base
+    resolves in), via the shared walk with ``include_guarded=False`` (#360,
+    #630): an import under ``if TYPE_CHECKING:`` or in a try/except shim may not
+    be the binding that runs, so the resolver punts to Jedi for it. ``as``-aliases are captured under the alias; ``import a.b.c`` binds the
     head ``a``; relative imports are made absolute via *resolve_relative*; star
     imports are skipped (their names can't be resolved statically — the resolver
     will punt to Jedi for bases that rely on them).
@@ -161,7 +164,8 @@ def build_import_table(
         ``{surface name: target dotted path}``.
     """
     table: dict[str, str] = {}
-    for node in tree.body:
+    # Unguarded imports only: a guarded binding can't be committed to (#630).
+    for node in iter_module_scope_imports(tree, include_guarded=False):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.asname:
@@ -209,7 +213,7 @@ def build_star_sources(
         Absolute dotted names of the star-imported source modules.
     """
     sources: list[str] = []
-    for node in tree.body:
+    for node in iter_module_scope_imports(tree, include_guarded=False):
         if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
             base = (
                 resolve_relative(module, node.module, node.level, is_package)
@@ -237,7 +241,17 @@ def build_module_defines(tree: ast.Module) -> dict[str, str]:
         ``{top-level name: kind}``.
     """
     defines: dict[str, str] = {}
-    for node in tree.body:
+    # Definitions come from the top-level statements, imports from the shared
+    # unguarded walk (#630). Merge them back into source order: assignments and
+    # imports both use setdefault, so the first binding of a name wins.
+    statements: list[ast.stmt] = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign))
+    ]
+    statements.extend(iter_module_scope_imports(tree, include_guarded=False))
+    statements.sort(key=lambda node: (node.lineno, node.col_offset))
+    for node in statements:
         if isinstance(node, ast.ClassDef):
             defines[node.name] = "class"
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
