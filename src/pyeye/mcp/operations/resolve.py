@@ -60,6 +60,7 @@ from pyeye.kinds import (
     normalise_kind as _normalise_kind,
     normalise_kind_from_name as _normalise_kind_from_name,
 )
+from pyeye.mcp.operations.not_found import not_found_for
 from pyeye.project_layout import RootsBoundary, find_namespace_package_dirs, project_roots
 from pyeye.resolver import NotFound, Resolved, resolve_handle
 from pyeye.scope import classify_scope
@@ -103,12 +104,28 @@ class _AmbiguousResult(TypedDict):
     candidates: list[_Candidate]
 
 
-class _NotFoundResult(TypedDict):
+class _Miss(TypedDict):
+    """Internal not-found signal from the resolution helpers.
+
+    Never returned to a caller: :func:`resolve` / :func:`resolve_at` render it
+    through :func:`~pyeye.mcp.operations.not_found.not_found_for`, which adds the
+    operation's lookup echo and an actionable ``detail`` (#626).
+    """
+
     found: Literal[False]
     reason: str
 
 
-ResolveResult = _SuccessResult | _AmbiguousResult | _NotFoundResult
+def _miss(reason: str) -> _Miss:
+    return _Miss(found=False, reason=reason)
+
+
+#: What the internal helpers return.
+_HelperResult = _SuccessResult | _AmbiguousResult | _Miss
+
+#: What :func:`resolve` / :func:`resolve_at` return. The not-found member is the
+#: shared ``{found: false, <echo>, reason, detail}`` dict (#626).
+ResolveResult = _SuccessResult | _AmbiguousResult | dict[str, Any]
 
 # ---------------------------------------------------------------------------
 # Identifier-form descriptor
@@ -343,7 +360,7 @@ def _make_location(file_str: str, line: int | None, column: int | None) -> _Loca
 
 async def _resolve_at_position(
     file_path: Path, line: int, column: int, analyzer: JediAnalyzer
-) -> ResolveResult:
+) -> _HelperResult:
     """Resolve an exact (file, line, column) position to a symbol handle.
 
     This is the shared core used by both ``_resolve_file_line`` (which computes
@@ -362,7 +379,7 @@ async def _resolve_at_position(
         A :data:`ResolveResult` on success or a not-found result on failure.
     """
     if not file_path.exists():
-        return _NotFoundResult(found=False, reason="file_not_found")
+        return _miss("file_not_found")
 
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
@@ -373,15 +390,15 @@ async def _resolve_at_position(
         definitions = script.goto(line, column, follow_imports=True)
     except Exception as exc:
         logger.debug("_resolve_at_position: goto(%d, %d) failed: %s", line, column, exc)
-        return _NotFoundResult(found=False, reason="no_symbol_at_position")
+        return _miss("no_symbol_at_position")
 
     if not definitions:
-        return _NotFoundResult(found=False, reason="no_symbol_at_position")
+        return _miss("no_symbol_at_position")
 
     name = definitions[0]
     full_name = name.full_name
     if not full_name:
-        return _NotFoundResult(found=False, reason="no_symbol_at_position")
+        return _miss("no_symbol_at_position")
 
     # Canonicalise through the one resolver (#623).  A definition the resolver
     # can't place is not-found: returning Jedi's raw full_name would hand the
@@ -389,7 +406,7 @@ async def _resolve_at_position(
     return _from_resolver(full_name, analyzer)
 
 
-async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> ResolveResult:
+async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> _HelperResult:
     """Resolve a file:line coordinate to a symbol handle.
 
     Strategy:
@@ -399,7 +416,7 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
     3. Fall back to column 0 if the heuristic column yields no results.
     """
     if not file_path.exists():
-        return _NotFoundResult(found=False, reason="file_not_found")
+        return _miss("file_not_found")
 
     # Determine a useful column on the target line.
     heuristic_column = _find_symbol_column_on_line(file_path, line)
@@ -487,7 +504,7 @@ def _get_jedi_name_from_match(
     return None
 
 
-async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
+async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
     """Enumerate all project matches for a bare (no-dots) symbol name.
 
     Calls ``analyzer.find_symbol(name)`` to get all matches.  Returns:
@@ -499,7 +516,7 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
         matches = await analyzer.find_symbol(name)
     except Exception as exc:
         logger.debug("_resolve_bare_name(%r): find_symbol failed: %s", name, exc)
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _miss("unresolved")
 
     # NOTE: do NOT early-return on empty matches — a PEP 420 namespace package
     # surfaces as zero matches (the AST name-index has no file-less entry for it)
@@ -537,7 +554,7 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
             candidates.append(candidate)
 
     if not candidates:
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _miss("unresolved")
 
     if len(candidates) == 1:
         # After deduplication, only one valid candidate
@@ -574,7 +591,7 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> ResolveResult
     )
 
 
-async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyzer) -> ResolveResult:
+async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyzer) -> _HelperResult:
     """Build a _SuccessResult from a single find_symbol match dict."""
     full_name = match.get("full_name", "")
     file_str = match.get("file", "")
@@ -585,7 +602,7 @@ async def _build_success_from_match(match: dict[str, Any], analyzer: JediAnalyze
         try:
             handle = Handle(full_name)
         except ValueError:
-            return _NotFoundResult(found=False, reason="unresolved")
+            return _miss("unresolved")
 
     scope = classify_scope(file_str, analyzer) if file_str else "external"
     file_posix = Path(file_str).as_posix() if file_str else ""
@@ -711,16 +728,16 @@ def _kind_for_canonical(canonical_handle: str, analyzer: JediAnalyzer) -> str:
     return "variable"
 
 
-async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> ResolveResult:
+async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
     """Resolve a dotted name (FQN or re-exported path) through the one resolver (#623)."""
     return _from_resolver(name, analyzer)
 
 
-def _from_resolver(path: str, analyzer: JediAnalyzer) -> ResolveResult:
+def _from_resolver(path: str, analyzer: JediAnalyzer) -> _HelperResult:
     """Render :func:`pyeye.resolver.resolve_handle` as a resolve result."""
     resolved = resolve_handle(path, analyzer)
     if isinstance(resolved, NotFound):
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _miss("unresolved")
     return _success_from_resolved(resolved)
 
 
@@ -743,10 +760,10 @@ def _success_from_resolved(resolved: Resolved) -> _SuccessResult:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> ResolveResult:
+async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _HelperResult:
     """Resolve a bare file path to its module handle."""
     if not file_path.exists():
-        return _NotFoundResult(found=False, reason="file_not_found")
+        return _miss("file_not_found")
 
     # _get_import_path_for_file matches via relative_to() against absolute
     # source_roots and project_path; a relative input would silently miss
@@ -756,12 +773,12 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> Resolve
 
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _miss("unresolved")
 
     try:
         handle = Handle(module_path)
     except ValueError:
-        return _NotFoundResult(found=False, reason="unresolved")
+        return _miss("unresolved")
 
     scope = classify_scope(file_path, analyzer)
 
@@ -799,8 +816,18 @@ async def resolve(
         a ``handle``, ``kind``, ``scope``, and ``location``.  On ambiguity,
         contains ``found=True``, ``ambiguous=True``, and a sorted
         ``candidates`` list (each candidate also carries ``location``).
-        On failure, contains ``found=False`` and a ``reason`` string.
+        On failure, the shared not-found shape (#626):
+        ``{found: False, identifier, reason, detail}``, with ``reason`` one of
+        ``unresolved``, ``file_not_found`` or ``no_symbol_at_position``.
     """
+    result = await _resolve_identifier(identifier, analyzer)
+    if result["found"] is False:
+        return not_found_for("resolve", {"identifier": identifier}, result["reason"])
+    return result
+
+
+async def _resolve_identifier(identifier: str, analyzer: JediAnalyzer) -> _HelperResult:
+    """Dispatch *identifier* to the resolver for its form."""
     form = _parse_identifier(identifier)
     kind = form["kind"]
 
@@ -840,9 +867,13 @@ async def resolve_at(
 
     Returns:
         A :data:`ResolveResult` dict.  On success, contains ``found=True``,
-        a ``handle``, ``kind``, and ``scope``.  On failure, contains
-        ``found=False`` and a ``reason`` string (e.g. ``"no_symbol_at_position"``
-        or ``"file_not_found"``).
+        a ``handle``, ``kind``, and ``scope``.  On failure, the shared not-found
+        shape (#626): ``{found: False, file, line, column, reason, detail}``,
+        echoing the arguments as given, with ``reason`` one of
+        ``file_not_found``, ``no_symbol_at_position`` or ``unresolved``.
     """
-    file_path = Path(file)
-    return await _resolve_at_position(file_path, line, column, analyzer)
+    result = await _resolve_at_position(Path(file), line, column, analyzer)
+    if result["found"] is False:
+        echo = {"file": file, "line": line, "column": column}
+        return not_found_for("resolve_at", echo, result["reason"])
+    return result

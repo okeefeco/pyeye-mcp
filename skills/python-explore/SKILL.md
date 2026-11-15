@@ -71,13 +71,19 @@ Notes that matter:
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
   dotted handle.
-- **Not found:** check `found` on every `resolve`/`inspect`/`outline`/`expand` result.
-  An unresolvable handle returns `{found: false, reason: "unresolved", …}` — for
-  `inspect`/`outline`/`expand` also the echoed `handle` (plus `edge` for `expand`) and a
-  `detail` naming the next step, with **no** node, tree, or stubs. That is "this handle
-  doesn't exist as written" (often the right name under the wrong module path) — not an
-  empty symbol. Re-`resolve` the bare name to get the canonical handle. By contrast,
-  `expand`'s `stubs: []` with `found: true` *is* a measured zero.
+- **Not found:** check `found` on every `resolve`/`resolve_at`/`inspect`/`outline`/`expand`
+  result. A miss returns `{found: false, <your input echoed>, reason, detail}` with **no**
+  node, tree, or stubs, and `detail` naming the next step:
+  - `inspect`/`outline`/`expand` echo `handle` (plus `edge` for `expand`), with
+    `reason: "unresolved"`. That means "this handle doesn't exist as written" (often the
+    right name under the wrong module path), not an empty symbol. Re-`resolve` the bare
+    name to get the canonical handle.
+  - `resolve` echoes `identifier`, and `resolve_at` echoes `file`/`line`/`column`. Their
+    `reason` is `unresolved`, `file_not_found` or `no_symbol_at_position`. A missing file
+    is not a spelling problem, so don't retry `resolve` with other names for it.
+  - Only a `handle` key is ever a handle. Never pass `identifier` or `file` to `inspect`.
+
+  By contrast, `expand`'s `stubs: []` with `found: true` *is* a measured zero.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
@@ -202,7 +208,7 @@ present `superclasses: 0` means measured-and-none (the class has no bases). An *
 
 ### `trace` honesty fields — an empty subgraph is not always "nothing there"
 
-A `trace` Subgraph carries two honesty fields. **Read them before treating the graph as
+A `trace` Subgraph carries several honesty fields. **Read them before treating the graph as
 complete** — an empty or clean-looking subgraph can mean a resolution miss, not a real zero:
 
 - **`unresolved_roots`** (always present): `[]` means every root resolved. A **non-empty**
@@ -210,6 +216,13 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   `unresolved_roots` is "I couldn't resolve the root" (a cold-start miss is possible, #419),
   **not** "this root has no neighbours." Retry, `resolve`/`inspect` the handle, or fall back
   to `Read`/your LSP — do not conclude the symbol calls/contains nothing.
+- **`unresolved_nodes`** (always present): interior nodes `trace` reached but could not
+  resolve (the same handles `expand` answers `found: false` for),
+  so it did **not** walk them. A node listed here is a dead end of the walk, **not** a
+  node with no neighbours.
+- **`unsupported_edges`** also lists an edge that doesn't apply to some node's kind
+  (e.g. `imports` on a class): its `detail` names the kind. Those nodes were not walked
+  along that edge — that's "not applicable", not "measured, none".
 - **`unresolved_call_sites`** (present only when you traced `callees`): a `{handle: count}`
   map of nodes whose outbound calls were *not* fully resolved (dynamic/un-inferable sites,
   or a flaky miss). A node listed here has **incomplete callees** — don't treat its part of
