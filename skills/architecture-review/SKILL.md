@@ -136,12 +136,21 @@ stage can only *downgrade* a grade (to `ambiguous`); neither invents or promotes
    *surviving* `deterministic_single`, the injected `corroborate_fn`
    **independently re-derives its Tier-1 fact** from source / AST (or an LSP) —
    **NOT** from another pyeye edge and **NOT** from the auditor's own evidence
-   (for import / layering facts, wire in `guard.imports_via_ast`, a from-scratch
-   stdlib `ast` reader). If the independent derivation diverges from the
-   auditor's fact, the guard rewrites the grade to `ambiguous` and sets
-   `possible_extractor_bug = True` (surface, do not confirm). This is what catches a
-   *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge silently dropping
-   a real import, #494) — the gate cannot, because a reproducible error reproduces.
+   (for import / layering facts, wire in `guard.corroborate_imports`, which
+   compares the edge's resolved imports and its `unresolved_imports` against
+   `guard.imports_via_ast`, a from-scratch stdlib `ast` reader). The verdict has
+   three states (#499):
+   - **corroborated**: the finding keeps `deterministic_single`.
+   - **divergent**: the guard rewrites the grade to `ambiguous` and sets
+     `possible_extractor_bug = True` (surface, do not confirm). This is what
+     catches a *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge
+     silently dropping a real import, #494) — the gate cannot, because a
+     reproducible error reproduces.
+   - **cannot_confirm**: the fact couldn't be decided (an import listed in
+     `unresolved_imports`, or source that doesn't parse). The grade becomes
+     `ambiguous` with `corroboration: "cannot_confirm"` and **no**
+     `possible_extractor_bug`: present it to the human as "needs review, could
+     not verify", never as confirmed and never as an extractor bug.
 
 Net: `deterministic_single` survives only when **reproduction-stable AND
 cross-derivation-corroborated.**
