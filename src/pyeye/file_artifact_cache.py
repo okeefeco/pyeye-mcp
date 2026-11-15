@@ -28,11 +28,15 @@ Key design decisions
   ``jedi.Project`` instances rooted at the same directory correctly share an
   entry.
 * **Parso composition**: ``jedi.Script`` internally calls parso, which keeps
-  its own in-memory parse cache keyed by file path with mtime-based
-  invalidation.  We cache the already-constructed ``jedi.Script`` object
-  (whose setup overhead exceeds the parse step alone) and let parso's cache
-  handle the underlying parse tree.  We never fight parso's cache; we benefit
-  from it.
+  its own in-memory parse cache keyed by file path (bounded by
+  ``PYEYE_PARSO_CACHE_MAX_ENTRIES``, #713).  We cache the already-constructed
+  ``jedi.Script`` object (whose setup overhead exceeds the parse step alone)
+  and let parso's cache handle the underlying parse tree.
+* **Script cap** (#713): each cached ``jedi.Script`` owns a Jedi inference
+  state that keeps every module it inferred alive, parse trees included,
+  whatever parso's cache holds.  So Scripts have their own LRU cap,
+  ``PYEYE_SCRIPT_CACHE_MAX_ENTRIES``, inside the combined cap; it is what
+  actually bounds the memory of Jedi's parse trees.
 * **AST-biased LRU eviction**: when both the AST store and Script store are
   non-empty and the combined count cap is exceeded, the implementation evicts
   from the AST store first.  ``jedi.Script`` objects are more expensive to
@@ -126,25 +130,34 @@ class FileArtifactCache:
     ----------
     ast_max_entries:
         Maximum number of AST **and** Script entries combined.  When exceeded,
-        the least-recently-used entry is evicted.  Defaults to 500.
+        the least-recently-used entry is evicted.
+    script_max_entries:
+        Maximum number of Script entries (#713), enforced within the combined
+        cap.  When exceeded, the least-recently-used Script is evicted.
     """
 
     def __init__(
         self,
         ast_max_entries: int | None = None,
+        script_max_entries: int | None = None,
     ) -> None:
-        """Initialise the cache with the given combined entry cap.
+        """Initialise the cache with the given entry caps.
 
-        When *ast_max_entries* is ``None`` the cap is taken from
-        ``settings.artifact_cache_max_entries`` (env ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES``),
-        so large codebases can grow the cache without code changes (#397). An
-        explicit argument always wins — used by tests and targeted tuning.
+        A cap left as ``None`` comes from settings: the combined cap from
+        ``settings.artifact_cache_max_entries`` (env
+        ``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES``, #397), the Script cap from
+        ``settings.script_cache_max_entries`` (env
+        ``PYEYE_SCRIPT_CACHE_MAX_ENTRIES``, #713). An explicit argument always
+        wins; tests and targeted tuning use it.
         """
-        if ast_max_entries is None:
-            from .settings import settings
+        from .settings import settings
 
+        if ast_max_entries is None:
             ast_max_entries = settings.artifact_cache_max_entries
+        if script_max_entries is None:
+            script_max_entries = settings.script_cache_max_entries
         self._ast_max_entries = ast_max_entries
+        self._script_max_entries = script_max_entries
 
         # AST store: _FileKey -> ast.Module (LRU, shared count cap with Script)
         self._ast_store: OrderedDict[_FileKey, ast.Module] = OrderedDict()
@@ -331,12 +344,15 @@ class FileArtifactCache:
             self._evictions += 1
 
     def _enforce_ast_cap(self) -> None:
-        """Evict LRU AST/Script entries (combined) until total count <= _ast_max_entries.
+        """Enforce both caps: Scripts <= _script_max_entries, then combined <= _ast_max_entries.
 
-        AST and Script entries share the same count cap.  When the combined
-        count exceeds the cap we evict the globally-least-recently-used entry
-        across both stores.
+        The Script cap (#713) evicts least-recently-used Scripts first.  Then,
+        while the combined count exceeds its cap, ASTs are evicted before Scripts
+        (see below).
         """
+        while len(self._script_store) > self._script_max_entries:
+            self._script_store.popitem(last=False)
+            self._evictions += 1
         while (len(self._ast_store) + len(self._script_store)) > self._ast_max_entries:
             # Determine which store has the globally oldest entry.
             # OrderedDict preserves insertion/access order; first element is LRU.
