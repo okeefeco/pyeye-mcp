@@ -47,15 +47,35 @@ def test_linter_trace_set_is_the_table() -> None:
 
 
 def test_linter_budget_set_is_the_table() -> None:
-    assert reasons_of_class(BUDGET) == response_linter._BUDGET_REASONS
+    """The linter's per-node budget set is outline's budget reasons."""
+    assert reasons_of_class(BUDGET) & reasons_emitted_by("outline") == (
+        response_linter._BUDGET_REASONS
+    )
+
+
+def test_linter_list_cap_reasons_are_the_table() -> None:
+    """The flat-list caps (#435 slice B): one budget reason per tool."""
+    assert {
+        tool: frozenset({reason}) for tool, (_key, reason) in response_linter._LIST_CAPS.items()
+    } == {tool: reasons_emitted_by(tool) for tool in ("expand", "resolve")}
+    for reason in ("max_stubs", "max_candidates"):
+        assert TRUNCATION_REASONS[reason].cls == BUDGET
 
 
 def test_code_constants_are_the_table_names() -> None:
-    for const in ("MAX_DEPTH", "MAX_NODES", "EXTERNAL", "SURVEY_LEAF", "UNPARSEABLE"):
+    for const in (
+        "MAX_DEPTH",
+        "MAX_NODES",
+        "EXTERNAL",
+        "SURVEY_LEAF",
+        "UNPARSEABLE",
+        "MAX_STUBS",
+        "MAX_CANDIDATES",
+    ):
         assert getattr(completeness, const) in TRUNCATION_REASONS
 
 
-@pytest.mark.parametrize("tool", ["outline", "trace"])
+@pytest.mark.parametrize("tool", ["outline", "trace", "expand", "resolve"])
 def test_tool_description_names_every_reason(tool: str) -> None:
     description = server.mcp._tool_manager._tools[tool].description or ""
     missing = [r for r in sorted(reasons_emitted_by(tool)) if f'"{r}"' not in description]

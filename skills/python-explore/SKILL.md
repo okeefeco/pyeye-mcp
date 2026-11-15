@@ -70,7 +70,14 @@ Notes that matter:
 - **Ambiguity:** a bare name can match several symbols. `resolve` then returns
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
-  dotted handle.
+  dotted handle. At most 50 candidates come back by default (`max_candidates`); when
+  more matched, the result also says `truncated: true`, `truncation_reasons:
+  ["max_candidates"]` and `total`. Resolve a dotted handle, or pass
+  `max_candidates=None`, to see them all.
+- **Capped lists:** `expand` returns at most 200 stubs by default (`max_stubs`). When
+  the edge has more, the result says `truncated: true`, `truncation_reasons:
+  ["max_stubs"]` and `total` (the edge's full size); pass `max_stubs=None` for all.
+  When nothing was cut, none of the three is present.
 - **A bare name that is a top-level module resolves to that module.** `resolve("functools")`
   is stdlib `functools` and `resolve("inspect")` is stdlib `inspect`, even when the project
   also defines something with that name. To reach the project's symbol or submodule, use

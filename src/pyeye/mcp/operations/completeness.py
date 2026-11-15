@@ -35,7 +35,13 @@ removing a key is barred in 2.x, so ``trace`` keeps them as they are.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, TypeVar
+
+from pyeye.exceptions import ValidationError
+
+_T = TypeVar("_T")
 
 BUDGET = "budget"
 BOUNDARY = "boundary"
@@ -87,6 +93,18 @@ TRUNCATION_REASONS: dict[str, TruncationReason] = {
             "outline",
         ),
         _reason(
+            "max_stubs",
+            BUDGET,
+            "Pass a larger max_stubs, or max_stubs=None for every stub.",
+            "expand",
+        ),
+        _reason(
+            "max_candidates",
+            BUDGET,
+            "Pass a larger max_candidates (or None), or resolve a dotted handle instead.",
+            "resolve",
+        ),
+        _reason(
             "unparseable",
             UNMEASURED,
             "Read the file, or run pyeye on a newer Python; the server's interpreter "
@@ -101,6 +119,12 @@ MAX_NODES = TRUNCATION_REASONS["max_nodes"].name
 EXTERNAL = TRUNCATION_REASONS["external"].name
 SURVEY_LEAF = TRUNCATION_REASONS["survey_leaf"].name
 UNPARSEABLE = TRUNCATION_REASONS["unparseable"].name
+MAX_STUBS = TRUNCATION_REASONS["max_stubs"].name
+MAX_CANDIDATES = TRUNCATION_REASONS["max_candidates"].name
+
+#: Default caps (#435 slice B, the user's decision): on by default, ``None`` lifts them.
+DEFAULT_MAX_STUBS: int = 200
+DEFAULT_MAX_CANDIDATES: int = 50
 
 
 def reasons_emitted_by(tool: str) -> frozenset[str]:
@@ -111,3 +135,37 @@ def reasons_emitted_by(tool: str) -> frozenset[str]:
 def reasons_of_class(cls: str) -> frozenset[str]:
     """The truncation reasons in class *cls* (:data:`BUDGET`, :data:`BOUNDARY`, …)."""
     return frozenset(name for name, r in TRUNCATION_REASONS.items() if r.cls == cls)
+
+
+def check_cap(cap: int | None, parameter: str) -> None:
+    """Reject a cap that isn't ``None`` or a positive int (a caller error, #626)."""
+    if cap is None:
+        return
+    if isinstance(cap, bool) or not isinstance(cap, int) or cap < 1:
+        raise ValidationError(
+            f"{parameter} must be a positive integer, or None for no cap",
+            parameter=parameter,
+            value=repr(cap),
+        )
+
+
+def cap_items(
+    items: Sequence[_T], cap: int | None, reason: str, parameter: str
+) -> tuple[list[_T], dict[str, Any]]:
+    """Apply a list cap and return ``(kept, truncation_fields)`` (#435 slice B).
+
+    The ONE place that decides how a capped flat list discloses its cut, so
+    the shape can't drift between ``expand`` and ``resolve``.  Leave out, never
+    false (the user's #435 call): when nothing is cut, no field at all; when
+    the cap cuts, ``truncated: true``, ``truncation_reasons: [reason]`` and
+    ``total`` (the exact size of the full list) together.  The first *cap*
+    items are kept in their existing order.
+    """
+    check_cap(cap, parameter)
+    if cap is None or len(items) <= cap:
+        return list(items), {}
+    return list(items[:cap]), {
+        "truncated": True,
+        "truncation_reasons": [reason],
+        "total": len(items),
+    }

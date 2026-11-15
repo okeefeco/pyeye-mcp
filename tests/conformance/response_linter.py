@@ -1757,6 +1757,59 @@ _OUTLINE_COUNT_KEYS: tuple[str, ...] = ("member_count", "submodule_count")
 
 
 # ---------------------------------------------------------------------------
+# Check L — capped flat lists (#435 slice B)
+# ---------------------------------------------------------------------------
+
+# L.1 — per tool: the capped list's key and its one truncation reason.  Hardcoded
+# (an independent oracle); ``tests/test_completeness_registry.py`` pins it.
+_LIST_CAPS: dict[str, tuple[str, str]] = {
+    "expand": ("stubs", "max_stubs"),
+    "resolve": ("candidates", "max_candidates"),
+}
+_LIST_CAP_KEYS: tuple[str, ...] = ("truncated", "truncation_reasons", "total")
+
+
+def _check_list_cap(response: dict[str, Any], operation: str, violations: list[str]) -> None:
+    """L.1 — a capped flat list discloses its cut all-or-nothing (#435).
+
+    Leave out, never false (the user's #435 call): when nothing was cut, none of
+    ``truncated`` / ``truncation_reasons`` / ``total`` is present; when the cap
+    cut, all three are: ``truncated: true``, ``truncation_reasons: [<reason>]``,
+    and ``total`` an int larger than the list.  ``truncated: false`` never
+    appears.  (trace's always-present ``truncated`` predates #435; see T.*.)
+    """
+    key, reason = _LIST_CAPS[operation]
+    present = [k for k in _LIST_CAP_KEYS if k in response]
+    if not present:
+        return
+    items = response.get(key)
+    if present != list(_LIST_CAP_KEYS):
+        violations.append(
+            f"[L.1 {operation} cap] {present} present without the rest of "
+            f"{list(_LIST_CAP_KEYS)}: a cut discloses all three, nothing is disclosed otherwise."
+        )
+        return
+    if response["truncated"] is not True:
+        violations.append(
+            f"[L.1 {operation} cap] 'truncated' is {response['truncated']!r}; it is either "
+            "absent (not cut) or exactly true."
+        )
+    if response["truncation_reasons"] != [reason]:
+        violations.append(
+            f"[L.1 {operation} cap] 'truncation_reasons' is "
+            f"{_truncate(response['truncation_reasons'])}; expected [{reason!r}]."
+        )
+    total = response["total"]
+    if isinstance(total, bool) or not isinstance(total, int):
+        violations.append(f"[L.1 {operation} cap] 'total' must be an int; got {total!r}.")
+    elif not isinstance(items, list) or total <= len(items):
+        violations.append(
+            f"[L.1 {operation} cap] 'total' ({total}) must exceed the {key!r} returned "
+            f"({len(items) if isinstance(items, list) else items!r}): a cut withheld some."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Check C — static-surface ceilings (#417)
 # ---------------------------------------------------------------------------
 
@@ -2028,6 +2081,8 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
 
     if not is_not_found and operation in ("expand", "trace", "outline"):
         _check_ceilings(response, operation, violations)
+    if not is_not_found and operation in _LIST_CAPS:
+        _check_list_cap(response, operation, violations)
 
     if is_not_found:
         pass  # N.2 already validated the whole (field-free) not-found shape.

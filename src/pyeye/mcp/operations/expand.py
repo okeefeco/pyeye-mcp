@@ -82,6 +82,12 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
+from pyeye.mcp.operations.completeness import (
+    DEFAULT_MAX_STUBS,
+    MAX_STUBS,
+    cap_items,
+    check_cap,
+)
 from pyeye.mcp.operations.edges import (
     EDGE_CEILINGS,
     EDGE_RESOLVERS,
@@ -147,7 +153,9 @@ def _unsupported_detail(edge: str, reason: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, Any]:
+async def expand(
+    handle: str, edge: str, analyzer: JediAnalyzer, max_stubs: int | None = DEFAULT_MAX_STUBS
+) -> dict[str, Any]:
     """Walk one *edge* from *handle*, returning a discriminated-union result.
 
     Resolves the source handle to a Jedi ``Name`` FIRST — an unresolvable handle
@@ -165,6 +173,10 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
         edge: The traversal edge to walk
             (e.g. ``"members"``, ``"callees"``, ``"imported_by"``).
         analyzer: Configured ``JediAnalyzer`` for the project.
+        max_stubs: Most stubs to return (#435), default 200; ``None`` for all.
+            When the edge has more, the first *max_stubs* are kept and the
+            result carries ``truncated: true``, ``truncation_reasons:
+            ["max_stubs"]`` and ``total``.
 
     Returns:
         The not-found shape (``found: False``) for an unresolvable source, else
@@ -185,15 +197,22 @@ async def expand(handle: str, edge: str, analyzer: JediAnalyzer) -> dict[str, An
     # — never as ``stubs: []`` (the #332 measured-zero lie) and never as an
     # unsupported result implying the handle was found (#545).
     # ------------------------------------------------------------------
+    check_cap(max_stubs, "max_stubs")  # a bad cap is a caller error, before any work
     resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
     if isinstance(resolved, NotFound):
         return not_found(handle, edge=edge)
 
-    return await expand_resolved(resolved.anchor, resolved.handle, edge, analyzer)
+    return await expand_resolved(
+        resolved.anchor, resolved.handle, edge, analyzer, max_stubs=max_stubs
+    )
 
 
 async def expand_resolved(
-    jedi_name: Any, source: str, edge: str, analyzer: JediAnalyzer
+    jedi_name: Any,
+    source: str,
+    edge: str,
+    analyzer: JediAnalyzer,
+    max_stubs: int | None = None,
 ) -> dict[str, Any]:
     """Walk one *edge* from an ALREADY-resolved source — expand minus resolution.
 
@@ -270,11 +289,13 @@ async def expand_resolved(
             "report_issues": meta.issues_url(),
         }
 
-    stubs = [
-        build_stub(name, str(adj_handle), analyzer) for adj_handle, name in edge_result.adjacents
-    ]
+    # #435 slice B: cap before building stubs, so a 900-wide edge costs 200
+    # stub builds.  ``trace`` passes no cap: it has its own node budget.
+    kept, truncation = cap_items(edge_result.adjacents, max_stubs, MAX_STUBS, "max_stubs")
+    stubs = [build_stub(name, str(adj_handle), analyzer) for adj_handle, name in kept]
 
     result: dict[str, Any] = {"found": True, "source": source, "edge": edge, "stubs": stubs}
+    result.update(truncation)
     # #417: the scope the list is complete over, as data (absent for an exact edge).
     if edge in EDGE_CEILINGS:
         result["ceiling"] = EDGE_CEILINGS[edge]
