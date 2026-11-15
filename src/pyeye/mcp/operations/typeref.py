@@ -50,14 +50,13 @@ head lookups to a callable supplied by the entry point:
 
 Caching
 -------
-TypeRef builds are memoised per ``(file_resolved_posix, mtime_ns,
-type_string)``. Leaf annotations like ``Path`` / ``str`` / ``int`` repeat
-heavily inside a single module, and the cache prevents redundant resolution
-calls. Because the key includes ``mtime_ns``, file edits invalidate
-naturally — after a save, the next build sees a different ``mtime_ns`` and
-the prior cache entry is no longer reachable. (Old entries remain in memory
-until the cache is cleared; for v1 this is acceptable, since the dominant
-cost we are avoiding is Jedi inference, not memory.)
+TypeRef builds are memoised per annotation **site**: ``(project_root, file,
+mtime_ns, position, source text)``. What a head resolves to depends on where
+the annotation sits, so the raw text alone is not a key (#620). Because the
+key includes ``mtime_ns``, edits to the annotation's own file invalidate
+naturally. An edit elsewhere (the referenced type moving to another file)
+does not change the key; :func:`invalidate_project` drops a project's entries
+for that case. The cache is an LRU bounded at ``_TYPEREF_CACHE_MAX`` entries.
 
 Telemetry
 ---------
@@ -77,6 +76,7 @@ from __future__ import annotations
 import ast
 import logging
 import os
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -103,20 +103,48 @@ HeadResolver = Callable[[ast.expr], Awaitable["Handle | None"]]
 # Cache
 # ---------------------------------------------------------------------------
 #
-# Per-process TypeRef cache keyed by (file_resolved_posix, mtime_ns, raw).
-# mtime_ns participates in the key, so file edits naturally invalidate (the
-# key changes; the prior entry is unreachable). The cached value is the fully
-# built TypeRef dict — agents may not mutate the returned dict, since it may
-# be shared across builds.
+# Per-process TypeRef cache, keyed per annotation SITE (#620):
 #
-# An LRU bound is intentionally NOT enforced in v1: per-module annotation
-# count is small (tens, occasionally hundreds), and a single inspect() call
-# tops out at one module's worth of types. If profiling shows pathological
-# memory growth across long-running processes, replace the dict with an
-# OrderedDict-backed LRU.
+#   (project_root, file, mtime_ns, lineno, col, end_lineno, end_col, source)
+#
+# * Position, not raw text: head resolution is positional. Two ``Foo``
+#   annotations in one file can name different classes (module-level vs a
+#   nested ``Outer.Foo``). The enclosing scope would NOT be enough either: a
+#   name can be rebound within one scope between two annotations
+#   (``from a import X`` ... ``from b import X``), and Jedi's goto is
+#   flow-sensitive. The position is the smallest key that is always right.
+# * Source text (``ast.unparse``, which keeps quotes) distinguishes the forward
+#   ref ``"Foo"`` from the bare ``Foo``; their ``raw`` is the same.
+# * Project root: handles are project-relative (the same file under two roots
+#   yields different full names), and forward refs resolve project-wide.
+# * mtime_ns: edits to the annotation's own file invalidate naturally. An edit
+#   to ANOTHER file (the referenced type moved) is not visible in the key;
+#   ``invalidate_project(root)`` is the hook for that.
+#
+# The cached value is the fully built TypeRef dict, shared across builds;
+# callers must not mutate it. The cache is an LRU bounded at
+# ``_TYPEREF_CACHE_MAX`` entries.
 
-_TypeRefKey = tuple[str, int, str]
-_typeref_cache: dict[_TypeRefKey, dict[str, Any]] = {}
+_TypeRefKey = tuple[str, str, int, int, int, int, int, str]
+_TYPEREF_CACHE_MAX = 4096
+_typeref_cache: OrderedDict[_TypeRefKey, dict[str, Any]] = OrderedDict()
+
+
+def invalidate_project(root: Path | str) -> None:
+    """Drop every cached TypeRef built under the project at *root*.
+
+    Any change under a project can change what another file's annotations
+    resolve to (a referenced type moved or was renamed), so invalidation is
+    per project, not per file.
+    """
+    key = Path(root).resolve().as_posix()
+    for cached in [k for k in _typeref_cache if k[0] == key]:
+        del _typeref_cache[cached]
+
+
+def invalidate_all() -> None:
+    """Drop every cached TypeRef."""
+    _typeref_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -155,20 +183,43 @@ def get_and_reset_degraded_counts() -> dict[str, int]:
     return snapshot
 
 
-def _cache_key(file_path: Path | None, raw: str) -> _TypeRefKey | None:
-    """Return a cache key for *(file_path, raw)*, or ``None`` when uncacheable.
+def _cache_key(
+    file_path: Path | None, annotation: ast.expr, project_root: str
+) -> _TypeRefKey | None:
+    """Return the cache key for *annotation*'s site, or ``None`` when uncacheable.
 
-    Returns ``None`` when *file_path* is ``None`` or ``os.stat`` fails — in
+    Returns ``None`` when *file_path* is ``None``, ``os.stat`` fails, or the
+    node carries no position (a synthesised node has no site to key on). In
     those cases the build runs uncached. Failure paths must not raise into
     the build pipeline.
     """
     if file_path is None:
         return None
+    lineno = getattr(annotation, "lineno", None)
+    col = getattr(annotation, "col_offset", None)
+    if lineno is None or col is None:
+        return None
     try:
         mtime_ns = os.stat(file_path).st_mtime_ns
     except OSError:
         return None
-    return (file_path.resolve().as_posix(), mtime_ns, raw)
+    end_lineno = getattr(annotation, "end_lineno", None)
+    end_col = getattr(annotation, "end_col_offset", None)
+    return (
+        project_root,
+        file_path.resolve().as_posix(),
+        mtime_ns,
+        lineno,
+        col,
+        lineno if end_lineno is None else end_lineno,
+        col if end_col is None else end_col,
+        ast.unparse(annotation),
+    )
+
+
+def _project_root(analyzer: JediAnalyzer) -> str:
+    """The analyzer's project root, as the cache's project component."""
+    return Path(analyzer.project_path).resolve().as_posix()
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +240,7 @@ async def build_typeref(
             into *file_path*'s source, suitable for ``jedi.Script.goto``).
         file_path: Absolute path to the source file containing *annotation*.
             Used to (a) construct the Jedi ``Script`` and (b) form the cache
-            key.
+            key, together with the annotation's position and the project.
         analyzer: Configured ``JediAnalyzer`` for the project.
 
     Returns:
@@ -197,8 +248,9 @@ async def build_typeref(
         ``args`` are present per the rules in this module's docstring.
     """
     raw = _annotation_source(annotation)
-    key = _cache_key(file_path, raw)
+    key = _cache_key(file_path, annotation, _project_root(analyzer))
     if key is not None and key in _typeref_cache:
+        _typeref_cache.move_to_end(key)
         return _typeref_cache[key]
 
     # Closure capturing file_path/analyzer — the resolver gets just the head
@@ -212,6 +264,8 @@ async def build_typeref(
 
     if key is not None:
         _typeref_cache[key] = node
+        while len(_typeref_cache) > _TYPEREF_CACHE_MAX:
+            _typeref_cache.popitem(last=False)
     return node
 
 
