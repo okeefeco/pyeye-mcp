@@ -63,6 +63,8 @@ from typing import Any
 
 import jedi
 
+from .path_utils import path_to_key
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -93,7 +95,7 @@ def _stat_version(path: Path) -> _Version:
 
 def _resolve_posix(path: Path | str) -> str:
     """Return the canonical, POSIX-format absolute path string for *path*."""
-    return Path(path).resolve().as_posix()
+    return path_to_key(path)
 
 
 def _project_key(project: jedi.Project) -> str:
@@ -104,7 +106,7 @@ def _project_key(project: jedi.Project) -> str:
     not share Scripts. The key therefore covers the root, the added sys.path in
     order, and whether Jedi's smart sys.path is on.
     """
-    root = Path(project.path).resolve().as_posix()
+    root = path_to_key(project.path)
     added = [Path(p).as_posix() for p in (getattr(project, "added_sys_path", None) or [])]
     smart = getattr(project, "_smart_sys_path", None)
     return "\n".join([root, "|".join(added), f"smart={smart}"])
