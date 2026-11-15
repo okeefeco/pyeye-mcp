@@ -18,6 +18,7 @@ from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
 from ..metrics import metrics
+from ..path_utils import absolute_path, respell_paths
 
 # Import metrics_hook only if available (for optional unified metrics support)
 try:
@@ -95,6 +96,18 @@ PLUGINS = _plugins  # Expose for testing
 # Module-level exports for testing
 project_manager = None  # Will be initialized lazily
 project_config = None  # Will be initialized lazily
+
+
+def _for_caller(result: Any, project_path: str) -> dict[str, Any]:
+    """*result* with every in-project file path in the caller's spelling (#717).
+
+    The analyzer is built from the resolved root (#603: one analyzer per
+    directory, whatever spelling reached it first), and Jedi reports files
+    resolved. An agent that opened a symlinked ``project_path`` must still get
+    paths under the root it gave, or it can't match them to its own paths or
+    its sandbox's allowed directories.
+    """
+    return dict(respell_paths(dict(result), [absolute_path(project_path)]))
 
 
 def get_analyzer(project_path: str = ".") -> JediAnalyzer:
@@ -610,7 +623,7 @@ async def resolve(
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
     # to match this wrapper's declared return type. TypedDict instances are
     # already dicts at runtime; this is a mypy-compliance shallow copy.
-    return dict(await _resolve_impl(identifier, analyzer))
+    return _for_caller(await _resolve_impl(identifier, analyzer), project_path)
 
 
 @mcp.tool()
@@ -649,7 +662,7 @@ async def resolve_at(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _resolve_at_impl(file, line, column, analyzer))
+    return _for_caller(await _resolve_at_impl(file, line, column, analyzer), project_path)
 
 
 @mcp.tool()
@@ -690,7 +703,7 @@ async def inspect(
     """
     analyzer = get_analyzer(project_path)
     # See note on resolve() above re: dict() widening.
-    return dict(await _inspect_impl(handle, analyzer))
+    return _for_caller(await _inspect_impl(handle, analyzer), project_path)
 
 
 @mcp.tool()
@@ -852,7 +865,7 @@ async def expand(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _expand_impl(handle, edge, analyzer))
+    return _for_caller(await _expand_impl(handle, edge, analyzer), project_path)
 
 
 @mcp.tool()
@@ -940,8 +953,7 @@ async def trace(
         subgraph never overstates how complete the call walk was.
     """
     analyzer = get_analyzer(project_path)
-    # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(
+    return _for_caller(
         await _trace_impl(
             start,
             follow,
@@ -949,7 +961,8 @@ async def trace(
             max_depth=max_depth,
             max_nodes=max_nodes,
             stop_when=stop_when,
-        )
+        ),
+        project_path,
     )
 
 
@@ -1070,7 +1083,10 @@ async def outline(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return dict(await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes))
+    return _for_caller(
+        await _outline_impl(handle, analyzer, max_depth=max_depth, max_nodes=max_nodes),
+        project_path,
+    )
 
 
 # Optional admin tools (enabled via PYEYE_ENABLE_PERFORMANCE_METRICS=true)

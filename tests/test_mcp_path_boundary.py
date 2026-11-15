@@ -179,11 +179,9 @@ def test_walker_ignores_non_path_keys() -> None:
 #: Known violations of the in-project spelling rule: (corpus, opened-as) -> issue.
 #: Exact both ways, like the #614 allow-lists: a violation not listed fails, and
 #: a listed one that no longer occurs fails too, so the entry gets deleted.
-#: Jedi reports module paths resolved, so under a symlinked root most
-#: location.file values are the real path, not the caller's (#717 finding).
-KNOWN_SPELLING_GAPS: dict[tuple[str, str], str] = {
-    (corpus, "symlink"): "#717" for corpus in _CORPORA
-}
+#: Empty since #717's fix: the validator keeps the caller's project_path and the
+#: server re-spells resolved in-project paths under it (path_utils.respell_paths).
+KNOWN_SPELLING_GAPS: dict[tuple[str, str], str] = {}
 
 
 @pytest.fixture(params=_corpus_params(_CORPORA))
