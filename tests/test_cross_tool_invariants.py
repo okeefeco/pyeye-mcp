@@ -73,7 +73,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
 _ISSUE_621 = "#621"  # trace: wrong-kind as measured-empty; interior nodes skip resolution
 _ISSUE_623 = "#623"  # one canonical handle resolver
-_ISSUE_625 = "#625"  # one file<->module mapper / project-roots policy
 _ISSUE_626 = "#626"  # one edge-applicability table
 
 
@@ -241,17 +240,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: resolve_at on `import logging` returns found `logging`; every other
     # tool rejects it.
     **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
-    # #625 (Windows only), NOT an agreement entry any more: under get_analyzer
-    # an isolated uninstalled src/ layout yields `src.`-prefixed Jedi
-    # full_names.  Since #623 slice 2 every tool echoes the canonical handle,
-    # so on Windows inspect/outline now AGREE with resolve on the `src.`-
-    # prefixed handle (they used to echo the input).  The prefix itself is the
-    # #625 bug; this file has no check that names the expected handle.
-    # #623/#625: under a BARE JediAnalyzer on a src/ layout, resolve/resolve_at
-    # find (as `src.`...) what inspect/outline/expand/trace can't find at all.
-    **_agree("src_layout", "function", "found", _ISSUE_625, ("bare",)),
-    **_agree("src_layout", "package", "found", _ISSUE_625, ("bare",)),
-    **_agree("src_layout", "package_var", "found", _ISSUE_625, ("bare",)),
     # == 4. trace vs expand =================================================
     # #621: expand says imports/imported_by is unsupported for a class or
     # function; trace reports it as measured-empty (unsupported_edges=[]).

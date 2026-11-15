@@ -317,16 +317,12 @@ PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {
 PROJECT_SEARCH_PINNING_TESTS_ALLOWLIST: dict[Site, str] = {}
 
 # 3. Module-scope Import/ImportFrom walk over ``tree.body``: only
-#    ``_iter_module_scope_imports`` (#360).
+#    ``_module_scope.iter_module_scope_imports`` (#360, moved below both layers in #630).
 MODULE_SCOPE_WALK_SANCTIONED: Site | None = (
-    "mcp/operations/edges.py",
-    "_iter_module_scope_imports",
+    "_module_scope.py",
+    "iter_module_scope_imports",
 )
-MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {
-    ("analyzers/base_resolution.py", "build_import_table"): "#630",
-    ("analyzers/base_resolution.py", "build_star_sources"): "#630",
-    ("analyzers/base_resolution.py", "build_module_defines"): "#630",
-}
+MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {}
 
 # 4. Project-roots lists come from ONE helper: ``project_layout.project_roots``
 #    (#625), which names each boundary's subset (SCOPE, TOP_LEVEL_PACKAGE,
