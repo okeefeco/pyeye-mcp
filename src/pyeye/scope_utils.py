@@ -12,6 +12,7 @@ from typing import Any
 from .async_utils import rglob_async
 from .config import ProjectConfig
 from .metrics import metrics
+from .path_utils import normalize_path
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ def namespace_base_path(ns_path: Path, namespace: str) -> Path:
 
 def _resolved(path: Path) -> Path:
     try:
-        return Path(path).resolve()
+        return normalize_path(path)
     except OSError:
         return Path(path)
 

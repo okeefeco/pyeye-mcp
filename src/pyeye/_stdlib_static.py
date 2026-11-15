@@ -43,6 +43,7 @@ from typing import Any
 import jedi
 
 from pyeye._module_scope import iter_module_scope_imports
+from pyeye.path_utils import relative_within
 
 #: The stdlib source root of the interpreter pyeye runs on (the root
 #: ``pyeye.scope`` classifies as stdlib).
@@ -354,7 +355,10 @@ def _public_stdlib_files() -> tuple[tuple[Path, str], ...]:
     """Public stdlib modules one level deep: ``x.py``, ``x/__init__.py``, ``x/y.py``."""
     out: list[tuple[Path, str]] = []
     for file in sorted(_STDLIB_ROOT.glob("*.py")) + sorted(_STDLIB_ROOT.glob("*/*.py")):
-        rel = file.relative_to(_STDLIB_ROOT).with_suffix("").parts
+        below = relative_within(file, _STDLIB_ROOT)
+        if below is None:
+            continue
+        rel = below.with_suffix("").parts
         parts = [p for p in rel if p != "__init__"]
         module = ".".join(parts)
         if not parts or not is_stdlib(module) or _is_private(module) or "-" in module:
