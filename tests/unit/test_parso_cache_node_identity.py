@@ -166,7 +166,10 @@ class TestPinnedFilterInternals:
     def test_subclasses_reach_the_wrapped_init(self) -> None:
         """No filter subclass looks the node up itself instead of via super()."""
         filters = importlib.import_module(_parso_cache._FILTER_MODULE)
-        for cls in _all_subclasses(filters._AbstractUsedNamesFilter):
+        found = _all_subclasses(filters._AbstractUsedNamesFilter)
+        # A floor, so a Jedi import change can't leave this checking nothing.
+        assert {cls.__name__ for cls in found} >= _KNOWN_FILTER_SUBCLASSES
+        for cls in found:
             if "__init__" in vars(cls):
                 assert "super().__init__" in pyinspect.getsource(cls.__init__), cls
 
@@ -176,6 +179,24 @@ class TestPinnedFilterInternals:
         apply_parso_cache_policy(settings.parso_cache_max_entries)
         _parso_cache._install_recovery()
         assert filters._AbstractUsedNamesFilter.__init__ is init
+
+
+#: The filter subclasses at jedi 0.20.1, all of which take the node via super().
+_KNOWN_FILTER_SUBCLASSES = frozenset(
+    {
+        "ParserTreeFilter",
+        "ClassFilter",
+        "GlobalNameFilter",
+        "_FunctionExecutionFilter",
+        "FunctionExecutionFilter",
+        "AnonymousFunctionExecutionFilter",
+        "AnonymousMethodExecutionFilter",
+        "SelfAttributeFilter",
+        "StubFilter",
+        "MixedParserTreeFilter",
+        "FixtureFilter",
+    }
+)
 
 
 def _all_subclasses(cls: type) -> set[type]:
