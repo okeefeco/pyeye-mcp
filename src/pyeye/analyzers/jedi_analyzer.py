@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,24 @@ logger = logging.getLogger(__name__)
 
 # Type alias for scope specification
 Scope = str | list[str]
+
+
+def _jedi_sys_path(paths: Iterable[str | Path]) -> list[str]:
+    """Spell *paths* the way Jedi compares them: OS-native strings, deduped.
+
+    Jedi names a module by ``str(module_path).startswith(sys_path_entry)``
+    (``jedi.inference.sys_path.transform_path_to_dotted``), where the module
+    path is OS-native. A forward-slash entry never matches a backslash path on
+    Windows, so Jedi fell back to the project root and named src-layout
+    modules ``src.<pkg>…`` there (#625). This is an OS operation, so the
+    native form is right here; our own attributes stay ``Path``/posix.
+    """
+    out: list[str] = []
+    for raw in paths:
+        native = os.fspath(Path(raw))
+        if native not in out:
+            out.append(native)
+    return out
 
 
 class JediAnalyzer:
@@ -164,7 +183,7 @@ class JediAnalyzer:
             if added_sys_path:
                 self.project = jedi.Project(
                     path=jedi_root.as_posix(),
-                    added_sys_path=added_sys_path,
+                    added_sys_path=_jedi_sys_path(added_sys_path),
                 )
             else:
                 self.project = jedi.Project(path=jedi_root.as_posix())
@@ -222,7 +241,7 @@ class JediAnalyzer:
         if ns_sys_paths:
             # Merge with existing added_sys_path and recreate the Jedi project
             existing = list(self.project.added_sys_path or [])
-            merged = list(set(existing) | ns_sys_paths)
+            merged = _jedi_sys_path(set(existing) | ns_sys_paths)
             jedi_root = self.project.path
             self.project = jedi.Project(
                 path=Path(jedi_root).as_posix(),

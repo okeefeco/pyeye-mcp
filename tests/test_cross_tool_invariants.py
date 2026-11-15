@@ -73,7 +73,6 @@ _XTOOL = _FIXTURES / "cross_tool"
 _ISSUE_602 = "#602/#623"  # stdlib/external handles emitted by edges don't resolve
 _ISSUE_621 = "#621"  # trace: wrong-kind as measured-empty; interior nodes skip resolution
 _ISSUE_623 = "#623"  # one canonical handle resolver
-_ISSUE_625 = "#625"  # one file<->module mapper / project-roots policy
 _ISSUE_626 = "#626"  # one edge-applicability table
 
 
@@ -233,20 +232,6 @@ KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # #623: resolve_at on `import logging` returns found `logging`; every other
     # tool rejects it.
     **_agree("cross_tool", "stdlib_module", "found", _ISSUE_623, _BOTH_MODES),
-    # #625 (Windows only): under get_analyzer, an isolated uninstalled src/
-    # layout still yields `src.`-prefixed handles from resolve/resolve_at (and,
-    # for the package variable, expand/trace).  Linux/macOS agree.  Likely the
-    # src-root mapping's path handling on Windows (fixture copied to the temp
-    # dir on another drive).  Before the per-test copy this was masked by the
-    # bare->managed cache leak (#618), which made it look cross-platform.
-    **(
-        {
-            **_agree("src_layout", "function", "handle", _ISSUE_625, ("get_analyzer",)),
-            **_agree("src_layout", "package_var", "handle", _ISSUE_625, ("get_analyzer",)),
-        }
-        if sys.platform == "win32"
-        else {}
-    ),
     # == 4. trace vs expand =================================================
     # #621: trace expands `textwrap`, which expand refuses as unresolved.
     ("trace_expand", "xpkg.text", "imports", "textwrap", "expanded_but_refused"): _ISSUE_621,

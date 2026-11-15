@@ -120,3 +120,34 @@ class TestSpellingOfTheProjectPath:
         resolved = await resolve(handle, analyzer)
         assert resolved["found"] is True
         assert resolved["handle"] == handle
+
+
+class TestJediSysPathSpelling:
+    """Jedi gets OS-native sys_path strings (#625, Windows).
+
+    Jedi names a module by ``str(module_path).startswith(entry)``. We used to
+    pass ``as_posix()`` entries, which never match a backslash module path on
+    Windows, so Jedi named src-layout modules ``src.<pkg>…`` there, whatever
+    the analyzer's own roots said. These checks run Jedi's own function, so
+    they pass trivially on POSIX and catch the regression on Windows CI.
+    """
+
+    def test_entries_are_native_and_deduped(self, tmp_path: Path) -> None:
+        from pyeye.analyzers.jedi_analyzer import _jedi_sys_path
+
+        a = tmp_path / "a"
+        assert _jedi_sys_path([a, a.as_posix(), str(a)]) == [os.fspath(a)]
+
+    @pytest.mark.parametrize("configured", [False, True], ids=["bare", "configured"])
+    def test_jedi_names_src_modules_without_the_src_prefix(self, configured: bool) -> None:
+        from jedi.inference.sys_path import transform_path_to_dotted
+
+        config = ProjectConfig(str(_FIXTURE)) if configured else None
+        analyzer = JediAnalyzer(str(_FIXTURE), config=config)
+        sys_path = list(analyzer.project.added_sys_path)
+        assert sys_path and all(entry == os.fspath(Path(entry)) for entry in sys_path)
+
+        module = Path(sys_path[0]) / "mypackage" / "module.py"
+        dotted, is_package = transform_path_to_dotted(sys_path, module)
+        assert dotted == ("mypackage", "module")
+        assert is_package is False
