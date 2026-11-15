@@ -23,7 +23,9 @@ superseded_by: []
   - Imports anywhere in the file count, function bodies included (#619's deliberate asymmetry with `imports`).
   - Entries keep POSIX-sorted file order, one per file, so ordering and "first occurrence wins" are unchanged. The target's own file is skipped at lookup.
 - **The text pre-filter is gone.** It only saved parses in front of the authoritative AST check, and a target-independent graph can't use a target-specific filter.
-- **Cost trade:** the cold build parses every file, so the first query in a generation costs about 1.2–1.9× the old single scan. Every later query is a lookup. It breaks even at the second query.
+- **Cost trade, accepted:** the cold build parses every file, so the first query in a generation costs about 1.2–1.9× the old single scan. On the pyeye repo that is 5–7 s instead of 3.5–4.4 s. Every later query is a lookup, so it breaks even at the second query, and 11 queries take 5–7 s instead of 18–21 s.
+  - **Why it's accepted:** pyeye runs as a long-lived MCP server, and a generation lasts until a file changes, so one agent session issues many queries against the same graph. A multi-hop `trace(follow=["imported_by"])` is several queries by construction. Paying once per generation beats paying per query whenever more than one query follows, which is the normal case. The regression is stated in the changelog.
+  - **Follow-up, not done here:** avoid the separate cold build, for example by computing the graph in the same pass that builds the name index (it already parses every file at the same scope), or by building it lazily per importer. Noted on #397.
 - **Contents:** strings, `Path`s and `None` only, never AST objects.
 - **Rejected:**
   - Caching answers per target: the shared scan is the cost, not the per-target lookup.
