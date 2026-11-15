@@ -29,7 +29,7 @@ Every tool on this page also takes these two optional parameters, even where a t
 
 Every result record of every tool on this page also carries (#627):
 
-- `location`: `{file, line}`. `file` is the absolute path. `line` is present when the record is a position in a file.
+- `location`: the same shape the core tools use, `{file, line_start, line_end, column_start, column_end}`. For a record with a `handle`, it is exactly what `inspect(handle)` reports. Other records carry the fields they can: `{file, line_start, line_end}` (both the record's `line`), or just `{file}`. `file` is always the absolute path.
 - `scope`: `"project"` or `"external"`.
 - `handle`: for a record that names a symbol, the canonical handle from pyeye's resolver. Pass it to `inspect`, `outline`, `expand` or `trace`.
 - `unresolved`: `{reason, detail}` instead of `handle`, when the symbol can't be placed (for example, a route defined inside a factory function). There is never a guessed handle.

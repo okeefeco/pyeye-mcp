@@ -5,9 +5,15 @@ Framework plugins find things by walking source ASTs, so their results say *wher
 module adds, to every result record of every plugin tool:
 
 ``location``
-    ``{file, line}``: the absolute posix path (and the line, when the record has
-    one), mirroring the primitives' ``location``. The record's own ``file`` is
-    left as it was, often relative.
+    The primitives' :class:`~pyeye._jedi_location.Location` shape. For a placed
+    symbol it is exactly what ``inspect(handle)`` reports: built from the
+    resolver's anchor with :func:`~pyeye._jedi_location.location_from_name`
+    (``file``, ``line_start``/``line_end`` spanning the definition,
+    ``column_start``/``column_end`` spanning the name). Otherwise it is the
+    ``total=False`` subset the record supports: ``{file, line_start, line_end}``
+    (both the record's ``line``), or ``{file}`` for a record with no line. ``file``
+    is the absolute posix path. The record's own ``file`` is left as it was,
+    often relative.
 ``scope``
     ``"project"`` or ``"external"``.
 ``handle``
@@ -37,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
+from pyeye._jedi_location import location_from_name
 from pyeye.project_layout import module_name_for_file
 from pyeye.resolver import NotFound, resolve_handle
 from pyeye.scope import classify_scope
@@ -145,7 +152,8 @@ def _enrich_record(
     location: dict[str, Any] = {"file": path.as_posix()}
     line = record.get("line")
     if isinstance(line, int):
-        location["line"] = line
+        location["line_start"] = line
+        location["line_end"] = line
     record["location"] = location
     record["scope"] = classify_scope(path, analyzer)
 
@@ -164,6 +172,21 @@ def _enrich_record(
     else:
         record["handle"] = outcome.handle
         record["scope"] = outcome.scope
+        placed = _anchor_location(outcome.anchor)
+        if placed is not None:
+            record["location"] = placed
+
+
+def _anchor_location(anchor: Any) -> dict[str, Any] | None:
+    """The Location ``inspect`` reports for *anchor*, or ``None`` if it has no position.
+
+    Mirrors ``inspect``'s own construction, so a plugin record's location and
+    ``inspect(record["handle"])["location"]`` cannot drift apart (#627).
+    """
+    module_path = getattr(anchor, "module_path", None)
+    if module_path is None or not isinstance(getattr(anchor, "line", None), int):
+        return None
+    return dict(location_from_name(Path(module_path).as_posix(), anchor))
 
 
 def _place(path: Path, name: str, line: Any, symbol: Symbol, analyzer: JediAnalyzer) -> Any:
