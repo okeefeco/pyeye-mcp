@@ -866,12 +866,10 @@ class TestResolveAt:
 
     @pytest.mark.asyncio
     async def test_kind_recovery_via_canonical_fallback(self, analyzer: JediAnalyzer) -> None:
-        """When find_symbol returns no match, _kind_for_canonical recovers kind
-        by re-deriving from the canonical handle's definition file.
+        """A dotted handle's kind comes from its definition, not the name index.
 
-        Forces the fallback path: stub find_symbol to return nothing, so
-        _resolve_dotted_name cannot get kind from the fast path and must
-        call _kind_for_canonical instead.
+        With find_symbol stubbed to return nothing, the resolver still places
+        the definition and reports its kind (#623).
         """
         from pyeye.mcp.operations.resolve import resolve
 
@@ -883,27 +881,7 @@ class TestResolveAt:
         assert result["handle"] == "mypackage._core.widgets.make_widget"
         assert (
             result["kind"] == "function"
-        ), f"_kind_for_canonical fallback should recover 'function', got: {result['kind']!r}"
-
-    @pytest.mark.asyncio
-    async def test_kind_for_canonical_bare_module_returns_module(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """A bare module name (no dot in handle) returns kind='module'."""
-        from pyeye.mcp.operations.resolve import _kind_for_canonical
-
-        kind = _kind_for_canonical("mypackage", analyzer)
-        assert kind == "module"
-
-    @pytest.mark.asyncio
-    async def test_kind_for_canonical_nonexistent_module_returns_variable(
-        self, analyzer: JediAnalyzer
-    ) -> None:
-        """A handle whose module file cannot be found returns kind='variable'."""
-        from pyeye.mcp.operations.resolve import _kind_for_canonical
-
-        kind = _kind_for_canonical("nonexistent_pkg.some.Symbol", analyzer)
-        assert kind == "variable"
+        ), f"the resolver should report 'function', got: {result['kind']!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -951,16 +929,6 @@ class TestMethodKindConsistency:
         assert (
             result["kind"] == "method"
         ), f"resolve (dotted) should report a method as 'method', got: {result['kind']!r}"
-
-    @pytest.mark.asyncio
-    async def test_kind_for_canonical_method_is_method(self, analyzer: JediAnalyzer) -> None:
-        """The _kind_for_canonical fallback re-derives a method as 'method'."""
-        from pyeye.mcp.operations.resolve import _kind_for_canonical
-
-        kind = _kind_for_canonical(self.METHOD_HANDLE, analyzer)
-        assert (
-            kind == "method"
-        ), f"_kind_for_canonical should recover 'method' for a method, got: {kind!r}"
 
     @pytest.mark.asyncio
     async def test_resolve_at_and_inspect_agree_on_method_kind(

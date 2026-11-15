@@ -18,6 +18,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unresolved_nodes": [ handle, ... ],  # #621 — always present; interior nodes not walked
       "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
       "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
+      "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -53,6 +54,10 @@ present only when ``imports`` was traced, ``{}`` when every traced import
 resolved.  Without it a dependency closure built with ``trace(follow=["imports"])``
 would silently omit edges it could not resolve.
 
+``unresolved_importers`` (#668) does the same for ``imported_by``: an importing
+file with no module name has no handle, so it can't be a node; it is listed per
+target node instead of being dropped.
+
 ``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
 ``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or
 a flaky goto miss, #419) leaves that node's outbound calls incomplete.
@@ -78,8 +83,8 @@ after resolution, so there is ONE copy of the expandability logic:
 - an edge that does not apply to a node's kind is reported in
   ``unsupported_edges`` with ``expand``'s reason and kind-specific detail —
   never walked as a measured-empty hop;
-- ``unresolved_call_sites`` / ``unresolved_imports`` are present iff their edge
-  was actually walked on at least one node;
+- ``unresolved_call_sites`` / ``unresolved_imports`` / ``unresolved_importers``
+  are present iff their edge was actually walked on at least one node;
 - each hop is ALL-OR-NOTHING (reserve before expand, the #358 outline rule): if
   any new adjacent would be cut by ``max_depth`` or ``max_nodes``, the hop adds
   and records nothing and sets the truncation reason, so a recorded hop is
@@ -158,6 +163,7 @@ def _record_hop_losses(
     handle: str,
     unresolved_call_sites: dict[str, int],
     unresolved_imports: dict[str, list[str]],
+    unresolved_importers: dict[str, list[str]],
 ) -> None:
     """Carry a walked hop's unresolved call sites / imports onto the Subgraph maps.
 
@@ -169,6 +175,8 @@ def _record_hop_losses(
         unresolved_call_sites[handle] = hop["unresolved_call_sites"]
     if hop.get("unresolved_imports"):
         unresolved_imports[handle] = hop["unresolved_imports"]
+    if hop.get("unresolved_importers"):
+        unresolved_importers[handle] = hop["unresolved_importers"]
 
 
 def _partition_hop(
@@ -261,6 +269,7 @@ async def trace(
     # would be a measured-zero claim about nothing.
     unresolved_call_sites: dict[str, int] = {}
     unresolved_imports: dict[str, list[str]] = {}
+    unresolved_importers: dict[str, list[str]] = {}  # #668
     walked_edges: set[str] = set()
 
     # #488: a root that fails to resolve is recorded here, not silently dropped.
@@ -307,7 +316,9 @@ async def trace(
                 _note_unsupported(hop, edge, unsupported_edges)
                 continue
             walked_edges.add(edge)
-            _record_hop_losses(hop, handle, unresolved_call_sites, unresolved_imports)
+            _record_hop_losses(
+                hop, handle, unresolved_call_sites, unresolved_imports, unresolved_importers
+            )
             known, new = _partition_hop(hop["stubs"], nodes, stop_when)
 
             # #621 item 2 — a hop is recorded ALL-OR-NOTHING (reserve before
@@ -349,6 +360,8 @@ async def trace(
         result["unresolved_call_sites"] = unresolved_call_sites
     if "imports" in walked_edges:
         result["unresolved_imports"] = unresolved_imports
+    if "imported_by" in walked_edges:
+        result["unresolved_importers"] = unresolved_importers
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,
     # and absent entirely when nothing was unsupported (no noise on clean traces).
