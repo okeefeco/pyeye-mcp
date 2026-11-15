@@ -12,7 +12,6 @@ Contract pinned by these tests:
 """
 
 import ast
-from pathlib import Path
 
 from pyeye.analyzers.base_resolution import (
     build_import_table,
@@ -20,10 +19,10 @@ from pyeye.analyzers.base_resolution import (
     build_star_sources,
     resolve_base,
 )
-from pyeye.import_analyzer import ImportAnalyzer
+from pyeye.import_analyzer import resolve_relative_import
 
-# Real production relative-import resolver (pure string logic; project_path unused).
-_resolve_relative = ImportAnalyzer(Path("."))._resolve_relative_import
+# Real production relative-import resolver (pure string logic).
+_resolve_relative = resolve_relative_import
 
 
 def test_direct_import_resolves_to_definition_site() -> None:
