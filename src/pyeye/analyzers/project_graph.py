@@ -45,6 +45,10 @@ _lock = threading.Lock()
 #: packages and namespaces, so analyzers with different layouts on one root
 #: must not share an index. Invalidating a root drops every layout under it.
 _name_indices: dict[str, dict[str, NameIndex]] = {}
+#: Same keys as ``_name_indices``: methods and class-body attributes by simple
+#: name (#508).  Built in the same pass and dropped together, so the two never
+#: disagree about which files they cover.
+_member_indices: dict[str, dict[str, NameIndex]] = {}
 
 #: A project's invalidation count, plus a store-wide epoch bumped by a full clear.
 #: ``get_name_index`` stores a build only if neither moved since the caller read
@@ -109,6 +113,28 @@ def _should_index(
     return definition.type == "class" and kindmap.get(parent_full) == "class"
 
 
+def _is_bare_name_member(
+    definition: DefinitionSentinel,
+    kindmap: dict[str, str],
+    module_name: str | None,
+) -> bool:
+    """Whether *definition* is a method or class-body attribute for rule 4 (#508).
+
+    These are what :func:`_should_index` leaves out of the name index although
+    they are addressable (``Class.method``): definitions directly in a class
+    body.  Nested classes are already indexed; function locals are never
+    offered.  Dunder names (``__init__``, ``__eq__``) are excluded: every class
+    defines them, so a bare dunder never names one thing.
+    """
+    if _should_index(definition, kindmap, module_name):
+        return False
+    name = definition.name
+    if name.startswith("__") and name.endswith("__"):
+        return False
+    parent_full = definition.full_name.rsplit(".", 1)[0]
+    return kindmap.get(parent_full) == "class"
+
+
 def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None]) -> NameIndex:
     """Build a name->definitions index from *py_files* (pure, uncached).
 
@@ -126,7 +152,15 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
     Returns:
         The freshly built :data:`NameIndex`.
     """
+    return _build_indices(py_files, file_to_module)[0]
+
+
+def _build_indices(
+    py_files: list[Path], file_to_module: dict[Path, str | None]
+) -> tuple[NameIndex, NameIndex]:
+    """Build the name index and the member index (#508) in one pass."""
     index: NameIndex = {}
+    members: NameIndex = {}
     for path in py_files:
         try:
             tree = file_artifact_cache.get_ast(path)
@@ -152,8 +186,10 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
         for definition in defs:
             if _should_index(definition, kindmap, module_name):
                 index.setdefault(definition.name, []).append(definition)
+            elif _is_bare_name_member(definition, kindmap, module_name):
+                members.setdefault(definition.name, []).append(definition)
 
-    for definitions in index.values():
+    for definitions in (*index.values(), *members.values()):
         definitions.sort(
             key=lambda d: (
                 d.module_path.as_posix() if d.module_path else "",
@@ -161,7 +197,7 @@ def build_name_index(py_files: list[Path], file_to_module: dict[Path, str | None
                 d.column,
             )
         )
-    return index
+    return index, members
 
 
 def generation(project_key: str) -> Generation:
@@ -204,18 +240,53 @@ def get_name_index(
     Returns:
         The cached :data:`NameIndex` for *project_key*.
     """
+    return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[0]
+
+
+def get_member_index(
+    project_key: str,
+    py_files: list[Path],
+    file_to_module: dict[Path, str | None],
+    generation: Generation | None = None,
+    *,
+    layout_key: str = "",
+) -> NameIndex:
+    """Return the cached member index (#508): methods and class attributes by name.
+
+    Same arguments, caching and invalidation as :func:`get_name_index`; both
+    are built in one pass.  Dunder names are not in it.
+    """
+    return _get_indices(project_key, py_files, file_to_module, generation, layout_key)[1]
+
+
+def _get_indices(
+    project_key: str,
+    py_files: list[Path],
+    file_to_module: dict[Path, str | None],
+    generation: Generation | None,
+    layout_key: str,
+) -> tuple[NameIndex, NameIndex]:
     key = _normalize(project_key)
-    cached = _name_indices.get(key, {}).get(layout_key)
+    cached = _cached(key, layout_key)
     if cached is not None:
         return cached
     with _lock:
-        cached = _name_indices.get(key, {}).get(layout_key)  # double-checked under lock
+        cached = _cached(key, layout_key)  # double-checked under lock
         if cached is not None:
             return cached
-        index = build_name_index(py_files, file_to_module)
+        index, members = _build_indices(py_files, file_to_module)
         if generation is None or generation == (_epoch, _generations.get(key, 0)):
             _name_indices.setdefault(key, {})[layout_key] = index
-        return index
+            _member_indices.setdefault(key, {})[layout_key] = members
+        return index, members
+
+
+def _cached(key: str, layout_key: str) -> tuple[NameIndex, NameIndex] | None:
+    index = _name_indices.get(key, {}).get(layout_key)
+    members = _member_indices.get(key, {}).get(layout_key)
+    if index is None or members is None:
+        return None
+    return index, members
 
 
 def invalidate(project_key: str | None = None) -> None:
@@ -232,8 +303,10 @@ def invalidate(project_key: str | None = None) -> None:
     with _lock:
         if project_key is None:
             _name_indices.clear()
+            _member_indices.clear()
             _epoch += 1
         else:
             key = _normalize(project_key)
             _name_indices.pop(key, None)
+            _member_indices.pop(key, None)
             _generations[key] = _generations.get(key, 0) + 1

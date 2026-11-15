@@ -278,8 +278,23 @@ class JediAnalyzer:
 
     # LIVE (not deprecated): the AST name-index search (#457) behind ``find_symbol``
     # and ``_resolve_simple_type`` — i.e. behind ``resolve``. Do not remove.
+    async def find_member_definitions(self, name: str) -> list[Any]:
+        """Every method or class-body attribute named *name*, project-wide (#508).
+
+        The fallback behind ``resolve_name`` rule 4: these definitions are never
+        bare-name *indexed* (#457), so ``find_symbol`` can't see them.  Dunder
+        names are never returned.  Same index build, caching and scope
+        filtering as :meth:`_search_all_scopes`.
+        """
+        return await self._search_all_scopes(name, members=True)
+
     async def _search_all_scopes(
-        self, name: str, scope: Scope | None = None, fuzzy: bool = False
+        self,
+        name: str,
+        scope: Scope | None = None,
+        fuzzy: bool = False,
+        *,
+        members: bool = False,
     ) -> list[Any]:
         """Find every project definition of *name* across the requested scope.
 
@@ -302,6 +317,8 @@ class JediAnalyzer:
                    Defaults to "all".
             fuzzy: When True, match any indexed name *containing* ``name``
                    (substring), mirroring the old search; else exact name.
+            members: Search the member index (methods and class attributes,
+                #508) instead of the name index.
 
         Returns:
             ``DefinitionSentinel`` objects for every matching definition,
@@ -319,7 +336,7 @@ class JediAnalyzer:
         all_files = await self.get_project_files(pattern="*.py", scope="all")
         file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         index = await asyncio.to_thread(
-            project_graph.get_name_index,
+            project_graph.get_member_index if members else project_graph.get_name_index,
             self.project_path.as_posix(),
             all_files,
             file_to_module,

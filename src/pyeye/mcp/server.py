@@ -507,7 +507,10 @@ async def resolve(
 
     Args:
         identifier: The identifier to resolve. Forms supported:
-            - Bare name: "Config"
+            - Bare name: "Config". Modules and top-level definitions first;
+              a method or class attribute ("load_settings") only if none
+              match, so a top-level name hides same-named methods. Dunders
+              ("__eq__") are never matched by bare name.
             - FQN: "a.b.c.Config"
             - Re-exported: "package.Config" (collapses to definition site)
             - File:line: "src/foo.py:42"

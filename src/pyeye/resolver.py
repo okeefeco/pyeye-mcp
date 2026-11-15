@@ -138,6 +138,13 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
        re-resolved through :func:`resolve_handle` so every candidate is
        canonical; duplicates (an alias and its definition) collapse.  One
        left is the answer; several are ambiguous.
+    4. **Members, as a fallback** (#508): only when rules 1-3 find nothing,
+       every method or class-body attribute named *bare*, canonicalised and
+       decided the same way.  Because it is a fallback, a top-level ``helper``
+       answers ``resolve("helper")`` and a same-named ``Class.helper`` is not
+       listed.  Dunder names (``__init__``) are never members here: every class
+       defines them, so they stay not-found, with a hint to expand the class's
+       members.
 
     Never raises.
     """
@@ -153,23 +160,47 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
         return exact
 
     try:
-        matches = await analyzer.find_symbol(bare)
+        matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
     except Exception as exc:  # never raise: an index failure is an honest miss
         logger.debug("resolve_name(%r): find_symbol failed: %s", bare, exc)
         matches = []
+    found = _canonical_candidates(matches, analyzer)
+    if not found:  # 4: members, only as a fallback (#508)
+        try:
+            members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
+        except Exception as exc:  # never raise
+            logger.debug("resolve_name(%r): member lookup failed: %s", bare, exc)
+            members = []
+        found = _canonical_candidates(members, analyzer)
+    if not found:
+        return NotFound(reason="unresolved", detail=_miss_detail(bare))
+    if len(found) == 1:
+        return next(iter(found.values()))
+    return Ambiguous(candidates=_ordered(list(found.values())))
+
+
+def _canonical_candidates(
+    full_names: list[str | None], analyzer: JediAnalyzer
+) -> dict[str, Resolved]:
+    """Re-resolve each name through :func:`resolve_handle`; aliases collapse."""
     found: dict[str, Resolved] = {}
-    for match in matches:
-        full_name = match.get("full_name")
+    for full_name in full_names:
         if not full_name:
             continue
         candidate = resolve_handle(full_name, analyzer)
         if isinstance(candidate, Resolved):
             found.setdefault(candidate.handle, candidate)
-    if not found:
-        return NotFound(reason="unresolved", detail=f"No definition named {bare!r}.")
-    if len(found) == 1:
-        return next(iter(found.values()))
-    return Ambiguous(candidates=_ordered(list(found.values())))
+    return found
+
+
+def _miss_detail(bare: str) -> str:
+    if bare.startswith("__") and bare.endswith("__"):
+        return (
+            f"{bare!r} is a special method that most classes define, so a bare name "
+            "can't pick one. Use the class's dotted handle (pkg.mod.Class."
+            f'{bare}), or expand(<class>, "members") to list a class\'s members.'
+        )
+    return f"No definition named {bare!r}."
 
 
 def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:

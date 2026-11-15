@@ -207,3 +207,52 @@ def test_methods_are_not_top_level_index_entries(tmp_path: Path) -> None:
     assert "C" in idx  # the class is a top-level entry
     assert "method" not in idx  # its method is not
     assert "attr" not in idx  # nor its attribute
+
+
+# ---------------------------------------------------------------------------
+# Member index (#508): methods and class attributes, for resolve_name rule 4
+# ---------------------------------------------------------------------------
+
+_MEMBERS_SRC = (
+    "class A:\n"
+    "    attr = 1\n"
+    "    typed: int = 2\n"
+    "    def __init__(self):\n"
+    "        self.instance = 3\n"
+    "    def method(self):\n"
+    "        local = 4\n"
+    "        return local\n"
+    "    class Nested:\n"
+    "        def deep(self):\n"
+    "            pass\n"
+    "def top():\n"
+    "    inner = 5\n"
+)
+
+
+def test_member_index_holds_methods_and_class_attributes_only(tmp_path: Path) -> None:
+    f = _write(tmp_path, "m.py", _MEMBERS_SRC)
+    project_graph.invalidate()
+    members = project_graph.get_member_index(str(tmp_path), [f], {f: "m"})
+    names = project_graph.get_name_index(str(tmp_path), [f], {f: "m"})
+    assert {n: [d.full_name for d in ds] for n, ds in members.items()} == {
+        "attr": ["m.A.attr"],
+        "typed": ["m.A.typed"],
+        "method": ["m.A.method"],
+        "deep": ["m.A.Nested.deep"],
+    }
+    # Disjoint from the name index: nested classes and top-level names stay there.
+    assert "Nested" in names and "top" in names
+    assert not set(members) & set(names)
+
+
+def test_member_index_is_built_and_invalidated_with_the_name_index(tmp_path: Path) -> None:
+    f = _write(tmp_path, "m.py", _MEMBERS_SRC)
+    project_graph.invalidate()
+    first = project_graph.get_member_index(str(tmp_path), [f], {f: "m"})
+    assert project_graph.get_member_index(str(tmp_path), [f], {f: "m"}) is first
+    project_graph.invalidate(str(tmp_path))
+    f.write_text("class B:\n    def other(self):\n        pass\n")
+    rebuilt = project_graph.get_member_index(str(tmp_path), [f], {f: "m"})
+    assert rebuilt is not first
+    assert set(rebuilt) == {"other"}
