@@ -10,6 +10,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
+from .path_utils import relative_within
 from .settings import settings
 
 logger = logging.getLogger(__name__)
@@ -71,10 +72,8 @@ class CodebaseWatcher(FileSystemEventHandler):
         under e.g. ``~/build/`` is still watched (the scan rule from #515).
         """
         candidate = Path(path)
-        try:
-            parts = candidate.relative_to(self.project_path).parts
-        except ValueError:
-            parts = candidate.parts
+        rel = relative_within(candidate, self.project_path)
+        parts = rel.parts if rel is not None else candidate.parts
         return any(part in self._IGNORE_DIRS for part in parts)
 
     def _record(self, path: Any, is_directory: bool) -> bool:

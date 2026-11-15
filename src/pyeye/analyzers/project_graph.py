@@ -167,7 +167,7 @@ def _normalize(project_key: str) -> str:
         The resolved, posix-form key (lexical posix form if resolution fails).
     """
     try:
-        return Path(project_key).resolve().as_posix()
+        return path_to_key(project_key)
     except OSError:
         return Path(project_key).as_posix()
 

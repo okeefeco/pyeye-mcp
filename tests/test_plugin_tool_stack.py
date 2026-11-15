@@ -10,6 +10,7 @@ validated, and calls appeared in neither the metrics nor dogfooding tracking.
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -24,6 +25,10 @@ server = importlib.import_module("pyeye.mcp.server")
 
 class FakePlugin:
     """A plugin whose tools record their calls; one takes a validated ``file``."""
+
+    # Real plugins carry their root (AnalyzerPlugin.project_path); the tool
+    # wrapper re-spells result paths under it (#717).
+    project_path = Path.cwd()
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []

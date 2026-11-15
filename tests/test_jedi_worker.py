@@ -286,6 +286,10 @@ async def test_plugin_tools_are_registered_on_the_worker() -> None:
     from mcp.server.mcpserver import MCPServer
 
     class FakePlugin:
+        # Real plugins carry their root (AnalyzerPlugin.project_path); the tool
+        # wrapper re-spells result paths under it (#717).
+        project_path = Path.cwd()
+
         def name(self) -> str:
             return "fake"
 

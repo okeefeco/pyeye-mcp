@@ -852,7 +852,10 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     elif kind == "module":
         kind_fields.update(_build_module_fields(jedi_name, handle))
 
-    elif kind in ("attribute", "property", "variable"):
+    elif kind in ("attribute", "property", "variable", "enum_member"):
+        # An enum member gets the attribute fields: ``default`` is its literal
+        # value; ``type`` comes only from an annotation, never from the value's
+        # inferred type (``RED = 1`` is a Color, not an int, #695).
         kind_fields.update(await _build_attribute_fields(jedi_name, kind, file_path, analyzer))
 
     # ------------------------------------------------------------------
@@ -1032,7 +1035,7 @@ async def _build_attribute_fields(
 
     Args:
         jedi_name: Jedi Name for the attribute/property/variable.
-        kind: ``"attribute"``, ``"property"``, or ``"variable"``.
+        kind: ``"attribute"``, ``"property"``, ``"variable"`` or ``"enum_member"``.
         file_path: Absolute path to the source file (for AST-based extraction).
         analyzer: Active analyzer (for ``TypeRef`` head resolution).
 

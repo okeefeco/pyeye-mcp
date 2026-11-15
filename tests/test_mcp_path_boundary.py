@@ -179,11 +179,9 @@ def test_walker_ignores_non_path_keys() -> None:
 #: Known violations of the in-project spelling rule: (corpus, opened-as) -> issue.
 #: Exact both ways, like the #614 allow-lists: a violation not listed fails, and
 #: a listed one that no longer occurs fails too, so the entry gets deleted.
-#: Jedi reports module paths resolved, so under a symlinked root most
-#: location.file values are the real path, not the caller's (#717 finding).
-KNOWN_SPELLING_GAPS: dict[tuple[str, str], str] = {
-    (corpus, "symlink"): "#717" for corpus in _CORPORA
-}
+#: Empty since #717's fix: the validator keeps the caller's project_path and the
+#: server re-spells resolved in-project paths under it (path_utils.respell_paths).
+KNOWN_SPELLING_GAPS: dict[tuple[str, str], str] = {}
 
 
 @pytest.fixture(params=_corpus_params(_CORPORA))
@@ -306,14 +304,26 @@ def walk_has_paths(obj: Any) -> bool:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("opened_as", ["plain", "symlink"])
 @pytest.mark.parametrize("envelope", [True, False])
-async def test_plugin_tool_responses_obey_the_path_contract(tmp_path: Path, envelope: bool) -> None:
-    main = tmp_path / "main"
+async def test_plugin_tool_responses_obey_the_path_contract(
+    tmp_path: Path, envelope: bool, opened_as: str
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    if opened_as == "symlink":
+        if sys.platform == "win32":
+            pytest.skip("creating symlinks needs privileges on Windows")
+        (tmp_path / "link").symlink_to(real, target_is_directory=True)
+        base = tmp_path / "link"
+    else:
+        base = real
+    main = base / "main"
     (main / "app").mkdir(parents=True)
     (main / "app" / "models.py").write_text(
         "from pydantic import BaseModel\n\n\nclass MainModel(BaseModel):\n    x: int\n"
     )
-    shared = tmp_path / "shared"
+    shared = base / "shared"
     (shared / "lib").mkdir(parents=True)
     (shared / "lib" / "models.py").write_text(
         "from pydantic import BaseModel\n\n\nclass SharedModel(BaseModel):\n    x: int\n"
@@ -328,4 +338,10 @@ async def test_plugin_tool_responses_obey_the_path_contract(tmp_path: Path, enve
         assert not result.is_error, (tool, result.content)
         payloads = [json.loads(c.text) for c in result.content if getattr(c, "text", None)]
         problems += [f"{tool}: {p}" for p in walk(payloads)]
+        # #717: in-project paths keep the caller's spelling of the project root.
+        problems += [
+            f"{tool}: not spelled under {main.as_posix()}: {f}"
+            for f in _in_project_files(payloads)
+            if _in_project(f, main) and not _spelled_under(f, main)
+        ]
     assert not problems, "\n".join(problems[:40])

@@ -289,6 +289,7 @@ Performance settings are configured through environment variables:
 | `PYEYE_CACHE_TTL` | 300 | Seconds a cached scope file list or lookup result lives (file changes also clear it) | 0-86400 (24h) |
 | `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; the main memory lever | 1-1000000 |
 | `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | Parse trees kept in Jedi's parse cache (least recently used are dropped first; answers are unaffected) | 1-1000000 |
+| `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` | 200 | Jedi scripts kept in memory (each keeps the modules it inferred alive, so this bounds parse-tree memory; answers are unaffected) | 1-1000000 |
 | `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
 | `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
 | **Deprecated** | | **No effect; removed in v3.0** | |
