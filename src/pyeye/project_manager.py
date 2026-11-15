@@ -247,29 +247,12 @@ class ProjectManager:
         # No need to call set_namespace_paths — the Jedi project was created
         # with namespace repo roots in added_sys_path atomically.
 
-        # Configure standalone directories from project config
-        standalone_config = config.get_standalone_config()
-        standalone_dirs = standalone_config.get("dirs", [])
-        if standalone_dirs:
-            # Resolve standalone directory paths
-            standalone_paths = []
-            for dir_path in standalone_dirs:
-                resolved_path = Path(dir_path)
-                if not resolved_path.is_absolute():
-                    resolved_path = path_key / resolved_path
-                if resolved_path.exists():
-                    standalone_paths.append(resolved_path)
-                else:
-                    logger.warning(
-                        f"Standalone directory does not exist: {resolved_path.as_posix()}"
-                    )
-
-            if standalone_paths:
-                analyzer.set_standalone_paths(standalone_paths)
-                self.standalone_dirs[path_key] = set(standalone_paths)
-                logger.info(
-                    f"Configured analyzer with {len(standalone_paths)} standalone directories"
-                )
+        # Configure standalone directories from project config (one source, #690)
+        standalone_paths = config.get_standalone_paths()
+        if standalone_paths:
+            analyzer.set_standalone_paths(standalone_paths)
+            self.standalone_dirs[path_key] = set(standalone_paths)
+            logger.info(f"Configured analyzer with {len(standalone_paths)} standalone directories")
 
         # Every analyzer is watched, config or not (#617): its root plus every
         # package, namespace and standalone root its layout reads from.

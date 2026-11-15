@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyeye import file_artifact_cache
+from pyeye.async_utils import filtered_rglob
 from pyeye.handle import Handle
 from pyeye.project_layout import (
     file_for_module,
@@ -187,7 +188,9 @@ async def _scan_package_for_handle(
     # A file that can't be listed or read propagates (#704): skipping it would
     # return a re-export list that claims to be complete. ``re_exports`` has no
     # per-item incompleteness signal, so inspect leaves the field absent.
-    py_files = sorted(package_root.rglob("*.py"))
+    # The shared project-scan rule (#517): a project that is itself a package
+    # has its root here, which may hold nested worktrees or a .venv.
+    py_files = sorted(filtered_rglob("*.py", package_root))
 
     for py_file in py_files:
         script = file_artifact_cache.get_script(py_file, analyzer.project)

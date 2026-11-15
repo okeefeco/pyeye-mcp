@@ -119,3 +119,142 @@ class TestAgainstRealGitLayouts:
             "app.py",
             "vendor/library/lib.py",
         ]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires a git executable")
+class TestPluginScansUseTheSharedFilter:
+    """#517: the plugins' whole-tree scans apply the same exclusion rule as ``rglob_async``.
+
+    They called ``Path.rglob`` / ``Path.glob("**/…")`` directly, so they reported a
+    second copy of every ``models.py`` / ``views.py`` from a nested worktree, and
+    read ``.venv``. Built from real ``git`` output; submodules stay included.
+    """
+
+    @staticmethod
+    def _git(*args: str, cwd: Path) -> None:
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+
+    @pytest.fixture
+    def project(self, tmp_path):
+        library = tmp_path / "library"
+        (library / "libapp").mkdir(parents=True)
+        (library / "libapp" / "models.py").write_text("VALUE = 1\n")
+        self._git("init", "-q", "-b", "main", ".", cwd=library)
+        self._git("add", "-A", cwd=library)
+        self._git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init", cwd=library)
+
+        project = tmp_path / "project"
+        (project / "blog" / "migrations").mkdir(parents=True)
+        (project / "blog" / "templates").mkdir()
+        (project / "blog" / "static").mkdir()
+        for name in ("models.py", "views.py", "urls.py", "forms.py", "admin.py", "serializers.py"):
+            (project / "blog" / name).write_text(
+                "from pydantic import BaseModel\n@app.route('/')\nBlueprint\n"
+            )
+        (project / "blog" / "migrations" / "0001_initial.py").write_text("")
+        self._git("init", "-q", "-b", "main", ".", cwd=project)
+        self._git("add", "-A", cwd=project)
+        self._git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init", cwd=project)
+        self._git("submodule", "add", "-q", "../library", "vendor/library", cwd=project)
+        self._git(
+            "worktree", "add", "-q", ".claude/worktrees/feature", "-b", "feature", cwd=project
+        )
+        venv_app = project / ".venv" / "lib" / "site" / "blog"
+        (venv_app / "migrations").mkdir(parents=True)
+        (venv_app / "templates").mkdir()
+        (venv_app / "models.py").write_text("from pydantic import BaseModel\n")
+        (venv_app / "migrations" / "0001_initial.py").write_text("")
+        return project
+
+    @staticmethod
+    def _rel(paths, root: Path) -> list[str]:
+        return sorted(Path(p).relative_to(root).as_posix() for p in paths)
+
+    def test_filtered_rglob_is_the_shared_rule(self, project):
+        from pyeye.async_utils import filtered_rglob
+
+        assert self._rel(filtered_rglob("models.py", project), project) == [
+            "blog/models.py",
+            "vendor/library/libapp/models.py",
+        ]
+
+    def test_django_components(self, project):
+        from pyeye.plugins.django import DjangoPlugin
+
+        components = DjangoPlugin(str(project)).get_framework_components()
+
+        assert self._rel(components["models"], project) == [
+            "blog/models.py",
+            "vendor/library/libapp/models.py",
+        ]
+        for kind in ("views", "urls", "serializers", "admin", "forms"):
+            assert self._rel(components[kind], project) == [f"blog/{kind}.py"], kind
+
+    @pytest.mark.asyncio
+    async def test_django_migrations(self, project):
+        from pyeye.plugins.django import DjangoPlugin
+
+        migrations = await DjangoPlugin(str(project)).find_migrations(scope="main")
+
+        assert self._rel([m["file"] for m in migrations], project) == [
+            "blog/migrations/0001_initial.py"
+        ]
+
+    def test_flask_components(self, project):
+        from pyeye.plugins.flask import FlaskPlugin
+
+        components = FlaskPlugin(str(project)).get_framework_components()
+
+        assert self._rel(components["routes"], project) == self._rel(
+            components["blueprints"], project
+        )
+        assert all(
+            not p.startswith((".claude", ".venv")) for p in self._rel(components["routes"], project)
+        )
+        assert self._rel(components["models"], project) == [
+            "blog/models.py",
+            "vendor/library/libapp/models.py",
+        ]
+        assert self._rel(components["forms"], project) == ["blog/forms.py"]
+        assert self._rel(components["templates"], project) == ["blog/templates"]
+        assert self._rel(components["static"], project) == ["blog/static"]
+
+    def test_pydantic_detection_ignores_worktrees_and_venv(self, project):
+        from pyeye.plugins.pydantic import PydanticPlugin
+
+        # Only the worktree and .venv import pydantic: detection must say no.
+        for name in ("models.py", "views.py", "urls.py", "forms.py", "admin.py", "serializers.py"):
+            (project / "blog" / name).write_text("VALUE = 1\n")
+
+        assert PydanticPlugin(str(project)).detect() is False
+
+
+#: Direct recursive scans that are deliberately NOT whole-tree project scans.
+_SUBTREE_SCANS = {
+    # ``.venv/lib`` is searched FOR site-packages, inside the excluded dir on purpose.
+    ("config.py", 'venv_path.rglob("site-packages")'),
+    # A templates directory one level below a root, found by a non-recursive glob.
+    ("django.py", 'template_dir.rglob("*.html")'),
+    ("flask.py", 'template_dir.rglob("*.html")'),
+    ("flask.py", 'template_dir.rglob("*.jinja2")'),
+    # The rule's own home.
+    ("async_utils.py", "path.rglob(pattern)"),
+}
+
+
+def test_every_whole_tree_scan_goes_through_filtered_rglob():
+    """#517: the exclusion rule has one home; no project scan bypasses it."""
+    import re
+
+    src = Path(__file__).resolve().parents[2] / "src" / "pyeye"
+    found = set()
+    for py in src.rglob("*.py"):
+        for line in py.read_text(encoding="utf-8").splitlines():
+            for call in re.findall(r"[\w.]+\.(?:rglob\([^)]*\)|glob\(\"\*\*[^)]*\))", line):
+                found.add((py.name, call))
+    assert found <= _SUBTREE_SCANS, sorted(found - _SUBTREE_SCANS)

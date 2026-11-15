@@ -61,7 +61,7 @@ imports fell into ``members`` while being missing from ``imports``.
 from __future__ import annotations
 
 import ast
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -422,28 +422,20 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))
-    members: list[tuple[Handle, Any]] = []
     try:
         script = file_artifact_cache.get_script(file_path, analyzer.project)
         names = script.get_names(all_scopes=True, definitions=True, references=False)
     except Exception:
         return []
 
-    seen: set[str] = set()
-    for name in names:
-        full_name = name.full_name or ""
-        if not full_name.startswith(prefix) or is_attribute_target(name):
-            continue
-        if len(full_name.split(".")) != handle_depth + 1:
-            continue
-        h = _handle_for_name(name, analyzer, full_name)
-        # Dedupe on the handle actually emitted: the stdlib and project-anchor
-        # rules can rewrite the module part (#544, #714).
-        if h is None or str(h) in seen:
-            continue
-        seen.add(str(h))
-        members.append((h, name))
-    return members
+    selected = (
+        (name, full_name)
+        for name in names
+        if (full_name := name.full_name or "").startswith(prefix)
+        and not is_attribute_target(name)
+        and len(full_name.split(".")) == handle_depth + 1
+    )
+    return _collect_members(selected, analyzer)
 
 
 def _module_members(
@@ -517,19 +509,34 @@ def _module_members(
                 import_bound_names.add(alias.asname or alias.name)
 
     # Step 3: emit (handle, name) pairs for every non-import top-level name.
+    # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
+    selected = (
+        (name, name.full_name or f"{handle}.{name.name}")
+        for name in names
+        if name.name not in import_bound_names and not is_attribute_target(name)
+    )
+    return _collect_members(selected, analyzer)
+
+
+def _collect_members(
+    selected: Iterable[tuple[Any, str]], analyzer: JediAnalyzer
+) -> list[tuple[Handle, Any]]:
+    """The one member-collection loop for ``_class_members`` / ``_module_members`` (#686).
+
+    Each caller selects its ``(Jedi Name, full_name)`` pairs; this builds each
+    handle through :func:`_handle_for_name` and dedupes on the handle it EMITS,
+    keeping the first ``Name``. The handle can differ from ``full_name`` (the
+    stdlib public-name and project-anchor rules, #544 / #714), so deduping on
+    ``full_name`` could emit one handle twice. Unplaceable names are skipped.
+    """
     members: list[tuple[Handle, Any]] = []
     seen: set[str] = set()
-    for name in names:
-        # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
-        if name.name in import_bound_names or is_attribute_target(name):
-            continue
-        full_name = name.full_name or f"{handle}.{name.name}"
-        if full_name in seen:
-            continue
-        seen.add(full_name)
+    for name, full_name in selected:
         h = _handle_for_name(name, analyzer, full_name)
-        if h is not None:
-            members.append((h, name))
+        if h is None or str(h) in seen:
+            continue
+        seen.add(str(h))
+        members.append((h, name))
     return members
 
 

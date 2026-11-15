@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..async_utils import filtered_rglob
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class DjangoPlugin(AnalyzerPlugin):
         project_roots = await self._get_scope_roots(scope)
 
         for root in project_roots:
-            for migration_file in root.rglob("migrations/*.py"):
+            for migration_file in filtered_rglob("migrations/*.py", root):
                 if migration_file.name != "__init__.py":
                     file_str = migration_file.as_posix()
                     if file_str not in seen_files:
@@ -232,10 +233,12 @@ class DjangoPlugin(AnalyzerPlugin):
     def get_framework_components(self) -> dict[str, list[str]]:
         """Get Django framework components."""
         return {
-            "models": [f.as_posix() for f in self.project_path.rglob("models.py")],
-            "views": [f.as_posix() for f in self.project_path.rglob("views.py")],
-            "urls": [f.as_posix() for f in self.project_path.rglob("urls.py")],
-            "serializers": [f.as_posix() for f in self.project_path.rglob("serializers.py")],
-            "admin": [f.as_posix() for f in self.project_path.rglob("admin.py")],
-            "forms": [f.as_posix() for f in self.project_path.rglob("forms.py")],
+            "models": [f.as_posix() for f in filtered_rglob("models.py", self.project_path)],
+            "views": [f.as_posix() for f in filtered_rglob("views.py", self.project_path)],
+            "urls": [f.as_posix() for f in filtered_rglob("urls.py", self.project_path)],
+            "serializers": [
+                f.as_posix() for f in filtered_rglob("serializers.py", self.project_path)
+            ],
+            "admin": [f.as_posix() for f in filtered_rglob("admin.py", self.project_path)],
+            "forms": [f.as_posix() for f in filtered_rglob("forms.py", self.project_path)],
         }
