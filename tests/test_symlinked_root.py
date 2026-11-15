@@ -21,6 +21,7 @@ from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
 from pyeye.mcp.operations.resolve import resolve, resolve_at
+from pyeye.path_utils import paths_equal
 from pyeye.project_layout import file_for_module, module_name_for_file
 
 pytestmark = pytest.mark.skipif(
@@ -75,8 +76,9 @@ async def test_resolve_names_the_symbol_canonically(analyzer: JediAnalyzer, symb
 
     assert result.get("found") is True, result
     assert result["handle"] == f"mypackage.core.{leaf}", result
-    # #603: the location keeps the caller's (link) spelling.
-    assert result["location"]["file"] == _link_core(analyzer).as_posix()
+    # The same file on disk. Jedi reports module paths resolved, so the spelling
+    # can be the resolved one; whether it should keep the caller's is on #717.
+    assert paths_equal(result["location"]["file"], _link_core(analyzer))
 
 
 @pytest.mark.asyncio
@@ -190,3 +192,56 @@ def test_canonical_of_keeps_external_names(analyzer: JediAnalyzer) -> None:
 
     anchor = _Anchor("json.decoder.JSONDecoder", "json.decoder", None, "class")
     assert _canonical_of(anchor, "x", analyzer) == "json.decoder.JSONDecoder"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["mypackage.core", "mypackage.core.MyClass"])
+async def test_no_edge_emits_a_main_handle_on_a_cold_cache(
+    analyzer: JediAnalyzer, source: str
+) -> None:
+    """Every edge, with the process-wide caches cold, as a fresh server starts.
+
+    The Script cache keys on resolved paths, so a warm cache from another run
+    hid the bug: the members edge emitted ``__main__.MyClass`` until Jedi was
+    given resolved file and sys.path spellings (#714).
+    """
+    from pyeye import file_artifact_cache
+    from pyeye.analyzers import project_graph
+    from pyeye.mcp.operations.edges import EDGE_RESOLVERS
+
+    file_artifact_cache.invalidate_all()
+    project_graph.invalidate()
+
+    emitted = []
+    for edge in EDGE_RESOLVERS:
+        result = await expand(source, edge, analyzer)
+        emitted += [s["handle"] for s in result.get("stubs") or []]
+
+    assert not [h for h in emitted if h.startswith("__main__.") or h.startswith("src.")]
+    if source == "mypackage.core":
+        assert "mypackage.core.MyClass" in emitted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_config", [True, False])
+async def test_flat_layout_edges_on_a_cold_cache(tmp_path: Path, with_config: bool) -> None:
+    """A flat layout (no ``src/``) behind a symlink: the case the members edge broke on."""
+    from pyeye import file_artifact_cache
+    from pyeye.analyzers import project_graph
+
+    real = tmp_path / "real" / "proj"
+    (real / "flatpkg").mkdir(parents=True)
+    (real / "flatpkg" / "__init__.py").write_text("", encoding="utf-8")
+    (real / "flatpkg" / "core.py").write_text(_CORE, encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    analyzer = JediAnalyzer(str(link), config=ProjectConfig(str(link)) if with_config else None)
+    file_artifact_cache.invalidate_all()
+    project_graph.invalidate()
+
+    members = await expand("flatpkg.core", "members", analyzer)
+
+    assert sorted(s["handle"] for s in members["stubs"]) == [
+        "flatpkg.core.MyClass",
+        "flatpkg.core.my_function",
+    ], members
