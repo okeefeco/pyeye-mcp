@@ -400,14 +400,7 @@ def platform_decision_point(handle: str) -> DecisionPoint | None:
         if not isinstance(node, ast.If) or not _reads_sys_platform(node.test):
             continue
         end = node.end_lineno or node.lineno
-        imported = {
-            n.module
-            for n in iter_module_scope_imports(tree)
-            if isinstance(n, ast.ImportFrom)
-            and node.lineno <= n.lineno <= end
-            and n.module in alternatives
-        }
-        if imported == alternatives:
+        if _modules_imported_between(tree, node.lineno, end) & alternatives == alternatives:
             return DecisionPoint(
                 file=stub,
                 line_start=node.lineno,
@@ -415,6 +408,15 @@ def platform_decision_point(handle: str) -> DecisionPoint | None:
                 column=node.col_offset,
             )
     return None
+
+
+def _modules_imported_between(tree: ast.Module, start: int, end: int) -> set[str]:
+    """Modules named by ``from X import`` statements on lines *start*..*end* (#360's walk)."""
+    return {
+        n.module
+        for n in iter_module_scope_imports(tree)
+        if isinstance(n, ast.ImportFrom) and n.module and start <= n.lineno <= end
+    }
 
 
 def _reads_sys_platform(expr: ast.expr) -> bool:
