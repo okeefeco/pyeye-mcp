@@ -7,6 +7,7 @@ module such as ``logging`` at all.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,58 @@ async def test_unresolvable_handle_echoes_the_input(project: JediAnalyzer) -> No
     tree = await outline(bogus, project)
     assert node["found"] is False and node["handle"] == bogus
     assert tree["found"] is False and tree["handle"] == bogus
+
+
+# ---------------------------------------------------------------------------
+# src/ layout: the canonical handle is the IMPORT name, never `src.`-prefixed
+# ---------------------------------------------------------------------------
+
+_SRC_FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "added_sys_path_project"
+
+#: handle -> (path under the project root, line, column) of its definition name,
+#: or ``None`` for a package / module (no position probe).
+_SRC_HANDLES: dict[str, tuple[str, int, int] | None] = {
+    "mypackage": None,
+    "mypackage.module": None,
+    "mypackage.module.my_function": ("src/mypackage/module.py", 4, 4),
+    "mypackage.__version__": ("src/mypackage/__init__.py", 3, 0),
+}
+
+
+def _src_analyzer(mode: str, root: Path) -> JediAnalyzer:
+    if mode == "bare":
+        return JediAnalyzer(str(root))
+    from pyeye.project_manager import ProjectManager
+
+    return ProjectManager().get_analyzer(str(root))
+
+
+@pytest.mark.parametrize("mode", ["bare", "get_analyzer"])
+@pytest.mark.parametrize("handle", sorted(_SRC_HANDLES))
+async def test_src_layout_reports_the_import_name(mode: str, handle: str, tmp_path: Path) -> None:
+    """On an uninstalled src/ layout every tool reports ``mypackage...``, never ``src.mypackage...``.
+
+    Guards the expected handle itself, not just agreement between tools: on
+    Windows, Jedi named these modules ``src.…`` until #648 (#625), and once the
+    canonical echo landed (#623) inspect/outline would have agreed with that
+    wrong name.  Runs on a private copy of the fixture (process-wide caches are
+    keyed by path, #618).
+    """
+    from pyeye.mcp.operations.resolve import resolve, resolve_at
+
+    root = tmp_path.resolve() / _SRC_FIXTURE.name
+    shutil.copytree(_SRC_FIXTURE, root)
+    analyzer = _src_analyzer(mode, root)
+
+    resolved = await resolve(handle, analyzer)
+    node = await inspect(handle, analyzer)
+    tree = await outline(handle, analyzer)
+    assert resolved.get("handle") == handle, resolved
+    assert node.get("handle") == handle, node
+    assert tree.get("node", {}).get("handle") == handle, tree
+
+    position = _SRC_HANDLES[handle]
+    if position is not None:
+        rel, line, column = position
+        at = await resolve_at((root / rel).as_posix(), line, column, analyzer)
+        assert at.get("handle") == handle, at
