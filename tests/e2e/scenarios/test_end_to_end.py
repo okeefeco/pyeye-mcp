@@ -8,7 +8,6 @@ import pytest
 
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.config import ProjectConfig
-from pyeye.namespace_resolver import NamespaceResolver
 from pyeye.project_manager import ProjectManager
 
 
@@ -95,49 +94,6 @@ if __name__ == "__main__":
                 for proj in projects:
                     cached_project = manager.get_project(str(proj))
                     assert cached_project is not None
-
-    def test_namespace_package_workflow(self, temp_project_dir):
-        """Test distributed namespace package workflow."""
-        # Create distributed namespace structure
-        auth_repo = temp_project_dir / "auth-repo"
-        api_repo = temp_project_dir / "api-repo"
-
-        # Auth repository
-        auth_pkg = auth_repo / "company" / "auth"
-        auth_pkg.mkdir(parents=True)
-        (auth_pkg / "__init__.py").write_text("")
-        (auth_pkg / "models.py").write_text("""
-class User:
-    def __init__(self, username: str):
-        self.username = username
-""")
-
-        # API repository
-        api_pkg = api_repo / "company" / "api"
-        api_pkg.mkdir(parents=True)
-        (api_pkg / "__init__.py").write_text("")
-        (api_pkg / "client.py").write_text("""
-from company.auth.models import User
-
-class APIClient:
-    def __init__(self, user: User):
-        self.user = user
-""")
-
-        # Configure namespace
-        resolver = NamespaceResolver()
-        resolver.register_namespace("company", [str(auth_repo), str(api_repo)])
-
-        # Verify namespace is registered
-        assert "company" in resolver.namespace_paths
-        assert len(resolver.namespace_paths["company"]) == 2
-
-        # Find imports across namespace
-        results = resolver.resolve_import("company.auth.models", [str(auth_repo), str(api_repo)])
-
-        # Should find the models module (resolve_import returns list of Path objects)
-        assert len(results) > 0
-        assert any("models" in str(path) for path in results)
 
     def test_file_change_cache_invalidation(self, temp_project_dir):
         """Test that file changes trigger cache invalidation."""

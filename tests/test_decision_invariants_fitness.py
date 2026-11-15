@@ -326,23 +326,15 @@ MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {}
 
 # 4. Project-roots lists come from ONE helper: ``project_layout.project_roots``
 #    (#625), which names each boundary's subset (SCOPE, TOP_LEVEL_PACKAGE,
-#    MODULE_LOOKUP, NAMESPACE_PORTIONS).  Only the dead legacy copies remain.
+#    MODULE_LOOKUP, NAMESPACE_PORTIONS).  The legacy copies were deleted (#628).
 PROJECT_ROOTS_SANCTIONED: Site | None = ("project_layout.py", "project_roots")
-PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {
-    # Legacy methods unreachable from any MCP tool.
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.find_imports"): "#628",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_modules"): "#628",
-}
+PROJECT_ROOTS_ALLOWLIST: dict[Site, str] = {}
 
 # 5. Package-ness is decided from a ``module_path`` in ONE predicate:
 #    ``project_layout.package_kind`` (#625).  ``None`` is "unknown"; each caller
 #    states what unknown means for it.
 PACKAGE_PREDICATE_SANCTIONED: Site | None = ("project_layout.py", "package_kind")
-PACKAGE_PREDICATE_ALLOWLIST: dict[Site, str] = {
-    # Legacy method unreachable from any MCP tool.
-    ("analyzers/jedi_analyzer.py", "JediAnalyzer.list_packages"): "#628",
-}
+PACKAGE_PREDICATE_ALLOWLIST: dict[Site, str] = {}
 
 _EPIC_CHILDREN = frozenset({"#623", "#624", "#625", "#626", "#628", "#630"})
 _ALL_ALLOWLISTS: dict[str, dict[Site, str]] = {

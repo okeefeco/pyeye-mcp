@@ -88,39 +88,6 @@ class TestPerformanceBaselines:
             stats["p50_ms"], CommonThresholds.SYMBOL_SEARCH_P50, "Symbol search p50"
         )
 
-    @pytest.mark.asyncio
-    async def test_goto_definition_performance(self, temp_project):
-        """Test that goto definition meets performance requirements."""
-        analyzer = JediAnalyzer(str(temp_project))
-        collector = MetricsCollector()
-
-        test_file = temp_project / "other_module.py"
-
-        @collector.measure("goto_definition")
-        async def goto():
-            return await analyzer.goto_definition(str(test_file), 4, 10)
-
-        # Warm up the analyzer's caches WITHOUT recording the call (see the note in
-        # test_symbol_search_performance): the cold first call would otherwise
-        # dominate p95 over only ~10 samples and fail on slow CI runners (#383).
-        await analyzer.goto_definition(str(test_file), 4, 10)
-
-        # Measure multiple warm runs
-        for _ in range(10):
-            await goto()
-
-        stats = collector.get_stats("goto_definition")
-
-        # Performance requirements (platform-aware thresholds — see tests/utils/performance.py).
-        # macOS CI runners are ~2-3x slower, so flat caps fail deterministically (#383);
-        # CommonThresholds carries the macos_ci tier for exactly this.
-        assert_performance_threshold(
-            stats["p95_ms"], CommonThresholds.GOTO_DEFINITION_P95, "Goto definition p95"
-        )
-        assert_performance_threshold(
-            stats["p50_ms"], CommonThresholds.GOTO_DEFINITION_P50, "Goto definition p50"
-        )
-
     def test_cache_lookup_performance(self):
         """Test that cache lookups are fast."""
         cache = ProjectCache()
@@ -351,7 +318,6 @@ class TestPerformanceUnderLoad:
 # Performance baseline configuration for CI
 PERFORMANCE_BASELINES = {
     "symbol_search": {"p50_ms": 50, "p95_ms": 100, "p99_ms": 200},
-    "goto_definition": {"p50_ms": 30, "p95_ms": 75, "p99_ms": 150},
     "cache_lookup": {"p50_ms": 0.1, "p95_ms": 0.5, "p99_ms": 1.0},
     "cache_invalidation": {"p50_ms": 2, "p95_ms": 5, "p99_ms": 10},
 }

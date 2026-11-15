@@ -234,13 +234,13 @@ class DogfoodingMetrics:
             import sys
             from pathlib import Path
 
-            # Add the src directory to Python path to import our module
+            # The repo root makes ``scripts`` importable (src/ is already on
+            # sys.path, for pyeye itself).
             project_root = Path(__file__).parent.parent
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.insert(0, str(src_path))
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
 
-            from pyeye.dogfooding_integration import get_integration
+            from scripts.dogfooding_integration import get_integration
 
             integration = get_integration()
             metrics: dict[str, Any] = integration.export_mcp_metrics_for_session()
