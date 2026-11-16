@@ -4,14 +4,16 @@ import contextlib
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
-from .path_utils import normalize_path
+from .path_utils import normalize_path, path_to_key
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,10 @@ class ProjectManager:
         self._catchup_timers: dict[Path, list[threading.Timer]] = {}
         self._catchup_cutoff_ns: dict[Path, int] = {}
         self.analyzers: dict[Path, JediAnalyzer] = {}  # Analyzer instance cache
+        # Per-project framework-plugin state for plugin tools called with a
+        # ``project_path`` (#665), keyed ``(path_to_key(project), plugin class)``
+        # and dropped with the project's analyzer, so it never outlives it.
+        self._plugin_contexts: dict[tuple[str, type], Any] = {}
         self.access_order: list[Path] = []  # LRU tracking
         self.max_projects = (
             max_projects if max_projects is not None else settings.settings.max_projects
@@ -125,8 +131,9 @@ class ProjectManager:
         # Stop the watchers no other project still uses
         self._unwatch_project(project_path)
 
-        # Drop cached analyzer
+        # Drop cached analyzer, and the plugin state built alongside it (#665)
         self.analyzers.pop(project_path, None)
+        self._drop_plugin_contexts(project_path)
 
         # Clear dependencies
         if project_path in self.dependencies:
@@ -166,6 +173,30 @@ class ProjectManager:
                 continue  # a stale entry: counts for nothing, so evicts nothing
             logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
             self._cleanup_project(lru_path)
+
+    def get_plugin_context(
+        self, project_path: str, plugin_class: type, build: Callable[[str], Any]
+    ) -> Any:
+        """The plugin state for *plugin_class* in *project_path*, built on first use (#665).
+
+        *build* makes it from the caller's ``project_path`` (the server builds the
+        plugin with that project's own package, namespace and standalone paths).
+        Cached per project and class, and dropped whenever the project's
+        analyzer is (``invalidate_analyzer``, LRU eviction), so a reconfigured or
+        evicted project gets fresh plugin state and no project ever sees another's.
+        """
+        key = (path_to_key(project_path), plugin_class)
+        context = self._plugin_contexts.get(key)
+        if context is None:
+            context = build(project_path)
+            self._plugin_contexts[key] = context
+        return context
+
+    def _drop_plugin_contexts(self, project_path: str | Path) -> None:
+        """Forget every cached plugin context of *project_path* (#665)."""
+        project_key = path_to_key(project_path)
+        for key in [k for k in self._plugin_contexts if k[0] == project_key]:
+            del self._plugin_contexts[key]
 
     def get_analyzer(self, project_path: str) -> JediAnalyzer:
         """Get a configured JediAnalyzer for the given project.
@@ -318,6 +349,8 @@ class ProjectManager:
         path_key = normalize_path(project_path)
         if self.analyzers.pop(path_key, None) is not None:
             logger.info(f"Invalidated cached analyzer for {path_key.as_posix()}")
+        # Its plugin state was built from the same configuration (#665).
+        self._drop_plugin_contexts(path_key)
         # Keep access_order consistent with what _evict_if_needed counts: drop
         # the entry only if the project is no longer counted at all.  A project
         # still registered (``dependencies``) is still counted, so removing its

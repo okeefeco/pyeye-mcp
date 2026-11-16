@@ -136,7 +136,7 @@ def test_tool_errors_stays_outermost(plugin_server: tuple[MCPServer, FakePlugin]
 def test_the_schema_is_still_the_plugin_signature(
     plugin_server: tuple[MCPServer, FakePlugin],
 ) -> None:
-    """The extra wrappers must not hide ``scope`` / ``envelope`` from the MCP schema."""
+    """The extra wrappers must not hide ``scope`` / ``envelope`` / ``project_path`` (#665)."""
     fresh, _ = plugin_server
     params = fresh._tool_manager._tools["fake_things_in"].parameters["properties"]
-    assert set(params) == {"file", "scope", "envelope"}
+    assert set(params) == {"file", "scope", "envelope", "project_path"}
