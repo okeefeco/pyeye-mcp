@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 import warnings
 from collections.abc import Iterable, Mapping
@@ -509,6 +510,15 @@ class ScopedCache:
             "main": {},
             "all": {},
         }
+        # Bumped by every invalidate_all (#817). One cache per analyzer, so the
+        # epoch is per project: another project's invalidation never moves it.
+        self._epoch = 0
+        # Makes set()'s epoch check and store atomic against invalidate_all.
+        self._write_lock = threading.Lock()
+
+    def epoch(self) -> int:
+        """The current invalidation epoch: take it BEFORE computing a value to set (#817)."""
+        return self._epoch
 
     def _normalize_scope(self, scope: Scope) -> str:
         """Normalize scope to a cache key.
@@ -565,29 +575,40 @@ class ScopedCache:
         metrics.record_cache_hit()
         return value
 
-    def set(self, key: str, value: Any, scope: Scope) -> None:
+    def set(self, key: str, value: Any, scope: Scope, *, epoch: int | None = None) -> bool:
         """Set cache value for a specific scope.
 
         Args:
             key: Cache key
             value: Value to cache
             scope: Scope for this cache entry
+            epoch: The :meth:`epoch` taken before *value* was computed. If the
+                cache was invalidated since, *value* may predate the change, so
+                it is not stored (#817, the #617 pattern). ``None`` always stores.
+
+        Returns:
+            Whether *value* was stored.
         """
         scope_key = self._normalize_scope(scope)
 
-        # setdefault, not check-then-index: a concurrent invalidation may swap
-        # the dicts in between (#617). A write that lands in a just-replaced dict
-        # is simply lost, which is a cache miss, never an error.
-        self.timestamps.setdefault(scope_key, {})[key] = time.time()
-        self.caches.setdefault(scope_key, {})[key] = value
+        with self._write_lock:
+            if epoch is not None and epoch != self._epoch:
+                return False
+            # setdefault, not check-then-index: get() is lock-free and may run
+            # while invalidate_all swaps the dicts (#617).
+            self.timestamps.setdefault(scope_key, {})[key] = time.time()
+            self.caches.setdefault(scope_key, {})[key] = value
+        return True
 
     def invalidate_all(self) -> None:
-        """Invalidate all caches."""
-        for scope_key in list(self.caches.keys()):
-            self.caches[scope_key] = {}
+        """Invalidate all caches, and bump the epoch so a value computed before this isn't stored."""
+        with self._write_lock:
+            self._epoch += 1
+            for scope_key in list(self.caches.keys()):
+                self.caches[scope_key] = {}
 
-        for scope_key in list(self.timestamps.keys()):
-            self.timestamps[scope_key] = {}
+            for scope_key in list(self.timestamps.keys()):
+                self.timestamps[scope_key] = {}
 
 
 class LazyNamespaceLoader:
