@@ -110,3 +110,22 @@ def test_eviction_skips_a_stale_entry(manager: ProjectManager, tmp_path: Path) -
     assert stale not in manager.access_order
     assert keep[-1] in manager.dependencies  # the newest survives
     assert len(_counted(manager)) <= _MAX
+
+
+def test_eviction_stops_when_nothing_is_left_to_evict(
+    manager: ProjectManager, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Defensive: if the count is over budget but access_order is empty, stop and warn.
+
+    Unreachable with consistent accounting; it guards against looping forever
+    (or raising on ``pop`` from an empty list) if the two ever drift apart.
+    """
+    for i in range(_MAX + 1):
+        manager.dependencies[normalize_path(tmp_path / f"orphan{i}")] = set()
+    manager.access_order.clear()
+
+    with caplog.at_level("WARNING", logger="pyeye.project_manager"):
+        manager._evict_if_needed()
+
+    assert "nothing left to evict" in caplog.text
+    assert len(manager.dependencies) == _MAX + 1  # nothing was evicted
