@@ -9,6 +9,8 @@ from unittest.mock import Mock
 import jedi
 import pytest
 
+from tests.utils.watchers import live_observers
+
 
 class _InertObserver:
     """A watchdog Observer that watches nothing.
@@ -30,6 +32,26 @@ class _InertObserver:
 
     def join(self, *args: Any, **kwargs: Any) -> None:
         pass
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Fail the run if a real observer outlived its test (#807).
+
+    A leak is harmless on Linux, where watchdog's threads are daemons. Under
+    watchdog 7 on Windows the reader thread is non-daemon, so one unstopped
+    observer hung the interpreter at exit. A module- or session-scoped fixture is
+    set up before the autouse inert-Observer patch, so a ``ProjectManager`` it
+    creates gets a REAL watcher and must call ``cleanup_all()`` on teardown.
+    """
+    leaked = live_observers()
+    if leaked:
+        names = ", ".join(f"{type(t).__name__}({t.name})" for t in leaked)
+        session.config.get_terminal_writer().line(
+            f"\nERROR: {len(leaked)} watchdog observer(s) still running at session end "
+            f"(#807): {names}. A fixture created a ProjectManager without cleanup_all().",
+            red=True,
+        )
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.fixture(autouse=True)

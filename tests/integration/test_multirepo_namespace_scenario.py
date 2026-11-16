@@ -48,9 +48,17 @@ def workspace(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
 
 @pytest.fixture(scope="module")
-def analyzer(workspace: Path) -> JediAnalyzer:
-    """The main project's analyzer, configured from its .pyeye.json."""
-    return ProjectManager().get_analyzer(str(workspace / "app"))
+def analyzer(workspace: Path) -> Iterator[JediAnalyzer]:
+    """The main project's analyzer, configured from its .pyeye.json.
+
+    Module scope is set up before the autouse inert-Observer patch, so this
+    manager starts REAL watchers: stop them, or they outlive the session (#807).
+    """
+    manager = ProjectManager()
+    try:
+        yield manager.get_analyzer(str(workspace / "app"))
+    finally:
+        manager.cleanup_all()
 
 
 def _handles(result: dict[str, Any]) -> list[str]:
