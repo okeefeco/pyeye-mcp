@@ -309,7 +309,7 @@ async def test_plugin_tools_are_registered_on_the_worker() -> None:
 async def test_tool_bodies_run_on_the_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, bool] = {}
 
-    async def fake_resolve(_identifier: str, _analyzer: Any) -> dict[str, Any]:
+    async def fake_resolve(_identifier: str, _analyzer: Any, **_kwargs: Any) -> dict[str, Any]:
         seen["resolve"] = on_worker_thread()
         return {"found": False, "reason": "unresolved"}
 
@@ -332,7 +332,7 @@ async def test_tool_bodies_run_on_the_worker(monkeypatch: pytest.MonkeyPatch) ->
 async def test_recursion_error_escaping_a_tool_is_an_mcp_error_not_a_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def explode(_identifier: str, _analyzer: Any) -> dict[str, Any]:
+    async def explode(_identifier: str, _analyzer: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RecursionError("maximum recursion depth exceeded")
 
     from mcp.server.mcpserver.exceptions import UnexpectedToolError

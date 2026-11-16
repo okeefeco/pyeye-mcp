@@ -62,6 +62,12 @@ from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye._jedi_names import is_attribute_target
 from pyeye.handle import Handle
+from pyeye.mcp.operations.completeness import (
+    DEFAULT_MAX_CANDIDATES,
+    MAX_CANDIDATES,
+    cap_items,
+    check_cap,
+)
 from pyeye.mcp.operations.not_found import not_found_for
 from pyeye.path_utils import normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
@@ -395,7 +401,9 @@ def _find_symbol_column_on_line(file_path: Path, line: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
+async def _resolve_bare_name(
+    name: str, analyzer: JediAnalyzer, max_candidates: int | None = None
+) -> _HelperResult:
     """Resolve a bare (no-dots) name through the one resolver (#623).
 
     :func:`pyeye.resolver.resolve_name` decides: a #423 shadow is ambiguous, an
@@ -414,7 +422,11 @@ async def _resolve_bare_name(name: str, analyzer: JediAnalyzer) -> _HelperResult
         candidates = sorted(
             (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
         )
-        return _AmbiguousResult(found=True, ambiguous=True, candidates=candidates)
+        # #435 slice B: the sorted list is capped; ``total`` says how many matched.
+        kept, truncation = cap_items(candidates, max_candidates, MAX_CANDIDATES, "max_candidates")
+        ambiguous = _AmbiguousResult(found=True, ambiguous=True, candidates=kept)
+        ambiguous.update(truncation)  # type: ignore[typeddict-item]
+        return ambiguous
     return _success_from_resolved(result)
 
 
@@ -522,6 +534,7 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
 async def resolve(
     identifier: str,
     analyzer: JediAnalyzer,
+    max_candidates: int | None = DEFAULT_MAX_CANDIDATES,
 ) -> ResolveResult:
     """Resolve any identifier form to a canonical handle.
 
@@ -538,12 +551,16 @@ async def resolve(
         A :data:`ResolveResult` dict.  On success, contains ``found=True``,
         a ``handle``, ``kind``, ``scope``, and ``location``.  On ambiguity,
         contains ``found=True``, ``ambiguous=True``, and a sorted
-        ``candidates`` list (each candidate also carries ``location``).
+        ``candidates`` list (each candidate also carries ``location``), capped
+        at *max_candidates* (#435; default 50, ``None`` for all): when more
+        match, the result also carries ``truncated: true``,
+        ``truncation_reasons: ["max_candidates"]`` and ``total``.
         On failure, the shared not-found shape (#626):
         ``{found: False, identifier, reason, detail}``, with ``reason`` one of
         ``unresolved``, ``file_not_found`` or ``no_symbol_at_position``.
     """
-    result = await _resolve_identifier(identifier, analyzer)
+    check_cap(max_candidates, "max_candidates")  # a caller error, before any work
+    result = await _resolve_identifier(identifier, analyzer, max_candidates)
     if result["found"] is False:
         response = not_found_for(
             "resolve", {"identifier": identifier}, result["reason"], result.get("detail")
@@ -554,7 +571,9 @@ async def resolve(
     return result
 
 
-async def _resolve_identifier(identifier: str, analyzer: JediAnalyzer) -> _HelperResult:
+async def _resolve_identifier(
+    identifier: str, analyzer: JediAnalyzer, max_candidates: int | None = None
+) -> _HelperResult:
     """Dispatch *identifier* to the resolver for its form."""
     form = _parse_identifier(identifier)
     kind = form["kind"]
@@ -569,7 +588,7 @@ async def _resolve_identifier(identifier: str, analyzer: JediAnalyzer) -> _Helpe
         return await _resolve_dotted_name(form["name"], analyzer)
 
     # bare_name
-    return await _resolve_bare_name(form["name"], analyzer)
+    return await _resolve_bare_name(form["name"], analyzer, max_candidates)
 
 
 async def resolve_at(

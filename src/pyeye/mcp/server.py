@@ -699,6 +699,7 @@ def configure_packages(
 async def resolve(
     identifier: str,
     project_path: str = ".",
+    max_candidates: int | None = 50,
 ) -> dict[str, Any]:
     """Python: Resolve any identifier form to a canonical Handle.
 
@@ -722,6 +723,10 @@ async def resolve(
         ResolveResult dict — one of:
         - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
+          At most ``max_candidates`` (default 50; ``None`` for all) candidates
+          come back, in sorted order (#435).  When more match, the result also
+          has ``truncated: true``, ``truncation_reasons: ["max_candidates"]``
+          and ``total`` (how many matched); the three are absent otherwise.
         - Not found: {"found": False, "identifier": str, "reason": str, "detail": str}
           with reason "unresolved", "file_not_found" or "no_symbol_at_position".
           The identifier is echoed verbatim; it is never put in "handle".
@@ -734,7 +739,9 @@ async def resolve(
     # dict(...) widens the operation's TypedDict union to plain dict[str, Any]
     # to match this wrapper's declared return type. TypedDict instances are
     # already dicts at runtime; this is a mypy-compliance shallow copy.
-    return _for_caller(await _resolve_impl(identifier, analyzer), project_path)
+    return _for_caller(
+        await _resolve_impl(identifier, analyzer, max_candidates=max_candidates), project_path
+    )
 
 
 @mcp.tool()
@@ -829,6 +836,7 @@ async def expand(
     handle: str,
     edge: str,
     project_path: str = ".",
+    max_stubs: int | None = 200,
 ) -> dict[str, Any]:
     """Python: Expand one outbound edge from a canonical handle (single hop).
 
@@ -991,6 +999,11 @@ async def expand(
         handle: Canonical Python dotted-name string (from resolve/inspect).
         edge: The outbound edge to expand (e.g. ``"members"``, ``"callees"``).
         project_path: Project root path (default: current directory).
+        max_stubs: Most stubs to return (#435), default 200; ``None`` for all.
+            When the edge has more, the first ``max_stubs`` come back and the
+            result also has ``truncated: true``, ``truncation_reasons:
+            ["max_stubs"]`` and ``total`` (the edge's full size); the three are
+            absent when nothing was cut.
 
     Returns:
         ExpandResult dict — not-found, supported, or unsupported (see above).
@@ -1002,7 +1015,9 @@ async def expand(
     """
     analyzer = get_analyzer(project_path)
     # dict(...) widens the operation's return to plain dict[str, Any] for the wire.
-    return _for_caller(await _expand_impl(handle, edge, analyzer), project_path)
+    return _for_caller(
+        await _expand_impl(handle, edge, analyzer, max_stubs=max_stubs), project_path
+    )
 
 
 @mcp.tool()

@@ -275,7 +275,7 @@ async def test_a_missing_project_is_a_tool_error(
 async def test_a_genuine_bug_is_still_a_crash(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def broken(identifier: str, analyzer: Any) -> dict[str, Any]:  # noqa: ARG001
+    async def broken(_identifier: str, _analyzer: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("a real pyeye bug")
 
     monkeypatch.setattr(server, "_resolve_impl", broken)
