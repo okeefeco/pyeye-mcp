@@ -55,6 +55,85 @@ def _configure_logging() -> None:
     logger.info("Log level: %s", log_level_str)
 
 
+def _log_shutdown_diagnostics(logger: logging.Logger) -> None:
+    """Log the connection and error summary at shutdown."""
+    from .connection_diagnostics import get_diagnostics
+    from .error_tracker import get_error_tracker
+
+    diagnostics = get_diagnostics()
+    error_tracker = get_error_tracker()
+
+    logger.info("=" * 60)
+    logger.info("SHUTDOWN DIAGNOSTICS")
+    logger.info("=" * 60)
+
+    conn_summary = diagnostics.get_summary()
+    logger.info(f"Connection uptime: {conn_summary['uptime_seconds']:.1f} seconds")
+    logger.info(f"Total connection events: {conn_summary['total_events']}")
+    logger.info(f"Final idle time: {conn_summary['idle_seconds']:.1f} seconds")
+
+    error_summary = error_tracker.get_error_summary()
+    logger.info(f"Total errors: {error_summary['total_errors']}")
+    logger.info(f"Error types: {error_summary['error_counts_by_type']}")
+
+    pattern_warning = error_tracker.check_error_pattern()
+    if pattern_warning:
+        logger.warning(f"Error pattern detected: {pattern_warning}")
+
+    logger.info("=" * 60)
+
+
+def _end_metrics_session() -> None:
+    """End the unified metrics session."""
+    from .server import get_unified_collector
+
+    get_unified_collector().end_session()
+
+
+def _shutdown_jedi_worker() -> None:
+    """Stop the Jedi worker thread (#650) before tearing projects down."""
+    from .jedi_worker import shutdown
+
+    shutdown()
+
+
+def _cleanup_projects(logger: logging.Logger) -> None:
+    """Clean up all projects and their file watchers."""
+    from .server import get_project_manager
+
+    get_project_manager().cleanup_all()
+    logger.info("Cleaned up all projects and watchers")
+
+
+def _log_normal_shutdown() -> None:
+    """Record the end of the connection."""
+    from .connection_diagnostics import log_connection_end
+
+    log_connection_end("normal_shutdown")
+
+
+def cleanup() -> None:
+    """Clean up all projects and watchers on exit (registered with atexit).
+
+    Each step runs independently: a failure is logged and the remaining steps
+    still run, so a broken metrics step can never skip the Jedi worker or
+    file-watcher teardown (#791).
+    """
+    logger = logging.getLogger(__name__)
+    steps = (
+        ("shutdown diagnostics", lambda: _log_shutdown_diagnostics(logger)),
+        ("metrics session", _end_metrics_session),
+        ("Jedi worker", _shutdown_jedi_worker),
+        ("projects and watchers", lambda: _cleanup_projects(logger)),
+        ("connection end", _log_normal_shutdown),
+    )
+    for name, step in steps:
+        try:
+            step()
+        except Exception:
+            logger.exception("Shutdown cleanup step failed: %s", name)
+
+
 def main() -> None:
     """Main entry point for the PyEye MCP server."""
     import atexit
@@ -63,13 +142,11 @@ def main() -> None:
 
     # Import diagnostics early (before server import)
     from .connection_diagnostics import (
-        get_diagnostics,
         log_connection_end,
         log_connection_start,
         setup_signal_handlers,
         start_heartbeat_monitor,
     )
-    from .error_tracker import get_error_tracker
 
     # Initialize connection diagnostics
     setup_signal_handlers()
@@ -79,62 +156,12 @@ def main() -> None:
     start_heartbeat_monitor(interval_seconds=30)
 
     # Import server
-    from .server import ensure_unified_session, get_project_manager, initialize_plugins, mcp
+    from .server import ensure_unified_session, initialize_plugins, mcp
 
     # Initialize unified metrics session
     ensure_unified_session()
 
     # Cleanup on exit
-    def cleanup() -> None:
-        """Clean up all projects and watchers on exit."""
-        import logging
-
-        logger = logging.getLogger(__name__)
-        diagnostics = get_diagnostics()
-        error_tracker = get_error_tracker()
-
-        # Log final diagnostic summary
-        logger.info("=" * 60)
-        logger.info("SHUTDOWN DIAGNOSTICS")
-        logger.info("=" * 60)
-
-        # Connection diagnostics
-        conn_summary = diagnostics.get_summary()
-        logger.info(f"Connection uptime: {conn_summary['uptime_seconds']:.1f} seconds")
-        logger.info(f"Total connection events: {conn_summary['total_events']}")
-        logger.info(f"Final idle time: {conn_summary['idle_seconds']:.1f} seconds")
-
-        # Error diagnostics
-        error_summary = error_tracker.get_error_summary()
-        logger.info(f"Total errors: {error_summary['total_errors']}")
-        logger.info(f"Error types: {error_summary['error_counts_by_type']}")
-
-        # Check for patterns
-        pattern_warning = error_tracker.check_error_pattern()
-        if pattern_warning:
-            logger.warning(f"Error pattern detected: {pattern_warning}")
-
-        logger.info("=" * 60)
-
-        # End unified metrics session
-        from .server import get_unified_collector
-
-        collector = get_unified_collector()
-        collector.end_session()
-
-        # Stop the Jedi worker thread (#650) before tearing projects down.
-        from .jedi_worker import shutdown as shutdown_jedi_worker
-
-        shutdown_jedi_worker()
-
-        # Cleanup projects
-        manager = get_project_manager()
-        manager.cleanup_all()
-        logger.info("Cleaned up all projects and watchers")
-
-        # Log connection end
-        log_connection_end("normal_shutdown")
-
     atexit.register(cleanup)
 
     # Initialize plugins for current directory

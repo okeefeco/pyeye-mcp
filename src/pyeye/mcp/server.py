@@ -1430,6 +1430,6 @@ def get_unified_collector() -> Any:
     Returns:
         Unified metrics collector instance
     """
-    from .unified_metrics import get_unified_collector as _get_collector
+    from ..unified_metrics import get_unified_collector as _get_collector
 
     return _get_collector()
