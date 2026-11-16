@@ -159,14 +159,85 @@ async def re_export_scan(handle: Handle, analyzer: JediAnalyzer) -> ReExportScan
 
 
 def invalidate_re_exports(root: Path | str | None = None) -> None:
-    """Drop the cached re-export scans of the project at *root*, or all of them."""
+    """Drop the cached re-export scans and binding indexes of the project at *root*, or all."""
+    global _index_epoch
     with _re_export_lock:
+        # A build that overlaps this won't be stored (#803). Per project: a
+        # watcher batch for one project must not discard another's builds.
         if root is None:
+            _index_epoch += 1  # stales every in-flight build, so the counters can go
+            _index_generations.clear()
             _re_export_cache.clear()
+            _binding_index_cache.clear()
             return
         key = path_to_key(root)
+        _index_generations[key] = _index_generations.get(key, 0) + 1
         for cached in [k for k in _re_export_cache if k[0] == key]:
             del _re_export_cache[cached]
+        for indexed in [k for k in _binding_index_cache if k[0] == key]:
+            del _binding_index_cache[indexed]
+
+
+@dataclass(frozen=True)
+class _CachedIndex:
+    """One package's binding index and the files it couldn't parse (#803)."""
+
+    index: _BindingIndex
+    #: POSIX paths of the files that failed to parse while building it.
+    unparseable: tuple[str, ...]
+
+
+# The binding index, cached per package (#803). #393's cache above is keyed by
+# handle, so before this every NEW handle rebuilt its package's whole index
+# (django: 907 files per inspect, 13-15 s cold). Keyed on the project, its
+# layout and the package root; cleared with the scans by invalidate_re_exports
+# (the watcher, configure_packages). It holds compact (source -> bindings)
+# facts, never ASTs. Under _re_export_lock, never held across an await; each
+# key's build is serialised by its own lock, so concurrent first calls share
+# one build. A build that overlaps an invalidation of ITS project (that
+# project's generation, or the global epoch, moved) is returned to its caller
+# but not stored, so no pre-edit index is kept. Other projects' invalidations
+# don't touch it, or steady watcher traffic elsewhere would keep it empty.
+_IndexKey = tuple[str, str, str]
+_BINDING_INDEX_CACHE_MAX = 32
+_binding_index_cache: OrderedDict[_IndexKey, _CachedIndex] = OrderedDict()
+_index_build_locks: dict[_IndexKey, threading.Lock] = {}
+_index_generations: dict[str, int] = {}
+_index_epoch = 0
+
+
+def _package_binding_index(package_root: Path, analyzer: JediAnalyzer) -> _CachedIndex:
+    """*package_root*'s binding index, built once and cached (#803).
+
+    Synchronous on purpose: no await between the check and the store, so two
+    coroutines on the worker loop can't interleave mid-build. Any failure other
+    than a parse error propagates and nothing is cached (#704).
+    """
+    key = (path_to_key(analyzer.project_path), layout_key(analyzer), path_to_key(package_root))
+    with _re_export_lock:
+        cached = _binding_index_cache.get(key)
+        if cached is not None:
+            _binding_index_cache.move_to_end(key)
+            return cached
+        build_lock = _index_build_locks.setdefault(key, threading.Lock())
+    with build_lock:
+        with _re_export_lock:
+            cached = _binding_index_cache.get(key)  # built while we waited
+            if cached is not None:
+                return cached
+            generation = (_index_epoch, _index_generations.get(key[0], 0))
+        unparseable: list[str] = []
+        built = _CachedIndex(
+            index=_build_binding_index(package_root, analyzer, unparseable),
+            unparseable=tuple(sorted(set(unparseable))),
+        )
+        with _re_export_lock:
+            if generation == (_index_epoch, _index_generations.get(key[0], 0)):
+                _binding_index_cache[key] = built
+                while len(_binding_index_cache) > _BINDING_INDEX_CACHE_MAX:
+                    _binding_index_cache.popitem(last=False)
+            _index_build_locks.pop(key, None)
+    return built
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +306,17 @@ async def _collect_re_exports_impl(
     # One pass over the package builds every file's import table (#795): the
     # BFS below then walks that index in memory. Scanning the package once per
     # hop cost hops x files parses (django.apps.apps: ~66 hops x 907 files).
-    index = _build_binding_index(package_root, analyzer, unparseable)
+    # Cached per package (#803): every handle in the package shares one build.
+    cached = _package_binding_index(package_root, analyzer)
+    if cached.unparseable:
+        if unparseable is None:
+            # Strict mode (#704): raise the real parse error, as the uncached
+            # build did. get_ast doesn't cache a failure, so this re-raises it.
+            for bad in cached.unparseable:
+                file_artifact_cache.get_ast(Path(bad))
+        else:
+            unparseable.extend(cached.unparseable)
+    index = cached.index
 
     # BFS expansion
     visited: set[str] = {handle_str}

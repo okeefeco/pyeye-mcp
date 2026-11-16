@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "re_exports is an expand edge to the re-exporting module; the inspect field is deprecated, cached and kept (#393)"
 issues: [393, 712, 729, 749, 704]
 anchors: ["pyeye.mcp.operations.edges.resolve_re_exports", "pyeye.mcp.operations.edges.EdgeResult", "pyeye.canonicalization.re_export_scan", "pyeye.canonicalization.invalidate_re_exports"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-17-803-the-re-export-binding-index-is-cached-per-package.md"]
 superseded_by: []
 ---
 
