@@ -84,21 +84,26 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 
-### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #458; re-verified unchanged vs the 2026-06-21 global-server capture except row 5's `report_issues` key)*
+### Probe suite + recorded baseline *(re-captured 2026-11-16, build `2.0.1.dev117+g95c7b40b4` = main @ `95c7b40b` after #782, Python 3.12; caches `PYEYE_PARSO_CACHE_MAX_ENTRIES=1000`, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500`, `PYEYE_SCRIPT_CACHE_MAX_ENTRIES=200`; max RSS 333 MB under `MemoryMax=2.5G`; the #629 sign-off, report on #636)*
 
-| # | Probe | Expected (baseline) | Demonstrates |
-|---|-------|---------------------|--------------|
-| 1 | `resolve("django.db.models.Model")` | `handle: django.db.models.base.Model`, `kind:class`, `scope:project`, `base.py:501` | **canonical-handle collapse** — the re-export resolves to its definition site |
-| 2 | `inspect("django.db.models.Model")` | `superclasses:["…utils.AltersData"]`, `signature:"Model()"`, `edge_counts:{members:68, superclasses:1}`, `re_exports:["…operations.fields.Model"]`; **no `callers`/`references` key** | **absence-vs-zero** (no caller key) + **static-surface ceiling** (`members:68` omits metaclass-injected `_meta`/`objects`/`DoesNotExist`) |
-| 3 | `expand("django.db.models.Model", "superclasses")` | one stub: `django.db.models.utils.AltersData` | matches `edge_counts.superclasses` |
-| 4 | `expand("django.core.signing", "imported_by")` | 10 module stubs incl. `django.http.request`, `django.contrib.sessions.backends.base`, and `tests.*` | reverse-static import graph (deterministic) |
-| 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333), plus a `report_issues` URL (**#458**, PR #460) | **honest-limit refusal** — not faked, not empty; refusal now carries the in-band report path |
+| # | Probe | Expected (baseline) | Demonstrates / changed since 2026-06-22 |
+|---|-------|---------------------|-----------------------------------------|
+| 1 | `resolve("django.db.models.Model")` | `handle: django.db.models.base.Model`, `kind:class`, `scope:project`, `base.py:501` | **canonical-handle collapse**: the re-export resolves to its definition site. Unchanged. |
+| 2 | `inspect("django.db.models.Model")` | `superclasses:["…utils.AltersData"]`, `signature:"Model()"`, `edge_counts:{members:67, superclasses:1}`, `re_exports:["django.db.models.Model"]`; **no `callers`/`references` key** | **absence-vs-zero** (no caller key) and the **static-surface ceiling** (`members` omits the metaclass-injected `_meta`/`objects`/`DoesNotExist`). Changed: `re_exports` was `["…migrations.operations.fields.Model"]`, an internal import binding; only public paths are reported now (**#712**, PR #766). `members` was 68; 67 is exact (66 methods plus `pk`), because the 5 `save.alters_data = True`-style statements assign an attribute and bind nothing. |
+| 3 | `expand("django.db.models.Model", "superclasses")` | one stub: `django.db.models.utils.AltersData`; `ceiling:"declared_bases"`, `unresolved_superclasses:[]` | matches `edge_counts.superclasses`. Added: `ceiling` (**#417**, PR #760) and `unresolved_superclasses` (**#624**). |
+| 4 | `expand("django.core.signing", "imported_by")` | 10 module stubs incl. `django.http.request`, `django.contrib.sessions.backends.base`, and `tests.*`; `ceiling:"static_imports"`, `unresolved_importers:[]`, `unparseable_files:[".../tests/test_runner_apps/tagged/tests_syntax_error.py"]` | the reverse-static import graph (deterministic). Added: `ceiling` (**#417**), `unresolved_importers` (**#668**), and `unparseable_files` (**#729**, PR #754), which names django's deliberately broken test file instead of skipping it silently. |
+| 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333), plus a `report_issues` URL (**#458**, PR #460) | **honest-limit refusal**: not faked, not empty, and it carries the in-band report path. Unchanged. |
 
-**Round-trip probe** ([[pyeye-verify]] §1b), module `django.db.models.base`:
-*no baseline recorded yet*. Record one the next time the scenario is
-provisioned, tagged with the build.
+All five are identical on an in-process repeat. The first `inspect` (33 s) and the first `imported_by` (29 s) include building the indices; repeats take ≤0.4 s.
 
-> Probe 2's `members:68` is a count of *statically written* members. Reporting it as
+**Round-trip probe** ([[pyeye-verify]] §1b), module `django.db.models.base`
+(57 stubs): **not recorded, blocked by #795.** The first three stubs round-trip
+in milliseconds. The fourth, `inspect("django.apps.registry.apps")`, spends
+minutes in the deprecated `re_exports` scan, which re-parses all 907 package
+files on each of its ~66 BFS hops. One run was killed at 60 minutes, and one
+crashed with SIGSEGV. Record the row once #795 lands, tagged with that build.
+
+> Probe 2's `members:67` is a count of *statically written* members. Reporting it as
 > "Model's complete attribute set" would be wrong — `_meta`, `objects`, `DoesNotExist`
 > are metaclass-injected and invisible to static analysis. The verify rubric treats
 > mislabelling a static count as runtime-exhaustive as a FAIL.
