@@ -297,7 +297,14 @@ async def expand_resolved(
     # #435 slice B: cap before building stubs, so a 900-wide edge costs 200
     # stub builds.  ``trace`` passes no cap: it has its own node budget.
     kept, truncation = cap_items(edge_result.adjacents, max_stubs, MAX_STUBS, "max_stubs")
-    stubs = [build_stub(name, str(adj_handle), analyzer) for adj_handle, name in kept]
+    extras = edge_result.stub_extras or {}
+    stubs = [
+        {
+            **build_stub(name, str(adj_handle), analyzer),
+            **extras.get(str(adj_handle), {}),
+        }
+        for adj_handle, name in kept
+    ]
 
     result: dict[str, Any] = {"found": True, "source": source, "edge": edge, "stubs": stubs}
     result.update(truncation)

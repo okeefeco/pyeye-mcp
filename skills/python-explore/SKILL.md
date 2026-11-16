@@ -57,7 +57,7 @@ code, `Read` the `file:line` it points you at.
 |-----------|-----------|---------|
 | `resolve(identifier)` | Turn a name, dotted path, or `file:line` into a canonical handle | `{handle, kind, scope, location}` — or `{ambiguous, candidates}` |
 | `resolve_at(file, line, column)` | Turn a position (stack frame, pasted line) into a handle | same shape as `resolve` |
-| `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node, plus kind-dependent fields (e.g. `superclasses`, `re_exports`); no source |
+| `inspect(handle)` | Answer "what is this?" — kind, signature, docstring, `edge_counts` | a structural Node, plus kind-dependent fields (e.g. `superclasses`; `re_exports` is deprecated, use the `re_exports` edge); no source |
 | `outline(handle)` | See the structural skeleton of a module or class in one call | a tree of member stubs (direct members by default; `max_depth` to go deeper) |
 | `expand(handle, edge)` | Walk ONE edge to the immediate neighbours | a list of stubs |
 | `trace(start, follow, …)` | Walk edges across multiple hops | a subgraph (nodes + edges) |
@@ -134,7 +134,7 @@ Notes that matter:
 `expand` and `trace` walk these edges. This is the **complete** set pyeye can answer
 reliably today:
 
-<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope submodules -->
+<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope submodules re_exports -->
 
 | Edge | Direction | Meaning |
 |------|-----------|---------|
@@ -146,6 +146,7 @@ reliably today:
 | `superclasses` | class → its bases | the class's direct base classes, in declaration order; bases that don't resolve are listed in `unresolved_superclasses` |
 | `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
 | `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
+| `re_exports` | symbol → the public modules that re-export it | each stub is the re-exporting **module**; its `bindings` lists the public paths it provides (`["pkg.Foo"]`). Public = a package `__init__`, a name in `__all__`, or a public module importing from a `_private` one. Not counted in `edge_counts`; unparseable package files are listed in `unparseable_files` |
 
 **`imports` and `imported_by` are not exact inverses.** If `imports(M)` shows
 module `B`, then `M` is in `imported_by(B)`. The reverse can fail: a module that
@@ -186,6 +187,7 @@ of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The 
 - `static_imports`: import statements written in source; importlib / __import__ with a computed name is not included.
 - `static_calls`: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
 - `on_disk_modules`: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
+- `package_reexports`: import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included.
 
 <!-- markdownlint-enable MD050 -->
 
@@ -313,11 +315,11 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   they can't be stubs. They are still dependents: count them when sizing fan-in.
   `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
   list (`[]` when every importer has a handle).
-- **`unparseable_files`** (present only when you traced `subclasses` or `imported_by`): a
+- **`unparseable_files`** (present only when you traced `subclasses`, `imported_by` or `re_exports`): a
   `{handle: [file, …]}` map of project files the server's Python **couldn't parse** (often
   newer syntax than its interpreter), so the reverse scan never read them. A subclass or
   importer defined there is **unknown, not absent**. `expand(handle, "subclasses" |
-  "imported_by")` carries the same flat `unparseable_files: [file, …]` list (`[]` when every
+  "imported_by" | "re_exports")` carries the same flat `unparseable_files: [file, …]` list (`[]` when every
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
@@ -328,9 +330,13 @@ claim from `imports` likewise requires the node absent from `unresolved_imports`
 
 ### Framework plugin tools — always pass `envelope=true`
 
-When pyeye detects Pydantic, Django or Flask, it also registers that framework's
-tools (`find_pydantic_models`, `get_model_schema`, `find_django_models`,
-`find_flask_routes`, `find_error_handlers`, …). By default they return a bare list:
+When pyeye detects Pydantic, Django or Flask (in the project or a configured package),
+it also registers that framework's tools (`find_pydantic_models`, `get_model_schema`,
+`find_django_models`, `find_flask_routes`, `find_error_handlers`, …). After
+`configure_packages` adds a package that brings a new framework, its result lists the
+newly activated plugins in `activated_plugins`, and their tools are **callable by name
+at once**: call them even if your tool list hasn't refreshed (pyeye sends no
+list-changed notification). By default they return a bare list:
 an empty answer is *zero content items*, and nothing says which scope was searched.
 "These are all the models" looks the same as "these are the main repo's models".
 

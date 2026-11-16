@@ -123,13 +123,13 @@ class MetricsCollector:
         Returns:
             Decorated function
         """
-        import asyncio
+        import inspect
 
         def decorator(func: F) -> F:
             metric_name = name or f"{func.__module__}.{func.__name__}"
 
             # Check if the function is async
-            if asyncio.iscoroutinefunction(func):
+            if inspect.iscoroutinefunction(func):  # not asyncio.*: deprecated in 3.14 (#763)
 
                 @functools.wraps(func)
                 async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

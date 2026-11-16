@@ -5,7 +5,7 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from .exceptions import ValidationError
-from .path_utils import absolute_path, ensure_posix_path
+from .path_utils import absolute_path, ensure_posix_path, normalize_path, relative_within
 
 
 class PathValidator:
@@ -67,7 +67,7 @@ class PathValidator:
             # Only resolve if the path contains .. or is absolute
             # This preserves relative paths for testing
             if ".." in path_str or path_obj.is_absolute():
-                resolved_path = path_obj.resolve()
+                resolved_path = normalize_path(path_obj)
             else:
                 # Keep relative paths as-is
                 resolved_path = path_obj
@@ -94,18 +94,15 @@ class PathValidator:
 
         # If base_path is provided, ensure the path is within it
         if base_path:
-            base = Path(base_path).resolve()
-            try:
-                # Check if path is relative to base
-                # Resolve for this check only
-                check_path = (
-                    resolved_path if resolved_path.is_absolute() else resolved_path.resolve()
-                )
-                check_path.relative_to(base)
-            except ValueError as e:
+            base = normalize_path(base_path)
+            # Resolve for this check only
+            check_path = (
+                resolved_path if resolved_path.is_absolute() else normalize_path(resolved_path)
+            )
+            if relative_within(check_path, base) is None:
                 raise ValidationError(
-                    f"Path {check_path.as_posix()} is outside base directory {base}"
-                ) from e
+                    f"Path {check_path.as_posix()} is outside base directory {base.as_posix()}"
+                )
 
         # Check for dangerous file names
         path_str_normalized = resolved_path.as_posix().replace("\\", "/")
@@ -230,7 +227,6 @@ def validate_mcp_inputs(func: Any) -> Any:
     ValidationError for invalid inputs rather than returning error dicts.
     Properly handles both sync and async functions.
     """
-    import asyncio
     import functools
     import inspect
 
@@ -331,7 +327,7 @@ def validate_mcp_inputs(func: Any) -> Any:
     sig = inspect.signature(func)
 
     # Check if the function is async
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):  # not asyncio.*: deprecated in 3.14 (#763)
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

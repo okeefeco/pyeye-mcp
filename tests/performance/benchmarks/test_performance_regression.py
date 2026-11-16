@@ -1,6 +1,7 @@
 """Performance regression tests to catch performance degradation."""
 
 import asyncio
+import statistics
 import time
 import timeit
 from pathlib import Path
@@ -57,36 +58,19 @@ class TestPerformanceBaselines:
 
     @pytest.mark.asyncio
     async def test_symbol_search_performance(self, temp_project):
-        """Test that symbol search meets performance requirements."""
+        """Warm symbol search stays fast, measured robustly (#385, #773).
+
+        It used to assert p95/p50 over 10 samples: one scheduler stall on a
+        shared runner was the p95.  Now the statistic is the minimum, across
+        repeated runs, of each run's median (see :func:`_warm_median_ms`).  The
+        cold first call (jedi import + parse, #383) is excluded by warming up.
+        """
         analyzer = JediAnalyzer(str(temp_project))
-        collector = MetricsCollector()
+        await analyzer.find_symbol("TestClass")  # warm-up, not measured
 
-        @collector.measure("symbol_search")
-        async def search():
-            return await analyzer.find_symbol("TestClass")
-
-        # Warm up the analyzer's caches WITHOUT recording the call. The first call is
-        # cold (jedi import + initial parse) and on slow CI runners takes 400-500ms;
-        # counting it would dominate p95 over only ~10 samples and deterministically
-        # fail macOS CI (#383). Warm up via the analyzer directly so the collector
-        # only records steady-state, warm runs.
-        await analyzer.find_symbol("TestClass")
-
-        # Measure multiple warm runs
-        for _ in range(10):
-            await search()
-
-        stats = collector.get_stats("symbol_search")
-
-        # Performance requirements (platform-aware thresholds — see tests/utils/performance.py).
-        # The AST fallback for inheritance detection (fix #234) adds overhead, and CI runners
-        # (especially macOS) are slow and variable, so naive flat caps deterministically fail
-        # on macOS CI (#383). CommonThresholds carries the macos_ci tier for exactly this.
+        median_ms = await _warm_median_ms(lambda: analyzer.find_symbol("TestClass"))
         assert_performance_threshold(
-            stats["p95_ms"], CommonThresholds.SYMBOL_SEARCH_P95, "Symbol search p95"
-        )
-        assert_performance_threshold(
-            stats["p50_ms"], CommonThresholds.SYMBOL_SEARCH_P50, "Symbol search p50"
+            median_ms, CommonThresholds.WARM_FIND_SYMBOL_MS, "Warm symbol search median"
         )
 
     def test_metrics_overhead(self):
@@ -205,23 +189,52 @@ class TestPerformanceUnderLoad:
         )
         assert_performance_threshold(burst_ms, cold_burst_threshold, "Cold burst of 50 requests")
 
-        # Warm per-call latency: sequential, so no call waits behind another.
-        collector = MetricsCollector()
+        # Warm per-call latency, sequential so no call waits behind another.  The
+        # p99 of 50 calls measured scheduler stalls (235 ms on macOS CI, #773); the
+        # minimum of repeated medians doesn't.
+        median_ms = await _warm_median_ms(lambda: analyzer.find_symbol("test_function"))
+        assert_performance_threshold(
+            median_ms, CommonThresholds.WARM_FIND_SYMBOL_MS, "Warm find_symbol median"
+        )
 
-        @collector.measure("warm_find_symbol")
-        async def operation():
+    @pytest.mark.asyncio
+    async def test_warm_find_symbol_guard_catches_a_5x_slowdown(self, temp_project):
+        """The guard is real: a find_symbol five times as slow fails it (#773).
+
+        The injected cost is a fixed busy-wait of 4x this platform's calibrated
+        baseline, on top of the real call: at least 5x the baseline whatever the
+        runner's speed, so a fast runner can't make it pass vacuously.
+        """
+        analyzer = JediAnalyzer(str(temp_project))
+        await analyzer.find_symbol("test_function")
+        spin_s = CommonThresholds.WARM_FIND_SYMBOL_BASELINE_MS.get_threshold() * 4 / 1000
+
+        async def slowed():
+            end = time.perf_counter() + spin_s
+            while time.perf_counter() < end:
+                pass
             return await analyzer.find_symbol("test_function")
 
-        for _ in range(50):
-            await operation()
-        stats = collector.get_stats("warm_find_symbol")
-        warm_p99_threshold = PerformanceThresholds(
-            base=50.0,  # ~2-3 ms locally
-            linux_ci=100.0,
-            macos_ci=200.0,
-            windows_ci=200.0,
-        )
-        assert_performance_threshold(stats["p99_ms"], warm_p99_threshold, "Warm find_symbol p99")
+        median_ms = await _warm_median_ms(slowed)
+        assert median_ms > CommonThresholds.WARM_FIND_SYMBOL_MS.get_threshold()
+
+
+async def _warm_median_ms(call, calls: int = 40, repeats: int = 5) -> float:
+    """Per-call latency of *call*, robust to scheduler stalls (#773).
+
+    Times *calls* sequential awaits per run and takes each run's median (a few
+    stalled calls can't move it), then the minimum over *repeats* runs (a run
+    slowed throughout by a noisy neighbour can't either), as ``timeit`` advises.
+    """
+    medians = []
+    for _ in range(repeats):
+        samples = []
+        for _ in range(calls):
+            start = time.perf_counter()
+            await call()
+            samples.append((time.perf_counter() - start) * 1000)
+        medians.append(statistics.median(samples))
+    return min(medians)
 
 
 # Performance baseline configuration for CI

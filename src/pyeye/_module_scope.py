@@ -1,6 +1,7 @@
 """The one module-scope import walk (#360).
 
-Leaf module: depends only on :mod:`ast`. It sits below both the analyzers
+Leaf module: depends only on :mod:`ast`. It holds the module-scope import walk and
+the import table built on it (moved here in #712). It sits below both the analyzers
 (``analyzers.base_resolution``) and the MCP operations (``mcp.operations.edges``)
 so every caller shares one walk without a lower layer importing ``pyeye.mcp``
 (#630).
@@ -9,7 +10,7 @@ so every caller shares one walk without a lower layer importing ``pyeye.mcp``
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 #: AST nodes that open a NEW binding scope.  An ``import`` inside one of these
 #: binds a local variable or a class attribute — NOT a module-scope name — so the
@@ -61,3 +62,54 @@ def iter_module_scope_imports(
                 yield from _walk(ast.iter_child_nodes(node))
 
     yield from _walk(tree.body)
+
+
+def build_import_table(
+    tree: ast.Module,
+    module: str,
+    resolve_relative: Callable[[str, str | None, int, bool], str | None],
+    is_package: bool = False,
+) -> dict[str, str]:
+    """Build the surface-name → target-path table for one module's AST.
+
+    Only **unguarded top-level** imports are considered (the scope a class base
+    resolves in), via the shared walk with ``include_guarded=False`` (#360,
+    #630): an import under ``if TYPE_CHECKING:`` or in a try/except shim may not
+    be the binding that runs, so the resolver punts to Jedi for it. ``as``-aliases are captured under the alias; ``import a.b.c`` binds the
+    head ``a``; relative imports are made absolute via *resolve_relative*; star
+    imports are skipped (their names can't be resolved statically — the resolver
+    will punt to Jedi for bases that rely on them).
+
+    Args:
+        tree: Parsed module AST.
+        module: Dotted name of this module (for relative-import resolution).
+        resolve_relative: ``(module, imported_module_or_None, level, is_package)
+            -> abs path`` — typically ``import_analyzer.resolve_relative_import``.
+        is_package: ``True`` when *module* is a package ``__init__`` — required
+            for correct relative resolution of nested-package re-exports (#426).
+
+    Returns:
+        ``{surface name: target dotted path}``.
+    """
+    table: dict[str, str] = {}
+    # Unguarded imports only: a guarded binding can't be committed to (#630).
+    for node in iter_module_scope_imports(tree, include_guarded=False):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    table[alias.asname] = alias.name
+                else:
+                    head = alias.name.split(".")[0]
+                    table[head] = head
+        elif isinstance(node, ast.ImportFrom):
+            base = (
+                resolve_relative(module, node.module, node.level, is_package)
+                if node.level > 0
+                else node.module
+            )
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                surface = alias.asname or alias.name
+                table[surface] = f"{base}.{alias.name}" if base else alias.name
+    return table

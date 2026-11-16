@@ -313,14 +313,15 @@ class TestCollectReExportsImplEdgeCases:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_scan_propagates_a_jedi_error(self, analyzer: JediAnalyzer) -> None:
+    async def test_scan_propagates_a_read_error(self, analyzer: JediAnalyzer) -> None:
         """A file the scan can't read propagates (#704) rather than being skipped.
 
         Skipping it would return a re-export list that claims to be complete.
         """
         with (
-            patch("pyeye.file_artifact_cache.get_script", side_effect=RuntimeError("jedi error")),
-            pytest.raises(RuntimeError, match="jedi error"),
+            # The scan reads each file's AST for its import table (#712).
+            patch("pyeye.file_artifact_cache.get_ast", side_effect=RuntimeError("read error")),
+            pytest.raises(RuntimeError, match="read error"),
         ):
             await _scan_package_for_handle(
                 "package._impl.config.Config",

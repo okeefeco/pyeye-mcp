@@ -3,9 +3,11 @@
 import ast
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob
+from ..path_utils import relative_within
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,12 @@ def _str_value(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
+
+
+def _template_name(template_file: Path, template_dir: Path) -> str:
+    """A template's name: its path below the templates directory, POSIX form (#717)."""
+    rel = relative_within(template_file, template_dir)
+    return rel.as_posix() if rel is not None else template_file.name
 
 
 class FlaskPlugin(AnalyzerPlugin):
@@ -256,7 +264,7 @@ class FlaskPlugin(AnalyzerPlugin):
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),
-                                    "name": template_file.relative_to(template_dir).as_posix(),
+                                    "name": _template_name(template_file, template_dir),
                                     "type": "template",
                                 }
                             )
@@ -264,7 +272,7 @@ class FlaskPlugin(AnalyzerPlugin):
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),
-                                    "name": template_file.relative_to(template_dir).as_posix(),
+                                    "name": _template_name(template_file, template_dir),
                                     "type": "template",
                                 }
                             )

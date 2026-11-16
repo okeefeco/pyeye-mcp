@@ -89,3 +89,24 @@ def test_baseline_keys_name_real_rules() -> None:
 def test_cli_ratchet_exits_zero_on_the_repo(capsys: pytest.CaptureFixture[str]) -> None:
     assert checker.main([]) == 0
     assert "0 new, 0 stale" in capsys.readouterr().out
+
+
+def test_the_baseline_is_empty() -> None:
+    """#717 migrated every site: path_utils / project_layout are the only owners.
+
+    The allow-list is gone, so any new normalisation or comparison fails the
+    ratchet. Route it through path_utils; never re-grow BASELINE.
+    """
+    assert checker.BASELINE == {}
+
+
+def test_cli_fails_on_a_new_site_with_an_empty_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    probe = tmp_path / "probe.py"
+    probe.write_text("from pathlib import Path\nx = Path('a').resolve()\n", encoding="utf-8")
+    monkeypatch.setattr(checker, "iter_files", lambda: iter([probe]))
+    monkeypatch.setattr(checker, "REPO_ROOT", tmp_path)
+
+    assert checker.main([]) == 1
+    assert "1 new" in capsys.readouterr().out

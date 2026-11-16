@@ -157,6 +157,11 @@ jobs:
         run: uv sync --locked
 
       - name: Run tests with coverage
+        # #775: the merge queue runs the exhaustive path variants too, so it
+        # tests exactly what push-to-main tests (the gap that let main go red).
+        # Off on Windows, where symlinks need privileges, as on test-main.
+        env:
+          PYEYE_EXHAUSTIVE_PATHS: ${{ github.event_name == 'merge_group' && matrix.os != 'windows-latest' && '1' || '' }}
         run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
 
       - name: Upload coverage to Codecov

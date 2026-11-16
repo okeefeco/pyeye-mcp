@@ -106,6 +106,7 @@ It lists every place outside `path_utils` / `project_layout` that normalises or 
 - NEVER normalise or compare paths outside `pyeye.path_utils` / `pyeye.project_layout`. Use `relative_within()` (containment, spelling-insensitive), `paths_equal()` (equality) or `normalize_path()` (resolved form).
 - NEVER add a site to the checker's `BASELINE`. It only shrinks: when a migration removes a site, lower or delete its entry (the ratchet fails until you do).
 - Jedi gets RESOLVED paths (root, `added_sys_path`, Script paths); the caller's spelling is for display (#714).
+- A new response field that carries file paths MUST be added, in the same PR, to `path_utils._FILE_LIST_KEYS` (so it is respelled in the caller's spelling) and to `_PATH_LIST_KEYS` in `tests/test_mcp_path_boundary.py`.
 
 > The former `cross-platform-validator` agent was retired (#483) — it depended on removed v2.0 tools and re-implemented, semantically, the textual check the static script already does. See `04-agent-triggers.md` → "Why no cross-platform-validator agent".
 
