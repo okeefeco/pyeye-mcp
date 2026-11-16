@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "The resolved class graph is cached per project, layout, scope and generation, and dropped whole on any change (#397)"
 issues: [397, 617, 618, 713]
 anchors: ["pyeye.analyzers.project_graph.get_class_graph", "pyeye.analyzers.project_graph.ClassGraph", "pyeye.analyzers.project_graph.invalidate", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.find_subclasses", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._build_class_graph", "tests/unit/analyzers/test_class_graph_cache.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-17-817-build-inputs-are-dropped-before-the-generation-moves.md"]
 superseded_by: []
 ---
 

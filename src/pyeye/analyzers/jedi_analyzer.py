@@ -513,13 +513,15 @@ class JediAnalyzer:
         if cached is not None:
             return list(cached) if isinstance(cached, list) else []
 
+        # Snapshot before listing: a listing that raced an invalidation is
+        # returned but not cached, so it can't outlive the change (#817).
+        epoch = self.scoped_cache.epoch()
         search_paths = await self._resolve_scope_to_paths(scope)
 
         # Use parallel search for better performance
         unique_files = await parallel_search(pattern, list(search_paths))
 
-        # Cache the result
-        self.scoped_cache.set(cache_key, unique_files, scope)
+        self.scoped_cache.set(cache_key, unique_files, scope, epoch=epoch)
 
         return unique_files
 
