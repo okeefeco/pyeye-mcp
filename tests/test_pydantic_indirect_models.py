@@ -185,6 +185,11 @@ async def test_the_class_graph_is_built_once_for_the_whole_walk(
 
         return real(project_key, counted, *args, **kwargs)  # type: ignore[arg-type]
 
+    # This counts builds within ONE walk, not watcher behaviour. The fixture files
+    # are written just before the watcher starts, inside the catch-up sweeps'
+    # mtime margin, so a sweep landing mid-walk re-signals them all and drops
+    # the graph (#789). No sweeps, so only the walk itself can trigger a build.
+    monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
     project_graph.invalidate()
     monkeypatch.setattr(project_graph, "get_class_graph", counting)
     models = await PydanticPlugin(str(project)).find_models("main")

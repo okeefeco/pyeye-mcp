@@ -27,6 +27,10 @@ CATCHUP_SWEEP_OFFSETS: tuple[float, ...] = (0.5, 5.0)
 
 #: Slack before each sweep's cutoff, for coarse-mtime filesystems (FAT/exFAT
 #: 2 s, #731): a file written in the same tick as the cutoff isn't skipped.
+#: Accepted cost (#789): a file written up to this long BEFORE the watcher
+#: started is re-signalled too (one extra invalidation per sweep). A tighter,
+#: per-file cutoff can't tell it from a write just after start, because kernels
+#: stamp mtimes from a coarse clock, milliseconds behind time.time_ns().
 CATCHUP_MTIME_MARGIN_NS = 2_000_000_000
 
 
