@@ -207,6 +207,19 @@ async def test_a_removed_binding_goes_after_the_watcher_runs(tmp_path: Path) -> 
         manager.cleanup_all()
 
 
+def _seed(project: Path, package: str) -> tuple[str, str, str]:
+    """Put an index entry for *project* straight into the cache, and return its key.
+
+    The cache-content tests below don't rely on a store happening: a watcher
+    left running by another test, or a catch-up sweep, may legitimately
+    invalidate a project mid-build (#803's queue drop on macOS).
+    """
+    key = (path_to_key(project), "layout", path_to_key(project / package))
+    with canonicalization._re_export_lock:
+        canonicalization._binding_index_cache[key] = canonicalization._CachedIndex({}, ())
+    return key
+
+
 @pytest.mark.asyncio
 async def test_configure_packages_drops_the_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -219,30 +232,26 @@ async def test_configure_packages_drops_the_index(
     manager = ProjectManager(max_projects=10)
     monkeypatch.setattr(project_manager_module, "_project_manager", manager)
     monkeypatch.setattr(server, "_plugins", [])
-    request_cleanup = manager.cleanup_all
+    _project(tmp_path, _PKG)
+    mine = _seed(tmp_path, "pkg")
+    other = _seed(tmp_path.parent / "elsewhere", "pkg")
+    try:
+        await server.configure_packages(packages=[], project_path=str(tmp_path))
+    finally:
+        manager.cleanup_all()
 
-    analyzer = _project(tmp_path, _PKG)
-    await re_export_scan(Handle("pkg._core.X"), analyzer)
-    assert canonicalization._binding_index_cache
-
-    await server.configure_packages(packages=[], project_path=str(tmp_path))
-
-    project = path_to_key(tmp_path)
-    assert not [k for k in canonicalization._binding_index_cache if k[0] == project]
-    request_cleanup()
+    assert mine not in canonicalization._binding_index_cache
+    assert other in canonicalization._binding_index_cache
 
 
-@pytest.mark.asyncio
-async def test_invalidation_is_per_project(tmp_path: Path) -> None:
-    one = _project(tmp_path / "one", _PKG)
-    two = _project(tmp_path / "two", _PKG)
-    await re_export_scan(Handle("pkg._core.X"), one)
-    await re_export_scan(Handle("pkg._core.X"), two)
+def test_invalidation_is_per_project(tmp_path: Path) -> None:
+    one = _seed(tmp_path / "one", "pkg")
+    two = _seed(tmp_path / "two", "pkg")
 
     invalidate_re_exports(tmp_path / "one")
 
-    roots = {k[0] for k in canonicalization._binding_index_cache}
-    assert roots == {path_to_key(tmp_path / "two")}
+    assert list(canonicalization._binding_index_cache) == [two]
+    assert one not in canonicalization._binding_index_cache
     invalidate_re_exports()
     assert not canonicalization._binding_index_cache
 
@@ -266,13 +275,32 @@ async def test_an_index_built_across_an_invalidation_is_not_stored(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_another_projects_invalidation_mid_build_still_stores(tmp_path: Path) -> None:
+    """Watcher traffic elsewhere must not keep this project's index uncached (#803)."""
+    analyzer = _project(tmp_path / "mine", _PKG)
+    real = canonicalization._build_binding_index
+
+    def build_while_another_project_changes(root, *args, **kwargs):  # type: ignore[no-untyped-def]
+        index = real(root, *args, **kwargs)
+        invalidate_re_exports(tmp_path / "someone-else")  # their watcher, during our build
+        return index
+
+    with patch.object(
+        canonicalization, "_build_binding_index", build_while_another_project_changes
+    ):
+        await re_export_scan(Handle("pkg._core.X"), analyzer)
+
+    roots = {k[0] for k in canonicalization._binding_index_cache}
+    assert roots == {path_to_key(tmp_path / "mine")}
+
+
+@pytest.mark.asyncio
 async def test_the_index_cache_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(canonicalization, "_BINDING_INDEX_CACHE_MAX", 1)
+    first = _seed(tmp_path, "pkg")
     analyzer = _project(tmp_path, _PKG)
 
-    await re_export_scan(Handle("pkg._core.X"), analyzer)
     await re_export_scan(Handle("other._impl.W"), analyzer)
 
-    assert [k[2] for k in canonicalization._binding_index_cache] == [
-        path_to_key(tmp_path / "other")
-    ]
+    assert first not in canonicalization._binding_index_cache  # evicted by the cap
+    assert len(canonicalization._binding_index_cache) <= 1

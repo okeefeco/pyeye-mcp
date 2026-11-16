@@ -160,14 +160,18 @@ async def re_export_scan(handle: Handle, analyzer: JediAnalyzer) -> ReExportScan
 
 def invalidate_re_exports(root: Path | str | None = None) -> None:
     """Drop the cached re-export scans and binding indexes of the project at *root*, or all."""
-    global _index_generation
+    global _index_epoch
     with _re_export_lock:
-        _index_generation += 1  # a build that overlaps this won't be stored (#803)
+        # A build that overlaps this won't be stored (#803). Per project: a
+        # watcher batch for one project must not discard another's builds.
         if root is None:
+            _index_epoch += 1  # stales every in-flight build, so the counters can go
+            _index_generations.clear()
             _re_export_cache.clear()
             _binding_index_cache.clear()
             return
         key = path_to_key(root)
+        _index_generations[key] = _index_generations.get(key, 0) + 1
         for cached in [k for k in _re_export_cache if k[0] == key]:
             del _re_export_cache[cached]
         for indexed in [k for k in _binding_index_cache if k[0] == key]:
@@ -190,13 +194,16 @@ class _CachedIndex:
 # (the watcher, configure_packages). It holds compact (source -> bindings)
 # facts, never ASTs. Under _re_export_lock, never held across an await; each
 # key's build is serialised by its own lock, so concurrent first calls share
-# one build. A build that overlaps an invalidation (the generation moved) is
-# returned to its caller but not stored, so no pre-edit index is kept.
+# one build. A build that overlaps an invalidation of ITS project (that
+# project's generation, or the global epoch, moved) is returned to its caller
+# but not stored, so no pre-edit index is kept. Other projects' invalidations
+# don't touch it, or steady watcher traffic elsewhere would keep it empty.
 _IndexKey = tuple[str, str, str]
 _BINDING_INDEX_CACHE_MAX = 32
 _binding_index_cache: OrderedDict[_IndexKey, _CachedIndex] = OrderedDict()
 _index_build_locks: dict[_IndexKey, threading.Lock] = {}
-_index_generation = 0
+_index_generations: dict[str, int] = {}
+_index_epoch = 0
 
 
 def _package_binding_index(package_root: Path, analyzer: JediAnalyzer) -> _CachedIndex:
@@ -218,14 +225,14 @@ def _package_binding_index(package_root: Path, analyzer: JediAnalyzer) -> _Cache
             cached = _binding_index_cache.get(key)  # built while we waited
             if cached is not None:
                 return cached
-            generation = _index_generation
+            generation = (_index_epoch, _index_generations.get(key[0], 0))
         unparseable: list[str] = []
         built = _CachedIndex(
             index=_build_binding_index(package_root, analyzer, unparseable),
             unparseable=tuple(sorted(set(unparseable))),
         )
         with _re_export_lock:
-            if generation == _index_generation:
+            if generation == (_index_epoch, _index_generations.get(key[0], 0)):
                 _binding_index_cache[key] = built
                 while len(_binding_index_cache) > _BINDING_INDEX_CACHE_MAX:
                     _binding_index_cache.popitem(last=False)
