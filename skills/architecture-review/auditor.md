@@ -65,8 +65,8 @@ find**, but the seed axes use these exact keys (use the key verbatim in the
 
 **Out of scope — NOT an axis: code duplication.** "The same code written in many
 places" is a content-similarity problem this auditor structurally cannot do; it
-is tracked separately (issue #495). Do not emit it as an axis and do not try to
-detect it.
+belongs to the separate `duplication-review` skill (#495). Do not emit it as an
+axis and do not try to detect it.
 
 For each axis: extract the relevant facts, cluster the observed conventions, tag
 each cluster with its prevalence (how many sites do which), and detect deviations

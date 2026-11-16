@@ -10,12 +10,22 @@ reaching only one copy (#629).
 
 ## What it does
 
+The detector lives in `pyeye.duplication` (#495). This script is the repository's
+ratchet over it. The same core powers the user-facing `duplication-review`
+skill (`python -m pyeye.duplication review`), which adds filters, families and
+dismissals. The ratchet uses none of those: every exact-match clone counts.
+
 - Each file is parsed and flattened into a stream of AST tokens: the node type,
   plus attribute names such as `.infer` or `.full_name`.
 - Local variable names, literal values, docstrings, comments and imports are
   dropped. A copy whose variables were renamed still matches.
 - Any run of at least 35 identical tokens that appears in two places is
   reported as a clone region, with both line ranges.
+- A token window that appears more than 50 times is skipped (#495), so the pair
+  loop stays bounded on repeated data such as large literal tables. Without the
+  cap, one emoji table in `rich` ran out of memory. A copy that contains such a
+  window is still found from its other windows. On this repository the cap
+  changes nothing.
 
 ```bash
 uv run python scripts/duplicate_code_report.py                 # default targets

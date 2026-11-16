@@ -1,6 +1,6 @@
 ---
 name: architecture-review
-description: Use when auditing how a Python codebase's architectural conventions diverge — "review the architecture", "audit conventions", "where does this code disagree with itself", "find inconsistent error-handling/layering/validation patterns", "is this package internally consistent". Surfaces a ranked queue of "here are N ways your code does X — you decide", many entries with no recommendation by design. Audits convention DIVERGENCE, not semantic duplication (that is #495). Scope is caller-supplied. Requires the pyeye MCP server.
+description: Use when auditing how a Python codebase's architectural conventions diverge — "review the architecture", "audit conventions", "where does this code disagree with itself", "find inconsistent error-handling/layering/validation patterns", "is this package internally consistent". Surfaces a ranked queue of "here are N ways your code does X — you decide", many entries with no recommendation by design. Audits convention DIVERGENCE, not duplication (that is the duplication-review skill, #495). Scope is caller-supplied. Requires the pyeye MCP server.
 ---
 
 # Architecture Review
@@ -25,9 +25,9 @@ this just stops you from making them blind.
 **Hard scope caveat — divergence, NOT duplication.** This audits **convention
 divergence** ("your code does X seven different ways"). It does **NOT** detect
 **semantic duplication** ("the same code copy-pasted in many places"). Duplication
-is a content-similarity problem this skill structurally cannot do; it is carved
-out to issue **#495**. Do not run this expecting duplication detection — you will
-not get it.
+is a content-similarity problem this skill structurally cannot do. Use the
+[`duplication-review`](../duplication-review/SKILL.md) skill for copied code
+(#495). Do not run this expecting duplication detection — you will not get it.
 
 **Scope is caller-supplied and REQUIRED.** You must hand this a scope — a package,
 module, or directory. Bounded-scope auto-iteration over a whole large repo is
@@ -49,8 +49,8 @@ auditor may also surface other axes it finds.
 | `naming_api_shape` | Naming & API shape: naming patterns, return-type conventions, sync/async split. |
 | `cross_cutting` | Cross-cutting access: logging, config, path handling. |
 
-> **Not an axis: code duplication.** Carved out to #495 (see the scope caveat
-> above). It never appears as an axis here.
+> **Not an axis: code duplication.** That is the `duplication-review` skill
+> (#495; see the scope caveat above). It never appears as an axis here.
 
 ## The Output Contract — Four Grades
 
