@@ -1,8 +1,15 @@
+<!--
+We don't accept unsolicited pull requests. Open or comment on an issue first,
+and a maintainer will assign it to you. Pull requests that aren't linked to an
+issue assigned to their author may be closed without review.
+See CONTRIBUTING.md, "Contribution Policy".
+-->
+
 ## Description
 <!-- Provide a brief description of the changes -->
 
 ## Related Issue
-<!-- Link to the issue this PR addresses -->
+<!-- Link the issue this PR addresses. It must be assigned to you (see CONTRIBUTING.md, "Contribution Policy"). -->
 Fixes #
 
 ## Type of Change
