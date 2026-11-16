@@ -157,10 +157,20 @@ class ProjectManager:
         Counts registered projects and analyzers together, so the analyzer-only
         path (``get_analyzer`` without a prior ``register_project``) is bounded
         by ``max_projects`` too.
+
+        Every counted project has an ``access_order`` entry (#784), so each
+        eviction lowers the count.  An entry that is no longer counted is
+        skipped, never "evicted": popping it would not lower the count and the
+        loop would go on to evict the newest project, the one just registered.
         """
         while len(set(self.dependencies) | set(self.analyzers)) > self.max_projects:
+            if not self.access_order:
+                logger.warning("LRU accounting out of sync: nothing left to evict")
+                break
             # Remove least recently used
             lru_path = self.access_order.pop(0)
+            if lru_path not in self.dependencies and lru_path not in self.analyzers:
+                continue  # a stale entry: counts for nothing, so evicts nothing
             logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
             self._cleanup_project(lru_path)
 
@@ -341,10 +351,14 @@ class ProjectManager:
             logger.info(f"Invalidated cached analyzer for {path_key.as_posix()}")
         # Its plugin state was built from the same configuration (#665).
         self._drop_plugin_contexts(path_key)
-        # Keep access_order consistent so _evict_if_needed never tries to pop
-        # a path that is no longer in self.analyzers.
-        with contextlib.suppress(ValueError):
-            self.access_order.remove(path_key)
+        # Keep access_order consistent with what _evict_if_needed counts: drop
+        # the entry only if the project is no longer counted at all.  A project
+        # still registered (``dependencies``) is still counted, so removing its
+        # entry made it an unevictable phantom, and eviction then dropped the
+        # project being registered instead (#784).
+        if path_key not in self.dependencies:
+            with contextlib.suppress(ValueError):
+                self.access_order.remove(path_key)
 
     @staticmethod
     def _layout_roots(analyzer: JediAnalyzer) -> list[Path]:

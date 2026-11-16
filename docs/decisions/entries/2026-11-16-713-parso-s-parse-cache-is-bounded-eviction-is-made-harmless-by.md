@@ -6,7 +6,7 @@ anchors: ["pyeye._parso_cache.apply_parso_cache_policy", "pyeye._parso_cache._in
 status: "amended"
 amends: ["2026-11-15-684-parso-s-in-memory-parse-cache-is-never-garbage-collected.md"]
 supersedes: []
-amended_by: ["2026-11-16-713-cached-jedi-scripts-have-their-own-cap-it-is-what-bounds.md"]
+amended_by: ["2026-11-16-713-cached-jedi-scripts-have-their-own-cap-it-is-what-bounds.md", "2026-11-16-783-a-jedi-filter-uses-parso-s-cache-node-only-when-it-is-its-own-tree.md"]
 superseded_by: []
 ---
 
