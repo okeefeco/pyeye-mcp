@@ -2,10 +2,21 @@
 
 First off, thank you for considering contributing to PyEye Server! It's people like you that make this tool better for everyone.
 
-This document provides guidelines for contributing to the project. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request.
+This document provides guidelines for contributing to the project. Most of it is guidance, so use your best judgment. The [contribution policy](#contribution-policy) below is the exception: it is a rule.
+
+## Contribution Policy
+
+We welcome bug reports, ideas and fixes, but we don't accept unsolicited pull requests.
+
+1. **Start with an issue.** Open a new issue, or comment on an existing one, to say what you'd like to work on.
+2. **Wait to be assigned.** A maintainer will reply and, if the work fits the project, assign the issue to you.
+3. **Then open your pull request**, linked to that issue with `Fixes #<issue-number>`.
+
+Pull requests that aren't linked to an issue assigned to their author may be closed without review. This isn't a judgement on the work: it keeps review time for changes we've agreed on together, and makes sure nobody spends effort on something we can't merge.
 
 ## Table of Contents
 
+- [Contribution Policy](#contribution-policy)
 - [Code of Conduct](#code-of-conduct)
 - [How Can I Contribute?](#how-can-i-contribute)
   - [Reporting Bugs](#reporting-bugs)
@@ -57,6 +68,8 @@ Unsure where to begin contributing? You can start by looking through these issue
 - [Issues labeled "good first issue"](https://github.com/okeefeco/pyeye-mcp/labels/good%20first%20issue) - issues which should only require a few lines of code
 - [Issues labeled "help wanted"](https://github.com/okeefeco/pyeye-mcp/labels/help%20wanted) - issues which need extra attention
 
+These labels mark issues that are open for help, not work that is pre-approved. Comment on the issue and wait to be assigned before you start (see the [contribution policy](#contribution-policy)).
+
 ### Pull Requests
 
 The process described here has several goals:
@@ -68,7 +81,7 @@ The process described here has several goals:
 
 Please follow these steps for your contribution:
 
-1. **Create an issue first** - Before starting work, create or find an issue describing what you plan to do
+1. **Create an issue first and get it assigned** - Before starting work, create or find an issue describing what you plan to do, and wait for a maintainer to assign it to you (see the [contribution policy](#contribution-policy))
 2. **Fork the repository** and create your branch from `main`
 3. **Make your changes** - See [Development Process](#development-process) below
 4. **Add tests** - If you've added code, add tests
@@ -76,7 +89,7 @@ Please follow these steps for your contribution:
 6. **Update documentation** - If you've changed APIs, update the relevant documentation
 7. **Add a changelog fragment** - For a user-facing change, add `changes/<issue>.<category>.md` with one or more `-` bullets (for example `changes/619.fixed.md`) instead of editing `CHANGELOG.md`. See [`changes/README.md`](changes/README.md) for the categories. Fragments are collected into `CHANGELOG.md` when a release is prepared.
 8. **Record a design decision, if you made one** - A contract-significant decision gets its own file in `docs/decisions/entries/` (see [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) for the format). `python scripts/decisions.py index` lists existing decisions and `python scripts/decisions.py check` validates them.
-9. **Submit the pull request** - Link it to the issue using "Fixes #issue-number"
+9. **Submit the pull request** - Link it to your assigned issue using "Fixes #issue-number"
 10. **Address review feedback** - Maintainers will review your PR and may request changes
 
 ## Development Process
