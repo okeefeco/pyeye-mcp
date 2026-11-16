@@ -23,6 +23,7 @@ import asyncio
 import json
 import sys
 import time
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -375,7 +376,32 @@ def _sweep_wait_s() -> float:
     return max(SWEEP_WAIT_FLOOR_S, 3 * _last_sweep_s())
 
 
-async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path, until: float) -> bool:
+class FSEventsDiagnostic(UserWarning):
+    """A real-observer test's failure diagnostics, emitted as a warning (#788).
+
+    pytest prints neither the assertion message nor the captured output of an
+    XFAIL, but its warnings summary lists every warning with the test id. So a
+    darwin-xfail failure still leaves its evidence in the CI log: grep for
+    ``FSEventsDiagnostic``. A dedicated class, so it can't meet the
+    ``error::DeprecationWarning:pyeye`` filter or be confused with other warnings.
+    """
+
+
+def _diagnose(message: str) -> None:
+    """Emit *message* as an :class:`FSEventsDiagnostic`, just before the assert fails."""
+    warnings.warn(FSEventsDiagnostic(message), stacklevel=2)
+
+
+def _batches(delivered: list[list[str]], limit: int = 8) -> str:
+    """*delivered*, truncated to *limit* batches, each path shortened to its file name."""
+    shown = [[p.rsplit("/", 1)[-1] for p in batch] for batch in delivered[:limit]]
+    more = f" (+{len(delivered) - limit} more)" if len(delivered) > limit else ""
+    return f"{shown}{more}"
+
+
+async def _wait_until_observer_is_live(
+    watcher: CodebaseWatcher, probe: Path, until: float, stats: dict[str, Any] | None = None
+) -> bool:
     """Wait, until monotonic time *until*, for *watcher*'s observer to deliver (#715).
 
     ``Observer.start()`` returns before the emitter thread is live. On macOS that
@@ -386,16 +412,22 @@ async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path, un
     so write a probe until one change comes through (event-driven, never a
     fixed sleep). Best-effort: returns whether it came up in time, because the
     catch-up sweep, not this handshake, is what guarantees delivery.
+    If *stats* is given, it receives the probe count and handshake time (#788).
     """
     before = watcher.last_change
+    begun = time.monotonic()
     n = 0
+    live = True
     while watcher.last_change == before:
         if time.monotonic() >= until:
-            return False
+            live = False
+            break
         probe.write_text(f"# probe {n}\n")
         n += 1
         await asyncio.sleep(0.2)
-    return True
+    if stats is not None:
+        stats.update(probes=n, handshake_s=time.monotonic() - begun)
+    return live
 
 
 class TestRealObserver:
@@ -480,10 +512,31 @@ class TestRealObserver:
                 deliver(paths)
 
             watcher.on_change_callback = recording
+            hs: dict[str, Any] = {}
             live = await _wait_until_observer_is_live(
-                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S
+                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S, hs
             )
+            handshake = f"handshake {hs['handshake_s']:.2f}s, {hs['probes']} probe(s)"
+            if not live:
+                _diagnose(
+                    f"#788 deadline=handshake: the observer never came up; {handshake}; "
+                    f"batches={_batches(delivered)}"
+                )
             assert live, "the observer never came up"
+            # Wait for the probe's BATCH, not just its event: the handshake returns
+            # on the event, a debounce before the batch is delivered, and that batch
+            # invalidates the whole project. Written in between, extra.py would be
+            # seen even if its own event were dropped, so a drop couldn't fail the
+            # test (#788).
+            settle_by = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            while not delivered and time.monotonic() < settle_by:
+                await asyncio.sleep(0.05)
+            if not delivered:
+                _diagnose(
+                    f"#788 deadline=probe-batch: the probe's event was seen but its batch "
+                    f"never delivered; {handshake}"
+                )
+            assert delivered, "the probe's batch was never delivered"
             assert (await resolve("Gamma", analyzer))["found"] is False
             (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
 
@@ -496,6 +549,14 @@ class TestRealObserver:
                 await asyncio.sleep(0.1)
 
             got_extra = any(p.endswith("extra.py") for batch in delivered for p in batch)
+            if not found:
+                _diagnose(
+                    "#788 deadline=post-write: "
+                    f"{'delivered but not visible' if got_extra else 'dropped'} "
+                    f"(extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch); "
+                    f"{handshake}; waited {SWEEP_WAIT_FLOOR_S:.0f}s after the write; "
+                    f"batches={_batches(delivered)}"
+                )
             assert found, (
                 "a create after the observer was live was missed: "
                 f"extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch "
