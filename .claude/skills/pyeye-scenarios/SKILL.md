@@ -84,7 +84,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 
-### Probe suite + recorded baseline *(re-captured 2026-11-16, build `2.0.1.dev117+g95c7b40b4` = main @ `95c7b40b` after #782, Python 3.12; caches `PYEYE_PARSO_CACHE_MAX_ENTRIES=1000`, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500`, `PYEYE_SCRIPT_CACHE_MAX_ENTRIES=200`; max RSS 333 MB under `MemoryMax=2.5G`; the #629 sign-off, report on #636)*
+### Probe suite + recorded baseline *(re-captured 2026-11-16, build `2.0.1.dev117+g95c7b40b4` = main @ `95c7b40b` after #782, Python 3.12; caches `PYEYE_PARSO_CACHE_MAX_ENTRIES=1000`, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500`, `PYEYE_SCRIPT_CACHE_MAX_ENTRIES=200`; max RSS 333 MB under `MemoryMax=2.5G`; the #629 sign-off, report on #636. Re-verified unchanged 2026-11-17 on `2.0.1.dev123+gb4b4b2a21`)*
 
 | # | Probe | Expected (baseline) | Demonstrates / changed since 2026-06-22 |
 |---|-------|---------------------|-----------------------------------------|
@@ -96,12 +96,24 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 
 All five are identical on an in-process repeat. The first `inspect` (33 s) and the first `imported_by` (29 s) include building the indices; repeats take ≤0.4 s.
 
-**Round-trip probe** ([[pyeye-verify]] §1b), module `django.db.models.base`
-(57 stubs): **not recorded, blocked by #795.** The first three stubs round-trip
-in milliseconds. The fourth, `inspect("django.apps.registry.apps")`, spends
-minutes in the deprecated `re_exports` scan, which re-parses all 907 package
-files on each of its ~66 BFS hops. One run was killed at 60 minutes, and one
-crashed with SIGSEGV. Record the row once #795 lands, tagged with that build.
+**Round-trip probe** ([[pyeye-verify]] §1b) *(captured 2026-11-17, build
+`2.0.1.dev123+gb4b4b2a21` = main @ `b4b4b2a2`, after #795's fix in PR #797;
+Python 3.12; the same caches as the probes above; max RSS 356 MB, 8m17s wall
+time including the probes)*, module `django.db.models.base`:
+
+| Measure | Baseline | Tracking |
+|---------|----------|----------|
+| stubs from `expand("django.db.models.base", "imports")` | 57 (51 `project`, 6 `external`: `collections.defaultdict`, `copy`, `functools.partialmethod`, `inspect`, `itertools.chain`, `warnings`) | |
+| don't round-trip | **0** | |
+| inspect miss / resolve miss | 0 / 0 | |
+| disagree / handle mismatch | 0 / 0 | |
+
+Every stub round-trips, the stdlib ones included. Any miss is a regression.
+Each project stub takes 8–10 s in `inspect` and ≤0.12 s in `resolve`. That
+split hasn't been profiled. On build
+`2.0.1.dev117+g95c7b40b4` this probe never finished. `inspect("django.apps.registry.apps")`
+(stub 4) re-parsed the 907 package files on each of about 66 BFS hops
+(#795, fixed by PR #797). A slow `inspect` stub here means that cost is back.
 
 > Probe 2's `members:67` is a count of *statically written* members. Reporting it as
 > "Model's complete attribute set" would be wrong — `_meta`, `objects`, `DoesNotExist`
