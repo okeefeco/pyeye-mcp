@@ -1,4 +1,4 @@
-"""A nested git worktree must not contribute a second copy of the project (#507).
+"""Nested git checkouts must not contribute a second project to the scan (#507, #810).
 
 ``.claude/worktrees/`` is this project's documented location for isolated
 worktrees, and the project file scan used to recurse into it — giving every
@@ -258,3 +258,110 @@ def test_every_whole_tree_scan_goes_through_filtered_rglob():
             for call in re.findall(r"[\w.]+\.(?:rglob\([^)]*\)|glob\(\"\*\*[^)]*\))", line):
                 found.add((py.name, call))
     assert found <= _SUBTREE_SCANS, sorted(found - _SUBTREE_SCANS)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires a git executable")
+class TestNestedIndependentClones:
+    """#810: a real nested ``git clone`` is excluded; a real submodule and plain dirs are kept.
+
+    A clone is another project (``.git`` is a directory). ``configure_packages``
+    is how a user indexes one on purpose: it scans the clone from its own root.
+    """
+
+    @staticmethod
+    def _git(*args: str, cwd: Path) -> None:
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+
+    def _repo(self, path: Path, files: dict[str, str]) -> Path:
+        path.mkdir(parents=True)
+        self._git("init", "-q", "-b", "main", ".", cwd=path)
+        for rel, text in files.items():
+            f = path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+        self._git("add", "-A", cwd=path)
+        self._git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init", cwd=path)
+        return path
+
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> tuple[Path, Path]:
+        """A project with a submodule, a plain subdirectory, and two nested clones.
+
+        One clone is where pyeye-scenarios provisions (``.scenario-repos/``), the
+        other at a plain path, for ``configure_packages``.
+        """
+        self._repo(tmp_path / "library", {"lib.py": "LIB = 1\n"})
+        upstream = self._repo(
+            tmp_path / "upstream",
+            {"clonepkg/__init__.py": "", "clonepkg/thing.py": "class CloneThing:\n    pass\n"},
+        )
+        project = self._repo(tmp_path / "project", {"app.py": "VALUE = 2\n", "tools/helper.py": ""})
+        self._git("submodule", "add", "-q", "../library", "vendor/library", cwd=project)
+        self._git("clone", "-q", str(upstream), ".scenario-repos/upstream", cwd=project)
+        self._git("clone", "-q", str(upstream), "third_party/upstream", cwd=project)
+        return project, project / ".scenario-repos" / "upstream"
+
+    @pytest.mark.asyncio
+    async def test_real_clone_is_excluded_submodule_and_plain_dir_kept(
+        self, project: tuple[Path, Path]
+    ) -> None:
+        root, clone = project
+        # Precondition: git gives a clone a .git DIRECTORY and a submodule a FILE.
+        assert (clone / ".git").is_dir()
+        assert (root / "third_party" / "upstream" / ".git").is_dir()
+        assert (root / "vendor" / "library" / ".git").is_file()
+
+        results = await rglob_async("*.py", root)
+
+        assert sorted(p.relative_to(root).as_posix() for p in results) == [
+            "app.py",
+            "tools/helper.py",
+            "vendor/library/lib.py",
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("scope", ["main", "all"])
+    async def test_clone_files_never_enter_the_project_scan(
+        self, project: tuple[Path, Path], scope: str
+    ) -> None:
+        root, clone = project
+        files = await JediAnalyzer(str(root)).get_project_files("*.py", scope)
+        clones = (clone, root / "third_party" / "upstream")
+        assert not [f for f in files if any(c in f.parents for c in clones)]
+
+    @pytest.mark.asyncio
+    async def test_configure_packages_indexes_the_clone_on_purpose(
+        self, project: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pyeye.project_manager as project_manager_module
+        from pyeye import file_artifact_cache
+        from pyeye.mcp import server
+        from pyeye.project_manager import ProjectManager
+
+        root, _ = project
+        clone = root / "third_party" / "upstream"
+        manager = ProjectManager(max_projects=10)
+        monkeypatch.setattr(project_manager_module, "_project_manager", manager)
+        monkeypatch.setattr(server, "_plugins", [])
+        project_graph.invalidate()
+        file_artifact_cache.invalidate_all()
+        try:
+            before = await server.resolve("CloneThing", project_path=str(root))
+            assert before["found"] is False
+
+            await server.configure_packages(
+                packages=[clone.as_posix()], project_path=str(root), save=False
+            )
+
+            after = await server.resolve("CloneThing", project_path=str(root))
+            assert after["found"] is True, after
+            assert after["handle"] == "clonepkg.thing.CloneThing"
+        finally:
+            manager.cleanup_all()
+            project_graph.invalidate()
+            file_artifact_cache.invalidate_all()

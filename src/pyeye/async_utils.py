@@ -3,11 +3,12 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 import aiofiles
 
-from .path_utils import relative_within
+from .path_utils import path_to_key, relative_within
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,48 @@ def _gitdir_pointer(directory: Path) -> Path | None:
     return target if target.is_absolute() else directory / target
 
 
+#: A ``path = <dir>`` line of a ``.gitmodules`` file (git-config syntax).
+_GITMODULES_PATH = re.compile(r"^\s*path\s*=\s*(.+?)\s*$")
+
+
+def _declared_submodules(directory: Path) -> set[str]:
+    """``path_to_key`` of every submodule path that ``directory/.gitmodules`` declares.
+
+    The file is read as text: no git dependency, and an unreadable or absent
+    file declares nothing. A quoted value (``path = "a b"``) is unquoted.
+    """
+    try:
+        text = (directory / ".gitmodules").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    declared: set[str] = set()
+    for line in text.splitlines():
+        match = _GITMODULES_PATH.match(line)
+        if match:
+            value = match.group(1)
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            declared.add(path_to_key(directory / value))
+    return declared
+
+
+def _is_nested_repo(directory: Path, declared_submodules: set[str]) -> bool:
+    """Whether ``directory`` is an independent nested git repository (#810).
+
+    Its ``.git`` is a **directory** (a clone, not a pointer file) and no
+    ``.gitmodules`` declares it as a submodule. A submodule written by git
+    1.7.8 or later has a ``.git`` *file* and is never matched here; an older
+    one with a ``.git`` directory is kept by its ``.gitmodules`` entry. A
+    linked worktree also has a ``.git`` file and is :func:`_is_linked_worktree`'s.
+    """
+    try:
+        if not (directory / ".git").is_dir():
+            return False
+    except OSError:
+        return False
+    return path_to_key(directory) not in declared_submodules
+
+
 def _is_linked_worktree(directory: Path) -> bool:
     """Whether ``directory`` is the root of a linked git worktree (#507).
 
@@ -93,7 +136,7 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     every whole-tree scan (the framework plugins) call it, so none of them can
     walk into a nested worktree or ``.venv`` on its own.
 
-    Two exclusion rules apply:
+    Three exclusion rules apply:
 
     1. **Name-based** — any path component *below* ``path`` in
        ``EXCLUDED_DIRS`` (virtual envs, caches, build artifacts). Components of
@@ -103,6 +146,13 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
        that is a linked git worktree root. A linked worktree is a duplicate of
        the tree it was created from, so scanning one gives every project symbol
        a second definition site, possibly on another branch or mid-edit.
+    3. **Nested independent repositories** (#810) — any directory *strictly
+       below* ``path`` whose ``.git`` is a directory (a clone, vendored or
+       provisioned, e.g. ``.scenario-repos/django``), unless a ``.gitmodules``
+       in a directory walked so far, or in ``path`` or one of its ancestors,
+       declares it as a submodule. A clone is another project; a user who
+       wants one indexed adds it with ``configure_packages``, which scans it
+       from its own root, where this rule never applies.
 
     A directory is a linked worktree when its ``.git`` is a **file** holding a
     ``gitdir:`` pointer *and* that gitdir is git's linked-worktree kind — see
@@ -118,7 +168,7 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
 
     Returns:
         List of matching paths (excludes .venv, __pycache__, .git, nested
-        worktrees, etc.)
+        worktrees, nested independent clones, etc.)
     """
     from .constants import EXCLUDED_DIRS
 
@@ -131,10 +181,20 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     # tested, so an ancestor named e.g. ``build`` doesn't exclude the project
     # (#515); ``path`` itself is never tested as a worktree.
     results: list[Path] = []
+    # Submodules declared by a superproject above the scan root, or at it (#810).
+    declared: set[str] = set()
+    for ancestor in (path, *path.parents):
+        declared |= _declared_submodules(ancestor)
     for dirpath, dirnames, filenames in os.walk(path):
         here = Path(dirpath)
+        if here != path and ".gitmodules" in filenames:
+            declared |= _declared_submodules(here)  # a nested superproject's own
         dirnames[:] = [
-            d for d in dirnames if not _excluded(d) and not _is_linked_worktree(here / d)
+            d
+            for d in dirnames
+            if not _excluded(d)
+            and not _is_linked_worktree(here / d)
+            and not _is_nested_repo(here / d, declared)
         ]
         for name in (*dirnames, *filenames):
             if _excluded(name):
