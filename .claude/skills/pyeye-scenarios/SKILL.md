@@ -37,6 +37,8 @@ path. The catalog is the **axis of variation**:
   siblings just need this common parent. (`.scenario-repos/` is in the repo's
   `.gitignore`; do NOT hardcode a personal path like `~/GitHub/test` — it isn't portable
   and shared external clones collide across worktrees.)
+  pyeye's own project scan skips a nested clone (its `.git` is a directory, #810), so
+  clones here don't pollute pyeye-on-pyeye analysis.
 - **Pin commits.** A recorded baseline is only meaningful against fixed source. Each
   scenario lists exact SHAs.
 - **Full clone, not `--depth 1`.** A shallow clone cannot check out an arbitrary pinned

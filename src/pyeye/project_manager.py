@@ -497,8 +497,19 @@ class ProjectManager:
             f"{len(paths)} change(s) under {Path(root).as_posix()}; "
             f"invalidating {len(projects)} project(s)"
         )
+        # Order matters (#817). First drop everything an index or graph build
+        # READS, then bump the generations those builds are guarded by. A build
+        # that sees a new generation must also see fresh inputs; otherwise it
+        # caches a stale result under the new generation and #617's guard
+        # passes. The inputs: each analyzer's file listings (scoped_cache, the
+        # only one not self-validating) and the changed paths' ASTs and Scripts
+        # (file_artifact_cache, re-checked by mtime and size on every read anyway).
         for path in paths:
             file_artifact_cache.invalidate(path)
+        for project in projects:
+            analyzer = self.analyzers.get(project)
+            if analyzer is not None:
+                analyzer.scoped_cache.invalidate_all()
         for project in projects:
             project_graph.invalidate(project.as_posix())
             # A referenced type can move to another file, which the TypeRef key
@@ -506,9 +517,6 @@ class ProjectManager:
             typeref.invalidate_project(project)
             # Any change can add or drop a re-export anywhere in the package (#393).
             canonicalization.invalidate_re_exports(project)
-            analyzer = self.analyzers.get(project)
-            if analyzer is not None:
-                analyzer.scoped_cache.invalidate_all()
 
     def cleanup_all(self) -> None:
         """Clean up all projects and evict the analyzer cache."""
