@@ -26,7 +26,7 @@ import sys
 import time
 import warnings
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import pytest
@@ -400,7 +400,7 @@ def _diagnose(message: str) -> None:
 
 def _batches(delivered: list[list[str]], limit: int = 8) -> str:
     """*delivered*, truncated to *limit* batches, each path shortened to its file name."""
-    shown = [[p.rsplit("/", 1)[-1] for p in batch] for batch in delivered[:limit]]
+    shown = [[PureWindowsPath(p).name for p in batch] for batch in delivered[:limit]]
     more = f" (+{len(delivered) - limit} more)" if len(delivered) > limit else ""
     return f"{shown}{more}"
 
