@@ -6,7 +6,7 @@ anchors: ["pyeye.async_utils.rglob_async", "pyeye.scope_utils.parallel_search", 
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-16-517-every-whole-tree-scan-goes-through-filtered-rglob.md"]
+amended_by: ["2026-11-16-517-every-whole-tree-scan-goes-through-filtered-rglob.md", "2026-11-17-810-the-project-scan-excludes-nested-independent-repositories.md"]
 superseded_by: []
 ---
 

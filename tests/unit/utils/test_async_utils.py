@@ -284,3 +284,104 @@ class TestRglobAsyncNestedCheckouts:
         results = await rglob_async("*.py", tmp_path)
 
         assert [p.name for p in results] == ["app.py"]
+
+
+class TestRglobNestedIndependentRepos:
+    """A nested independent clone is another project, not this one's source (#810).
+
+    Its ``.git`` is a directory. #507 named this "vendored nested clone" as known
+    residue; the pyeye-scenarios convention (clones under ``.scenario-repos/``)
+    then put 2,922 django files into pyeye-on-pyeye analysis.
+    """
+
+    @staticmethod
+    def _make_clone(parent: Path, name: str) -> Path:
+        clone = parent / name
+        (clone / ".git").mkdir(parents=True)
+        (clone / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        return clone
+
+    async def test_excludes_a_nested_clone(self, tmp_path):
+        (tmp_path / "app.py").write_text("")
+        clone = self._make_clone(tmp_path / ".scenario-repos", "django")
+        (clone / "django").mkdir()
+        (clone / "django" / "base.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in results] == ["app.py"]
+
+    async def test_excludes_a_clone_at_any_depth(self, tmp_path):
+        clone = self._make_clone(tmp_path / "a" / "b", "vendored")
+        (clone / "lib.py").write_text("")
+        (tmp_path / "a" / "kept.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in results] == ["a/kept.py"]
+
+    async def test_includes_a_plain_subdirectory(self, tmp_path):
+        """A directory without ``.git`` is ordinary project source."""
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "mod.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in results] == ["pkg/mod.py"]
+
+    async def test_the_scan_root_may_itself_be_a_clone(self, tmp_path):
+        """The root is never tested: a project is normally a clone."""
+        project = self._make_clone(tmp_path, "project")
+        (project / "app.py").write_text("")
+
+        results = await rglob_async("*.py", project)
+
+        assert [p.name for p in results] == ["app.py"]
+
+    async def test_keeps_an_old_style_submodule_declared_in_gitmodules(self, tmp_path):
+        """A pre-1.7.8 submodule has a ``.git`` directory; ``.gitmodules`` keeps it."""
+        (tmp_path / ".gitmodules").write_text(
+            '[submodule "vendor/lib"]\n\tpath = vendor/lib\n\turl = ../lib\n'
+        )
+        submodule = self._make_clone(tmp_path / "vendor", "lib")
+        (submodule / "lib.py").write_text("")
+        other = self._make_clone(tmp_path / "vendor", "undeclared")
+        (other / "noise.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in results] == ["vendor/lib/lib.py"]
+
+    async def test_a_quoted_gitmodules_path_is_unquoted(self, tmp_path):
+        (tmp_path / ".gitmodules").write_text('[submodule "x"]\n\tpath = "my lib"\n')
+        submodule = self._make_clone(tmp_path, "my lib")
+        (submodule / "lib.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.name for p in results] == ["lib.py"]
+
+    async def test_a_superprojects_gitmodules_above_the_root_counts(self, tmp_path):
+        """Scanning a subdirectory of a superproject still honours its ``.gitmodules``."""
+        (tmp_path / ".gitmodules").write_text('[submodule "s"]\n\tpath = proj/vendor/lib\n')
+        project = tmp_path / "proj"
+        submodule = self._make_clone(project / "vendor", "lib")
+        (submodule / "lib.py").write_text("")
+
+        results = await rglob_async("*.py", project)
+
+        assert [p.relative_to(project).as_posix() for p in results] == ["vendor/lib/lib.py"]
+
+    async def test_a_nested_superprojects_gitmodules_counts(self, tmp_path):
+        """A ``.gitmodules`` met during the walk declares paths relative to its own directory."""
+        sub = tmp_path / "tools"
+        sub.mkdir()
+        (sub / ".gitmodules").write_text('[submodule "s"]\n\tpath = third_party/lib\n')
+        submodule = self._make_clone(sub / "third_party", "lib")
+        (submodule / "lib.py").write_text("")
+
+        results = await rglob_async("*.py", tmp_path)
+
+        assert [p.relative_to(tmp_path).as_posix() for p in results] == [
+            "tools/third_party/lib/lib.py"
+        ]
