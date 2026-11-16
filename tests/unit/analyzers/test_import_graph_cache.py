@@ -7,7 +7,8 @@ project, layout, scope and generation, with the class graph's lifecycle (#397
 slice 1). Pinned here:
 
 - the graph answers exactly what the old per-target scan answered (a copy of it
-  is the reference below), over fixtures and the pyeye repo itself;
+  is the reference below), over fixtures and the pyeye repo itself, plus the
+  files it couldn't parse (#729), which the old scan skipped without a word;
 - #668: an importer with no module name is still listed (``unresolved_importers``),
   warm or cold, never silently dropped;
 - #619: ``imported_by`` counts function- and class-body imports that ``imports``
@@ -29,6 +30,7 @@ from pyeye import file_artifact_cache
 from pyeye.analyzers import project_graph
 from pyeye.analyzers.jedi_analyzer import Importers, JediAnalyzer
 from pyeye.mcp.operations.expand import expand
+from pyeye.path_utils import path_to_key
 from tests.test_imports_imported_by import _FILES as FORMS_FILES
 from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
 
@@ -75,7 +77,14 @@ def unnamed(tmp_path: Path) -> dict[str, Path]:
 def _reference_scan(
     analyzer: JediAnalyzer, module_path: str, target_file: Path, py_files: list[Path]
 ) -> Importers:
-    """The pre-#397 per-target scan, verbatim in logic (text pre-filter, then AST)."""
+    """The pre-#397 per-target scan, verbatim in logic (text pre-filter, then AST).
+
+    Plus #729's disclosure, which predates nothing here but the old scan never
+    had: every file in scope that raises ``SyntaxError`` is listed, for every
+    target, whether or not the text pre-filter would have read it. Without it
+    the oracle disagreed with the graph on any tree holding such a file (#810:
+    a django clone under ``.scenario-repos/`` failed ``test_the_pyeye_repo``).
+    """
     target_root = module_path.split(".")[0]
     importers: dict[str, Path] = {}
     unnamed: list[Path] = []
@@ -130,9 +139,18 @@ def _reference_scan(
                         break
         except Exception:
             continue
+    unparseable: list[str] = []
+    for py_file in py_files:
+        try:
+            file_artifact_cache.get_ast(py_file)
+        except SyntaxError:  # only a parse failure is "unparseable" (#704, #729)
+            unparseable.append(path_to_key(py_file))
+        except Exception:
+            continue
     return Importers(
         named=[(m, importers[m]) for m in sorted(importers)],
         unnamed=unnamed,
+        unparseable=tuple(sorted(unparseable)),
     )
 
 
@@ -161,6 +179,18 @@ class TestSameAnswerAsTheOldScan:
     async def test_unnamed_importers_corpus(self, unnamed: dict[str, Path]) -> None:
         analyzer = JediAnalyzer(str(unnamed["root"]))
         assert await _assert_matches_reference(analyzer, ["pkg", "pkg.target", "pkg.named"]) > 0
+
+    async def test_a_tree_with_an_unparseable_file(self, tmp_path: Path) -> None:
+        """#810: a syntax-error file is disclosed for every target, by both sides."""
+        _write(tmp_path / "pkg" / "__init__.py", "")
+        _write(tmp_path / "pkg" / "target.py", "def f():\n    return 1\n")
+        _write(tmp_path / "pkg" / "user.py", "from pkg import target\n")
+        broken = _write(tmp_path / "vendor" / "tests_syntax_error.py", "def (:\n")
+        analyzer = JediAnalyzer(str(tmp_path))
+
+        assert await _assert_matches_reference(analyzer, ["pkg", "pkg.target", "pkg.user"]) > 0
+        got = await analyzer.find_importers("pkg", tmp_path / "pkg" / "__init__.py", scope="all")
+        assert got.unparseable == (path_to_key(broken),)
 
     async def test_the_pyeye_repo(self) -> None:
         """A real 470-file tree: a sample of its modules, including the busiest."""
