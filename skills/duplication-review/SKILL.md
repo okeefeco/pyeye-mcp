@@ -106,8 +106,9 @@ Filters, always on and stated in every run:
   `raise NotImplementedError`). A concrete method of an ABC or `Protocol` is
   real code and is kept.
 - **Naming.** Each region is named after the function or class holding most of
-  its lines, so a copy that starts in the tail of the previous function is
-  still named after the copied one.
+  its code (counted in AST tokens, so comments and blank lines don't count). A
+  copy that starts in the tail of the previous function is still named after the
+  copied one, and a comment-only edit never changes a location.
 
 ## The Review Loop
 

@@ -35,7 +35,9 @@ With no paths it scans ``src/pyeye/mcp/operations`` and
 ``pyeye.duplication.DEFAULT_MAX_OCCURRENCES`` times is paired with its next
 occurrence only (#495): the pair loop stays linear on repeated data, and every
 copy is still reported, so a 51-way copy fails the ratchet like a 2-way one.
-A target file that can't be parsed fails the ratchet.
+Because such copies are chained, removing one copy from a 50+ family re-pairs
+its neighbours: one new site key and one stale one, which is harmless while
+BASELINE is empty. A target file that can't be parsed fails the ratchet.
 """
 
 from __future__ import annotations

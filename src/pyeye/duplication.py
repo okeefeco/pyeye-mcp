@@ -36,9 +36,10 @@ and token counts.
   ``@overload`` or ``@abstractmethod`` def, or a def whose body is only ``...``,
   ``pass``, a docstring or ``raise NotImplementedError``. A concrete method of an
   ABC or ``Protocol`` is not a stub.
-* **Naming.** A region is named after the scope that holds most of its lines,
-  not the scope where its first token falls (a copy often starts in the tail of
-  the previous function).
+* **Naming.** A region is named after the scope that holds most of its AST
+  tokens, not the scope where its first token falls (a copy often starts in the
+  tail of the previous function). Comments and blank lines carry no tokens, so a
+  comment-only edit can't rename a location and re-surface a dismissal.
 * **Families.** Sites are grouped into connected components over their
   ``file::qualname`` endpoints. For a pair between two different classes, each
   end is folded into its class, so the copies between two classes form one
@@ -66,6 +67,7 @@ import ast
 import datetime as _dt
 import json
 import sys
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -198,6 +200,10 @@ class FindStats:
     windows: int = 0
     capped_windows: int = 0
     pairs_examined: int = 0
+    #: Coverage lookups: one O(log n) bisect per examined pair, never a scan.
+    coverage_steps: int = 0
+    #: The most disjoint covered runs held for one (stream pair, offset).
+    max_intervals: int = 0
 
 
 def find_clones(
@@ -232,7 +238,7 @@ def find_clones(
 
     # Runs already reported, as intervals of ``ia`` per (stream a, stream b,
     # offset): the same positions the per-token set used to hold, in O(runs).
-    covered: dict[tuple[int, int, int], list[tuple[int, int]]] = defaultdict(list)
+    covered: dict[tuple[int, int, int], _Intervals] = defaultdict(_Intervals)
     clones: list[Clone] = []
     for positions in index.values():
         if len(positions) < 2:
@@ -247,7 +253,8 @@ def find_clones(
         for (sa, ia), (sb, ib) in pairs:
             stats.pairs_examined += 1
             runs = covered[(sa, sb, ib - ia)]
-            if any(lo <= ia <= hi for lo, hi in runs):
+            stats.coverage_steps += 1
+            if ia in runs:
                 continue  # interior of a run already reported
             if sa == sb and ib < ia + min_tokens:
                 continue  # overlaps itself
@@ -260,7 +267,8 @@ def find_clones(
                 and not (sa == sb and ia + n >= ib)
             ):
                 n += 1
-            runs.append((ia, ia + n - min_tokens))
+            runs.add(ia, ia + n - min_tokens)
+            stats.max_intervals = max(stats.max_intervals, len(runs))
             clones.append(
                 Clone(
                     a[ia].file,
@@ -274,6 +282,33 @@ def find_clones(
             )
     clones.sort(key=lambda c: (-c.tokens, c.a_file, c.a_start))
     return _drop_nested(clones)
+
+
+class _Intervals:
+    """Disjoint, sorted closed intervals of ints: O(log n) membership."""
+
+    def __init__(self) -> None:
+        self._starts: list[int] = []
+        self._ends: list[int] = []
+
+    def __len__(self) -> int:
+        return len(self._starts)
+
+    def __contains__(self, value: object) -> bool:
+        if not isinstance(value, int):
+            return False
+        i = bisect_right(self._starts, value) - 1
+        return i >= 0 and value <= self._ends[i]
+
+    def add(self, lo: int, hi: int) -> None:
+        """Add ``lo..hi``, merging it with any interval it overlaps or touches."""
+        i = bisect_left(self._ends, lo - 1)
+        j = i
+        while j < len(self._starts) and self._starts[j] <= hi + 1:
+            lo, hi = min(lo, self._starts[j]), max(hi, self._ends[j])
+            j += 1
+        self._starts[i:j] = [lo]
+        self._ends[i:j] = [hi]
 
 
 def _contains(outer: Clone, inner: Clone) -> bool:
@@ -397,15 +432,22 @@ class _FileFacts:
                 best, span = qualname, end - start
         return best
 
-    def majority_scope(self, start: int, end: int) -> str:
-        """The innermost scope holding the most lines of ``start..end``.
+    def majority_scope(self, start: int, end: int, weights: dict[int, int] | None = None) -> str:
+        """The innermost scope holding the most of ``start..end``, weighted by tokens.
 
-        Ties go to the scope reached last, so a region that starts in the tail of
-        one function and covers as much of the next is named after the next.
+        *weights* maps a line to its number of AST tokens, so comment and blank
+        lines weigh nothing and a comment-only edit can't change the name. Without
+        it every line weighs 1. Ties go to the scope reached last, so a region that
+        starts in the tail of one function and covers as much of the next is
+        named after the next.
         """
         counts: dict[str, int] = defaultdict(int)
         for line in range(start, end + 1):
-            counts[self.innermost(line)] += 1
+            weight = 1 if weights is None else weights.get(line, 0)
+            if weight:
+                counts[self.innermost(line)] += weight
+        if not counts:
+            return self.innermost(start)
         best = max(counts.values())
         return [q for q in counts if counts[q] == best][-1]
 
@@ -425,9 +467,15 @@ class _FileFacts:
 class _Facts:
     """Per-run cache of :class:`_FileFacts`, so each file is parsed once."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, streams: Iterable[Sequence[Token]] = ()) -> None:
         self._root = root
         self._files: dict[str, _FileFacts] = {}
+        #: Tokens per line, per file: the naming weights.
+        self.weights: dict[str, dict[int, int]] = {}
+        for stream in streams:
+            for tok in stream:
+                per_line = self.weights.setdefault(tok.file, {})
+                per_line[tok.lineno] = per_line.get(tok.lineno, 0) + 1
 
     def __call__(self, file: str) -> _FileFacts:
         if file not in self._files:
@@ -530,7 +578,8 @@ class Family:
 
 
 def _region(facts: _Facts, file: str, start: int, end: int) -> Region:
-    return Region(file, start, end, facts(file).majority_scope(start, end))
+    weights = facts.weights.get(file)
+    return Region(file, start, end, facts(file).majority_scope(start, end, weights))
 
 
 def _keeps(facts: _Facts, a: Region, b: Region) -> bool:
@@ -610,10 +659,15 @@ def build_families(sites: Sequence[Site], root: Path, facts: _Facts | None = Non
     }
     ends: list[tuple[str, str]] = []
     for s, (ca, cb) in zip(sites, classes, strict=True):
-        if ca is not None and cb is not None and (ca != cb or cross_members & set(s.locations)):
+        if ca is not None and cb is not None and ca != cb:
             na, nb = ca, cb
         else:
-            na, nb = plain(s.a), plain(s.b)
+            # A location that is part of a cross-class pair is always its class
+            # node, whatever this site's other end is, so it is in one family.
+            na = ca if ca is not None and s.a.location in cross_members else plain(s.a)
+            nb = cb if cb is not None and s.b.location in cross_members else plain(s.b)
+            if ca is not None and ca == cb and cross_members & set(s.locations):
+                na = nb = ca
         ends.append((na, nb))
         parent[find(na)] = find(nb)
     grouped: dict[str, list[Site]] = defaultdict(list)
@@ -650,7 +704,15 @@ def apply_dismissals(
     suppressed: list[Family] = []
     for fam in families:
         locs = set(fam.locations)
-        touching = [d for d in known if locs & set(d["handles"])]
+        # ``file::<module>`` is shared by unrelated module-level code, so it never
+        # links a family to a dismissal by itself; a covered site still does.
+        named = {loc for loc in locs if not loc.endswith(f"::{_MODULE}")}
+        touching = [
+            d
+            for d in known
+            if named & set(d["handles"])
+            or any(set(site.locations) <= set(d["handles"]) for site in fam.sites)
+        ]
         if not touching:
             shown.append(fam)
             continue
@@ -662,10 +724,10 @@ def apply_dismissals(
             if not holders:
                 fresh.append(s)
         if fresh:
-            named = set().union(*(set(d["handles"]) for d in touching))
+            dismissed = set().union(*(set(d["handles"]) for d in touching))
             fam.status, fam.dismissal = "resurfaced", _public(touching[0])
             fam.new_sites = fresh
-            fam.new_locations = sorted(locs - named)
+            fam.new_locations = sorted(locs - dismissed)
         elif any(_due(d, today) for d in covering):
             fam.status = "review-due"
             fam.dismissal = _public(next(d for d in covering if _due(d, today)))
@@ -785,7 +847,7 @@ def review(
     unparseable: list[str] = []
     streams = collect(paths, root, unparseable)
     clones = find_clones(streams, min_tokens, max_occurrences, stats)
-    facts = _Facts(root)
+    facts = _Facts(root, streams)
     families = build_families(build_sites(clones, root, facts), root, facts)
     shown, suppressed = apply_dismissals(families, dismissals, today)
     scope = [display_path(p, root) for p in paths]
@@ -890,10 +952,20 @@ def load_dismissal_state(path: Path) -> dict[str, Any]:
     if not isinstance(entries, list):
         raise ValueError(f"state file {path.as_posix()!r}: confirmed_non_issues must be a list")
     for n, entry in enumerate(entries):
-        if not isinstance(entry, dict) or not isinstance(entry.get("handles"), list):
-            raise ValueError(f"state file {path.as_posix()!r}: entry {n} has no handles list")
-        if entry.get("structural_fact") == DISMISSAL_FACT and entry.get("review_after"):
-            _check_date(entry["review_after"], f"entry {n} review_after")
+        handles = entry.get("handles") if isinstance(entry, dict) else None
+        if not isinstance(handles, list) or not all(isinstance(h, str) for h in handles):
+            raise ValueError(f"state file {path.as_posix()!r}: entry {n} has no list of handles")
+        if entry.get("structural_fact") != DISMISSAL_FACT:
+            continue
+        for key in ("dismissed_on", "review_after"):
+            value = entry.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"state file {path.as_posix()!r}: entry {n} {key} must be a string"
+                )
+            _check_date(value, f"entry {n} {key}")
     return state
 
 

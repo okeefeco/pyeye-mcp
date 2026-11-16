@@ -643,7 +643,7 @@ def test_the_same_qualname_twice_in_one_file_is_one_location(tmp_path: Path) -> 
         ("{bad", "not readable JSON"),
         ("[1]", "must hold a JSON object"),
         ('{"confirmed_non_issues": {}}', "must be a list"),
-        ('{"confirmed_non_issues": [{"structural_fact": "duplication"}]}', "no handles list"),
+        ('{"confirmed_non_issues": [{"structural_fact": "duplication"}]}', "list of handles"),
         (
             '{"confirmed_non_issues": [{"handles": [], "structural_fact": "duplication", '
             '"review_after": "soon"}]}',
@@ -712,3 +712,122 @@ def test_a_scope_outside_root_is_rejected(
 def test_a_missing_scope_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="does not exist"):
         dup.review([tmp_path / "nope"], tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Regressions from the #820 re-review
+# ---------------------------------------------------------------------------
+
+_SMALL = "def small(self, q):\n    return [q * 2 for _ in range(q) if q]\n"
+
+
+def _whole_class(name: str, comments: int = 0) -> str:
+    small = _SMALL.replace(
+        "    return", "".join(f"    # note {i}\n" for i in range(comments)) + "    return"
+    )
+    big = _BODY.format(name="big").replace("(handle", "(self, handle")
+    return f"class {name}:\n" + textwrap.indent(small + big, "    ")
+
+
+def test_a_comment_only_edit_keeps_the_location(tmp_path: Path) -> None:
+    """Re-review B: naming counted physical lines, so comments could rename a site."""
+    _write(tmp_path, "a.py", _whole_class("A"))
+    _write(tmp_path, "b.py", _whole_class("B"))
+    (before,) = _review(tmp_path).families
+    state_path = tmp_path / "state.json"
+    _dismiss_all(tmp_path, state_path)
+    _write(tmp_path, "a.py", _whole_class("A", comments=40))
+    (after,) = _review(tmp_path).families
+    assert after.locations == before.locations
+    assert _shown(tmp_path, state_path).families == [], "a comment-only edit must not re-surface"
+
+
+def _many_runs_per_offset(root: Path, files: int, statements: int) -> None:
+    """Files identical but for a line every 6 statements: many runs per offset."""
+    for j in range(files):
+        lines = [
+            (
+                f"    y = z.only_in_file_{j}\n"
+                if i % 6 == 5
+                else f"    x = helper(a, b[{i}], c.attr_{i}(d, e), [f for f in g if f > {i}])\n"
+            )
+            for i in range(statements)
+        ]
+        _write(
+            root, f"f{j:02d}.py", "def big(a, b, c, d, e, g):\n" + "".join(lines) + "    return a\n"
+        )
+
+
+def test_coverage_is_one_bounded_lookup_per_pair(tmp_path: Path) -> None:
+    """Re-review A: the covered check scanned a growing list per pair."""
+    _many_runs_per_offset(tmp_path, files=4, statements=180)
+    stats = dup.FindStats()
+    dup.find_clones(dup.collect([tmp_path], tmp_path), 35, 50, stats)
+    assert stats.max_intervals >= 25, "the input holds many disjoint runs per offset"
+    # One bisect per pair; a linear scan would cost up to max_intervals per pair.
+    assert stats.coverage_steps == stats.pairs_examined
+
+
+def test_intervals_merge_and_answer_membership() -> None:
+    ivs = dup._Intervals()
+    ivs.add(10, 12)
+    ivs.add(20, 25)
+    ivs.add(13, 19)  # touches both: one interval
+    assert len(ivs) == 1 and all(n in ivs for n in (10, 16, 25)) and 9 not in ivs and 26 not in ivs
+    ivs.add(1, 2)
+    ivs.add(30, 31)
+    assert len(ivs) == 3 and 3 not in ivs and 30 in ivs and "x" not in ivs
+
+
+def test_a_location_is_in_exactly_one_family(tmp_path: Path) -> None:
+    """Re-review C: Base.helper landed in a class family and a plain one."""
+    helper = _BODY.format(name="helper").replace("(handle", "(self, handle")
+    _write(tmp_path, "base.py", "class Base:\n" + textwrap.indent(helper, "    "))
+    _write(tmp_path, "other.py", "class Other:\n" + textwrap.indent(helper, "    "))
+    _write(tmp_path, "m.py", _BODY.format(name="one"))
+    families = _review(tmp_path).families
+    seen = [loc for f in families for loc in f.locations]
+    assert len(seen) == len(set(seen)), [f.locations for f in families]
+    (family,) = families
+    assert family.locations == ["base.py::Base.helper", "m.py::one", "other.py::Other.helper"]
+
+
+def test_module_level_code_never_links_unrelated_dismissals() -> None:
+    """Re-review: families sharing ``file::<module>`` touched each other's dismissals."""
+    fam_a = dup.Family(
+        [dup.Site(dup.Region("m.py", 1, 9, "<module>"), dup.Region("a.py", 1, 9, "f"), 40, 1)]
+    )
+    fam_b = dup.Family(
+        [dup.Site(dup.Region("m.py", 30, 39, "<module>"), dup.Region("b.py", 1, 9, "g"), 40, 1)]
+    )
+    state: dict[str, Any] = {"confirmed_non_issues": []}
+    dup.dismiss(state, fam_a, "benign-idiom", "2026-11-17")
+    shown, suppressed = dup.apply_dismissals([fam_a, fam_b], state["confirmed_non_issues"])
+    assert suppressed == [fam_a]
+    assert [(f.status, f.dismissal) for f in shown] == [("new", None)]
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        (
+            '{"handles": ["a::b"], "structural_fact": "duplication", "review_after": 5}',
+            "must be a string",
+        ),
+        (
+            '{"handles": ["a::b"], "structural_fact": "duplication", "dismissed_on": []}',
+            "must be a string",
+        ),
+        ('{"handles": [1], "structural_fact": "duplication"}', "list of handles"),
+    ],
+)
+def test_non_string_state_values_exit_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], entry: str, match: str
+) -> None:
+    """Re-review D: a numeric review_after raised TypeError past the ValueError handler."""
+    _write(tmp_path, "a.py", "x = 1\n")
+    (tmp_path / "s.json").write_text('{"confirmed_non_issues": [' + entry + "]}", encoding="utf-8")
+    args = ["review", str(tmp_path), "--root", str(tmp_path), "--state", str(tmp_path / "s.json")]
+    assert dup.main(args) == 2
+    err = capsys.readouterr().err
+    assert match in err and "Traceback" not in err
