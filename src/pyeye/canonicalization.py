@@ -18,13 +18,14 @@ find_module_file(module_dotted, analyzer) -> Path | None
 
 Design notes
 ------------
-**Re-export collection strategy (BFS scan):** ``_collect_re_exports_impl``
-uses a breadth-first scan of all Python files in the package directory.  For
-each file, Jedi's ``get_names()`` is called; any name whose ``full_name``
-matches the *current* target handle is recorded as a re-export.  The newly
-discovered handles then become targets for the next BFS round.  A ``visited``
-set prevents revisiting handles and guarantees termination even when the
-package contains self-referential re-exports.
+**Re-export collection strategy (BFS over one import index):**
+``_collect_re_exports_impl`` parses each Python file in the package directory
+once and indexes its AST import table by source (``_build_binding_index``,
+#712, #795).  A breadth-first walk over that index then records every binding
+whose source is the *current* target; the newly discovered handles become
+targets for the next round.  A ``visited`` set prevents revisiting handles and
+guarantees termination even when the package contains self-referential
+re-exports.  The cost is one parse per file per scan, whatever the depth.
 
 Results are sorted lexicographically for deterministic ordering.
 
@@ -194,14 +195,14 @@ async def _collect_re_exports_impl(
     ---------
     1.  Determine the *package root directory* — the top-level directory of
         the package that owns the canonical handle.
-    2.  BFS loop: start with a queue = [canonical_handle_str].  For each
-        item, scan all ``.py`` files under the package root using Jedi's
-        ``get_names()``.  Any name whose ``full_name`` matches the current
-        queue item, and whose computed module path differs from the canonical
-        handle, is a re-export.
-    3.  Newly found handles are added to the queue for transitive expansion.
-    4.  The ``visited`` set prevents re-processing and guarantees termination.
-    5.  Results are sorted lexicographically for deterministic ordering.
+    2.  Index every ``.py`` file under the package root once: each
+        module-scope import binding, keyed by its source (#795).
+    3.  BFS loop: start with a queue = [canonical_handle_str].  For each
+        item, every indexed binding whose source is the current queue item is
+        a hop; the public ones are re-exports (#712).
+    4.  Newly found handles are added to the queue for transitive expansion.
+    5.  The ``visited`` set prevents re-processing and guarantees termination.
+    6.  Results are sorted lexicographically for deterministic ordering.
 
     Why BFS and not the old parent-walk?
     -------------------------------------
@@ -211,9 +212,8 @@ async def _collect_re_exports_impl(
     re-exporting a symbol defined in ``package._impl``), nor aliased re-exports
     in arbitrary module files (e.g. ``package.legacy``).
 
-    The BFS scan covers all files, so it finds all of these cases.  The cost
-    is higher (multiple Jedi invocations per scan round), but remains bounded
-    by the package size and BFS depth.
+    The scan covers all files, so it finds all of these cases.  It parses
+    each file once per scan, however many hops the walk takes (#795).
     """
     handle_str = str(handle)
     parts = handle_str.split(".")
@@ -232,6 +232,11 @@ async def _collect_re_exports_impl(
     # The package root is the directory containing the top-level __init__.py
     package_root = top_init.parent
 
+    # One pass over the package builds every file's import table (#795): the
+    # BFS below then walks that index in memory. Scanning the package once per
+    # hop cost hops x files parses (django.apps.apps: ~66 hops x 907 files).
+    index = _build_binding_index(package_root, analyzer, unparseable)
+
     # BFS expansion
     visited: set[str] = {handle_str}
     result: list[str] = []
@@ -243,10 +248,9 @@ async def _collect_re_exports_impl(
     # from .a import X -> pkg.X), so filtering the walk would lose it.
     while queue:
         current_target = queue.popleft()
-        new_handles = await _scan_package_for_handle(
-            current_target, package_root, analyzer, unparseable
-        )
-        for h, public in new_handles:
+        for h, public in index.get(current_target, ()):
+            if h == current_target:
+                continue
             if h not in visited:
                 visited.add(h)
                 if public:
@@ -261,28 +265,33 @@ async def _collect_re_exports_impl(
         return [Handle(h) for h in result if _is_valid_handle(h)]
 
 
-async def _scan_package_for_handle(
-    target_full_name: str,
+#: source dotted name -> ``(binding handle, is_public)`` for every module-scope
+#: import binding in a package, in file order then table order.
+_BindingIndex = dict[str, list[tuple[str, bool]]]
+
+
+def _build_binding_index(
     package_root: Path,
     analyzer: JediAnalyzer,
     unparseable: list[str] | None = None,
-) -> list[tuple[str, bool]]:
-    """Scan all Python files under *package_root* for names with ``full_name == target_full_name``.
+) -> _BindingIndex:
+    """Index every module-scope import binding under *package_root* by its source.
 
-    Returns ``(module_path.symbol_name, is_public)`` for each match, excluding
-    the target itself (the definition site). *is_public* is
-    :func:`_is_public_binding`: only those are re-exports (#712), but the
-    caller walks all of them.
+    Each file is parsed once and its import table built once (#795). An entry
+    ``source -> [(f"{module}.{surface}", is_public), ...]`` records that
+    *module* binds *surface* from *source*; *is_public* is
+    :func:`_is_public_binding` (#712).
 
     Args:
-        target_full_name: The dotted name to search for in Jedi's ``full_name``.
         package_root: Root directory of the top-level package to scan.
         analyzer: The active ``JediAnalyzer`` instance.
+        unparseable: When given, a file that fails to parse is appended to it
+            (POSIX path) and skipped; otherwise the ``SyntaxError`` propagates.
 
     Returns:
-        ``(dotted handle, is_public)`` pairs for every binding found.
+        The index, possibly empty.
     """
-    results: list[tuple[str, bool]] = []
+    index: _BindingIndex = {}
 
     # A file that can't be listed or read propagates (#704): skipping it would
     # return a re-export list that claims to be complete. ``re_exports`` has no
@@ -314,15 +323,42 @@ async def _scan_package_for_handle(
         is_package = py_file.name == "__init__.py"
         table = build_import_table(tree, mod_path, resolve_relative_import, is_package)
 
+        # __all__ is read once per file, not once per binding.
+        all_names = _static_all(tree)
         for surface, source in table.items():
-            if source != target_full_name:
-                continue
-            re_export_handle = f"{mod_path}.{surface}"
-            if re_export_handle != target_full_name:
-                public = _is_public_binding(py_file, mod_path, surface, tree, table)
-                results.append((re_export_handle, public))
+            public = _is_public_binding(
+                py_file, mod_path, surface, tree, table, static_all=all_names
+            )
+            index.setdefault(source, []).append((f"{mod_path}.{surface}", public))
 
-    return results
+    return index
+
+
+async def _scan_package_for_handle(
+    target_full_name: str,
+    package_root: Path,
+    analyzer: JediAnalyzer,
+    unparseable: list[str] | None = None,
+) -> list[tuple[str, bool]]:
+    """Every binding under *package_root* whose immediate source is *target_full_name*.
+
+    One hop of the re-export walk, as ``(module_path.symbol_name, is_public)``
+    pairs, excluding the target itself (the definition site). *is_public* is
+    :func:`_is_public_binding`: only those are re-exports (#712), but the
+    walk follows all of them. :func:`_collect_re_exports_impl` builds the
+    index once and walks it (#795); this reads one hop from a fresh index.
+
+    Args:
+        target_full_name: The dotted name a binding's source must equal.
+        package_root: Root directory of the top-level package to scan.
+        analyzer: The active ``JediAnalyzer`` instance.
+        unparseable: As for :func:`_build_binding_index`.
+
+    Returns:
+        ``(dotted handle, is_public)`` pairs for every binding found.
+    """
+    index = _build_binding_index(package_root, analyzer, unparseable)
+    return [(h, public) for h, public in index.get(target_full_name, ()) if h != target_full_name]
 
 
 def _is_private_module(module: str) -> bool:
@@ -360,7 +396,13 @@ def _static_all(tree: ast.Module) -> set[str]:
 
 
 def _is_public_binding(
-    py_file: Path, module: str, binding: str, tree: ast.Module, table: dict[str, str]
+    py_file: Path,
+    module: str,
+    binding: str,
+    tree: ast.Module,
+    table: dict[str, str],
+    *,
+    static_all: set[str] | None = None,
 ) -> bool:
     """Whether binding *binding* in *module* (file *py_file*) is a re-export (#712).
 
@@ -372,11 +414,12 @@ def _is_public_binding(
        module that is private (``pkg/api.py``: ``from ._impl import X``).
 
     A plain internal import between public modules is not a re-export: the
-    ``imported_by`` edge reports it.
+    ``imported_by`` edge reports it. *static_all*, when given, is
+    ``_static_all(tree)`` already computed by the caller.
     """
     if py_file.name == "__init__.py":
         return True
-    if binding in _static_all(tree):
+    if binding in (static_all if static_all is not None else _static_all(tree)):
         return True
     if _is_private_module(module):
         return False
