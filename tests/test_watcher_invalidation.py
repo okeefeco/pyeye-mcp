@@ -11,10 +11,11 @@ Before this fix, in a default setup (no ``.pyeye.json``):
    no key, clearing every project's name index. (#628 deleted GranularCache.)
 
 Event tests drive ``CodebaseWatcher`` handlers directly and invalidation tests
-drive ``ProjectManager._on_files_changed``, so they need no sleeps. Three tests
+drive ``ProjectManager._on_files_changed``, so they need no sleeps. Four tests
 run a real watchdog observer, bounded by a wait derived from the catch-up sweep
-schedule (#715): the last sweep is what guarantees delivery at start-up. One of
-them disables the sweeps to check post-live delivery (#788, xfail on macOS).
+schedule (#715): the last sweep is what guarantees delivery at start-up. Two of
+them disable the sweeps to check post-live delivery, alone and in a burst
+(#788, xfail on macOS).
 """
 
 from __future__ import annotations
@@ -360,6 +361,11 @@ class TestIssueRepro:
 #: Floor for how long the real-observer tests wait for a created file (#715).
 SWEEP_WAIT_FLOOR_S = 20.0
 
+#: Seconds between file A's write and extra.py's create in the burst test (#788):
+#: well inside the watcher's debounce (0.5 s by default) and FSEvents' own
+#: latency window, as in the post-live test's timing before #798.
+BURST_DELAY_S = 0.1
+
 
 def _last_sweep_s() -> float:
     """Seconds after a watcher starts at which its LAST catch-up sweep fires (#738)."""
@@ -564,6 +570,90 @@ class TestRealObserver:
                 f"watch root={watcher.project_path.as_posix()}, "
                 f"analyzer root={analyzer.project_path.as_posix()}, batches={delivered}"
             )
+        finally:
+            m.cleanup_all()
+
+    @pytest.mark.real_watcher
+    @pytest.mark.xfail(
+        sys.platform == "darwin",
+        reason="#788: a create right after another change is missed on macOS",
+        strict=False,
+    )
+    async def test_a_create_in_a_burst_is_delivered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A create BURST_DELAY_S after another change in the same dir is delivered (#788).
+
+        The timing the post-live test had before #798: 3 of 24 macOS legs missed
+        it, against 0 of 74 once the create came only after the earlier batch.
+        Delivery and visibility are asserted separately, because file A's batch
+        invalidates the whole project and lands after extra.py is written: it
+        would make Gamma visible even if extra.py's own event were dropped.
+        """
+        monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
+        m = ProjectManager(max_projects=10)
+        try:
+            proj = _project(tmp_path / "proj")
+            analyzer = m.get_analyzer(proj.as_posix())
+            watcher = m.watchers[proj.resolve()]
+            delivered: list[list[str]] = []
+            deliver = watcher.on_change_callback
+
+            def recording(paths: list[str]) -> None:
+                delivered.append(list(paths))
+                deliver(paths)
+
+            watcher.on_change_callback = recording
+            hs: dict[str, Any] = {}
+            live = await _wait_until_observer_is_live(
+                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S, hs
+            )
+            handshake = f"handshake {hs['handshake_s']:.2f}s, {hs['probes']} probe(s)"
+            if not live:
+                _diagnose(f"#788 burst deadline=handshake: never came up; {handshake}")
+            assert live, "the observer never came up"
+            # Settle first: the burst must not ride on the probe's pending batch.
+            settle_by = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            while not delivered and time.monotonic() < settle_by:
+                await asyncio.sleep(0.05)
+            if not delivered:
+                _diagnose(f"#788 burst deadline=probe-batch: never delivered; {handshake}")
+            assert delivered, "the probe's batch was never delivered"
+            settled = len(delivered)
+            assert (await resolve("Gamma", analyzer))["found"] is False
+
+            # The burst: file A, then extra.py BURST_DELAY_S later, same directory.
+            (proj / "pkg" / "burst_a.py").write_text("A = 1\n")
+            a_at = time.monotonic()
+            await asyncio.sleep(BURST_DELAY_S)
+            (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+            gap = time.monotonic() - a_at
+
+            def in_burst(name: str) -> bool:
+                return any(p.endswith(name) for batch in delivered[settled:] for p in batch)
+
+            deadline = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            got_extra = found = False
+            while time.monotonic() < deadline and not (got_extra and found):
+                got_extra = in_burst("extra.py")
+                found = bool((await resolve("Gamma", analyzer))["found"])
+                await asyncio.sleep(0.1)
+
+            if not (got_extra and found):
+                if not got_extra:
+                    verdict = "dropped" + (
+                        " (Gamma visible anyway, via file A's batch)" if found else ""
+                    )
+                else:
+                    verdict = "delivered but not visible"
+                _diagnose(
+                    f"#788 burst deadline=post-write: {verdict}; burst_a.py "
+                    f"{'WAS' if in_burst('burst_a.py') else 'was NOT'} delivered; "
+                    f"gap {gap:.3f}s (BURST_DELAY_S={BURST_DELAY_S}); {handshake}; "
+                    f"batches={_batches(delivered)}"
+                )
+            assert got_extra, f"extra.py's create was never delivered: {delivered[settled:]}"
+            assert found, f"extra.py was delivered but Gamma never resolved: {delivered}"
         finally:
             m.cleanup_all()
 
