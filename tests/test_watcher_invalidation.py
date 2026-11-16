@@ -11,9 +11,10 @@ Before this fix, in a default setup (no ``.pyeye.json``):
    no key, clearing every project's name index. (#628 deleted GranularCache.)
 
 Event tests drive ``CodebaseWatcher`` handlers directly and invalidation tests
-drive ``ProjectManager._on_files_changed``, so they need no sleeps. Two tests run
-a real watchdog observer, bounded by a wait derived from the catch-up sweep
-schedule (#715): the last sweep is what guarantees delivery.
+drive ``ProjectManager._on_files_changed``, so they need no sleeps. Three tests
+run a real watchdog observer, bounded by a wait derived from the catch-up sweep
+schedule (#715): the last sweep is what guarantees delivery at start-up. One of
+them disables the sweeps to check post-live delivery (#788, xfail on macOS).
 """
 
 from __future__ import annotations
@@ -443,6 +444,64 @@ class TestRealObserver:
                 f"analyzer root={analyzer.project_path.as_posix()}, observer live={live}, "
                 f"written {written_after:.2f}s after start (last sweep at "
                 f"{_last_sweep_s():.2f}s), batches={delivered}"
+            )
+        finally:
+            m.cleanup_all()
+
+    @pytest.mark.real_watcher
+    @pytest.mark.xfail(
+        sys.platform == "darwin",
+        reason="#788: post-live event drop under investigation",
+        strict=False,
+    )
+    async def test_a_create_after_the_watcher_is_live_is_delivered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The original #715 scenario: once the observer is live, the EMITTER delivers.
+
+        The catch-up sweeps are disabled, so a drop can't be masked: only a
+        delivered event can make Gamma visible. On macOS CI this was missed with
+        the observer already live (#788), so darwin is xfail(strict=False) to keep
+        the evidence coming without dropping PRs.
+        """
+        monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
+        m = ProjectManager(max_projects=10)
+        try:
+            proj = _project(tmp_path / "proj")
+            analyzer = m.get_analyzer(proj.as_posix())
+            watcher = m.watchers[proj.resolve()]
+            # Record every delivered batch, so a failure says whether the event was
+            # dropped or delivered-but-not-visible (#756 diagnostics).
+            delivered: list[list[str]] = []
+            deliver = watcher.on_change_callback
+
+            def recording(paths: list[str]) -> None:
+                delivered.append(list(paths))
+                deliver(paths)
+
+            watcher.on_change_callback = recording
+            live = await _wait_until_observer_is_live(
+                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S
+            )
+            assert live, "the observer never came up"
+            assert (await resolve("Gamma", analyzer))["found"] is False
+            (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+
+            deadline = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            found = False
+            while time.monotonic() < deadline:
+                if (await resolve("Gamma", analyzer))["found"]:
+                    found = True
+                    break
+                await asyncio.sleep(0.1)
+
+            got_extra = any(p.endswith("extra.py") for batch in delivered for p in batch)
+            assert found, (
+                "a create after the observer was live was missed: "
+                f"extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch "
+                f"({'delivered but not visible' if got_extra else 'dropped'}); "
+                f"watch root={watcher.project_path.as_posix()}, "
+                f"analyzer root={analyzer.project_path.as_posix()}, batches={delivered}"
             )
         finally:
             m.cleanup_all()
