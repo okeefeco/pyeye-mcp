@@ -11,8 +11,10 @@ Before this fix, in a default setup (no ``.pyeye.json``):
    no key, clearing every project's name index. (#628 deleted GranularCache.)
 
 Event tests drive ``CodebaseWatcher`` handlers directly and invalidation tests
-drive ``ProjectManager._on_files_changed``, so they need no sleeps. One test runs
-a real watchdog observer, bounded by a ``PerformanceThresholds`` deadline.
+drive ``ProjectManager._on_files_changed``, so they need no sleeps. Three tests
+run a real watchdog observer, bounded by a wait derived from the catch-up sweep
+schedule (#715): the last sweep is what guarantees delivery at start-up. One of
+them disables the sweeps to check post-live delivery (#788, xfail on macOS).
 """
 
 from __future__ import annotations
@@ -42,7 +44,6 @@ from pyeye.analyzers import project_graph
 from pyeye.cache import CodebaseWatcher
 from pyeye.mcp.operations.resolve import resolve
 from pyeye.project_manager import ProjectManager
-from tests.utils.performance import PerformanceThresholds
 
 # ---------------------------------------------------------------------------
 # CodebaseWatcher: every event kind, every path in the batch
@@ -354,14 +355,28 @@ class TestIssueRepro:
 # One end-to-end run with a real observer
 # ---------------------------------------------------------------------------
 
-#: How long a real watchdog observer may take to deliver a debounced change.
-WATCHER_DELIVERY = PerformanceThresholds(
-    base=5000.0, linux_ci=10000.0, macos_ci=20000.0, windows_ci=20000.0
-)
+
+#: Floor for how long the real-observer tests wait for a created file (#715).
+SWEEP_WAIT_FLOOR_S = 20.0
 
 
-async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path) -> None:
-    """Block until *watcher*'s observer delivers an event: proof it is watching (#715).
+def _last_sweep_s() -> float:
+    """Seconds after a watcher starts at which its LAST catch-up sweep fires (#738)."""
+    debounce = project_manager_module.settings.settings.watcher_debounce
+    return float(debounce + max(project_manager_module.CATCHUP_SWEEP_OFFSETS))
+
+
+def _sweep_wait_s() -> float:
+    """How long to wait for a created file: 3x the last sweep, 20 s floor (#715).
+
+    Derived from the sweep schedule, so a debounce or offset change can't shrink
+    the margin past the sweep that guarantees delivery.
+    """
+    return max(SWEEP_WAIT_FLOOR_S, 3 * _last_sweep_s())
+
+
+async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path, until: float) -> bool:
+    """Wait, until monotonic time *until*, for *watcher*'s observer to deliver (#715).
 
     ``Observer.start()`` returns before the emitter thread is live. On macOS that
     thread first snapshots the tree and only then starts the FSEvents stream,
@@ -369,29 +384,27 @@ async def _wait_until_observer_is_live(watcher: CodebaseWatcher, probe: Path) ->
     event for a file already in the starting snapshot as historic. A file
     written in that window is never delivered. watchdog has no ready signal,
     so write a probe until one change comes through (event-driven, never a
-    fixed sleep).
+    fixed sleep). Best-effort: returns whether it came up in time, because the
+    catch-up sweep, not this handshake, is what guarantees delivery.
     """
     before = watcher.last_change
-    deadline = time.monotonic() + WATCHER_DELIVERY.get_threshold() / 1000
     n = 0
     while watcher.last_change == before:
-        assert time.monotonic() < deadline, "the observer never came up"
+        if time.monotonic() >= until:
+            return False
         probe.write_text(f"# probe {n}\n")
         n += 1
         await asyncio.sleep(0.2)
+    return True
 
 
 class TestRealObserver:
     @pytest.mark.real_watcher
-    @pytest.mark.xfail(
-        sys.platform == "darwin",
-        reason="#715: still fails on macOS CI after #736's handshake; quarantined (stopgap)",
-        strict=False,
-    )
     async def test_created_file_reaches_the_name_index(self, tmp_path: Path) -> None:
         m = ProjectManager(max_projects=10)
         try:
             proj = _project(tmp_path / "proj")
+            started = time.monotonic()  # no later than the watcher's own start
             analyzer = m.get_analyzer(proj.as_posix())
             watcher = m.watchers[proj.resolve()]
             # Record every delivered batch, so a failure says whether the event was
@@ -404,11 +417,18 @@ class TestRealObserver:
                 deliver(paths)
 
             watcher.on_change_callback = recording
-            await _wait_until_observer_is_live(watcher, proj / "pkg" / "_probe.py")
+            # The LAST catch-up sweep (#738) is what guarantees delivery: it re-stats
+            # the tree and invalidates every file changed since start-up, whether or
+            # not the emitter delivered its event (macOS FSEvents can drop a create
+            # made while it comes up, #715). So extra.py must be written before that
+            # sweep fires: the handshake is bounded to a second before it.
+            write_by = started + _last_sweep_s() - 1.0
+            live = await _wait_until_observer_is_live(watcher, proj / "pkg" / "_probe.py", write_by)
             assert (await resolve("Gamma", analyzer))["found"] is False
             (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+            written_after = time.monotonic() - started
 
-            deadline = time.monotonic() + WATCHER_DELIVERY.get_threshold() / 1000
+            deadline = time.monotonic() + _sweep_wait_s()
             found = False
             while time.monotonic() < deadline:
                 if (await resolve("Gamma", analyzer))["found"]:
@@ -421,8 +441,107 @@ class TestRealObserver:
                 "the watcher never delivered the created file: "
                 f"extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch; "
                 f"watch root={watcher.project_path.as_posix()}, "
+                f"analyzer root={analyzer.project_path.as_posix()}, observer live={live}, "
+                f"written {written_after:.2f}s after start (last sweep at "
+                f"{_last_sweep_s():.2f}s), batches={delivered}"
+            )
+        finally:
+            m.cleanup_all()
+
+    @pytest.mark.real_watcher
+    @pytest.mark.xfail(
+        sys.platform == "darwin",
+        reason="#788: post-live event drop under investigation",
+        strict=False,
+    )
+    async def test_a_create_after_the_watcher_is_live_is_delivered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The original #715 scenario: once the observer is live, the EMITTER delivers.
+
+        The catch-up sweeps are disabled, so a drop can't be masked: only a
+        delivered event can make Gamma visible. On macOS CI this was missed with
+        the observer already live (#788), so darwin is xfail(strict=False) to keep
+        the evidence coming without dropping PRs.
+        """
+        monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
+        m = ProjectManager(max_projects=10)
+        try:
+            proj = _project(tmp_path / "proj")
+            analyzer = m.get_analyzer(proj.as_posix())
+            watcher = m.watchers[proj.resolve()]
+            # Record every delivered batch, so a failure says whether the event was
+            # dropped or delivered-but-not-visible (#756 diagnostics).
+            delivered: list[list[str]] = []
+            deliver = watcher.on_change_callback
+
+            def recording(paths: list[str]) -> None:
+                delivered.append(list(paths))
+                deliver(paths)
+
+            watcher.on_change_callback = recording
+            live = await _wait_until_observer_is_live(
+                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S
+            )
+            assert live, "the observer never came up"
+            assert (await resolve("Gamma", analyzer))["found"] is False
+            (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+
+            deadline = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            found = False
+            while time.monotonic() < deadline:
+                if (await resolve("Gamma", analyzer))["found"]:
+                    found = True
+                    break
+                await asyncio.sleep(0.1)
+
+            got_extra = any(p.endswith("extra.py") for batch in delivered for p in batch)
+            assert found, (
+                "a create after the observer was live was missed: "
+                f"extra.py {'WAS' if got_extra else 'was NOT'} in a delivered batch "
+                f"({'delivered but not visible' if got_extra else 'dropped'}); "
+                f"watch root={watcher.project_path.as_posix()}, "
                 f"analyzer root={analyzer.project_path.as_posix()}, batches={delivered}"
             )
+        finally:
+            m.cleanup_all()
+
+    @pytest.mark.real_watcher
+    async def test_a_dropped_create_is_caught_by_the_sweep(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#715's failure mode on every OS: the emitter drops the create, a sweep delivers it.
+
+        A real observer at the real sweep schedule, with delivery disabled, so no
+        event ever reaches a batch: only the catch-up sweep can make Gamma visible.
+        """
+        monkeypatch.setattr(CodebaseWatcher, "_schedule", lambda _self: None)
+        m = ProjectManager(max_projects=10)
+        try:
+            proj = _project(tmp_path / "proj")
+            analyzer = m.get_analyzer(proj.as_posix())
+            watcher = m.watchers[proj.resolve()]
+            delivered: list[list[str]] = []
+            deliver = watcher.on_change_callback
+
+            def recording(paths: list[str]) -> None:
+                delivered.append(list(paths))
+                deliver(paths)
+
+            watcher.on_change_callback = recording
+            assert (await resolve("Gamma", analyzer))["found"] is False
+            (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+
+            deadline = time.monotonic() + _sweep_wait_s()
+            found = False
+            while time.monotonic() < deadline:
+                if (await resolve("Gamma", analyzer))["found"]:
+                    found = True
+                    break
+                await asyncio.sleep(0.1)
+
+            assert found, "no catch-up sweep picked up the dropped create"
+            assert delivered == [], "an event was delivered: delivery wasn't disabled"
         finally:
             m.cleanup_all()
 
