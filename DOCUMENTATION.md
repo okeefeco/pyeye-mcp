@@ -237,8 +237,8 @@ The server automatically detects and activates framework-specific tools when it 
 ├──────────────────────────────────────────────────────┤
 │               Analysis Engines                       │
 │  ┌──────────────┐        ┌──────────────┐          │
-│  │     Jedi     │        │ Tree-sitter  │          │
-│  │  (Semantic)  │        │  (Patterns)  │          │
+│  │     Jedi     │        │  Python ast  │          │
+│  │  (Semantic)  │        │ (Structural) │          │
 │  └──────────────┘        └──────────────┘          │
 ├──────────────────────────────────────────────────────┤
 │                 Caching Layer                        │
