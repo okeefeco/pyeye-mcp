@@ -1658,7 +1658,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=6.0.0" },
     { name = "tree-sitter", specifier = ">=0.20.0" },
     { name = "tree-sitter-python", specifier = ">=0.20.0" },
-    { name = "watchdog", specifier = ">=3.0.0" },
+    { name = "watchdog", specifier = ">=3.0.0,<7" },
 ]
 
 [package.metadata.requires-dev]

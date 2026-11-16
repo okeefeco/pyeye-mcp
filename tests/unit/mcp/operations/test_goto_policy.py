@@ -32,7 +32,13 @@ _SRC = Path(__file__).parent.parent.parent.parent.parent / "src" / "pyeye"
 
 @pytest.fixture(scope="module")
 def analyzer():  # type: ignore[no-untyped-def]
-    return ProjectManager().get_analyzer(str(_FIXTURE))
+    # Module scope is set up before the autouse inert-Observer patch, so this
+    # manager starts a REAL watcher: stop it, or it outlives the session (#807).
+    manager = ProjectManager()
+    try:
+        yield manager.get_analyzer(str(_FIXTURE))
+    finally:
+        manager.cleanup_all()
 
 
 def _def(full_name: str | None, type_: str = "function") -> SimpleNamespace:
