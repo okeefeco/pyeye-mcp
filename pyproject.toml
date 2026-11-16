@@ -24,10 +24,6 @@ classifiers = [
 
 dependencies = [
     "jedi>=0.19.0",
-    # TODO: Tree-sitter dependencies - planned for future pattern matching capabilities
-    # Currently all analysis is done via Jedi semantic analysis
-    "tree-sitter>=0.20.0",
-    "tree-sitter-python>=0.20.0",
     "watchdog>=3.0.0",
     # The server uses mcp 2.x's MCPServer (#538); 1.x lacks mcp.server.mcpserver.
     # Floor is the version the migration was verified against.
@@ -54,7 +50,7 @@ dev = [
     # runs them via `uv run`, so the pin here drives pre-commit, CI, and local
     # dev alike (#413).
     "black==26.10.1",  # Pinned for reproducible formatting
-    "ruff==0.17.3",  # Pinned to avoid unexpected linting rule changes
+    "ruff==0.17.5",  # Pinned to avoid unexpected linting rule changes
     "mypy==2.4.1",  # Pinned to avoid type checking behavior changes
     "types-setuptools",  # mypy stubs for setuptools
     "types-requests",  # mypy stubs for requests
