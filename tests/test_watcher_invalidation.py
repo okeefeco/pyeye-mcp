@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 import warnings
@@ -30,10 +31,12 @@ from typing import Any
 
 import pytest
 from watchdog.events import (
+    DirAttribEvent,
     DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
     DirMovedEvent,
+    FileAttribEvent,
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
@@ -116,6 +119,41 @@ class TestWatcherEvents:
         watcher._process_changes()
 
         assert recorded == [sorted(_p(tmp_path, n) for n in ("newpkg", "oldpkg", "a", "b"))]
+
+    def test_a_metadata_only_change_to_a_python_file_counts(
+        self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
+    ) -> None:
+        # watchdog 7 reports touch / os.utime / chmod as "attrib", not "modified"
+        # (#613). A touch is how a user forces a re-index, and the artifact caches
+        # key on mtime, so a file's metadata change must still invalidate.
+        watcher.on_attrib(FileAttribEvent(_p(tmp_path, "touched.py")))
+
+        watcher._process_changes()
+
+        assert recorded == [[_p(tmp_path, "touched.py")]]
+
+    def test_attrib_on_directories_non_python_and_ignored_files_does_not_count(
+        self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
+    ) -> None:
+        # Like a directory "modified" event, a directory's metadata change neither
+        # adds nor removes a module.
+        watcher.on_attrib(DirAttribEvent(_p(tmp_path, "pkg")))
+        watcher.on_attrib(FileAttribEvent(_p(tmp_path, "notes.txt")))
+        watcher.on_attrib(FileAttribEvent(_p(tmp_path, ".venv/lib/x.py")))
+
+        watcher._process_changes()
+
+        assert recorded == []
+
+    def test_attrib_dispatch_reaches_the_handler(
+        self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
+    ) -> None:
+        # The observer calls dispatch(), which routes "attrib" to on_attrib.
+        watcher.dispatch(FileAttribEvent(_p(tmp_path, "touched.py")))
+
+        watcher._process_changes()
+
+        assert recorded == [[_p(tmp_path, "touched.py")]]
 
     def test_non_python_and_ignored_dirs_are_skipped(
         self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
@@ -564,6 +602,59 @@ class TestRealObserver:
                 f"watch root={watcher.project_path.as_posix()}, "
                 f"analyzer root={analyzer.project_path.as_posix()}, batches={delivered}"
             )
+        finally:
+            m.cleanup_all()
+
+    @pytest.mark.real_watcher
+    @pytest.mark.xfail(
+        sys.platform == "darwin",
+        reason="#788: post-live event drop under investigation",
+        strict=False,
+    )
+    async def test_touching_an_existing_file_is_delivered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A metadata-only change (touch) on a live watcher reaches the callback (#613).
+
+        watchdog 7 reports it as "attrib", which nothing handled before. The
+        catch-up sweeps are disabled, so only a delivered event can pass.
+        """
+        monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
+        m = ProjectManager(max_projects=10)
+        try:
+            proj = _project(tmp_path / "proj")
+            m.get_analyzer(proj.as_posix())
+            watcher = m.watchers[proj.resolve()]
+            delivered: list[list[str]] = []
+            watcher.on_change_callback = lambda paths: delivered.append(list(paths))
+
+            live = await _wait_until_observer_is_live(
+                watcher, proj / "pkg" / "_probe.py", time.monotonic() + SWEEP_WAIT_FLOOR_S
+            )
+            assert live, "the observer never came up"
+            # Let the probe's batch go first, so the touch arrives in a batch of its own.
+            settle_by = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            while not delivered and time.monotonic() < settle_by:
+                await asyncio.sleep(0.05)
+            assert delivered, "the probe's batch was never delivered"
+            delivered.clear()
+
+            target = proj / "pkg" / "mod.py"
+            text = target.read_text()
+            st = target.stat()
+            # mtime only: the content is untouched.
+            os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+            assert target.read_text() == text
+
+            deadline = time.monotonic() + SWEEP_WAIT_FLOOR_S
+            while time.monotonic() < deadline:
+                if any(p.endswith("mod.py") for batch in delivered for p in batch):
+                    break
+                await asyncio.sleep(0.05)
+
+            assert any(
+                p.endswith("mod.py") for batch in delivered for p in batch
+            ), f"the touch of mod.py was never delivered; batches={_batches(delivered)}"
         finally:
             m.cleanup_all()
 
