@@ -52,7 +52,10 @@ UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
 
 Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.duplication review …`.
 Run it from the project root: locations are relative to `--root` (default: the
-current directory), and the state file's keys use them.
+current directory), and the state file's keys use them. A scope outside
+`--root` is rejected. A file that can't be parsed or decoded is skipped and
+listed as `unparseable`; its source is never printed. Bad arguments or a bad
+state file exit 2 with a one-line message, before anything is scanned.
 
 <!-- duplication-review-flags: review dismiss --root --min-tokens --max-occurrences --state --today --json --family --reason --date --review-after -->
 
@@ -62,7 +65,7 @@ current directory), and the state file's keys use them.
 |------|---------|---------|
 | `--root` | `.` | Locations are reported relative to it. |
 | `--min-tokens` | `35` | Minimum clone length in normalised AST tokens. `25` finds more, mostly noise. |
-| `--max-occurrences` | `50` | A token window seen more often than this is skipped. It keeps repeated data tables from making the run quadratic (it ran a machine out of memory without it). |
+| `--max-occurrences` | `50` | A token window seen more often than this is paired with its next occurrence only, so the run stays linear on repeated data tables (all-pairs ran a machine out of memory). Every copy is still reported. |
 | `--state` | none | Dismissal state file. Suggested: `.pyeye/duplication-review.json`, committed. |
 | `--today` | none | Today's ISO date. Needed for `--review-after` dismissals to come due; nothing reads a clock. |
 | `--json` | off | Machine-readable output. |
@@ -81,14 +84,16 @@ records a family as a confirmed non-issue. Use the same scope, `--root`,
 ## What a Result Means
 
 Families are ranked by their longest clone. A family groups copies that connect:
-all the copies between two classes are one family, and a copy inside one class
-stays with its methods. Each family shows its sites (`a.py:10-30 (Cls.method)
+all the copies between two classes are one family, a copy inside one class
+stays with its methods, and a copy between a function and a class method is not
+folded into the class. Two definitions with the same name in one file (an
+`if`/`else` twin) are one location with two line ranges. Each family shows its sites (`a.py:10-30 (Cls.method)
 <-> b.py:40-60 (Other.method)`) and a status:
 
 - `new` — not dismissed.
-- `resurfaced` — part of a dismissed family, with **new members** (a location
-  added, renamed or moved). Only the sites touching the new members are shown;
-  judge those.
+- `resurfaced` — part of a dismissed family, with **new sites**: a member
+  added, renamed or moved, or a new copy bridging two dismissed families. Only
+  the new sites are shown; judge those.
 - `review-due` — a dismissal whose `--review-after` date has come.
 
 Filters, always on and stated in every run:
@@ -97,8 +102,12 @@ Filters, always on and stated in every run:
   of its regions are inside a `def`; module-level and class-body data drops out.
 - **Signature/stub guard.** A clone is dropped when at least 60 % of both
   regions' lines are decorators, signatures or stubs (`@overload`,
-  `@abstractmethod`, `Protocol` / `ABC` methods, bodies of only `...`, `pass`,
-  a docstring or `raise NotImplementedError`).
+  `@abstractmethod`, or bodies of only `...`, `pass`, a docstring or
+  `raise NotImplementedError`). A concrete method of an ABC or `Protocol` is
+  real code and is kept.
+- **Naming.** Each region is named after the function or class holding most of
+  its lines, so a copy that starts in the tail of the previous function is
+  still named after the copied one.
 
 ## The Review Loop
 
@@ -120,7 +129,8 @@ A dismissal is keyed on the family's sorted member locations plus the fact
 
 - **Stays suppressed:** cosmetic edits, drift between the dismissed members, a
   member removed.
-- **Re-surfaces:** a new member joins, or a member is renamed or moved. Only the
+- **Re-surfaces:** a new member joins, a member is renamed or moved, or a new
+  copy bridges two dismissed families. Only the
   new or changed members are shown.
 - **Expiry:** none by default. With `--review-after`, it re-surfaces as
   `review-due` once the `--today` you pass reaches that date.

@@ -21,11 +21,14 @@ dismissals. The ratchet uses none of those: every exact-match clone counts.
   dropped. A copy whose variables were renamed still matches.
 - Any run of at least 35 identical tokens that appears in two places is
   reported as a clone region, with both line ranges.
-- A token window that appears more than 50 times is skipped (#495), so the pair
-  loop stays bounded on repeated data such as large literal tables. Without the
-  cap, one emoji table in `rich` ran out of memory. A copy that contains such a
-  window is still found from its other windows. On this repository the cap
-  changes nothing.
+- A token window that appears more than 50 times is paired with its next
+  occurrence only (#495), so the pair loop stays linear on repeated data such as
+  large literal tables. All-pairs on one emoji table in `rich` ran out of memory.
+  Every copy is still reported, so a 51-way copy fails the ratchet like a 2-way
+  one. On this repository the cap changes nothing.
+- A target file that can't be parsed fails the ratchet (it would hide its
+  copies). Directories are walked with `filtered_rglob` (#517, #810), like
+  every project scan: virtual environments and nested checkouts are skipped.
 
 ```bash
 uv run python scripts/duplicate_code_report.py                 # default targets

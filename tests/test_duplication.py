@@ -12,6 +12,7 @@ import json
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -72,7 +73,7 @@ def _review(root: Path, **kwargs: object) -> dup.Review:
 # ---------------------------------------------------------------------------
 
 
-def test_ratchet_script_uses_the_shared_core() -> None:
+def _load_ratchet() -> Any:
     spec = importlib.util.spec_from_file_location(
         "dcr_for_core_test", _ROOT / "scripts" / "duplicate_code_report.py"
     )
@@ -80,6 +81,11 @@ def test_ratchet_script_uses_the_shared_core() -> None:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    return module
+
+
+def test_ratchet_script_uses_the_shared_core() -> None:
+    module = _load_ratchet()
     assert module.find_clones is dup.find_clones
     assert module.tokenize is dup.tokenize
     assert module.BASELINE == {}
@@ -195,16 +201,16 @@ def _table(n: int) -> str:
     return "".join(f"    'name{i}': '\\U0001F600',\n" for i in range(n))
 
 
-def test_occurrence_cap_bounds_the_pair_loop(tmp_path: Path) -> None:
+def test_occurrence_cap_keeps_the_pair_loop_linear(tmp_path: Path) -> None:
     _write(tmp_path, "emoji.py", "CODES = {\n" + _table(2000) + "}\n")
     streams = dup.collect([tmp_path], tmp_path)
+    positions = sum(max(0, len(s) - 35 + 1) for s in streams)
     stats = dup.FindStats()
-    clones = dup.find_clones(streams, 35, dup.DEFAULT_MAX_OCCURRENCES, stats)
-    cap = dup.DEFAULT_MAX_OCCURRENCES
-    assert stats.skipped_windows >= 1
-    assert stats.pairs_examined <= stats.windows * cap * (cap + 1) // 2
-    assert stats.pairs_examined < 10_000
-    assert len(clones) < 100
+    dup.find_clones(streams, 35, dup.DEFAULT_MAX_OCCURRENCES, stats)
+    assert stats.capped_windows >= 1
+    # Capped windows pair each occurrence with the next one: at most one pair
+    # per indexed position, never k * (k - 1) / 2.
+    assert stats.pairs_examined <= positions
 
 
 def test_without_the_cap_the_same_input_is_quadratic(tmp_path: Path) -> None:
@@ -215,6 +221,31 @@ def test_without_the_cap_the_same_input_is_quadratic(tmp_path: Path) -> None:
     dup.find_clones(streams, 35, dup.DEFAULT_MAX_OCCURRENCES, capped)
     dup.find_clones(streams, 35, 10**9, uncapped)
     assert uncapped.pairs_examined > 20 * capped.pairs_examined
+
+
+@pytest.mark.parametrize("copies", [50, 51, 120])
+def test_a_block_copied_past_the_cap_is_still_one_family(tmp_path: Path, copies: int) -> None:
+    """Review #2: 51 copies used to vanish (0 clones) where 50 gave 1,225."""
+    for i in range(copies):
+        _write(tmp_path, f"f{i:03d}.py", _BODY.format(name=f"g{i}"))
+    (family,) = _review(tmp_path).families
+    assert len(family.locations) == copies
+
+
+def test_past_the_cap_the_work_is_linear_in_copies(tmp_path: Path) -> None:
+    for i in range(120):
+        _write(tmp_path, f"f{i:03d}.py", _BODY.format(name=f"g{i}"))
+    stats = dup.FindStats()
+    clones = dup.find_clones(dup.collect([tmp_path], tmp_path), 35, 50, stats)
+    assert len(clones) == 119, "a chain of copies, not 7,140 pairs"
+    assert stats.pairs_examined <= stats.capped_windows * 119
+
+
+def test_find_clones_rejects_degenerate_thresholds() -> None:
+    with pytest.raises(ValueError, match="min_tokens"):
+        dup.find_clones([], 0)
+    with pytest.raises(ValueError, match="max_occurrences"):
+        dup.find_clones([], 35, 1)
 
 
 def test_a_real_copy_is_still_found_beside_a_capped_table(tmp_path: Path) -> None:
@@ -425,7 +456,259 @@ def test_cli_dismiss_unknown_family_and_missing_state(
     assert dup.main([*base, "--state", "s.json"]) == 1
 
 
-def test_cli_rejects_a_bad_today(tmp_path: Path) -> None:
+def test_cli_rejects_a_bad_today(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write(tmp_path, "a.py", "x = 1\n")
-    with pytest.raises(ValueError, match="--today"):
-        dup.main(["review", str(tmp_path), "--today", "tomorrow"])
+    assert dup.main(["review", str(tmp_path), "--root", str(tmp_path), "--today", "tomorrow"]) == 2
+    assert "--today" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Regressions from the #820 review
+# ---------------------------------------------------------------------------
+
+
+def test_a_region_is_named_after_the_scope_holding_most_of_it(tmp_path: Path) -> None:
+    """Review #1: a copy starting in the previous function's tail was named after it."""
+    _write(tmp_path, "m.py", "def prev_m(q):\n    return q\n" + _BODY.format(name="one"))
+    _write(
+        tmp_path, "x.py", "def prev_x(s):\n    s = s + 1\n    return s\n" + _BODY.format(name="x1")
+    )
+    (family,) = _review(tmp_path).families
+    assert family.locations == ["m.py::one", "x.py::x1"]
+
+
+def test_editing_the_previous_function_keeps_the_dismissal(tmp_path: Path) -> None:
+    """Review #1, identity: the unrelated neighbour can change without re-surfacing."""
+    _write(tmp_path, "m.py", "def prev_m(q):\n    return q\n" + _BODY.format(name="one"))
+    _write(tmp_path, "x.py", "def prev_x(s):\n    return s\n" + _BODY.format(name="x1"))
+    state_path = tmp_path / "state.json"
+    _dismiss_all(tmp_path, state_path)
+    _write(tmp_path, "m.py", "def renamed_neighbour(q):\n    return q\n" + _BODY.format(name="one"))
+    assert _shown(tmp_path, state_path).families == []
+
+
+def test_unparseable_files_are_skipped_and_named_without_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review #3: a SyntaxError printed the source line; non-UTF-8 crashed."""
+    _write(tmp_path, "bad.py", f"def f(:\n    {_MARKER} = 1\n")
+    (tmp_path / "latin.py").write_bytes(b"x = '\xe9'\n")
+    _write(tmp_path, "a.py", _BODY.format(name="find"))
+    _write(tmp_path, "b.py", _BODY.format(name="lookup"))
+    assert dup.main(["review", str(tmp_path), "--root", str(tmp_path), "--json"]) == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["unparseable_files"] == ["bad.py", "latin.py"]
+    assert len(payload["families"]) == 1, "the parseable files are still reviewed"
+    assert _MARKER not in captured.out + captured.err
+    assert dup.main(["review", str(tmp_path), "--root", str(tmp_path)]) == 0
+    text = capsys.readouterr()
+    assert "unparseable (skipped): bad.py; latin.py" in text.out
+    assert _MARKER not in text.out + text.err
+
+
+def test_ratchet_fails_on_an_unparseable_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = _load_ratchet()
+    _write(tmp_path, "bad.py", "def f(:\n")
+    assert script.main([str(tmp_path / "bad.py"), "--root", str(tmp_path)]) == 1
+    assert "unparseable (not checked): bad.py" in capsys.readouterr().out
+
+
+def test_ratchet_catches_a_copy_made_past_the_cap(tmp_path: Path) -> None:
+    """Review #9: with the cap a 51-way copy must still fail the ratchet."""
+    script = _load_ratchet()
+    for i in range(51):
+        _write(tmp_path, f"f{i:02d}.py", _BODY.format(name=f"g{i}"))
+    assert script.main([str(tmp_path), "--root", str(tmp_path)]) == 1
+
+
+def test_a_concrete_method_of_an_abc_is_not_a_stub(tmp_path: Path) -> None:
+    """Review #4: every method of an ABC/Protocol class was treated as a stub."""
+    method = textwrap.indent(
+        _BODY.format(name="helper").replace("(handle", "(self, handle"), "    "
+    )
+    _write(tmp_path, "a.py", "from abc import ABC\nclass A(ABC):\n" + method)
+    _write(tmp_path, "b.py", "from typing import Protocol\nclass B(Protocol):\n" + method)
+    assert len(_review(tmp_path).families) == 1
+
+
+def test_an_abstractmethod_with_a_body_is_still_a_stub(tmp_path: Path) -> None:
+    method = textwrap.indent(
+        _BODY.format(name="helper").replace("(handle", "(self, handle"), "    "
+    )
+    abstract = method.replace("    def helper", "    @abstractmethod\n    def helper")
+    head = "from abc import ABCMeta, abstractmethod\nclass {n}(metaclass=ABCMeta):\n"
+    _write(tmp_path, "a.py", head.format(n="A") + abstract)
+    _write(tmp_path, "b.py", head.format(n="B") + abstract)
+    assert _review(tmp_path).families == []
+
+
+def test_module_level_regions_of_one_file_are_not_merged(tmp_path: Path) -> None:
+    """Review #5: every module-level region of a file shared one ``<module>`` node."""
+
+    def module_level(body: str) -> str:
+        lines = body.strip("\n").splitlines()[1:]  # drop the def line
+        return textwrap.dedent("\n".join(lines)).replace("return None", "result = None")
+
+    first = module_level(_BODY.format(name="x")).replace("return n", "result = n")
+    second = (
+        module_level(_OTHER.format(name="y"))
+        .replace("yield", "print")
+        .replace("raise StopIteration", "result = total")
+    )
+    _write(
+        tmp_path,
+        "m.py",
+        "handle = analyzer = None\n" + first + "\n\nrows, limit = [], 1\n" + second + "\n",
+    )
+    _write(tmp_path, "a.py", _BODY.format(name="f2"))
+    _write(
+        tmp_path,
+        "b.py",
+        _OTHER.format(name="g2")
+        .replace("yield", "print")
+        .replace("raise StopIteration", "result = total"),
+    )
+    families = _review(tmp_path).families
+    assert all(len(f.locations) == 2 for f in families), [f.locations for f in families]
+
+
+def test_a_class_to_function_pair_is_not_folded(tmp_path: Path) -> None:
+    """Review #5: folding unioned class-to-function pairs into one family."""
+    method_m = _BODY.format(name="m").replace("(handle", "(self, handle")
+    method_k = _OTHER.format(name="k").replace("(rows", "(self, rows")
+    _write(tmp_path, "a.py", "class C:\n" + textwrap.indent(method_m + method_k, "    "))
+    _write(tmp_path, "b.py", _BODY.format(name="f"))
+    _write(tmp_path, "c.py", _OTHER.format(name="g"))
+    families = sorted(f.locations for f in _review(tmp_path).families)
+    assert families == [["a.py::C.k", "c.py::g"], ["a.py::C.m", "b.py::f"]]
+
+
+def test_a_copy_bridging_two_dismissed_families_resurfaces_naming_the_bridge(
+    tmp_path: Path,
+) -> None:
+    """Review #6: the bridge re-surfaced with "0 new member(s)" and wasn't shown."""
+    _write(tmp_path, "a.py", _BODY.format(name="fa"))
+    _write(tmp_path, "b.py", _BODY.format(name="fb"))
+    _write(tmp_path, "c.py", _OTHER.format(name="gc"))
+    _write(tmp_path, "e.py", _OTHER.format(name="ge"))
+    state_path = tmp_path / "state.json"
+    _dismiss_all(tmp_path, state_path)
+    assert len(review_state.load_state(state_path)["confirmed_non_issues"]) == 2
+    # One function now holds both copied blocks: a.py::fa joins gc/ge's family.
+    _write(
+        tmp_path,
+        "a.py",
+        _BODY.format(name="fa").replace(
+            "    return None",
+            "    return None\n" + textwrap.indent(_OTHER.format(name="inner"), "    "),
+        ),
+    )
+    shown = _shown(tmp_path, state_path).families
+    bridged = [f for f in shown if f.status == "resurfaced"]
+    assert bridged, [(f.status, f.locations) for f in shown]
+    fam = bridged[0]
+    assert fam.new_sites and fam.as_dict()["sites"]
+    assert all(
+        not any(
+            set(s.locations) <= set(d["handles"])
+            for d in review_state.load_state(state_path)["confirmed_non_issues"]
+        )
+        for s in fam.new_sites
+    )
+    assert "new site(s)" in dup.format_review(_shown(tmp_path, state_path))
+
+
+def test_the_same_qualname_twice_in_one_file_is_one_location(tmp_path: Path) -> None:
+    """Review #10: if/else twins share a qualname; they are one location, two ranges."""
+    twins = "import sys\nif sys.platform == 'win32':\n" + textwrap.indent(
+        _BODY.format(name="f"), "    "
+    )
+    twins += "else:\n" + textwrap.indent(_BODY.format(name="f"), "    ")
+    _write(tmp_path, "m.py", twins)
+    (family,) = _review(tmp_path).families
+    assert family.locations == ["m.py::f"]
+    (site,) = family.sites
+    assert site.a.start != site.b.start
+    state_path = tmp_path / "state.json"
+    _dismiss_all(tmp_path, state_path, reason="deliberate-twin")
+    assert _shown(tmp_path, state_path).families == []
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("{bad", "not readable JSON"),
+        ("[1]", "must hold a JSON object"),
+        ('{"confirmed_non_issues": {}}', "must be a list"),
+        ('{"confirmed_non_issues": [{"structural_fact": "duplication"}]}', "no handles list"),
+        (
+            '{"confirmed_non_issues": [{"handles": [], "structural_fact": "duplication", '
+            '"review_after": "soon"}]}',
+            "review_after",
+        ),
+    ],
+)
+def test_a_bad_state_file_exits_2_with_a_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], content: str, match: str
+) -> None:
+    """Review #7: bad state gave tracebacks."""
+    _write(tmp_path, "a.py", "x = 1\n")
+    (tmp_path / "s.json").write_text(content, encoding="utf-8")
+    args = ["review", str(tmp_path), "--root", str(tmp_path), "--state", str(tmp_path / "s.json")]
+    assert dup.main(args) == 2
+    err = capsys.readouterr().err
+    assert match in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize(
+    ("extra", "match"),
+    [
+        (["--min-tokens", "0"], "--min-tokens"),
+        (["--max-occurrences", "1"], "--max-occurrences"),
+    ],
+)
+def test_bad_thresholds_exit_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], extra: list[str], match: str
+) -> None:
+    _write(tmp_path, "a.py", "x = 1\n")
+    assert dup.main(["review", str(tmp_path), "--root", str(tmp_path), *extra]) == 2
+    assert match in capsys.readouterr().err
+
+
+def test_bad_dismiss_dates_are_rejected_before_scanning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review #7: a bad --date was only noticed after the full scan."""
+    _write(tmp_path, "a.py", "x = 1\n")
+
+    def no_scan(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("scanned before validating")
+
+    monkeypatch.setattr(dup, "collect", no_scan)
+    base = ["dismiss", str(tmp_path), "--root", str(tmp_path), "--state", str(tmp_path / "s.json")]
+    base += ["--family", "x", "--reason", "other"]
+    assert dup.main([*base, "--date", "17/11/2026"]) == 2
+    assert dup.main([*base, "--date", "2026-11-17", "--review-after", "later"]) == 2
+    err = capsys.readouterr().err
+    assert "--date" in err and "--review-after" in err
+
+
+def test_a_scope_outside_root_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review #8: a file outside --root got an absolute, unshareable key."""
+    inside, outside = tmp_path / "proj", tmp_path / "elsewhere"
+    _write(inside, "a.py", "x = 1\n")
+    _write(outside, "b.py", "x = 1\n")
+    assert dup.main(["review", str(outside), "--root", str(inside)]) == 2
+    assert "outside --root" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="outside --root"):
+        dup.review([outside], inside)
+
+
+def test_a_missing_scope_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="does not exist"):
+        dup.review([tmp_path / "nope"], tmp_path)

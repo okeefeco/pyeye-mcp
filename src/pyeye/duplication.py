@@ -15,8 +15,11 @@ attribute names (``.infer``) and constant *types*. Local names, literal values,
 docstrings, comments and imports are dropped, so a copy whose locals were
 renamed still matches. Any run of at least ``min_tokens`` identical tokens at
 two places is a clone. A token window seen more than ``max_occurrences`` times
-is skipped (#495): repeated data tables would otherwise make the pair loop
-quadratic in the number of occurrences, which runs out of memory on real code.
+is not paired all-against-all (#495): each occurrence is paired with the next
+one only, so the work stays linear in the number of copies and a heavily copied
+block still connects into one family. All-pairs work on repeated data tables
+ran a real run out of memory. A file that can't be read or parsed is skipped
+and named in ``unparseable``; its source is never printed.
 
 Review (judgment, not fact)
 ---------------------------
@@ -30,14 +33,18 @@ and token counts.
   data (literal tables, class attributes) drops out.
 * **Signature/stub guard.** A clone is dropped when at least 60 % of the lines of
   *both* regions are decorator or signature lines, or lie in a stub: an
-  ``@overload`` or ``@abstractmethod`` def, a method of a ``Protocol`` / ``ABC``
-  subclass, or a def whose body is only ``...``, ``pass``, a docstring or
-  ``raise NotImplementedError``.
+  ``@overload`` or ``@abstractmethod`` def, or a def whose body is only ``...``,
+  ``pass``, a docstring or ``raise NotImplementedError``. A concrete method of an
+  ABC or ``Protocol`` is not a stub.
+* **Naming.** A region is named after the scope that holds most of its lines,
+  not the scope where its first token falls (a copy often starts in the tail of
+  the previous function).
 * **Families.** Sites are grouped into connected components over their
-  ``file::qualname`` endpoints. For a pair that crosses two classes, a method
-  endpoint is folded into its class, so the copies between two classes form one
+  ``file::qualname`` endpoints. For a pair between two different classes, each
+  end is folded into its class, so the copies between two classes form one
   family; a pair inside one class keeps its method endpoints unless one of them
-  is also part of a cross-class pair.
+  is also part of a cross-class pair. Module-level regions are never merged by
+  their shared ``<module>`` name.
 
 Dismissals
 ----------
@@ -45,8 +52,9 @@ A confirmed non-issue reuses :mod:`pyeye.architecture_review.state`: it is keyed
 on the family's sorted member locations plus the ``"duplication"`` fact. A
 family whose locations are a subset of a dismissal stays suppressed, whatever
 happens inside the dismissed code (cosmetic edits, drift between members, a
-member removed). A family with a location the dismissal doesn't cover (a new
-member, a rename or a move) re-surfaces, showing only those locations. A
+member removed). A family with a site that no single dismissal covers (a new
+member, a rename, a move, or a new copy bridging two dismissed families)
+re-surfaces, showing only those sites. A
 dismissal with ``review_after`` re-surfaces once the caller's ``today`` reaches
 it. Dates are caller-supplied: nothing here reads a clock.
 """
@@ -61,6 +69,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +93,7 @@ DISMISSAL_REASONS = ("benign-idiom", "deliberate-twin", "vendored", "generated",
 _SKIP = (ast.expr_context, ast.Load, ast.Store, ast.Del)
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _STUB_DECORATORS = frozenset({"overload", "abstractmethod", "abstractproperty"})
-_STUB_BASES = frozenset({"Protocol", "ABC"})
+_MODULE = "<module>"
 
 
 # ---------------------------------------------------------------------------
@@ -156,18 +165,30 @@ def display_path(file: Path, root: Path) -> str:
     return (rel if rel is not None else file).as_posix()
 
 
-def collect(paths: Iterable[Path], root: Path) -> list[list[Token]]:
+def collect(
+    paths: Iterable[Path], root: Path, unparseable: list[str] | None = None
+) -> list[list[Token]]:
     """Tokenise every ``.py`` file under *paths*; one token stream per file.
 
     Files are named relative to *root* (see :func:`display_path`). Directories
     are walked with :func:`pyeye.async_utils.filtered_rglob`, so virtual
     environments, caches and nested checkouts are skipped like every other
-    project scan.
+    project scan. A file that can't be read, decoded or parsed is skipped and
+    its display path appended to *unparseable* (the error, which can quote the
+    source, is never re-raised or printed).
     """
     files: list[Path] = []
     for path in paths:
         files.extend(sorted(filtered_rglob("*.py", path)) if path.is_dir() else [path])
-    return [tokenize(f.read_text(encoding="utf-8"), display_path(f, root)) for f in files]
+    streams: list[list[Token]] = []
+    for f in files:
+        name = display_path(f, root)
+        try:
+            streams.append(tokenize(f.read_text(encoding="utf-8"), name))
+        except (SyntaxError, ValueError, OSError):  # UnicodeDecodeError is a ValueError
+            if unparseable is not None:
+                unparseable.append(name)
+    return streams
 
 
 @dataclass
@@ -175,7 +196,7 @@ class FindStats:
     """Work done by :func:`find_clones`, for callers that want to bound it."""
 
     windows: int = 0
-    skipped_windows: int = 0
+    capped_windows: int = 0
     pairs_examined: int = 0
 
 
@@ -191,57 +212,66 @@ def find_clones(
     each match forward as far as the streams keep agreeing. Overlapping or
     self-overlapping matches are dropped.
 
-    A window that occurs more than *max_occurrences* times is skipped and its
-    occurrences are never paired, so at most ``max_occurrences ** 2 / 2`` pairs
-    are examined per window. A copy that contains such a window is still found
-    from its other windows.
+    A window that occurs more than *max_occurrences* times is *capped*: each
+    occurrence is paired only with the next one (``k - 1`` pairs, not
+    ``k * (k - 1) / 2``), so the work stays linear while every copy is still
+    reported and connects into one family. At or below the cap, every pair is
+    examined, as before.
     """
+    if min_tokens < 1:
+        raise ValueError(f"min_tokens must be at least 1, got {min_tokens}")
+    if max_occurrences < 2:
+        raise ValueError(f"max_occurrences must be at least 2, got {max_occurrences}")
     stats = stats if stats is not None else FindStats()
     index: dict[tuple[str, ...], list[tuple[int, int]]] = defaultdict(list)
     for s, stream in enumerate(streams):
         texts = [t.text for t in stream]
         for i in range(len(texts) - min_tokens + 1):
-            positions = index[tuple(texts[i : i + min_tokens])]
-            if len(positions) <= max_occurrences:  # stop growing past the cap
-                positions.append((s, i))
+            index[tuple(texts[i : i + min_tokens])].append((s, i))
     stats.windows = len(index)
 
-    covered: set[tuple[int, int, int, int]] = set()
+    # Runs already reported, as intervals of ``ia`` per (stream a, stream b,
+    # offset): the same positions the per-token set used to hold, in O(runs).
+    covered: dict[tuple[int, int, int], list[tuple[int, int]]] = defaultdict(list)
     clones: list[Clone] = []
     for positions in index.values():
-        if len(positions) > max_occurrences:
-            stats.skipped_windows += 1
+        if len(positions) < 2:
             continue
-        for x in range(len(positions)):
-            for y in range(x + 1, len(positions)):
-                stats.pairs_examined += 1
-                (sa, ia), (sb, ib) = positions[x], positions[y]
-                if (sa, ia, sb, ib) in covered:
-                    continue  # interior of a run already reported
-                if sa == sb and ib < ia + min_tokens:
-                    continue  # overlaps itself
-                a, b = streams[sa], streams[sb]
-                n = min_tokens
-                while (
-                    ia + n < len(a)
-                    and ib + n < len(b)
-                    and a[ia + n].text == b[ib + n].text
-                    and not (sa == sb and ia + n >= ib)
-                ):
-                    n += 1
-                for k in range(n - min_tokens + 1):
-                    covered.add((sa, ia + k, sb, ib + k))
-                clones.append(
-                    Clone(
-                        a[ia].file,
-                        a[ia].lineno,
-                        max(t.lineno for t in a[ia : ia + n]),
-                        b[ib].file,
-                        b[ib].lineno,
-                        max(t.lineno for t in b[ib : ib + n]),
-                        n,
-                    )
+        if len(positions) > max_occurrences:
+            stats.capped_windows += 1
+            pairs: Iterable[tuple[tuple[int, int], tuple[int, int]]] = zip(
+                positions, positions[1:], strict=False
+            )
+        else:
+            pairs = combinations(positions, 2)
+        for (sa, ia), (sb, ib) in pairs:
+            stats.pairs_examined += 1
+            runs = covered[(sa, sb, ib - ia)]
+            if any(lo <= ia <= hi for lo, hi in runs):
+                continue  # interior of a run already reported
+            if sa == sb and ib < ia + min_tokens:
+                continue  # overlaps itself
+            a, b = streams[sa], streams[sb]
+            n = min_tokens
+            while (
+                ia + n < len(a)
+                and ib + n < len(b)
+                and a[ia + n].text == b[ib + n].text
+                and not (sa == sb and ia + n >= ib)
+            ):
+                n += 1
+            runs.append((ia, ia + n - min_tokens))
+            clones.append(
+                Clone(
+                    a[ia].file,
+                    a[ia].lineno,
+                    max(t.lineno for t in a[ia : ia + n]),
+                    b[ib].file,
+                    b[ib].lineno,
+                    max(t.lineno for t in b[ib : ib + n]),
+                    n,
                 )
+            )
     clones.sort(key=lambda c: (-c.tokens, c.a_file, c.a_start))
     return _drop_nested(clones)
 
@@ -264,9 +294,12 @@ def _drop_nested(clones: list[Clone]) -> list[Clone]:
     would otherwise print it twice. *clones* must be sorted longest first.
     """
     kept: list[Clone] = []
+    by_files: dict[tuple[str, str], list[Clone]] = defaultdict(list)
     for clone in clones:
-        if not any(_contains(k, clone) for k in kept):
+        same_files = by_files[(clone.a_file, clone.b_file)]
+        if not any(_contains(k, clone) for k in same_files):
             kept.append(clone)
+            same_files.append(clone)
     return kept
 
 
@@ -327,47 +360,54 @@ class _FileFacts:
     @classmethod
     def load(cls, path: Path) -> _FileFacts:
         facts = cls()
-        facts._visit(ast.parse(path.read_text(encoding="utf-8"), filename=path.name), "", False)
+        facts._visit(ast.parse(path.read_text(encoding="utf-8"), filename=path.name), "")
         return facts
 
-    def _visit(self, node: ast.AST, prefix: str, in_stub_class: bool) -> None:
+    def _visit(self, node: ast.AST, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
             if not isinstance(child, _SCOPES):
-                self._visit(child, prefix, in_stub_class)
+                self._visit(child, prefix)
                 continue
             qualname = f"{prefix}{child.name}"
             end = child.end_lineno or child.lineno
             if isinstance(child, ast.ClassDef):
                 self.scopes.append((child.lineno, end, qualname, False))
                 self.classes.add(qualname)
-                stub_class = any(_decorator_name(b) in _STUB_BASES for b in child.bases)
-                self._visit(child, qualname + ".", stub_class)
             else:
                 self.scopes.append((child.lineno, end, qualname, True))
-                self._record_function(child, end, in_stub_class)
-                self._visit(child, qualname + ".", False)
+                self._record_function(child, end)
+            self._visit(child, qualname + ".")
 
-    def _record_function(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef, end: int, in_stub_class: bool
-    ) -> None:
+    def _record_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef, end: int) -> None:
         self.function_lines.update(range(node.lineno, end + 1))
         first = min([d.lineno for d in node.decorator_list] + [node.lineno])
         body_start = node.body[0].lineno if node.body else end + 1
         self.signature_lines.update(range(first, body_start))
-        stub = (
-            in_stub_class
-            or _is_stub_body(node.body)
-            or any(_decorator_name(d) in _STUB_DECORATORS for d in node.decorator_list)
-        )
-        if stub:
+        # A stub by its own body or decorator only: a concrete method of an ABC
+        # or Protocol is real code (template-method helpers live there).
+        if _is_stub_body(node.body) or any(
+            _decorator_name(d) in _STUB_DECORATORS for d in node.decorator_list
+        ):
             self.signature_lines.update(range(first, end + 1))
 
     def innermost(self, line: int) -> str:
-        best, span = "<module>", -1
+        best, span = _MODULE, -1
         for start, end, qualname, _ in self.scopes:
             if start <= line <= end and (span < 0 or end - start <= span):
                 best, span = qualname, end - start
         return best
+
+    def majority_scope(self, start: int, end: int) -> str:
+        """The innermost scope holding the most lines of ``start..end``.
+
+        Ties go to the scope reached last, so a region that starts in the tail of
+        one function and covers as much of the next is named after the next.
+        """
+        counts: dict[str, int] = defaultdict(int)
+        for line in range(start, end + 1):
+            counts[self.innermost(line)] += 1
+        best = max(counts.values())
+        return [q for q in counts if counts[q] == best][-1]
 
     def owning_class(self, qualname: str) -> str | None:
         """The innermost class whose qualname is a proper prefix of *qualname*."""
@@ -450,6 +490,7 @@ class Family:
     sites: list[Site]
     status: str = "new"
     new_locations: list[str] = field(default_factory=list)
+    new_sites: list[Site] = field(default_factory=list)
     dismissal: dict[str, Any] | None = None
 
     @property
@@ -473,11 +514,8 @@ class Family:
         return self.key.removeprefix("ni:")[:12]
 
     def as_dict(self) -> dict[str, Any]:
-        """JSON form; a re-surfaced family shows only the sites touching new locations."""
-        shown = self.sites
-        if self.status != "new" and self.new_locations:
-            fresh = set(self.new_locations)
-            shown = [s for s in self.sites if fresh & set(s.locations)]
+        """JSON form; a re-surfaced family shows only its new sites."""
+        shown = self.new_sites if self.status == "resurfaced" else self.sites
         return {
             "id": self.id,
             "status": self.status,
@@ -485,13 +523,14 @@ class Family:
             "site_count": len(self.sites),
             "locations": self.locations,
             "new_locations": self.new_locations,
+            "new_site_count": len(self.new_sites),
             "dismissal": self.dismissal,
             "sites": [s.as_dict() for s in shown],
         }
 
 
 def _region(facts: _Facts, file: str, start: int, end: int) -> Region:
-    return Region(file, start, end, facts(file).innermost(start))
+    return Region(file, start, end, facts(file).majority_scope(start, end))
 
 
 def _keeps(facts: _Facts, a: Region, b: Region) -> bool:
@@ -508,9 +547,9 @@ def _keeps(facts: _Facts, a: Region, b: Region) -> bool:
     return in_function and not signature_only
 
 
-def build_sites(clones: Iterable[Clone], root: Path) -> list[Site]:
+def build_sites(clones: Iterable[Clone], root: Path, facts: _Facts | None = None) -> list[Site]:
     """Group the clones that pass the guards into sites, longest first."""
-    facts = _Facts(root)
+    facts = facts if facts is not None else _Facts(root)
     grouped: dict[tuple[str, str], list[tuple[Region, Region, int]]] = defaultdict(list)
     for c in clones:
         a = _region(facts, c.a_file, c.a_start, c.a_end)
@@ -528,15 +567,18 @@ def build_sites(clones: Iterable[Clone], root: Path) -> list[Site]:
     return sites
 
 
-def build_families(sites: Sequence[Site], root: Path) -> list[Family]:
+def build_families(sites: Sequence[Site], root: Path, facts: _Facts | None = None) -> list[Family]:
     """Connected components over site endpoints, longest family first.
 
-    For a site whose ends lie in two different classes, each method endpoint is
-    folded into its class, so all the copies between two classes are one family.
-    A site inside one class keeps its method endpoints, unless one of them is
-    also in a cross-class site: then it joins that class's family too.
+    For a site between two *different classes*, each end is folded into its
+    class, so all the copies between two classes are one family. A site inside
+    one class keeps its method endpoints, unless one of them is also in a
+    cross-class site: then it joins that class's family too. A site with a
+    function or module-level end is never folded. Module-level ends are keyed
+    by their start line, so two unrelated module-level regions of one file are
+    not merged by their shared ``<module>`` name.
     """
-    facts = _Facts(root)
+    facts = facts if facts is not None else _Facts(root)
     parent: dict[str, str] = {}
 
     def find(node: str) -> str:
@@ -546,21 +588,32 @@ def build_families(sites: Sequence[Site], root: Path) -> list[Family]:
             node = parent[node]
         return node
 
-    def node(region: Region) -> str:
-        owner = facts(region.file).owning_class(region.qualname)
-        if owner is None and region.qualname in facts(region.file).classes:
-            owner = region.qualname
-        return f"{region.file}::{owner}" if owner is not None else region.location
+    def plain(region: Region) -> str:
+        if region.qualname == _MODULE:
+            return f"{region.location}@{region.start}"
+        return region.location
 
-    folded = [(node(s.a), node(s.b)) for s in sites]
-    # Methods that take part in a cross-class pair belong to their class node.
+    def klass(region: Region) -> str | None:
+        file_facts = facts(region.file)
+        if region.qualname in file_facts.classes:
+            return f"{region.file}::{region.qualname}"
+        owner = file_facts.owning_class(region.qualname)
+        return f"{region.file}::{owner}" if owner is not None else None
+
+    classes = [(klass(s.a), klass(s.b)) for s in sites]
+    # Methods that take part in a pair between two classes belong to their class node.
     cross_members = {
-        loc for s, (na, nb) in zip(sites, folded, strict=True) if na != nb for loc in s.locations
+        loc
+        for s, (ca, cb) in zip(sites, classes, strict=True)
+        if ca is not None and cb is not None and ca != cb
+        for loc in s.locations
     }
     ends: list[tuple[str, str]] = []
-    for s, (na, nb) in zip(sites, folded, strict=True):
-        if na == nb and not cross_members & set(s.locations):
-            na, nb = s.a.location, s.b.location  # inside one class: keep the method endpoints
+    for s, (ca, cb) in zip(sites, classes, strict=True):
+        if ca is not None and cb is not None and (ca != cb or cross_members & set(s.locations)):
+            na, nb = ca, cb
+        else:
+            na, nb = plain(s.a), plain(s.b)
         ends.append((na, nb))
         parent[find(na)] = find(nb)
     grouped: dict[str, list[Site]] = defaultdict(list)
@@ -581,29 +634,44 @@ def apply_dismissals(
 ) -> tuple[list[Family], list[Family]]:
     """Split *families* into ``(shown, suppressed)`` against *dismissals*.
 
-    A family whose locations all lie inside one dismissal is suppressed, unless
-    that dismissal's ``review_after`` has been reached (status ``review-due``).
-    A family that shares a location with a dismissal but has locations no
-    dismissal covers re-surfaces (status ``resurfaced``), with
-    ``new_locations`` naming only those.
+    Newness is decided per site: a site is *covered* when both its locations lie
+    in one dismissal.
+
+    * Every site covered: the family is suppressed, unless a covering
+      dismissal's ``review_after`` has been reached (status ``review-due``).
+    * Some sites uncovered, and the family touches a dismissal: it re-surfaces
+      (status ``resurfaced``). ``new_sites`` are the uncovered sites (only they
+      are shown) and ``new_locations`` the locations no dismissal names, which
+      is empty for a new copy bridging two dismissed families.
+    * No dismissal touched: status ``new``.
     """
     known = [d for d in dismissals if d.get("structural_fact") == DISMISSAL_FACT]
     shown: list[Family] = []
     suppressed: list[Family] = []
     for fam in families:
         locs = set(fam.locations)
-        overlapping = [d for d in known if locs & set(d["handles"])]
-        covering = [d for d in overlapping if locs <= set(d["handles"])]
-        if covering:
-            due = [d for d in covering if _due(d, today)]
-            if len(due) < len(covering):
-                suppressed.append(fam)
-                continue
-            fam.status, fam.dismissal = "review-due", _public(due[0])
-        elif overlapping:
-            covered = set().union(*(set(d["handles"]) for d in overlapping))
-            fam.status, fam.dismissal = "resurfaced", _public(overlapping[0])
-            fam.new_locations = sorted(locs - covered)
+        touching = [d for d in known if locs & set(d["handles"])]
+        if not touching:
+            shown.append(fam)
+            continue
+        covering: list[dict[str, Any]] = []
+        fresh: list[Site] = []
+        for s in fam.sites:
+            holders = [d for d in touching if set(s.locations) <= set(d["handles"])]
+            covering.extend(d for d in holders if d not in covering)
+            if not holders:
+                fresh.append(s)
+        if fresh:
+            named = set().union(*(set(d["handles"]) for d in touching))
+            fam.status, fam.dismissal = "resurfaced", _public(touching[0])
+            fam.new_sites = fresh
+            fam.new_locations = sorted(locs - named)
+        elif any(_due(d, today) for d in covering):
+            fam.status = "review-due"
+            fam.dismissal = _public(next(d for d in covering if _due(d, today)))
+        else:
+            suppressed.append(fam)
+            continue
         shown.append(fam)
     return shown, suppressed
 
@@ -666,6 +734,7 @@ class Review:
     stats: FindStats
     families: list[Family]
     suppressed: list[Family]
+    unparseable: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         """JSON form."""
@@ -677,7 +746,8 @@ class Review:
             "filters": list(FILTERS),
             "scope": self.scope,
             "files": self.files,
-            "skipped_windows": self.stats.skipped_windows,
+            "unparseable_files": self.unparseable,
+            "capped_windows": self.stats.capped_windows,
             "families": [f.as_dict() for f in self.families],
             "suppressed": len(self.suppressed),
         }
@@ -691,7 +761,7 @@ FILTERS = (
     f"function filter: >{FUNCTION_LINE_SHARE:.0%} of one region's lines inside a def",
     f"signature/stub guard: drop when >={SIGNATURE_LINE_SHARE:.0%} of both regions' lines are "
     "decorators, signatures or stub defs",
-    "families: connected components; cross-class pairs fold methods into their class",
+    "families: connected components; pairs between two classes fold methods into their class",
 )
 
 
@@ -704,16 +774,44 @@ def review(
     dismissals: Iterable[dict[str, Any]] = (),
     today: str | None = None,
 ) -> Review:
-    """Review *paths* for duplication. Scope is required: *paths* can't be empty."""
-    if not paths:
-        raise ValueError("a scope is required: pass one or more files or directories")
+    """Review *paths* for duplication.
+
+    Scope is required: *paths* can't be empty, and each path must lie inside
+    *root*, which every reported location (and so every dismissal key) is
+    relative to.
+    """
+    check_arguments(paths, root, min_tokens, max_occurrences)
     stats = FindStats()
-    streams = collect(paths, root)
+    unparseable: list[str] = []
+    streams = collect(paths, root, unparseable)
     clones = find_clones(streams, min_tokens, max_occurrences, stats)
-    families = build_families(build_sites(clones, root), root)
+    facts = _Facts(root)
+    families = build_families(build_sites(clones, root, facts), root, facts)
     shown, suppressed = apply_dismissals(families, dismissals, today)
     scope = [display_path(p, root) for p in paths]
-    return Review(min_tokens, max_occurrences, scope, len(streams), stats, shown, suppressed)
+    return Review(
+        min_tokens, max_occurrences, scope, len(streams), stats, shown, suppressed, unparseable
+    )
+
+
+def check_arguments(
+    paths: Sequence[Path], root: Path, min_tokens: int, max_occurrences: int
+) -> None:
+    """Raise ``ValueError`` for a bad scope or threshold, before any scanning."""
+    if not paths:
+        raise ValueError("a scope is required: pass one or more files or directories")
+    for path in paths:
+        if relative_within(path, root) is None:
+            raise ValueError(
+                f"scope {path.as_posix()!r} is outside --root {root.as_posix()!r}; "
+                "locations (and dismissal keys) are relative to --root"
+            )
+        if not path.exists():
+            raise ValueError(f"scope {path.as_posix()!r} does not exist")
+    if min_tokens < 1:
+        raise ValueError(f"--min-tokens must be at least 1, got {min_tokens}")
+    if max_occurrences < 2:
+        raise ValueError(f"--max-occurrences must be at least 2, got {max_occurrences}")
 
 
 def format_review(result: Review) -> str:
@@ -724,14 +822,19 @@ def format_review(result: Review) -> str:
         f"{len(result.suppressed)} dismissed and suppressed",
         result.as_dict()["note"],
         f"threshold: >= {result.min_tokens} tokens; windows seen > {result.max_occurrences} "
-        f"times skipped ({result.stats.skipped_windows} skipped)",
+        f"times are paired with the next occurrence only ({result.stats.capped_windows} capped)",
         *(f"filter: {f}" for f in FILTERS),
     ]
+    if result.unparseable:
+        lines.append("unparseable (skipped): " + "; ".join(result.unparseable))
     for n, fam in enumerate(result.families, 1):
         data = fam.as_dict()
         head = f"{n}. [{fam.status}] family {fam.id}: {len(fam.sites)} site(s), longest {fam.tokens} tokens"
         if fam.status == "resurfaced":
-            head += f"; {len(fam.new_locations)} new member(s) of a dismissed family"
+            head += (
+                f"; {len(fam.new_sites)} new site(s), {len(fam.new_locations)} new member(s) "
+                "of a dismissed family"
+            )
         if fam.dismissal:
             head += f" (dismissed {fam.dismissal['dismissed_on']}: {fam.dismissal['reason']})"
         lines.append(head)
@@ -775,25 +878,60 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_dismissal_state(path: Path) -> dict[str, Any]:
+    """Load and validate a dismissal state file; ``ValueError`` names what's wrong."""
+    try:
+        state = review_state.load_state(path)
+    except (OSError, ValueError) as exc:  # json.JSONDecodeError is a ValueError
+        raise ValueError(f"state file {path.as_posix()!r} is not readable JSON: {exc}") from exc
+    if not isinstance(state, dict):
+        raise ValueError(f"state file {path.as_posix()!r} must hold a JSON object")
+    entries = state.setdefault("confirmed_non_issues", [])
+    if not isinstance(entries, list):
+        raise ValueError(f"state file {path.as_posix()!r}: confirmed_non_issues must be a list")
+    for n, entry in enumerate(entries):
+        if not isinstance(entry, dict) or not isinstance(entry.get("handles"), list):
+            raise ValueError(f"state file {path.as_posix()!r}: entry {n} has no handles list")
+        if entry.get("structural_fact") == DISMISSAL_FACT and entry.get("review_after"):
+            _check_date(entry["review_after"], f"entry {n} review_after")
+    return state
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point for ``python -m pyeye.duplication``."""
+    """Entry point for ``python -m pyeye.duplication``.
+
+    Bad arguments or a bad state file exit 2 with a one-line message, before any
+    scanning; nothing prints a traceback or source text.
+    """
     args = _parser().parse_args(argv)
-    state = review_state.load_state(args.state) if args.state else {"confirmed_non_issues": []}
+    try:
+        return _run(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(args: argparse.Namespace) -> int:
+    check_arguments(args.scope, args.root, args.min_tokens, args.max_occurrences)
     today = _check_date(args.today, "--today") if getattr(args, "today", None) else None
+    if args.command == "dismiss":
+        if args.state is None:
+            raise ValueError("dismiss needs --state")
+        _check_date(args.date, "--date")
+        if args.review_after is not None:
+            _check_date(args.review_after, "--review-after")
+    state = load_dismissal_state(args.state) if args.state else {"confirmed_non_issues": []}
     result = review(
         args.scope,
         args.root,
         min_tokens=args.min_tokens,
         max_occurrences=args.max_occurrences,
-        dismissals=state.get("confirmed_non_issues", []) if args.command == "review" else (),
+        dismissals=state["confirmed_non_issues"] if args.command == "review" else (),
         today=today,
     )
     if args.command == "review":
         print(json.dumps(result.as_dict(), indent=2) if args.json else format_review(result))
         return 0
-    if args.state is None:
-        print("dismiss needs --state", file=sys.stderr)
-        return 2
     matches = [f for f in result.families if f.id == args.family]
     if not matches:
         print(f"no family with id {args.family!r} in this scope", file=sys.stderr)

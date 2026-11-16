@@ -32,8 +32,10 @@ Usage:
 
 With no paths it scans ``src/pyeye/mcp/operations`` and
 ``src/pyeye/canonicalization.py``. A token window seen more than
-``pyeye.duplication.DEFAULT_MAX_OCCURRENCES`` times is skipped (#495), which
-keeps the pair loop bounded on repeated data.
+``pyeye.duplication.DEFAULT_MAX_OCCURRENCES`` times is paired with its next
+occurrence only (#495): the pair loop stays linear on repeated data, and every
+copy is still reported, so a 51-way copy fails the ratchet like a 2-way one.
+A target file that can't be parsed fails the ratchet.
 """
 
 from __future__ import annotations
@@ -82,9 +84,11 @@ __all__ = [
 ]
 
 
-def collect(paths: list[Path], root: Path = REPO_ROOT) -> list[list[Token]]:
+def collect(
+    paths: list[Path], root: Path = REPO_ROOT, unparseable: list[str] | None = None
+) -> list[list[Token]]:
     """Tokenise every ``.py`` file under *paths*; one token stream per file."""
-    return duplication.collect(paths, root)
+    return duplication.collect(paths, root, unparseable)
 
 
 def enclosing(file: str, line: int, root: Path = REPO_ROOT) -> str:
@@ -133,9 +137,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     paths = args.paths or [args.root / t for t in DEFAULT_TARGETS]
-    streams = collect(paths, root=args.root)
+    unparseable: list[str] = []
+    streams = collect(paths, root=args.root, unparseable=unparseable)
     clones = find_clones(streams, args.min_tokens)
     print(format_report(clones, len(streams), args.min_tokens))
+    if unparseable:
+        # A file the ratchet can't read would hide its copies: never pass silently.
+        print("  unparseable (not checked): " + "; ".join(unparseable))
+        return 1
     if args.report_only:
         return 0
     if args.fail_on_findings:
