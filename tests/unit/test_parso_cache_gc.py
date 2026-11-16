@@ -22,7 +22,9 @@ monkeypatched module attribute would not reach it.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+import os
 import sys
 import time
 from collections.abc import Iterator
@@ -37,6 +39,7 @@ import pyeye  # noqa: F401  (importing pyeye applies the parso cache policy)
 from pyeye import _parso_cache
 from pyeye._parso_cache import apply_parso_cache_policy
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
 from pyeye.mcp.operations.resolve import resolve
@@ -379,3 +382,77 @@ class TestResolutionSurvivesEviction:
         for container in containers:
             assert container["truncation_reason"] == "external", container
             assert "children" not in container
+
+
+#: An old mtime (2020-01-01): parso's own GC aged entries by file mtime (#684).
+_OLD_MTIME = 1_577_836_800
+
+
+@pytest.fixture
+def project_analyzer(tmp_path: Path) -> JediAnalyzer:
+    """A project whose model module imports a sibling base class, all with old mtimes."""
+    files = {
+        "app/__init__.py": "",
+        "app/utils.py": "class AltersData:\n    pass\n",
+        "app/base.py": (
+            "from app.utils import AltersData\n\n\n"
+            "class ModelState:\n    adding = True\n\n\n"
+            "class Model(AltersData):\n"
+            + "".join(
+                f"    def method_{i}(self, x: int) -> int:\n        return x + {i}\n"
+                for i in range(40)
+            )
+        ),
+        "app/models.py": "from app.base import Model, ModelState\n",
+    }
+    for rel, text in files.items():
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+        os.utime(f, (_OLD_MTIME, _OLD_MTIME))
+    return JediAnalyzer(str(tmp_path))
+
+
+@pytest.mark.usefixtures("eviction_pressure")
+class TestConcurrentLookupsNeverPoisonAHandle:
+    """#707: concurrent lookups of one handle, then a sequential lookup, must still resolve.
+
+    On django at #653 (``4985ba7``), two concurrent ``inspect`` calls of
+    ``django.db.models.base.Model`` left its cached ``jedi.Script`` holding a
+    module parso had already dropped (parso's mtime-aged GC, #684). Every later
+    lookup in that module then raised ``KeyError`` in ``get_parso_cache_node``
+    and came back ``unresolved`` for the rest of the session. #706 switched that
+    GC off; #713's recovery makes any eviction harmless.
+
+    The trap is parso's ``last_used = file mtime``: its GC dropped every entry
+    whose *file* was over 10 minutes old, the moment the cache passed 600
+    entries. A fresh checkout (recent mtimes) never evicts, which is why the
+    fixture's files are dated 2020: without that, this test can't fail on the
+    old code.
+    """
+
+    _MODEL = "app.base.Model"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("n", [2, 4])
+    async def test_concurrent_inspects_then_sequential_lookups_resolve(
+        self, n: int, project_analyzer: JediAnalyzer
+    ) -> None:
+        concurrent = await asyncio.gather(
+            *(inspect(self._MODEL, project_analyzer) for _ in range(n))
+        )
+        assert [r["found"] for r in concurrent] == [True] * n
+
+        again = await inspect(self._MODEL, project_analyzer)
+        assert again["found"] is True, again
+        assert again["superclasses"] == ["app.utils.AltersData"]
+
+        supers = await expand(self._MODEL, "superclasses", project_analyzer)
+        assert [s["handle"] for s in supers["stubs"]] == ["app.utils.AltersData"], supers
+
+        resolved = await resolve(self._MODEL, project_analyzer)
+        assert resolved["found"] is True, resolved
+
+        # A sibling in the same module (#707 poisoned every class in base.py).
+        sibling = await inspect("app.base.ModelState", project_analyzer)
+        assert sibling["found"] is True, sibling
