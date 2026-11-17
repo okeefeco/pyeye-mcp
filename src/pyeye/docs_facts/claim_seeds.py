@@ -56,10 +56,6 @@ SEEDS: dict[str, tuple[str, ...]] = {
         "unbacked duration '195 s': | 250 | +1,002–1,006 MB | 178–195 s |",
         "unbacked size '1,006 MB': | 250 | +1,002–1,006 MB | 178–195 s |",
     ),
-    "SECURITY.md": (
-        "unbacked duration '7 days': - **Acknowledgement** within 7 days.",
-        "unbacked duration '14 days': - **Assessment** (confirmed or not, and its severity) within 14 days.",
-    ),
     "benchmarks/BASELINE_RESULTS.md": (
         "unbacked duration '52ms': - **Symbol search**: 23-52ms for 1000 files (would be **230-520ms for 10,000 files**)",
         "unbacked duration '520ms': - **Symbol search**: 23-52ms for 1000 files (would be **230-520ms for 10,000 files**)",
