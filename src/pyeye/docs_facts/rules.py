@@ -48,6 +48,7 @@ Facts = Mapping[str, Bindable]
 # ---------------------------------------------------------------------------
 
 STATIC_CEILING = "static-ceiling"
+EDGE_CEILING = "edge-ceiling"
 ABSENCE_PROSE = "absence-prose"
 EDGE_COUNTS_PROSE = "edge-counts-prose"
 HONEST_CLAIMS = "honest-claims"
@@ -62,6 +63,7 @@ SERVER_COMMAND = "server-command"
 RULE_IDS: frozenset[str] = frozenset(
     {
         STATIC_CEILING,
+        EDGE_CEILING,
         ABSENCE_PROSE,
         EDGE_COUNTS_PROSE,
         HONEST_CLAIMS,
@@ -303,6 +305,25 @@ def static_edges(facts: Facts) -> tuple[str, ...]:
     )
 
 
+def ceiling_edges(facts: Facts) -> tuple[str, ...]:
+    """The edges whose ``edge.*`` fact has any ceiling, sorted; exact edges are left out.
+
+    The edge-ceiling rule's set (#827, C12), derived from the same facts as
+    :func:`static_edges`: every edge here must state its own ceiling meaning
+    wherever a tool description exposes it. The static set is a subset of it.
+    """
+    return tuple(
+        sorted(
+            fact_id.split(".", 1)[1]
+            for fact_id, fact in facts.items()
+            if fact_id.startswith("edge.")
+            and isinstance(fact, Fact)
+            and isinstance(fact.value, dict)
+            and fact.value.get("ceiling") is not None
+        )
+    )
+
+
 def _named_edge(edges: Iterable[str]) -> re.Pattern[str]:
     return re.compile(r"[\"`](" + "|".join(map(re.escape, edges)) + r")[\"`]")
 
@@ -355,6 +376,53 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:
         return []
     line = page.text.count("\n", 0, match.start()) + 1
     return [Finding(line, f"names the {match.group(1)!r} edge without {CEILING_MARKER!r}")]
+
+
+# ---------------------------------------------------------------------------
+# #827 (design C12): each exposed edge states its own ceiling
+# ---------------------------------------------------------------------------
+
+
+def _edge_named(edge: str, text: str) -> re.Match[str] | None:
+    return re.search(rf"(?:``|\")({re.escape(edge)})(?:``|\")", text)
+
+
+def missing_edge_ceiling(page: Page, facts: Facts) -> list[Finding]:
+    """An edge a tool description exposes doesn't state its own ceiling meaning.
+
+    Every edge with a ceiling (its ``edge.*`` fact names one) that the
+    description names, as ````edge```` or ``"edge"``, must be stated as
+    :func:`~.describe.ceiling_statement` renders it, ````<ceiling>``: <meaning>``.
+    An edge with its own entry (``- ``edge``  — …``, as ``expand`` gives each
+    edge) must state it in that entry; an edge named elsewhere (a list of edges,
+    as ``trace`` gives) must have it stated somewhere in the description. The
+    ``ceiling`` and ``ceilings`` slot forms render exactly this text. Exact edges
+    have no ceiling and are skipped. Registered pages aren't scanned: they show
+    ceilings through ``edges.table`` and ``ceilings.table`` blocks.
+    """
+    from .describe import ceiling_statement
+
+    if page.kind is not None:
+        return []
+    flat = " ".join(page.text.split())
+    entries = _edge_entries(page.text)
+    found = []
+    for edge in ceiling_edges(facts):
+        fact = facts[f"edge.{edge}"]
+        assert isinstance(fact, Fact)  # nosec B101 - ceiling_edges yields only edge facts
+        statement = ceiling_statement(fact, facts)
+        if statement is None:
+            continue
+        if edge in entries:
+            line, body = entries[edge]
+            if statement not in " ".join(body.split()):
+                found.append(Finding(line, f"the {edge!r} entry doesn't state its ceiling"))
+            continue
+        match = _edge_named(edge, page.text)
+        if match is not None and statement not in flat:
+            line = page.text.count("\n", 0, match.start()) + 1
+            found.append(Finding(line, f"exposes the {edge!r} edge without its ceiling"))
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +562,7 @@ def honest_claims(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
 
 RULES: tuple[Rule, ...] = (
     Rule(STATIC_CEILING, _LIVE, True, missing_ceiling),
+    Rule(EDGE_CEILING, frozenset(), True, missing_edge_ceiling),
     Rule(
         ABSENCE_PROSE,
         _LIVE,
