@@ -240,6 +240,19 @@ Ordered so that nothing generation will produce gets hand-fixed:
 - **C14. Two C13 clarifications (maintainer, 2026-11-18).**
   - **Orphaned dismissals fail.** `check` fails on a dismissal in `review-state.json` whose fact ID no longer exists, matching D4's unknown-ID rule. The PR that removes or renames the fact deletes the dismissal or moves it to the new ID. A rename is a removal plus an addition: the new ID enters the uncovered ledger unless the dismissal is deliberately carried over.
   - **Options only under ambiguity.** A finding with one clear fix (e.g. fact drift) carries a single proposed replacement text with its anchor, and no options, as D8 says. Options are mandatory only on `needs_decision` findings.
+- **C15. Prose must not state code facts (maintainer, 2026-11-18).** This is the binding rule ("prose references facts, never restates them") applied to statements of behaviour.
+  - **The rule.** A statement of what the code does or exposes may not be hand-written prose. That covers subprocesses started, files written and where, what the validator rejects, what `configure_packages` saves, and response shapes. It must come from a bound fact or from an executed example (#828). Prose keeps the why, the how-to and the concepts.
+  - **The main route is to add facts.** The first candidates come from #859: the subprocesses the server starts, the paths it writes, and the validator's deny-list. Each gets an extractor, so `fact_drift` and CI cover it.
+  - **`code_contradiction` is a narrow fallback,** only for behaviour claims that genuinely can't be a fact or an executed example (e.g. "re-exports collapse to their definition"):
+    - Its finding first recommends converting the claim to a fact or example. Only when that's impossible does it propose replacement wording.
+    - Its anchor is a code symbol, by its canonical pyeye handle, never `path:line`. `validate` checks that the handle resolves.
+    - It must carry **evidence** of what the code does, from pyeye for that handle (`inspect`'s signature, a docstring excerpt, or edge lists). `validate` checks each item against pyeye.
+  - **Symbol dismissals** are pinned to the symbol's signature and docstring as `inspect` reports them. A change to either brings the finding back; body edits don't. A handle that no longer resolves is an orphan (C14).
+  - **Non-fact dismissals** (style, claims, audience rules) key on a required `subject`: the exact text quoted from the page, checked to occur in the section. When the subject no longer occurs, `check` fails the dismissal as an orphan (C14). If the whole section is gone, the dismissal is pruned, and the text is reviewed fresh under its new heading.
+  - **#830 sequencing:**
+    1. `SECURITY.md` by hand (#859, done).
+    2. Facts for #859's three candidates, which then replace that page's hand-written behaviour statements.
+    3. The rest through `/docs-review`, with code statements converted to facts or examples, not reworded.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
