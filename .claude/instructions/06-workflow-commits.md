@@ -161,7 +161,7 @@ For updating an existing PR, just `git push` + (optionally) `gh pr edit <N> --bo
 
 A release is a PR; see `docs/RELEASE.md`.
 
-- Prepare it with `python scripts/changelog.py prepare X.Y.Z`. It collects `[Unreleased]` and the `changes/` fragments into the version section and deletes the fragments. Commit both: `git add -A CHANGELOG.md changes/`. NEVER hand-edit the version heading or assemble fragments by hand.
+- Prepare it with `python scripts/changelog.py prepare X.Y.Z`. It collects `[Unreleased]` and the `changes/` fragments into the version section, deletes the fragments and stamps the version into `docs/facts/` (#826). Commit all three: `git add -A CHANGELOG.md changes/ docs/facts/`. NEVER hand-edit the version heading or assemble fragments by hand.
 - The commit subject AND the PR title MUST both be exactly `chore(release): vX.Y.Z`. The tag workflow keys on it, and commitizen rejects the non-conventional `release: vX.Y.Z` (#587).
 - NEVER tag manually after merging a release PR: `tag-release.yml` tags and publishes. A manual tag races it.
 - If `prepare` refuses (e.g. an under-bump against `### BREAKING CHANGES`), fix the version or the notes. Don't work around it.
