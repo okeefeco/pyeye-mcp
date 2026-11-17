@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,7 @@ def _clear(**overrides: Any) -> dict[str, Any]:
 def _ambiguous(**overrides: Any) -> dict[str, Any]:
     finding = _clear(
         category="audience",
-        anchor={"kind": "audience_rule", "id": "human-docs-explain"},
+        anchor={"kind": "audience_rule", "id": "human-explains"},
         needs_decision=True,
         question="Should the README explain the TTL, or link the reference page?",
         options=[
@@ -46,7 +47,7 @@ def _ambiguous(**overrides: Any) -> dict[str, Any]:
             {"text": "Link the reference.", "cost": "one more click"},
         ],
         recommended=1,
-        recommendation_anchor={"kind": "audience_rule", "id": "reference-lives-in-reference"},
+        recommendation_anchor={"kind": "audience_rule", "id": "link-not-restate"},
     )
     del finding["replacement"]
     finding.update(overrides)
@@ -74,7 +75,10 @@ class TestFindingProblems:
         [
             (_without(_clear(), "replacement"), "must propose its replacement text"),
             (_clear(replacement="  "), "must propose its replacement text"),
-            (_clear(options=[]), "options belong only to a needs-decision finding"),
+            (_clear(options=[]), "a clear fix carries no decision fields"),
+            (_clear(question="?"), "a clear fix carries no decision fields: ['question']"),
+            (_clear(recommended=0), "a clear fix carries no decision fields: ['recommended']"),
+            (_clear(assessment="x"), "a clear fix carries no decision fields: ['assessment']"),
             (_clear(needs_decision="yes"), "needs_decision must be true or false"),
             (_clear(category="tone"), "category must be one of"),
             (_clear(anchor={"kind": "vibe", "id": "x"}), "anchor.kind must be one of"),
@@ -82,7 +86,17 @@ class TestFindingProblems:
             (_clear(anchor="env.X"), "anchor must be an object"),
             (_clear(anchor={"kind": "fact", "id": "env.GONE"}), "which doesn't exist"),
             (_without(_clear(), "problem"), "problem must be a non-empty string"),
-            (_clear(section=""), "section must be a non-empty string"),
+            (_clear(section=None), "section must be a string"),
+            (_clear(category="style"), "a style finding rests on a style_rule anchor"),
+            (
+                _clear(category="style", anchor={"kind": "style_rule", "id": "made-up"}),
+                "'made-up' isn't a style_rule",
+            ),
+            (
+                _clear(category="honest_claims", anchor={"kind": "claims_rule", "id": "D99"}),
+                "'D99' isn't a claims_rule",
+            ),
+            (_clear(category="style", anchor={"kind": "task", "id": "t1"}), "none yet (#830)"),
         ],
     )
     def test_a_clear_fix_without_a_way_forward_is_rejected(
@@ -102,6 +116,14 @@ class TestFindingProblems:
             (_ambiguous(recommended=True), "index of one of the options"),
             (_without(_ambiguous(), "recommendation_anchor"), "recommendation_anchor must be"),
             (
+                _ambiguous(recommendation_anchor={"kind": "fact", "id": "env.GONE"}),
+                "recommendation_anchor names fact 'env.GONE'",
+            ),
+            (
+                _ambiguous(recommendation_anchor={"kind": "audience_rule", "id": "invented"}),
+                "'invented' isn't a audience_rule",
+            ),
+            (
                 _without(_ambiguous(), "recommended", "recommendation_anchor"),
                 f"an assessment starting {review.UNANCHORED!r}",
             ),
@@ -109,12 +131,40 @@ class TestFindingProblems:
                 {**_without(_ambiguous(), "recommended"), "assessment": "I'd link it."},
                 f"an assessment starting {review.UNANCHORED!r}",
             ),
+            (
+                {**_without(_ambiguous(), "recommended"), "assessment": review.UNANCHORED},
+                "a recommendation_anchor needs a recommended option",
+            ),
         ],
     )
     def test_a_needs_decision_finding_must_ask_and_never_settle(
         self, finding: dict[str, Any], problem: str
     ) -> None:
         assert any(problem in p for p in review.finding_problems(finding, _FACTS))
+
+    def test_with_root_the_page_and_section_must_exist(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        ok = _clear(section="features", anchor={"kind": "fact", "id": _TTL.id})
+        assert review.finding_problems(ok, _FACTS, root) == []
+        assert review.finding_problems(_clear(page="NOPE.md"), _FACTS, root) == [
+            "page 'NOPE.md' isn't a registered doc"
+        ]
+        (problem,) = review.finding_problems(_clear(section="no-such"), _FACTS, root)
+        assert problem.startswith("README.md has no section 'no-such'; its sections: [")
+
+    def test_the_text_before_the_first_heading_is_a_section(self) -> None:
+        assert review.finding_problems(_clear(section=""), _FACTS) == []
+
+    def test_the_reviewer_prompt_uses_only_known_rule_ids(self) -> None:
+        prompt = (
+            Path(__file__).resolve().parents[1] / ".claude/skills/docs-review/reviewer.md"
+        ).read_text(encoding="utf-8")
+        for kind, ids in review.RULE_IDS.items():
+            for rule_id in ids:
+                assert f"`{rule_id}`" in prompt, (kind, rule_id)
+        quoted = set(re.findall(r'"id": "([^"]+)"', prompt))
+        known = {i for ids in review.RULE_IDS.values() for i in ids}
+        assert quoted <= known | {"env.PYEYE_CACHE_TTL"}, quoted - known
 
     def test_fact_anchors_are_only_checked_against_facts_when_given(self) -> None:
         assert review.finding_problems(_clear(anchor={"kind": "fact", "id": "env.GONE"})) == []
@@ -369,6 +419,10 @@ class TestScope:
         assert out["pages"]
         assert all(p["audience"] == "claude" and p["kind"] != "reference" for p in out["pages"])
 
+    def test_a_bad_base_is_an_error_not_the_whole_repo(self, repo_facts: Any) -> None:
+        with pytest.raises(ValueError, match="can't read docs/facts/facts.json at 'no-such-ref'"):
+            review.scope(_ROOT, repo_facts, base="no-such-ref")
+
     def test_change_triggered_against_head_has_no_changed_facts(self, repo_facts: Any) -> None:
         out = review.scope(_ROOT, repo_facts, base="HEAD")
         assert out["changed"] == []
@@ -429,7 +483,11 @@ class TestCli:
     def test_validate_gives_statuses(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        finding = _clear(anchor={"kind": "style_rule", "id": "sentence-case-headings"})
+        finding = _clear(
+            section="features",
+            category="style",
+            anchor={"kind": "style_rule", "id": "broken-link"},
+        )
         path = _write(tmp_path, [finding])
         assert review.main(["validate", str(path)], root=_ROOT) == 0
         assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
@@ -438,7 +496,11 @@ class TestCli:
     def test_dismiss_then_validate_suppresses_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        finding = _clear(anchor={"kind": "style_rule", "id": "sentence-case-headings"})
+        finding = _clear(
+            section="features",
+            category="style",
+            anchor={"kind": "style_rule", "id": "broken-link"},
+        )
         path = _write(tmp_path, [finding])
         args = ["dismiss", str(path), "--index", "0", "--reason", "fine", "--date", "2026-11-18"]
         assert review.main(args, root=_ROOT) == 0
@@ -541,19 +603,84 @@ class TestOrphanFixes:
         state: dict[str, Any] = {}
         old = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
         with pytest.raises(ValueError, match="no fact 'env.NOPE'"):
-            review.move(state, old["key"], "env.NOPE", _FACTS)
+            review.move(state, old["key"], "env.NOPE", {})
         style = review.dismiss_finding(state, _ambiguous(), _FACTS, "deliberate", "2026-11-18")
         with pytest.raises(ValueError, match="isn't anchored on a fact"):
             review.move(state, style["key"], _TTL.id, _FACTS)
 
+    def test_move_refuses_a_dismissal_whose_fact_still_exists(self) -> None:
+        """Moving a live dismissal would re-point it at an unrelated fact."""
+        other = Fact("env.PYEYE_OTHER", {"default": 300}, "")
+        facts = {_TTL.id: _TTL, other.id: other}
+        state: dict[str, Any] = {}
+        old = review.dismiss_uncovered(state, _TTL.id, facts, "internal", "2026-11-18")
+        with pytest.raises(ValueError, match="still exists"):
+            review.move(state, old["key"], other.id, facts)
+        assert review.dismissed_uncovered(state, facts) == {
+            _TTL.id: {"reason": "internal", "date": "2026-11-18"}
+        }
+
+    def test_a_rename_that_changed_the_value_lapses(self) -> None:
+        state: dict[str, Any] = {}
+        old = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
+        renamed = Fact("env.PYEYE_SCOPE_CACHE_TTL", {"default": 900}, "")
+        facts = {renamed.id: renamed}
+        review.move(state, old["key"], renamed.id, facts)
+        assert review.orphaned(state, facts) == []
+        assert review.dismissed_uncovered(state, facts) == {}
+
     def test_the_commands_on_the_command_line(
         self, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str], repo_facts: Any
     ) -> None:
-        fact_id = next(i for i in repo_facts if i.startswith("env."))
-        other = next(i for i in repo_facts if i.startswith("env.") and i != fact_id)
-        entry = review.dismiss_uncovered(memory_state, fact_id, repo_facts, "x", "2026-11-18")
+        other = next(i for i in repo_facts if i.startswith("env."))
+        ghost = Fact("env.PYEYE_GHOST", {"default": 1}, "")
+        entry = review.dismiss_uncovered(
+            memory_state, ghost.id, {ghost.id: ghost}, "x", "2026-11-18"
+        )
         assert review.main(["move", entry["key"], other], root=_ROOT) == 0
         moved = json.loads(capsys.readouterr().out)["moved"]
         assert review.main(["forget", moved["key"]], root=_ROOT) == 0
         assert memory_state["confirmed_non_issues"] == []
         assert review.main(["forget", moved["key"]], root=_ROOT) == 2
+
+
+class TestLowFixes:
+    def test_a_covered_fact_dirties_only_the_sections_that_name_it(self) -> None:
+        text = "# One\nThe `PYEYE_CACHE_TTL` setting.\n# Two\nUnrelated.\n"
+        ttl = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "`PYEYE_CACHE_TTL`")
+        facts = {ttl.id: ttl}
+        entry = type("E", (), {"covers": (ttl.id,)})()
+        one, two = review.sections(text)
+        assert review._section_fact_ids(one, entry, facts, text) == [ttl.id]
+        assert review._section_fact_ids(two, entry, facts, text) == []
+
+    def test_a_covered_fact_no_section_names_counts_everywhere(self) -> None:
+        text = "# One\nx\n# Two\ny\n"
+        ttl = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "`PYEYE_CACHE_TTL`")
+        entry = type("E", (), {"covers": (ttl.id,)})()
+        for section in review.sections(text):
+            assert review._section_fact_ids(section, entry, {ttl.id: ttl}, text) == [ttl.id]
+
+    def test_prune_drops_entries_for_gone_sections_and_pages(self, tmp_path: Path) -> None:
+        (tmp_path / "page.md").write_text("# Kept\nx\n", encoding="utf-8")
+        state: dict[str, Any] = {
+            "coverage": {
+                "page.md#kept": {"content_hash": "h"},
+                "page.md#renamed": {"content_hash": "h"},
+                "gone.md#x": {"content_hash": "h"},
+            },
+            "confirmed_non_issues": [],
+        }
+        kept = review.dismiss_finding(
+            state, _clear(page="page.md", section="kept"), _FACTS, "fine", "2026-11-18"
+        )
+        review.dismiss_finding(
+            state, _clear(page="page.md", section="renamed"), _FACTS, "fine", "2026-11-18"
+        )
+        uncovered = review.dismiss_uncovered(state, _TTL.id, _FACTS, "x", "2026-11-18")
+        foreign = {"handles": ["page.md#renamed"], "structural_fact": "facet:a/b"}
+        state["confirmed_non_issues"].append(foreign)
+        removed = review.prune(state, tmp_path)
+        assert removed == ["gone.md#x", "page.md#renamed", "page.md#renamed"]
+        assert list(state["coverage"]) == ["page.md#kept"]
+        assert state["confirmed_non_issues"] == [kept, uncovered, foreign]

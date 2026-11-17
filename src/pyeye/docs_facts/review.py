@@ -39,10 +39,47 @@ STATE_PATH = "docs/facts/review-state.json"
 #: What a finding is about. Closed: an unknown category is rejected.
 CATEGORIES = ("fact_drift", "uncovered_fact", "honest_claims", "audience", "style")
 
-#: What a finding rests on (§6). ``fact`` is a fact ID; ``claims_rule`` a D12
-#: clause; ``audience_rule`` an audience rule (D11, ``00-documentation-system.md``);
-#: ``style_rule`` a checklist entry; ``task`` a failed scoring task (#830).
-ANCHOR_KINDS = ("fact", "claims_rule", "audience_rule", "style_rule", "task")
+#: What a finding rests on (§6), and the closed set of IDs for each rule kind.
+#: ``fact`` is any extracted fact ID; ``task`` (a failed scoring task) arrives
+#: with #830 and has no IDs yet. An ID outside its set is rejected, so a
+#: reviewer can't invent an anchor.
+RULE_IDS: dict[str, dict[str, str]] = {
+    "claims_rule": {
+        "D12-absolute": "an absolute claim without the scope the code guarantees",
+        "D12-comparison": "an implied comparison with no record behind it",
+        "D12-projection": "a projection or target stated as fact",
+    },
+    "audience_rule": {
+        "human-explains": "human docs explain, with no enforcement language",
+        "claude-directs": "Claude docs are concise and directive, with no tutorials",
+        "bridge-problem-fix": "bridge docs give the problem and an executable fix",
+        "right-audience": "content belongs to another audience's docs",
+        "link-not-restate": "reference material is linked, not restated",
+    },
+    "style_rule": {
+        "invalid-example": "a copyable example that doesn't work as written",
+        "broken-link": "a link to a missing file or section",
+        "orphaned-text": "text under the wrong heading, or about something absent",
+        "missing-prerequisite": "a step that assumes setup the page never gives",
+        "imprecise-limit": "a configurable default stated as a fixed limit",
+        "dated-claim": "an external fact that may be stale and needs checking",
+        "duplication": "content repeated from another page",
+    },
+    "task": {},
+}
+ANCHOR_KINDS = ("fact", *RULE_IDS)
+
+#: The anchor kind each category rests on.
+CATEGORY_ANCHOR = {
+    "fact_drift": "fact",
+    "uncovered_fact": "fact",
+    "honest_claims": "claims_rule",
+    "audience": "audience_rule",
+    "style": "style_rule",
+}
+
+#: The fields only a needs-decision finding may carry.
+_DECISION_FIELDS = ("options", "question", "assessment", "recommended", "recommendation_anchor")
 
 #: The label a needs-decision finding's assessment carries when no anchor backs
 #: a recommendation (C13): an informed judgment, never presented as settled.
@@ -71,15 +108,39 @@ def _text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _anchor_problems(anchor: Any, where: str) -> list[str]:
+def _anchor_problems(anchor: Any, where: str, facts: Facts | None) -> list[str]:
     if not isinstance(anchor, dict):
         return [f"{where} must be an object {{kind, id}}"]
-    problems = []
-    if anchor.get("kind") not in ANCHOR_KINDS:
-        problems.append(f"{where}.kind must be one of {list(ANCHOR_KINDS)}")
-    if not _text(anchor.get("id")):
-        problems.append(f"{where}.id must be a non-empty string")
-    return problems
+    kind, anchor_id = anchor.get("kind"), anchor.get("id")
+    if kind not in ANCHOR_KINDS:
+        return [f"{where}.kind must be one of {list(ANCHOR_KINDS)}"]
+    if not _text(anchor_id):
+        return [f"{where}.id must be a non-empty string"]
+    if kind == "fact":
+        if facts is not None and anchor_id not in facts:
+            return [f"{where} names fact {anchor_id!r}, which doesn't exist"]
+        return []
+    known = RULE_IDS[kind]
+    if anchor_id not in known:
+        listed = sorted(known) or "none yet (#830)"
+        return [f"{where}.id {anchor_id!r} isn't a {kind}; known: {listed}"]
+    return []
+
+
+def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
+    """The page must be registered and on disk, and the section must be one of its slugs."""
+    from . import docs
+
+    page, section = finding.get("page"), finding.get("section")
+    if not isinstance(page, str) or docs.entry_for(page) is None:
+        return [f"page {page!r} isn't a registered doc"]
+    path = root / page
+    if not path.is_file():
+        return [f"page {page!r} doesn't exist"]
+    slugs = [s.slug for s in sections(path.read_text(encoding="utf-8"))]
+    if section not in slugs:
+        return [f"{page} has no section {section!r}; its sections: {slugs}"]
+    return []
 
 
 def _option_problems(options: Any) -> list[str]:
@@ -94,40 +155,52 @@ def _option_problems(options: Any) -> list[str]:
     return problems
 
 
-def finding_problems(finding: Mapping[str, Any], facts: Facts | None = None) -> list[str]:
+def finding_problems(
+    finding: Mapping[str, Any], facts: Facts | None = None, root: Path | None = None
+) -> list[str]:
     """Why *finding* can't be shown to a human; ``[]`` when it can.
 
     The shape (D8, C13, C14):
 
-    - ``page``, ``section``, ``problem``: non-empty strings.
+    - ``page``, ``problem``: non-empty strings; ``section``: a string (``""`` is
+      the text before the first heading). With *root*, the page must be
+      registered and on disk, and the section must be one of its slugs.
     - ``category``: one of :data:`CATEGORIES`.
-    - ``anchor``: ``{kind, id}``, what the finding rests on (:data:`ANCHOR_KINDS`).
-      A ``fact`` anchor must name a fact in *facts*, when given.
-    - **A clear fix:** ``replacement``, the proposed text, and no options.
+    - ``anchor``: ``{kind, id}``, what the finding rests on, of the kind its
+      category rests on (:data:`CATEGORY_ANCHOR`). A ``fact`` anchor must name a
+      fact in *facts*, when given; any other kind's ID must be in
+      :data:`RULE_IDS`.
+    - **A clear fix:** ``replacement``, the proposed text, and none of the
+      decision fields (options, question, assessment, recommendation).
     - **Genuine ambiguity:** ``needs_decision: true``, a ``question``, 2 or 3
       ``options`` each with its ``text`` and ``cost``, and either a
-      ``recommended`` option index with its ``recommendation_anchor``, or, when
-      no anchor backs one, an ``assessment`` starting with :data:`UNANCHORED`.
+      ``recommended`` option index with its ``recommendation_anchor`` (checked
+      like the anchor), or, when no anchor backs one, an ``assessment`` starting
+      with :data:`UNANCHORED`.
 
     The tool never decides: a finding without a way forward is rejected, and so
     is a needs-decision finding presented as settled (a replacement).
     """
     problems = [
         f"{name} must be a non-empty string"
-        for name in ("page", "section", "problem")
+        for name in ("page", "problem")
         if not _text(finding.get(name))
     ]
-    if finding.get("category") not in CATEGORIES:
+    if not isinstance(finding.get("section"), str):
+        problems.append(
+            "section must be a string (a slug, or '' for the text before the first heading)"
+        )
+    category = finding.get("category")
+    if category not in CATEGORIES:
         problems.append(f"category must be one of {list(CATEGORIES)}")
     anchor = finding.get("anchor")
-    problems.extend(_anchor_problems(anchor, "anchor"))
-    if (
-        facts is not None
-        and isinstance(anchor, dict)
-        and anchor.get("kind") == "fact"
-        and anchor.get("id") not in facts
-    ):
-        problems.append(f"anchor names fact {anchor.get('id')!r}, which doesn't exist")
+    problems.extend(_anchor_problems(anchor, "anchor", facts))
+    if category in CATEGORY_ANCHOR and isinstance(anchor, dict):
+        expected = CATEGORY_ANCHOR[category]
+        if anchor.get("kind") in ANCHOR_KINDS and anchor.get("kind") != expected:
+            problems.append(f"a {category} finding rests on a {expected} anchor")
+    if root is not None and not problems:
+        problems.extend(_location_problems(finding, root))
 
     if finding.get("needs_decision") is True:
         if "replacement" in finding:
@@ -143,9 +216,13 @@ def finding_problems(finding: Mapping[str, Any], facts: Facts | None = None) -> 
             if not (index and 0 <= recommended < count):
                 problems.append("recommended must be the index of one of the options")
             problems.extend(
-                _anchor_problems(finding.get("recommendation_anchor"), "recommendation_anchor")
+                _anchor_problems(
+                    finding.get("recommendation_anchor"), "recommendation_anchor", facts
+                )
             )
         else:
+            if "recommendation_anchor" in finding:
+                problems.append("a recommendation_anchor needs a recommended option")
             assessment = finding.get("assessment")
             if not (_text(assessment) and str(assessment).startswith(UNANCHORED)):
                 problems.append(
@@ -157,8 +234,9 @@ def finding_problems(finding: Mapping[str, Any], facts: Facts | None = None) -> 
             problems.append("needs_decision must be true or false")
         if not _text(finding.get("replacement")):
             problems.append("a finding with a clear fix must propose its replacement text")
-        if "options" in finding:
-            problems.append("options belong only to a needs-decision finding")
+        extra = [name for name in _DECISION_FIELDS if name in finding]
+        if extra:
+            problems.append(f"a clear fix carries no decision fields: {extra}")
     return problems
 
 
@@ -462,28 +540,74 @@ def forget(state: dict[str, Any], key: str) -> dict[str, Any]:
 def move(state: dict[str, Any], key: str, new_fact_id: str, facts: Facts) -> dict[str, Any]:
     """Carry the dismissal with *key* over to *new_fact_id*, for a renamed fact (C14).
 
-    The moved dismissal is pinned to the new fact's current value, and keeps its
-    reason and date.
+    Only an orphan moves: its old fact must be gone. The old value pin is kept,
+    so the moved dismissal holds only if the new fact has the value the
+    dismissed one had. A rename that also changed the value lapses, and the
+    finding or uncovered fact comes back for review.
 
     Raises:
-        ValueError: If no dismissal has *key*, it isn't anchored on a fact, or
-            *new_fact_id* doesn't exist.
+        ValueError: If no dismissal has *key*, it isn't anchored on a fact, its
+            fact still exists, or *new_fact_id* doesn't exist.
     """
     old = _find(state, key)
-    if (old.get("anchor") or {}).get("kind") != "fact":
+    anchor = old.get("anchor") or {}
+    if anchor.get("kind") != "fact":
         raise ValueError(f"dismissal {key} isn't anchored on a fact, so it can't move")
+    if anchor.get("id") in facts:
+        raise ValueError(
+            f"dismissal {key}'s fact {anchor['id']!r} still exists: only a dismissal whose "
+            "fact was removed or renamed can move"
+        )
     if new_fact_id not in facts:
         raise ValueError(f"no fact {new_fact_id!r} to move the dismissal to")
     forget(state, key)
     category = old.get("category", "uncovered_fact")
     handles = [new_fact_id] if old.get("reason") == "not-covered" else list(old["handles"])
-    fact = _structural_fact("fact", new_fact_id, facts, category)
+    pin = str(old["structural_fact"]).rsplit(":", 1)[1]
+    fact = f"{_FACT_PREFIX}{category}:fact:{new_fact_id}:{pin}"
     entry = _entry(handles, fact, old["reason"], old["date"], old.get("review_after"))
     entry.update({k: v for k, v in old.items() if k in ("note",)})
     entry["category"] = category
     entry["anchor"] = {"kind": "fact", "id": new_fact_id}
     _replace(state, entry)
     return entry
+
+
+def prune(state: dict[str, Any], root: Path) -> list[str]:
+    """Drop coverage entries and finding dismissals whose page or section is gone.
+
+    A renamed heading or a deleted page leaves them behind: a finding there would
+    have a new key anyway, so they can never match again. They are removed, not
+    failed on: a heading rename isn't something the PR author must repair. The
+    ``page#section`` of each one removed is returned.
+    """
+    live: dict[str, set[str]] = {}
+
+    def exists(handle: str) -> bool:
+        page, _, slug_ = handle.partition("#")
+        if page not in live:
+            path = root / page
+            live[page] = (
+                {s.slug for s in sections(path.read_text(encoding="utf-8"))}
+                if path.is_file()
+                else set()
+            )
+        return slug_ in live[page]
+
+    removed = sorted(h for h in state.get("coverage", {}) if not exists(h))
+    for handle in removed:
+        del state["coverage"][handle]
+    kept = []
+    for entry in state.get("confirmed_non_issues", []):
+        handles = entry.get("handles") or []
+        is_section = _ours(entry) and entry.get("reason") != "not-covered" and handles
+        if is_section and not exists(handles[0]):
+            removed.append(handles[0])
+            continue
+        kept.append(entry)
+    if "confirmed_non_issues" in state:
+        state["confirmed_non_issues"] = kept
+    return removed
 
 
 #: A finding's status after the state is applied (as ``/duplication-review``'s).
@@ -534,11 +658,25 @@ def _page_fact_ids(text: str, entry: Any, facts: Facts) -> set[str]:
     return ledger.expand([b.fact_id for b in blocks], facts) | ledger.expand(entry.covers, facts)
 
 
-def _section_fact_ids(section: Section, entry: Any, facts: Facts) -> list[str]:
+def _section_fact_ids(section: Section, entry: Any, facts: Facts, text: str) -> list[str]:
+    """The facts a section's freshness depends on.
+
+    Its own blocks' facts, plus the page's ``covers`` facts that the section
+    names, as the fact's inline-code rendering (```PYEYE_CACHE_TTL```). A covered
+    fact that no section names counts for every section: where the prose
+    explains it is unknown, so any of them may need review when it changes.
+    """
     from . import binding, ledger
 
     blocks, _ = binding.parse(section.text)
-    ids = ledger.expand([b.fact_id for b in blocks], facts) | ledger.expand(entry.covers, facts)
+    ids = ledger.expand([b.fact_id for b in blocks], facts)
+    covered = ledger.expand(entry.covers, facts)
+    every = sections(text)
+    for fact_id in covered:
+        mark = facts[fact_id].markdown
+        named_by = [s for s in every if mark and mark in s.text]
+        if not named_by or any(s.slug == section.slug for s in named_by):
+            ids.add(fact_id)
     return sorted(ids)
 
 
@@ -561,7 +699,7 @@ def packet(
     changed_here = sorted(set(changed_ids) & set(fact_ids))
     found = []
     for section in sections(text):
-        ids = _section_fact_ids(section, entry, facts)
+        ids = _section_fact_ids(section, entry, facts, text)
         found.append(
             {
                 "section": section.slug,
@@ -623,7 +761,12 @@ def scope(
     uncovered: list[str] = []
     if base is not None:
         before = changed_facts.base_snapshot(root, base, SNAPSHOT)
-        diff = changed_facts.diff(before or {}, _committed_snapshot(root), {})
+        if before is None:
+            raise ValueError(
+                f"can't read {SNAPSHOT} at {base!r}: give a git revision that has it "
+                "(e.g. origin/main), or name pages instead"
+            )
+        diff = changed_facts.diff(before, _committed_snapshot(root), {})
         changed_ids = set(diff.added) | set(diff.changed)
         current = ledger.load(root)
         uncovered = sorted(current.new) if current is not None else []
@@ -670,6 +813,12 @@ def save(root: Path, state: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Command line: ``scripts/docs_review.py``
 # ---------------------------------------------------------------------------
+
+
+def _with_pruned(out: Any, pruned: list[str]) -> Any:
+    if pruned and isinstance(out, dict):
+        out = {**out, "pruned": pruned}
+    return out
 
 
 def _read_findings(path: Path) -> list[dict[str, Any]]:
@@ -728,7 +877,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             problems = {
                 str(i): found
                 for i, f in enumerate(findings)
-                if (found := finding_problems(f, facts))
+                if (found := finding_problems(f, facts, base))
             }
             if problems:
                 print(json.dumps({"problems": problems}, indent=2))
@@ -747,30 +896,35 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
                 raise ValueError(f"{args.page} has no section {args.section!r}")
             _check_date(args.date, "--date")
             state = load(base)
-            ids = _section_fact_ids(match[0], entry, facts)
+            ids = _section_fact_ids(match[0], entry, facts, text)
             mark_reviewed(state, args.page, match[0], ids, facts, args.date)
-            save(base, state)
             out = {"marked": coverage_key(args.page, args.section)}
+            out = _with_pruned(out, prune(state, base))
+            save(base, state)
         elif args.command == "dismiss":
             findings = _read_findings(args.findings)
             finding = findings[args.index]
-            found = finding_problems(finding, facts)
+            found = finding_problems(finding, facts, base)
             if found:
                 raise ValueError(f"finding {args.index} is invalid: {found}")
             state = load(base)
             out = dismiss_finding(state, finding, facts, args.reason, args.date, args.review_after)
+            out = _with_pruned(out, prune(state, base))
             save(base, state)
         elif args.command == "forget":
             state = load(base)
             out = {"forgot": forget(state, args.key)}
+            out = _with_pruned(out, prune(state, base))
             save(base, state)
         elif args.command == "move":
             state = load(base)
             out = {"moved": move(state, args.key, args.new_fact, facts)}
+            out = _with_pruned(out, prune(state, base))
             save(base, state)
         else:
             state = load(base)
             out = dismiss_uncovered(state, args.fact, facts, args.reason, args.date)
+            out = _with_pruned(out, prune(state, base))
             save(base, state)
             out["next"] = "run `uv run python scripts/docs_facts.py generate` to update the ledger"
     except (ValueError, IndexError, OSError) as exc:

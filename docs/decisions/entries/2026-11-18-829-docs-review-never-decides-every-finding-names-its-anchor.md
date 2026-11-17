@@ -21,8 +21,8 @@ superseded_by: []
 
 **Decision:**
 
-- **The finding shape is enforced in code, not in prose.** `review.finding_problems` rejects a finding that lacks a page, a section, a category (closed set) or an anchor `{kind, id}` (closed kinds), or whose `fact` anchor names no fact. A finding that fails is never shown.
-  - **A clear fix** carries one `replacement` and no options.
+- **The finding shape is enforced in code, not in prose.** `review.finding_problems` rejects a finding that lacks a page, a section, a category (closed set) or an anchor `{kind, id}`, which must be of the kind its category rests on. A reviewer can't invent an anchor: a `fact` anchor must name a real fact, and a rule anchor must be one of `review.RULE_IDS` (the D12 clauses, the audience rules, the sweep's style categories). With the repo root, the page must be registered and the section must be one of its slugs. The recommendation anchor is checked the same way. A finding that fails is never shown.
+  - **A clear fix** carries one `replacement` and none of the decision fields: options, question, assessment or recommendation.
   - **A needs-decision finding** carries its `question` and two or three `options`, each with its `cost`. It also carries either a `recommended` option with its `recommendation_anchor`, or an `assessment` starting `unanchored: judgment only`. A replacement on it is rejected, because that would present the choice as settled.
 - **Nothing is applied.** The skill's loop presents findings verbatim. Only the human accepts, dismisses or chooses, and an edit is made only on their explicit instruction.
 - **State reuses `architecture_review.state` (D7), in `docs/facts/review-state.json`.**
@@ -30,7 +30,8 @@ superseded_by: []
   - A dismissal is a `non_issue_key` over `page#section` plus the category and anchor, pinned to the anchor fact's value. Rewording keeps it dismissed, and a value change brings it back as `resurfaced`.
   - Finding identity never uses prose (#498).
 - **Deliberately-not-covered facts (C13)** are dismissed once, in the review state. `docs_facts generate` leaves them out of the ledger's uncovered entries and copies them into its read-only `dismissed` section. A dismissal lapses when its fact's value changes.
-- **Orphans fail (C14), with a message anyone can act on.** `docs_facts check` fails on a dismissal whose fact no longer exists. Whoever removed or renamed the fact may not know dismissals exist, so the message names the fact, `docs/facts/review-state.json` and what the dismissal was for, and gives both fixes as commands: `scripts/docs_review.py move KEY NEW_FACT` for a rename, `forget KEY` for a removal.
+- **Orphans fail (C14), with a message anyone can act on.** `docs_facts check` fails on a dismissal whose fact no longer exists. Whoever removed or renamed the fact may not know dismissals exist, so the message names the fact, `docs/facts/review-state.json` and what the dismissal was for, and gives both fixes as commands: `scripts/docs_review.py move KEY NEW_FACT` for a rename, `forget KEY` for a removal. `move` refuses a dismissal whose fact still exists, so it can't re-point a live dismissal at an unrelated fact. It keeps the old value pin, so a rename that also changed the value lapses. Coverage entries and finding dismissals whose page or section is gone (a renamed heading) are pruned on every state write, not failed on.
+- **A bad `--base` is an error, never the whole repo.** If the base revision has no snapshot, `scope` says so instead of treating every fact as added.
 - **Internal.** The skill lives in `.claude/skills/docs-review/`, and the script is `scripts/docs_review.py`. There is no MCP tool and no public surface, so there is no changelog fragment. Shipping it, with task scoring and the release hook, is #830.
 
 **Anchor:** `pyeye.docs_facts.review.finding_problems`; `pyeye.docs_facts.review.triage`; `pyeye.docs_facts.ledger.updated`; design D6–D8, C13, C14; #829, #818.

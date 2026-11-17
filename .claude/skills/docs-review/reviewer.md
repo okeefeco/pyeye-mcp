@@ -27,27 +27,27 @@ not as a finding.
 2. **`uncovered_fact`**: a fact in `changed` that the page should explain but
    doesn't. Anchor on the fact.
 3. **`honest_claims`** (design D12): claims the code or a record can't back,
-   which a pattern rule can't catch:
-   - an absolute claim ("complete", "never misses", "all") without the scope
-     the code actually guarantees;
-   - an implied comparison ("faster", "smarter", "better than X") with no record;
-   - a projection or target stated as fact.
+   which a pattern rule can't catch. Anchor `{"kind": "claims_rule", "id": …}`:
+   - `D12-absolute`: an absolute claim ("complete", "never misses", "all")
+     without the scope the code actually guarantees;
+   - `D12-comparison`: an implied comparison ("faster", "better than X") with no record;
+   - `D12-projection`: a projection or target stated as fact.
 
-   Anchor: `{"kind": "claims_rule", "id": "D12-absolute" | "D12-comparison" | "D12-projection"}`.
    Propose honest wording that states the real scope, or deletion.
-4. **`audience`** (D11): the page doesn't serve its audience.
-   - Human docs explain, and carry no MUST/NEVER enforcement language.
-   - Claude docs are concise and directive, with no tutorials.
-   - Bridge docs (`Audience: Both`) give the problem plus an executable fix.
-
-   Anchor: `{"kind": "audience_rule", "id": "<short rule name>"}`.
-5. **`style`**: the sweep's nit categories. Anchor: `{"kind": "style_rule", "id": …}`:
+4. **`audience`** (D11): the page doesn't serve its audience. Anchor
+   `{"kind": "audience_rule", "id": …}`:
+   - `human-explains`: human docs explain, with no MUST/NEVER enforcement language;
+   - `claude-directs`: Claude docs are concise and directive, with no tutorials;
+   - `bridge-problem-fix`: bridge docs (`Audience: Both`) give the problem and an executable fix;
+   - `right-audience`: the content belongs in another audience's docs;
+   - `link-not-restate`: reference material is restated instead of linked.
+5. **`style`**: the sweep's nit categories. Anchor `{"kind": "style_rule", "id": …}`:
    - `invalid-example`: a copyable example that doesn't work as written, such as JSON with comments;
    - `broken-link`: a link to a missing file or section;
    - `orphaned-text`: text under the wrong heading, or referring to something absent;
    - `missing-prerequisite`: a step that assumes an install or setup the page never gives;
    - `imprecise-limit`: a configurable default stated as a fixed limit ("max 10" for "default 10");
-   - `dated-claim`: an external fact ("as of", a third-party UI or key) that may be stale. Say it needs checking;
+   - `dated-claim`: an external fact (`as of` a date, a third-party UI or key) that may be stale. Say it needs checking;
    - `duplication`: content that repeats another page; propose linking it instead.
 
 ## Output: a JSON array of findings
@@ -73,7 +73,7 @@ naming its anchor:
   "page": "README.md",
   "section": "configuration",
   "category": "audience",
-  "anchor": {"kind": "audience_rule", "id": "human-docs-explain"},
+  "anchor": {"kind": "audience_rule", "id": "human-explains"},
   "problem": "The section mixes a tutorial with the full key reference.",
   "needs_decision": true,
   "question": "Keep the key reference in the README, or link docs/reference?",
@@ -82,7 +82,7 @@ naming its anchor:
     {"text": "Keep the tutorial; link the reference page.", "cost": "one more click"}
   ],
   "recommended": 1,
-  "recommendation_anchor": {"kind": "audience_rule", "id": "reference-lives-in-reference"}
+  "recommendation_anchor": {"kind": "audience_rule", "id": "link-not-restate"}
 }
 ```
 
@@ -96,7 +96,12 @@ When **no anchor** backs a recommendation, leave out `recommended` and
 Rules for the output:
 
 - `section` is the slug from the packet (`""` for the text before the first heading).
-- Never invent a fact ID: a `fact` anchor must be a key of the packet's `facts`,
-  or a fact named in `changed`.
+- `page` and `section` must be the packet's: `validate` rejects a page that isn't
+  registered and a section the page doesn't have.
+- Never invent an anchor ID. A `fact` anchor must be a key of the packet's
+  `facts`, or a fact named in `changed`. A rule anchor must be one of the IDs
+  listed above, and its kind must match the category.
+- A clear fix carries only `replacement`: no options, question, assessment or
+  recommendation.
 - Only use `needs_decision` when a person must really choose. Plain drift has one fix.
 - No finding is better than a vague one. Return `[]` when the sections are fine.
