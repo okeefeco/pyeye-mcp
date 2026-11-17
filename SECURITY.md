@@ -31,11 +31,12 @@ Please include:
 
 ## What to Expect
 
-This is a small, maintainer-run project, so these timelines are goals rather
-than guarantees:
+This is a small, maintainer-run project with no service-level commitment. What
+we aim for:
 
-- **Acknowledgement** within 7 days.
-- **Assessment** (confirmed or not, and its severity) within 14 days.
+- **Acknowledgement:** we reply on the advisory as soon as we've seen it.
+- **Assessment:** we tell you whether we can reproduce the issue, and how severe
+  we think it is.
 - **Fix:** a patch release for confirmed issues as soon as one is ready, with
   the advisory published at the same time. You'll be credited in the advisory
   unless you prefer not to be.
@@ -68,27 +69,45 @@ How pyeye behaves, so you can judge what counts as a vulnerability:
 
 - **Static analysis only.** pyeye parses and analyses Python source with
   [Jedi](https://github.com/davidhalter/jedi). It doesn't import or run the
-  analysed project's code. The only subprocess it starts is `ripgrep` for text
-  search, invoked without a shell.
+  analysed project's code, and the server starts no subprocess of its own.
+  Jedi starts one helper subprocess: the server's own Python interpreter running
+  a script from Jedi's package, without a shell. Jedi uses it to introspect
+  compiled modules, and imports them only from the server's Python environment.
+  pyeye leaves Jedi's `load_unsafe_extensions` off, so compiled extensions
+  inside the analysed project or a configured package are never loaded.
 - **It reads what the MCP client points it at.** Tools take a `project_path`,
-  and `configure_packages` can add further package paths. pyeye reads those
-  paths with the permissions of the user running the server. Path inputs are
-  validated (null bytes, `...` and a small deny-list of system directories such
-  as `/etc/` and `/proc/` are rejected), but this is a sanity check, **not a
-  sandbox**: any directory the server's user can read can be analysed if a
-  client asks for it. Run the server as a user whose read access you're
-  comfortable exposing to your MCP client.
+  and `configure_packages` can add package, namespace and standalone-script
+  paths. pyeye reads those paths with the permissions of the user running the
+  server. Some path inputs are checked: null bytes and `...` are rejected, and so
+  is a path naming one of a few system directories (`/etc/`, `/root/`, `/proc/`,
+  `/sys/`, `/dev/`). This is a sanity check, **not a sandbox**:
+  - any directory the server's user can read can be analysed if a client asks
+    for it;
+  - not every path input goes through the check, and a relative path or a
+    symlink isn't checked in the form that's finally read
+    ([#856](https://github.com/okeefeco/pyeye-mcp/issues/856) tracks closing
+    those gaps).
+
+  Run the server as a user whose read access you're comfortable exposing to your
+  MCP client.
 - **What it writes:**
-  - `configure_packages(save=True)` writes `.pyeye.json` in the server's
-    working directory
-  - usage metrics are stored under `~/.pyeye/`
-  - logs go to `PYEYE_LOG_FILE`, if set
+  - `configure_packages` writes `.pyeye.json` in the `project_path` it was given,
+    replacing any existing one, whenever the call adds packages, namespaces or
+    standalone directories. `save` defaults to `true`; pass `save=false` to change
+    the running configuration only. The file holds the project's whole merged
+    configuration, not just the keys the call added.
+  - Usage metrics go to `~/.pyeye/metrics/`: per server session, the tool names
+    called, call counts, durations, error counts and timestamps. No tool
+    arguments, paths or source are recorded.
+  - Logs go to the file named by `PYEYE_LOG_FILE`, if it's set.
 
   It doesn't modify the analysed source.
-- **No network access** is needed for analysis.
+- **No network access** is needed for analysis, and the server makes no
+  network requests.
 
 ## Security Checks in Development
 
-Every commit runs `detect-secrets`, `bandit` and `pip-audit` (against the locked
-dependency set) as pre-commit hooks, and CI runs them again. See
+The pre-commit hooks run `detect-secrets` and `bandit` on every commit, and
+`pip-audit` (against the locked dependency set) whenever `pyproject.toml` or
+`uv.lock` changes. CI runs all three on every pull request. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
