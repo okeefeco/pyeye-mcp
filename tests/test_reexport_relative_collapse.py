@@ -91,3 +91,18 @@ def test_the_tools_agree(tmp_path: Path) -> None:
 
     assert resolved["handle"] == inspected["handle"] == "clonepkg.thing.CloneThing"
     assert "clonepkg.CloneThing" in definition["re_exports"]
+
+
+def test_dogfood_pyeyes_own_relative_re_export_collapses() -> None:
+    """pyeye's own ``analyzers/__init__.py`` does ``from .jedi_analyzer import JediAnalyzer``.
+
+    Found in the #864 review: it resolved to ``pyeye.analyzers.JediAnalyzer`` at
+    ``analyzers/__init__.py``, not to its class.
+    """
+    repo = Path(__file__).parent.parent
+
+    result = resolve_handle("pyeye.analyzers.JediAnalyzer", JediAnalyzer(repo.as_posix()))
+
+    assert isinstance(result, Resolved), result
+    assert result.handle == "pyeye.analyzers.jedi_analyzer.JediAnalyzer"
+    assert Path(result.anchor.module_path).name == "jedi_analyzer.py"
