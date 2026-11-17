@@ -92,11 +92,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask routes in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         routes = []
 
@@ -152,11 +153,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask blueprints in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         blueprints = []
 
@@ -204,11 +206,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask view functions and classes.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         views = []
 
@@ -243,11 +246,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find all Flask templates and render_template calls.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         templates = []
         render_calls = []
@@ -309,11 +313,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask extensions in use.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         extensions: list[dict[str, Any]] = []
         common_extensions = [
@@ -381,11 +386,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask configuration files and app.config usage.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         configs: list[dict[str, Any]] = []
 
@@ -423,11 +429,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find error handler functions.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         handlers = []
 
@@ -467,11 +474,12 @@ class FlaskPlugin(AnalyzerPlugin):
         """Find Flask CLI commands.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         commands = []
 

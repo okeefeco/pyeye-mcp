@@ -222,15 +222,19 @@ editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 
 - Do **not** fall back to `grep` to guess who calls or references a symbol.
 
-> **There is no legacy escape hatch.** Earlier versions shipped `find_references`,
-> `get_call_hierarchy`, and `analyze_dependencies`. They were **removed in v2.0**, not
-> deprecated, because they answered confidently and wrongly — `get_call_hierarchy`
-> returned a structurally always-empty `callees` list and anchored bare names on the
-> first match with no ambiguity signal; `analyze_dependencies` classified every
-> first-party module as third-party on a `src/` layout, which silently disabled its own
-> cycle detection; `find_references` claimed "ALL usages" with no way to tell an empty
-> result from a failed search. If you remember them, they are gone — a confident wrong
-> answer is worse than an honest "not available."
+> **There is no legacy escape hatch.** Earlier versions shipped three tools that v2.0
+> removed: `find_references`, `get_call_hierarchy` and `analyze_dependencies` were
+> **removed in v2.0**, not deprecated, because they answered confidently and wrongly:
+>
+> - the removed `get_call_hierarchy` returned a structurally always-empty `callees`
+>   list, and it anchored bare names on the first match with no ambiguity signal;
+> - the removed `analyze_dependencies` classified every first-party module as
+>   third-party on a `src/` layout, which silently disabled its own cycle detection;
+> - the removed `find_references` claimed "ALL usages" with no way to tell an empty
+>   result from a failed search.
+>
+> If you remember them, they are gone — a confident wrong answer is worse than an
+> honest "not available."
 
 Why the line falls here: pyeye answers structural facts from the AST, semantic questions
 with bounded Jedi inference, and leaves the reverse queries Jedi gets wrong to a
