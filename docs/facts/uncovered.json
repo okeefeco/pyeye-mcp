@@ -35,7 +35,6 @@
     "env.PYEYE_POOL_TTL",
     "env.PYEYE_SCRIPT_CACHE_MAX_ENTRIES",
     "project.python_versions",
-    "project.requires_python",
     "review.grade.ambiguous",
     "review.grade.deterministic_single",
     "review.grade.mechanical_fact",
@@ -143,5 +142,10 @@
     "tool.trace_model_inheritance.param.scope"
   ],
   "dismissed": {},
-  "new": []
+  "new": [
+    {
+      "fact_id": "env.PYEYE_CACHE_TTL",
+      "first_seen": "unreleased"
+    }
+  ]
 }

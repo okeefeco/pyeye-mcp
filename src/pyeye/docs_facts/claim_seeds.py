@@ -39,12 +39,6 @@ SEEDS: dict[str, tuple[str, ...]] = {
         "unbacked duration '3 s': (#803's profile). 's ~3 s is today's ceiling, and it isn't profiled. For",
         "unbacked duration '1.2 s': at 0.5–1.2 s, most of it Jedi inference.",
     ),
-    "DOCUMENTATION.md": (
-        "unbacked size '10MB': 3. **File Size Limits**: Large files are rejected (default 10MB limit):",
-        "unbacked size '50MB': - Each project: ~10-50MB depending on size",
-        "unbacked size '100MB': - Cache: Configurable, default 100MB max",
-        "unbacked size '1MB': - File watchers: ~1MB per project",
-    ),
     "benchmarks/BASELINE_RESULTS.md": (
         "unbacked duration '52ms': - **Symbol search**: 23-52ms for 1000 files (would be **230-520ms for 10,000 files**)",
         "unbacked duration '520ms': - **Symbol search**: 23-52ms for 1000 files (would be **230-520ms for 10,000 files**)",

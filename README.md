@@ -335,7 +335,7 @@ with arguments like these:
 ```json
 {
   "packages": ["../my-lib", "~/repos/shared-utils"],
-  "namespaces": {"company": ["~/repos/company-*"]}
+  "namespaces": {"company": ["~/repos/company-auth", "~/repos/company-api"]}
 }
 ```
 

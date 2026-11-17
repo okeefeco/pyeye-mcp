@@ -14,21 +14,21 @@
 
 ## Overview
 
-The PyEye Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases deeply without reading every file.
+The PyEye Server provides semantic code analysis for Python projects through the Model Context Protocol (MCP). It enables AI assistants like Claude to understand Python codebases without reading every file.
 
 ### Key Capabilities
 
 - **Semantic Analysis**: Understands Python code structure, not just text matching
 - **Multi-Project**: Analyzes multiple projects and dependencies simultaneously
-- **Auto-Update**: Reflects code changes in real-time
-- **Extensible**: Plugin system for custom patterns
-- **Efficient**: Intelligent caching reduces redundant analysis
+- **Auto-Update**: Follows file changes without a restart
+- **Framework plugins**: Built-in plugins for Django, Pydantic and Flask
+- **Cached**: Keeps parse and analysis results in memory and drops them when files change
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->
 - Git
 - uv (recommended) or pip
 
@@ -48,41 +48,50 @@ pip install -e .
 
 ### Configure for Claude Code
 
+pyeye analyzes the directory the server starts in, so start it from your
+project. `uv run --project` uses pyeye's checkout for the environment without
+changing the working directory (`uv --directory` would change it, and pyeye
+would analyze its own checkout instead of your project):
+
+These commands need [uv](https://docs.astral.sh/uv/). After a pip install, use
+the installed `pyeye-mcp` command instead (see the README's
+[Installation](README.md#installation)).
+
 ```bash
 # Add globally (available in all projects)
 claude mcp add pyeye -s user -- \
-  uv --directory ~/GitHub/pyeye-mcp run python -m pyeye.mcp
+  uv run --project ~/GitHub/pyeye-mcp pyeye-mcp
 
 # Or add to specific project
 cd your-project
 claude mcp add pyeye -- \
-  uv --directory ~/GitHub/pyeye-mcp run python -m pyeye.mcp
+  uv run --project ~/GitHub/pyeye-mcp pyeye-mcp
 
 # Verify connection
 claude mcp list
 ```
 
+The [entry points](docs/reference/cli.md) lists the commands that start the
+server. For a PyPI install, see the README's [Installation](README.md#installation).
+
 ### Configure for Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+On macOS, edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "pyeye": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/pyeye-mcp",
-        "run",
-        "python",
-        "-m",
-        "pyeye.mcp"
-      ]
+      "args": ["run", "--project", "/path/to/pyeye-mcp", "pyeye-mcp"]
     }
   }
 }
 ```
+
+Claude Desktop doesn't start the server in your project, so ask for the
+project explicitly: every tool takes a `project_path` argument (see the
+[tool reference](docs/reference/tools.md)).
 
 ## Configuration
 
@@ -93,30 +102,36 @@ Create in your project root:
 ```json
 {
   "packages": [
-    ".",                           // Current directory
-    "../my-shared-library",        // Relative path
-    "~/repos/company-utils",       // Home directory path
-    "/absolute/path/to/package",   // Absolute path
-    "~/repos/plugins/*"            // Glob pattern
+    ".",
+    "../my-shared-library",
+    "~/repos/company-utils",
+    "/absolute/path/to/package",
+    "~/repos/plugins/*"
   ],
   "namespaces": {
-    "mycompany": [                 // Namespace package name
-      "~/repos/mycompany-auth",    // Repository containing part of namespace
+    "mycompany": [
+      "~/repos/mycompany-auth",
       "~/repos/mycompany-api",
       "~/repos/mycompany-core"
     ],
     "plugins": [
-      "./plugins/*",                // Local plugins
-      "~/repos/community-plugins/*" // External plugins
+      "./plugins/builtin",
+      "~/repos/community-plugins"
     ]
   }
 }
 ```
 
+`packages` lists package directories: relative to the project, under your home
+directory (`~`), absolute, or a glob. Each `namespaces` entry names a namespace
+package and lists the repositories that each hold part of it. List those
+repositories one by one: a glob in a namespace entry isn't expanded yet
+([#872](https://github.com/okeefeco/pyeye-mcp/issues/872)).
+
 Older docs also showed `exclude`, `exclude_patterns`, `cache`, `analysis` and
 `performance` keys. They are deprecated and have no effect: pyeye never read them
-and logs a warning when one is set (#581). Use the environment variables in the
-README's Performance Settings for cache tuning.
+and logs a warning when one is set (#581). Use the
+[environment variables](docs/reference/env-vars.md) for cache tuning.
 
 ### Configuration in pyproject.toml
 
@@ -139,8 +154,9 @@ company = [
 Packages and namespaces are **not** configured through environment variables.
 Use a project config file (above), the global configuration (below), or the
 `configure_packages` tool. Environment variables only tune performance and
-logging; see the README's
-[Performance Settings](README.md#performance-settings).
+logging; the [reference](docs/reference/env-vars.md) lists them, and the
+README's [Performance Settings](README.md#performance-settings) explains how to
+set them.
 
 ### Global Configuration
 
@@ -157,60 +173,32 @@ Create `~/.config/pyeye/config.json`:
 
 ### Configuration Precedence
 
-1. Project `.pyeye.json` (highest)
-2. Project `pyproject.toml`
-3. Environment variables
-4. Global config `~/.config/pyeye/config.json`
-5. Auto-discovery (lowest)
+The README's [Configuration Methods](README.md#configuration-methods) gives the
+order in which the sources are read and override each other.
+<!-- TODO(#830): bind the config file list and precedence to a fact once the
+CONFIG_FILES / config-keys extractor exists, instead of linking the README. -->
 
 ## Tools Reference
 
-PyEye's core interface is six progressive-disclosure primitives — `resolve`,
-`resolve_at`, `inspect`, `outline`, `expand`, `trace` — plus `configure_packages`
-for registering extra package locations. The tool list lives in the README's
-[Core Tools](README.md#core-tools) section; the mechanics, the authoritative
-supported-edge list, and worked examples live in the `python-explore` skill
-(`skills/python-explore/SKILL.md`), which is conformance-tested against the live
-edge registry. Neither is restated here so the three cannot drift apart.
-
-`configure_packages` parameters and return shape are documented in
-[docs/api/README.md](docs/api/README.md#configure_packages).
+PyEye's core tools are <!-- fact:begin tools.core -->`configure_packages`, `expand`, `inspect`, `outline`, `resolve`, `resolve_at`, `trace`<!-- fact:end -->: the
+progressive-disclosure primitives, plus `configure_packages` for registering
+extra package locations. The [tool reference](docs/reference/tools.md) gives
+every tool's parameters and defaults, and the
+[edge reference](docs/reference/edges.md) lists the supported edges. Worked
+examples live in the `python-explore` skill (`skills/python-explore/SKILL.md`).
 
 The v1 navigation tools were removed in 2.0. The CHANGELOG's migration map lists
 the replacement for each.
 
 ### Framework-Specific Tools
 
-The server automatically detects and activates framework-specific tools when it identifies framework usage in your project.
+A plugin's tools are registered when its framework is detected in the project.
+Their parameters are in the [tool reference](docs/reference/tools.md#plugin-tools),
+and each plugin's page in [docs/api/](docs/api/README.md) explains what it finds.
 
-#### Django Tools (Auto-activated)
-
-- **`find_django_models`** - Find all Django models with inheritance
-- **`find_django_views`** - Find function and class-based views
-- **`find_django_urls`** - Find URL patterns and configurations
-- **`find_django_templates`** - Find Django templates
-- **`find_django_migrations`** - Find migration files by app
-
-#### Pydantic Tools (Auto-activated)
-
-- **`find_pydantic_models`** - Discover all BaseModel classes with fields
-- **`get_model_schema`** - Extract complete model schema including validators
-- **`find_validators`** - Locate all validation methods (root, model validators)
-- **`find_field_validators`** - Find field-specific validators
-- **`find_model_config`** - Extract model configurations
-- **`trace_model_inheritance`** - Map model inheritance hierarchies
-- **`find_computed_fields`** - Find computed_field and @property fields
-
-#### Flask Tools (Auto-activated)
-
-- **`find_flask_routes`** - Discover all route decorators with methods and endpoints
-- **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
-- **`find_flask_views`** - Find view functions and MethodView classes
-- **`find_flask_templates`** - Locate Jinja2 templates and render_template calls
-- **`find_flask_extensions`** - Identify Flask extensions (SQLAlchemy, Login, CORS, etc.)
-- **`find_flask_config`** - Find configuration files and app.config usage
-- **`find_error_handlers`** - Locate @app.errorhandler decorators
-- **`find_cli_commands`** - Find Flask CLI commands (@app.cli.command)
+- **Django:** <!-- fact:begin tools.plugin.django -->`find_django_migrations`, `find_django_models`, `find_django_templates`, `find_django_urls`, `find_django_views`<!-- fact:end -->
+- **Pydantic:** <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->
+- **Flask:** <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_error_handlers`, `find_flask_blueprints`, `find_flask_config`, `find_flask_extensions`, `find_flask_routes`, `find_flask_templates`, `find_flask_views`<!-- fact:end -->
 
 ## Architecture
 
@@ -219,183 +207,11 @@ The design contracts are in `docs/architecture/`:
 [Plugin System](docs/architecture/plugin-system.md) and
 [Caching Strategy](docs/architecture/caching.md).
 
-### Component Overview
-
-```text
-┌─────────────────────────────────────────────────────┐
-│                   MCP Client (Claude)                │
-└─────────────────────────┬───────────────────────────┘
-                          │ MCP Protocol
-┌─────────────────────────▼───────────────────────────┐
-│                     MCPServer                        │
-├──────────────────────────────────────────────────────┤
-│                   Project Manager                    │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐      │
-│  │ Project A  │ │ Project B  │ │ Project C  │ ...  │
-│  │ (LRU Cache)│ │ (LRU Cache)│ │ (LRU Cache)│      │
-│  └────────────┘ └────────────┘ └────────────┘      │
-├──────────────────────────────────────────────────────┤
-│              Configuration System                    │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │   JSON   │ │   TOML   │ │ Env Vars │           │
-│  └──────────┘ └──────────┘ └──────────┘           │
-├──────────────────────────────────────────────────────┤
-│               Analysis Engines                       │
-│  ┌──────────────┐        ┌──────────────┐          │
-│  │     Jedi     │        │  Python ast  │          │
-│  │  (Semantic)  │        │ (Structural) │          │
-│  └──────────────┘        └──────────────┘          │
-├──────────────────────────────────────────────────────┤
-│                 Caching Layer                        │
-│  ┌──────────────┐        ┌──────────────┐          │
-│  │ File Watcher │        │ Result Cache │          │
-│  │  (Watchdog)  │        │  (In-Memory) │          │
-│  └──────────────┘        └──────────────┘          │
-├──────────────────────────────────────────────────────┤
-│                 Plugin System                        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │  Django  │ │ Pydantic │ │  Flask   │ ...       │
-│  └──────────┘ └──────────┘ └──────────┘           │
-└──────────────────────────────────────────────────────┘
-```
-
-### Key Components
-
-#### Project Manager
-
-- Manages multiple Python projects simultaneously
-- LRU eviction (max 10 projects by default)
-- Maintains separate Jedi instance per project
-- Handles project dependencies and include paths
-
-#### Namespace Resolver
-
-- Discovers namespace packages (PEP 420)
-- Handles legacy namespace packages
-- Resolves imports across repository boundaries
-- Builds namespace structure maps
-
-#### Configuration System
-
-- Multiple configuration sources
-- Precedence-based resolution
-- Auto-discovery of packages
-- Environment variable support
-
-#### Cache System
-
-- File-based result caching (TTL `PYEYE_CACHE_TTL`, default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end --> s)
-- Automatic invalidation on file changes
-- Per-project cache isolation
-- Memory-efficient LRU eviction
-
-#### File Watching
-
-- Real-time file change detection
-- Automatic cache invalidation
-- Per-project watchers
-- Minimal performance overhead
-
 ## Security
 
-### Input Validation
-
-The MCP server implements comprehensive input validation to prevent security vulnerabilities:
-
-#### Path Validation
-
-All file paths are validated to prevent path traversal attacks:
-
-- **Path Traversal Prevention**: Rejects paths containing `../` or similar patterns
-- **Null Byte Protection**: Blocks paths with null bytes that could bypass security checks
-- **Absolute Path Resolution**: Resolves all paths to absolute form to detect escape attempts
-- **Base Directory Restriction**: Optional restriction to keep paths within project boundaries
-
-Example of blocked patterns:
-
-```python
-# These paths will be rejected:
-"../../etc/passwd"           # Path traversal
-"/home/user/../../../etc"    # Absolute path traversal
-"file\x00.txt"              # Null byte injection
-```
-
-#### Input Sanitization
-
-All user inputs are sanitized before processing:
-
-- **Identifier Validation**: Python identifiers must match `[a-zA-Z_][a-zA-Z0-9_]*`
-- **Module Name Validation**: Module names allow dots but must be valid Python modules
-- **Line/Column Validation**: Numbers are range-checked to prevent overflow
-- **String Sanitization**: Control characters are removed, length is limited
-
-#### Sensitive Path Warnings
-
-The server warns when accessing potentially sensitive paths:
-
-- `.git/` - Git repository data
-- `.ssh/` - SSH keys
-- `.aws/` - AWS credentials
-- `.env` - Environment files
-- `*.pem`, `*.key` - Certificate and key files
-
-These paths are logged but not blocked (they may be legitimate for analysis).
-
-### Configuration Security
-
-When loading configuration from files:
-
-- Paths from configuration files are validated
-- Invalid paths are logged and skipped
-- Glob patterns are expanded safely
-- User home directory (`~`) is properly expanded
-
-### Best Practices
-
-1. **Restrict Base Directory**: Use the `base_path` parameter to limit file access:
-
-   ```python
-   PathValidator.validate_path(user_path, base_path="/project/root")
-   ```
-
-2. **Monitor Logs**: Watch for warnings about sensitive file access:
-
-   ```text
-   WARNING: Accessing potentially sensitive path: /home/user/.ssh/id_rsa
-   ```
-
-3. **File Size Limits**: Large files are rejected (default 10MB limit):
-
-   ```python
-   PathValidator.is_safe_to_read(path, max_size=5*1024*1024)  # 5MB limit
-   ```
-
-4. **Use Validation Decorator**: All MCP tools use the `@validate_mcp_inputs` decorator:
-
-   ```python
-   @mcp.tool()
-   @validate_mcp_inputs
-   async def resolve(identifier: str, project_path: str = "."):
-       # Inputs are automatically validated
-       pass
-   ```
-
-### Security Testing
-
-The validation module includes comprehensive tests:
-
-```bash
-# Run security tests
-uv run pytest tests/test_validation.py -v
-```
-
-Tests cover:
-
-- Path traversal attempts
-- Null byte injection
-- Invalid identifiers
-- Boundary conditions
-- Decorator validation
+[SECURITY.md](SECURITY.md) covers pyeye's [security model](SECURITY.md#security-model):
+what it reads and writes, what its path checks cover, and how to report a
+vulnerability.
 
 ## Use Cases
 
@@ -432,9 +248,9 @@ Tests cover:
 {
   "namespaces": {
     "myapp.plugins": [
-      "./plugins/builtin/*",
-      "~/repos/community-plugins/*",
-      "~/my-plugins/*"
+      "./plugins/builtin",
+      "~/repos/community-plugins",
+      "~/my-plugins"
     ]
   }
 }
@@ -455,175 +271,58 @@ Tests cover:
 }
 ```
 
+Fuller configurations, with scope aliases and defaults, are in
+[examples/configurations/](examples/configurations/).
+
 ## Plugin Development
 
-### Creating a Plugin
-
-```python
-# src/pyeye/plugins/myframework.py
-from pathlib import Path
-from typing import List, Dict, Any
-from .base import AnalyzerPlugin
-
-class MyFrameworkPlugin(AnalyzerPlugin):
-    """Plugin for MyFramework-specific intelligence."""
-
-    def name(self) -> str:
-        return "MyFramework"
-
-    def detect(self) -> bool:
-        """Detect if this is a MyFramework project."""
-        # Check for framework-specific files
-        return (self.project_path / "myframework.yaml").exists()
-
-    def register_tools(self) -> Dict[str, callable]:
-        """Register framework-specific MCP tools.
-
-        The keys are the MCP tool names. Prefix them with the framework so they
-        can't collide with another plugin's tools; a duplicate name stops the
-        server at startup.
-        """
-        return {
-            "find_myframework_controllers": self.find_controllers,
-            "find_myframework_models": self.find_models,
-            "find_myframework_routes": self.find_routes,
-        }
-
-    def find_controllers(self) -> List[Dict[str, Any]]:
-        """Find all controllers in the project."""
-        controllers = []
-        # Your framework-specific logic
-        for controller_file in self.project_path.rglob("*_controller.py"):
-            # Parse and extract controller info
-            pass
-        return controllers
-
-    def find_patterns(self, pattern_name: str) -> List[Dict[str, Any]]:
-        """Find framework-specific patterns."""
-        if pattern_name == "middleware":
-            return self._find_middleware()
-        elif pattern_name == "validators":
-            return self._find_validators()
-        return []
-```
-
-### Registering a Plugin
-
-```python
-# In server.py or plugin loader
-from pyeye.plugins.myframework import MyFrameworkPlugin
-
-# Auto-registration on project load
-def load_plugins(project_path: str):
-    plugins = [
-        DjangoPlugin(project_path),
-        PydanticPlugin(project_path),
-        FlaskPlugin(project_path),
-        FastAPIPlugin(project_path),  # Coming soon
-        MyFrameworkPlugin(project_path),  # Your plugin
-    ]
-
-    active_plugins = []
-    for plugin in plugins:
-        if plugin.detect():
-            active_plugins.append(plugin)
-            logger.info(f"Activated {plugin.name()} plugin")
-
-    return active_plugins
-```
+Plugins are built into pyeye; there is no dynamic loading. To add a framework
+plugin, follow [Adding a plugin](docs/architecture/plugin-system.md#adding-a-plugin).
 
 ## Troubleshooting
 
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) covers more cases.
+
 ### Server Not Starting
 
-1. Check Python version: `python --version` (needs 3.11+)
+1. Check the Python version: pyeye needs Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->
 2. Verify installation: `uv sync --frozen` or `pip install -e .`
-3. Check logs: Run with `--debug` flag
+3. Check logs: set `PYEYE_LOG_LEVEL=DEBUG` on the server entry, and `PYEYE_LOG_FILE` to write them to a file (see the [environment variables](docs/reference/env-vars.md))
 
 ### Packages Not Found
 
 1. Verify paths in `.pyeye.json`
 2. Check path resolution: Use absolute paths for testing
 3. Verify packages exist and contain Python files
-4. Check environment variables if using them
 
-### Cache Issues
+### Stale Results
 
-1. Clear cache: `rm -rf .pyeye_cache/`
-2. Reduce cache TTL in config
-3. Check disk space for cache storage
+The caches live in the server's memory. Restart the server (reconnect it in
+your MCP client) to start from empty caches. To keep cached lookups for a
+shorter time, lower `PYEYE_CACHE_TTL` (see the [environment variables](docs/reference/env-vars.md)).
 
 ### File Changes Not Detected
 
-1. Verify watchdog is installed: `pip show watchdog`
-2. Check file system supports inotify (Linux) or FSEvents (macOS)
-3. Increase logging level to see watcher events
+1. Check that the file system supports inotify (Linux) or FSEvents (macOS)
+2. Increase the logging level (`PYEYE_LOG_LEVEL=DEBUG`) to see watcher events
 
 ### Performance Issues
 
 1. Reduce number of included packages
-2. Increase cache TTL (`PYEYE_CACHE_TTL`)
-3. Check if file watchers are overwhelming system
+2. Increase the cache TTL (`PYEYE_CACHE_TTL`; see the [environment variables](docs/reference/env-vars.md))
+3. Size the parsed-file cache: see the README's [Sizing the parsed-file cache](README.md#sizing-the-parsed-file-cache)
 
 ### MCP Connection Issues
 
-1. Verify server is in allowed tools: `/permissions` in Claude
+1. Check the server's status: `/mcp` inside Claude Code
 2. Check MCP server health: `claude mcp list`
 3. Review Claude logs for connection errors
 4. Try reconnecting: `claude mcp remove pyeye && claude mcp add ...`
 
-## Environment Configuration
-
-Environment variables tune performance and logging only. The full list is in
-the README's [Performance Settings](README.md#performance-settings). Set them on
-the MCP client's server entry (for example `claude mcp add … -e NAME=value …`),
-because the client is what starts the server.
-
-- `PYEYE_CACHE_TTL`: Seconds a cached scope file list or lookup result lives
-- `PYEYE_LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
-- `PYEYE_MAX_PROJECTS`: Maximum cached projects (default: 10)
-
-## Performance Considerations
-
-### Memory Usage
-
-- Each project: ~10-50MB depending on size
-- Cache: Configurable, default 100MB max
-- File watchers: ~1MB per project
-
-### CPU Usage
-
-- Initial indexing: One-time cost per project
-- File watching: Minimal overhead
-- Cache operations: O(1) lookups
-
-### Optimization Tips
-
-1. Use specific paths rather than globs when possible
-2. Exclude test and build directories
-3. Increase cache TTL for stable codebases
-4. Limit number of watched projects
-
-## Security Considerations
-
-- The server has read access to all configured paths
-- No code execution capabilities
-- Cache stored locally in project directory
-- No network access (except MCP protocol)
-- Respects file system permissions
-
 ## Contributing
 
-We welcome contributions! Areas for improvement:
-
-1. Additional framework plugins
-2. Performance optimizations
-3. More sophisticated caching strategies
-4. Additional analysis tools
-5. Documentation improvements
-
-See CONTRIBUTING.md for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT License - See LICENSE file for details.
+MIT License - See [LICENSE](LICENSE) for details.
