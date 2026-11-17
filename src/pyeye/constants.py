@@ -12,6 +12,9 @@ CONFIG_FILES = [
     f".claude/{PROJECT_NAME}.json",
 ]
 
+# The file configure_packages saves, in the project root (docs fact security.writes.config)
+CONFIG_FILE = f".{PROJECT_NAME}.json"
+
 # Override file name
 OVERRIDE_FILE = f".{PROJECT_NAME}.override.json"
 

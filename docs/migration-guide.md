@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps you upgrade to the latest version of PyEye Server with enhanced namespace and scope support.
+This is a historical guide: it covers the upgrade from 0.1.x to 0.2.0. Some APIs it shows were later changed or removed, so for the current tools and configuration see the [README](../README.md) and [namespace-packages.md](namespace-packages.md).
 
 ## Table of Contents
 
@@ -9,7 +9,6 @@ This guide helps you upgrade to the latest version of PyEye Server with enhanced
 - [New Features](#new-features)
 - [Configuration Changes](#configuration-changes)
 - [API Changes](#api-changes)
-- [Performance Improvements](#performance-improvements)
 
 ## Version 0.2.0 Migration
 
@@ -23,7 +22,7 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
 2. **Scope Aliases**: Define custom scope combinations
 3. **Scoped Caching**: Separate caches per scope
 4. **Parallel Search**: Concurrent path searching
-5. **Lazy Loading**: On-demand namespace loading
+5. **Lazy Loading**: On-demand namespace loading (no longer used; the class is deprecated, see #628)
 
 #### Migration Steps
 
@@ -84,44 +83,18 @@ Version 0.2.0 introduces smart defaults, scope aliases, and performance optimiza
 
 ### Version 0.2.0
 
-1. **Scope parameter type change**
-
-   - **Before**: `scope: str | list[str]` (required)
-   - **After**: `scope: Optional[str | list[str]]` (optional, uses smart defaults)
-
-   **Impact**: Minimal - existing code continues to work
+1. **Scope defaults**: before 0.2.0, each method had a fixed default scope. From 0.2.0, an omitted scope resolves through the smart defaults and any `scope_defaults` you configure. **Impact**: minimal, because existing calls keep working.
 
 2. **Cache invalidation**
 
    - **Before**: Single global cache
    - **After**: Scoped caches
 
-   **Impact**: Cache invalidation now per-scope:
-
-   ```python
-   # Old
-   cache.invalidate_all()
-
-   # New
-   scoped_cache.invalidate_scope("main")
-   scoped_cache.invalidate_all()  # Still available
-   ```
-
 ## New Features
 
 ### Smart Defaults
 
-Methods now have intelligent defaults based on their purpose:
-
-```python
-# These search everywhere by default
-await analyzer.find_symbol(...)      # scope="all"
-await analyzer.find_subclasses(...)  # scope="all"
-
-# These search main project by default
-await analyzer.list_modules(...)     # scope="main"
-await analyzer.find_routes(...)      # scope="main"
-```
+In 0.2.0, methods gained a default scope suited to their purpose; the current per-tool defaults are in [Default Scopes for Plugin Tools](namespace-packages.md#default-scopes-for-plugin-tools).
 
 Override the default for framework plugin tools in configuration. Keys are MCP
 tool names (see [Default Scopes for Plugin Tools](namespace-packages.md#default-scopes-for-plugin-tools)):
@@ -149,17 +122,13 @@ Define reusable scope combinations:
 }
 ```
 
-Use in code:
-
-```python
-routes = await analyzer.find_routes(scope="backend")
-```
+Use the alias as the scope of a plugin tool call, e.g. `find_flask_routes(scope="backend")`.
 
 ### Performance Features
 
 1. **Parallel Search**: Automatically searches multiple paths concurrently
 2. **Scoped Caching**: Separate caches prevent unnecessary invalidation
-3. **Lazy Loading**: Namespaces loaded only when needed
+3. **Lazy Loading**: Namespaces loaded only when needed (no longer used; the class is deprecated, see #628)
 
 ## Configuration Changes
 
@@ -207,18 +176,7 @@ Default scopes for the framework plugin tools are set in the config file
 
 ### Analyzer Methods
 
-All analyzer methods now support optional scope:
-
-```python
-# Before (required scope)
-async def find_subclasses(base_class: str, scope: Scope) -> list[dict]
-
-# After (optional scope with smart default)
-async def find_subclasses(
-    base_class: str,
-    scope: Optional[Scope] = None
-) -> list[dict]
-```
+In 0.2.0, the scope-taking analyzer methods let you omit `scope`, which then resolves through the smart defaults.
 
 ### New Utilities
 
@@ -232,24 +190,6 @@ from pyeye.scope_utils import (
     parallel_search       # Parallel file search
 )
 ```
-
-## Performance Improvements
-
-### Benchmarks
-
-Typical improvements in 0.2.0:
-
-| Operation | v0.1.x | v0.2.0 | Improvement |
-|-----------|--------|--------|-------------|
-| find_symbol (cold) | 500ms | 200ms | 2.5x faster |
-| find_symbol (cached) | 50ms | 5ms | 10x faster |
-| find_subclasses | 2000ms | 800ms | 2.5x faster |
-| Large namespace search | 5000ms | 2000ms | 2.5x faster |
-
-### Memory Usage
-
-- **Lazy loading**: 50% reduction in memory for large namespace configurations
-- **Scoped caching**: Better cache utilization, less memory churn
 
 ## Troubleshooting Migration
 
@@ -301,7 +241,7 @@ If you need to rollback to 0.1.x:
 1. **Restore previous version**:
 
    ```bash
-   pip install pyeye-mcp==0.1.x
+   pip install "pyeye-mcp<0.2"
    ```
 
 2. **Remove new configuration keys**:
@@ -320,13 +260,3 @@ If you need to rollback to 0.1.x:
 - **Documentation**: See [namespace-packages.md](namespace-packages.md)
 - **Examples**: Check `examples/configurations/`
 - **Issues**: Report at [GitHub Issues](https://github.com/okeefeco/pyeye-mcp/issues)
-
-## Future Deprecations
-
-The following may be deprecated in future versions:
-
-1. **String-only scopes**: Use lists for multiple scopes instead of "all"
-2. **Global scope "all"**: Use specific aliases instead
-3. **Synchronous configuration loading**: Will become async-only
-
-Plan accordingly to future-proof your configuration.
