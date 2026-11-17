@@ -38,11 +38,13 @@ not as a finding.
 
    It's always a clear fix, and it says its `route`. By default, recommend
    converting the claim:
-   - `"route": "fact"`: bind a fact instead. Name the `extractor` that would
-     produce it (an existing one, or the new one it needs). The replacement
-     says what to bind.
-   - `"route": "example"`: replace the claim with an executed example. The
-     replacement gives the example.
+   - `"route": "fact"`: bind a fact instead. `extractor` names the registered
+     extractor that would produce it, or `"new: <what it would read>"` for one
+     that doesn't exist yet. The replacement says what to bind.
+   - `"route": "example"`: replace the claim with an executed example. Either
+     point at an existing one with `"example_at": {"page": …, "line": <its
+     opener line>}`, or make the replacement a fenced
+     `json pyeye-example tool=<tool>` block.
    - `"route": "wording"`: only when neither can work. Give `route_reason`
      (why not a fact, why not an example), and a replacement that states what
      the code does.
@@ -50,7 +52,8 @@ not as a finding.
    It must carry `evidence`: what pyeye reports for that handle, which
    `validate` checks against pyeye. One or more of:
    - `{"signature": "<inspect's signature, exactly>"}`;
-   - `{"docstring": "<an excerpt of inspect's docstring>"}`;
+   - `{"docstring": "<an excerpt of inspect's docstring>"}`: at least four whole
+     words, so the excerpt actually says something;
    - `{"edge": "<edge>", "includes": ["<handle>", …]}`: handles that
      `expand(handle, edge)` lists.
 4. **`honest_claims`** (design D12): claims the code or a record can't back,
@@ -133,7 +136,8 @@ Rules for the output:
 - A finding on a rule anchor (claims, audience or style) quotes its `subject`:
   the exact page text it is about (the link, the phrase, the claim), copied
   verbatim from the section. `validate` rejects a subject that isn't in the
-  section. It identifies the finding, so a different link is a different finding.
+  section, and one that occurs there more than once: quote enough text to be
+  unique. It identifies the finding, so a different link is a different finding.
 - `page` and `section` must be the packet's: `validate` rejects a page that isn't
   registered and a section the page doesn't have.
 - Never invent an anchor ID. A `fact` anchor must be a key of the packet's

@@ -207,9 +207,14 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
         return [f"{page} has no section {section!r}; its sections: {slugs}"]
     subject = finding.get("subject")
     if _text(subject):
-        text = section_text(root, page, str(section)) or ""
-        if _flat(str(subject)) not in _flat(text):
+        count = _flat(section_text(root, page, str(section)) or "").count(_flat(str(subject)))
+        if count == 0:
             return [f"subject {subject!r} doesn't occur verbatim in {page}#{section}"]
+        if count > 1:
+            return [
+                f"subject {subject!r} occurs {count} times in {page}#{section}: quote enough "
+                "text to be unique, so the dismissal lapses when that instance is fixed"
+            ]
     return []
 
 
@@ -219,7 +224,31 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
 ROUTES = ("fact", "example", "wording")
 
 
-def _route_problems(finding: Mapping[str, Any]) -> list[str]:
+def _example_problems(finding: Mapping[str, Any], root: Path | None) -> list[str]:
+    """An example route points at a runnable example, or proposes one (#828)."""
+    from .examples import parse_examples
+
+    at = finding.get("example_at")
+    if at is not None:
+        if not (isinstance(at, dict) and _text(at.get("page")) and isinstance(at.get("line"), int)):
+            return ["example_at must be {page, line}: the opener line of a runnable example"]
+        if root is not None:
+            path = root / str(at["page"])
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            found, _ = parse_examples(text)
+            if not any(e.line == at["line"] for e in found):
+                return [f"no runnable example opens at {at['page']}:{at['line']}"]
+        return []
+    found, problems = parse_examples(str(finding.get("replacement", "")))
+    if not found or problems:
+        return [
+            "an example route points at a runnable example (example_at) or its replacement "
+            "is one: a fenced `json pyeye-example tool=<tool>` block"
+        ]
+    return []
+
+
+def _route_problems(finding: Mapping[str, Any], root: Path | None = None) -> list[str]:
     """The route a code_contradiction takes, and why when it falls back to wording."""
     route = finding.get("route")
     if route not in ROUTES:
@@ -227,14 +256,30 @@ def _route_problems(finding: Mapping[str, Any]) -> list[str]:
             f"a code_contradiction must say its route, one of {list(ROUTES)}: a fact or an "
             "executed example first, wording only when neither can work"
         ]
-    if route == "fact" and not _text(finding.get("extractor")):
-        return ["a fact route must name the extractor that would produce the fact"]
+    if route == "fact":
+        from .registry import EXTRACTORS
+
+        extractor = finding.get("extractor")
+        names = sorted(e.name for e in EXTRACTORS)
+        new = isinstance(extractor, str) and re.match(r"new: \S", extractor) is not None
+        if extractor not in names and not new:
+            return [f"a fact route names its extractor: one of {names}, or 'new: <what it reads>'"]
+    if route == "example":
+        return _example_problems(finding, root)
     if route == "wording" and not _text(finding.get("route_reason")):
         return ["a wording route must say why neither a fact nor an executed example can work"]
     return []
 
 
 _EVIDENCE_KEYS = ({"signature"}, {"docstring"}, {"edge", "includes"})
+
+#: The fewest words a docstring excerpt may have: a short one ("the") matches
+#: almost any docstring, so it proves nothing about what the code does.
+MIN_EXCERPT_WORDS = 4
+
+
+def _word_bounded_in(excerpt: str, text: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(_flat(excerpt))}(?!\w)", _flat(text)) is not None
 
 
 def _evidence_problems(finding: Mapping[str, Any], symbols: Symbols | None) -> list[str]:
@@ -254,6 +299,14 @@ def _evidence_problems(finding: Mapping[str, Any], symbols: Symbols | None) -> l
                 f"evidence[{i}] must be one of {{signature}}, {{docstring}} or {{edge, includes}}"
             )
             continue
+        if "docstring" in item and (
+            not isinstance(item["docstring"], str)
+            or len(item["docstring"].split()) < MIN_EXCERPT_WORDS
+        ):
+            problems.append(
+                f"evidence[{i}].docstring must quote at least {MIN_EXCERPT_WORDS} words"
+            )
+            continue
         if symbols is None:
             continue
         if "signature" in item:
@@ -261,9 +314,7 @@ def _evidence_problems(finding: Mapping[str, Any], symbols: Symbols | None) -> l
             if item["signature"] != actual:
                 problems.append(f"evidence[{i}].signature isn't pyeye's: {actual!r}")
         elif "docstring" in item:
-            if not _text(item["docstring"]) or _flat(item["docstring"]) not in _flat(
-                (surface or {}).get("docstring", "")
-            ):
+            if not _word_bounded_in(item["docstring"], (surface or {}).get("docstring", "")):
                 problems.append(f"evidence[{i}].docstring isn't in {handle}'s docstring")
         else:
             listed = symbols.edge(handle, str(item["edge"]))
@@ -300,12 +351,45 @@ class _ProjectSymbols:
         return self._analyzer
 
     def canonical(self, handle: str) -> str | None:
+        """The canonical project handle, following a re-export to its definition site.
+
+        The resolver itself doesn't collapse a relative re-export yet (#857):
+        ``pkg.run`` with ``from .core import run`` in ``pkg/__init__.py`` comes
+        back as ``pkg.run``. So the binding is followed with Jedi's ``goto``; a
+        single definition in another module, which resolves in the project,
+        gives the canonical handle. Once #857 lands this guard is redundant, and
+        the strict xfail in ``tests/test_docs_facts_review.py`` flags it.
+        """
         from ..resolver import Resolved, resolve_handle
 
         found = resolve_handle(handle, self._jedi())
-        if isinstance(found, Resolved) and found.scope == "project":
-            return found.handle
-        return None
+        if not (isinstance(found, Resolved) and found.scope == "project"):
+            return None
+        target = self._definition_site(found.anchor)
+        if target is not None and target != found.handle:
+            resolved = resolve_handle(target, self._jedi())
+            if isinstance(resolved, Resolved) and resolved.scope == "project":
+                return resolved.handle
+        return found.handle
+
+    @staticmethod
+    def _definition_site(anchor: Any) -> str | None:
+        """The ``full_name`` of the one definition *anchor*'s binding imports, if elsewhere."""
+        from ..path_utils import paths_equal
+
+        goto = getattr(anchor, "goto", None)
+        here = getattr(anchor, "module_path", None)
+        if goto is None or here is None:
+            return None
+        try:
+            defs = goto(follow_imports=True)
+        except Exception:  # noqa: BLE001 - Jedi internals; no guard is the safe answer
+            return None
+        if len(defs) != 1 or not defs[0].full_name or defs[0].module_path is None:
+            return None
+        if paths_equal(defs[0].module_path, here):
+            return None
+        return str(defs[0].full_name)
 
     def surface(self, handle: str) -> dict[str, str] | None:
         import asyncio
@@ -404,7 +488,7 @@ def finding_problems(
             problems.append(
                 "a code_contradiction is a clear fix: route it to a fact, an example or wording"
             )
-        problems.extend(_route_problems(finding))
+        problems.extend(_route_problems(finding, root))
         problems.extend(_evidence_problems(finding, symbols))
     if isinstance(anchor, dict) and anchor.get("kind") in SUBJECT_KINDS:
         if not _text(finding.get("subject")):

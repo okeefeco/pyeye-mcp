@@ -776,7 +776,12 @@ class TestCodeContradiction:
         ("evidence", "problem"),
         [
             ([{"signature": "load(path)"}], "evidence[0].signature isn't pyeye's"),
-            ([{"docstring": "Returns None"}], "evidence[0].docstring isn't in pkg._impl.load"),
+            (
+                [{"docstring": "Returns None on a missing file"}],
+                "evidence[0].docstring isn't in pkg._impl.load",
+            ),
+            ([{"docstring": "the"}], "evidence[0].docstring must quote at least 4 words"),
+            ([{"docstring": "Read the file. Rai"}], "evidence[0].docstring isn't in"),
             (
                 [{"edge": "callees", "includes": ["os.remove"]}],
                 "doesn't list ['os.remove']",
@@ -810,7 +815,7 @@ class TestCodeContradiction:
         [
             ({"route": None}, "must say its route, one of ['fact', 'example', 'wording']"),
             ({"route": "guess"}, "must say its route"),
-            ({"route": "fact"}, "a fact route must name the extractor"),
+            ({"route": "fact"}, "a fact route names its extractor"),
             ({"route": "wording", "route_reason": " "}, "a wording route must say why neither"),
         ],
     )
@@ -821,8 +826,12 @@ class TestCodeContradiction:
     @pytest.mark.parametrize(
         "overrides",
         [
-            {"route": "fact", "extractor": "a new `defaults` extractor over the analyzers"},
-            {"route": "example"},
+            {"route": "fact", "extractor": "env"},
+            {"route": "fact", "extractor": "new: the analyzers' hard-coded defaults"},
+            {
+                "route": "example",
+                "replacement": '```json pyeye-example tool=resolve\n{"identifier": "load"}\n```',
+            },
         ],
     )
     def test_a_fact_or_example_route_needs_no_reason(self, overrides: dict[str, Any]) -> None:
@@ -863,7 +872,7 @@ class TestCodeContradiction:
         bad = {**good, "anchor": {"kind": "symbol", "id": "pyeye.resolver.nope"}}
         assert review.main(["validate", str(_write(tmp_path, [bad]))], root=_ROOT) == 1
         assert "doesn't resolve in the project" in capsys.readouterr().out
-        wrong = {**good, "evidence": [{"docstring": "Always raises."}]}
+        wrong = {**good, "evidence": [{"docstring": "Always raises an error here."}]}
         assert review.main(["validate", str(_write(tmp_path, [wrong]))], root=_ROOT) == 1
         assert "isn't in pyeye.resolver.resolve_handle's docstring" in capsys.readouterr().out
 
@@ -988,3 +997,89 @@ class TestSubjects:
         assert review.prune(state, tmp_path) == []
         moved = self._style("[the docs](gone.md)")
         assert review.triage([moved], state, _FACTS) == []
+
+
+class TestReviewFixes864:
+    """The #864 review: real aliases, weak evidence, repeated subjects, route references."""
+
+    @pytest.fixture
+    def alias_project(self, tmp_path: Path) -> Path:
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "__init__.py").write_text("from .core import run\n", encoding="utf-8")
+        (tmp_path / "pkg" / "core.py").write_text(
+            'def run():\n    """Run the job once and return nothing."""\n', encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_a_relative_re_export_is_an_alias_with_the_real_resolver(
+        self, alias_project: Path
+    ) -> None:
+        symbols = review.project_symbols(alias_project)
+        assert symbols.canonical("pkg.run") == "pkg.core.run"
+        assert symbols.canonical("pkg.core.run") == "pkg.core.run"
+        finding = _contradiction(
+            anchor={"kind": "symbol", "id": "pkg.run"},
+            evidence=[{"docstring": "Run the job once"}],
+        )
+        assert "anchor must use the canonical handle 'pkg.core.run', not 'pkg.run'" in (
+            review.finding_problems(finding, _FACTS, None, symbols)
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#857: resolve_handle doesn't collapse a relative re-export yet; when this "
+        "passes, delete _ProjectSymbols._definition_site and this marker",
+    )
+    def test_the_resolver_itself_collapses_a_relative_re_export(self, alias_project: Path) -> None:
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.resolver import Resolved, resolve_handle
+
+        found = resolve_handle("pkg.run", JediAnalyzer(alias_project.as_posix()))
+        assert isinstance(found, Resolved)
+        assert found.handle == "pkg.core.run"
+
+    def test_a_subject_must_occur_exactly_once(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# Features\nSee [docs](a.md) and [docs](b.md). Also [guide](c.md).\n",
+            encoding="utf-8",
+        )
+        finding = _clear(
+            section="features",
+            category="style",
+            anchor={"kind": "style_rule", "id": "broken-link"},
+            subject="[docs]",
+        )
+        (problem,) = review.finding_problems(finding, _FACTS, tmp_path)
+        assert problem.startswith("subject '[docs]' occurs 2 times in README.md#features")
+        unique = {**finding, "subject": "[docs](b.md)"}
+        assert review.finding_problems(unique, _FACTS, tmp_path) == []
+
+    def test_a_fact_route_names_a_registered_or_new_extractor(self) -> None:
+        finding = _contradiction(route="fact", extractor="the defaults one")
+        (problem,) = [p for p in review.finding_problems(finding, _FACTS) if "extractor" in p]
+        assert problem.startswith("a fact route names its extractor: one of [")
+        assert "'new: <what it reads>'" in problem
+
+    def test_an_example_route_needs_an_example(self, tmp_path: Path) -> None:
+        bare = _contradiction(route="example")
+        assert any(
+            p.startswith("an example route points at a runnable example")
+            for p in review.finding_problems(bare, _FACTS)
+        )
+        page = tmp_path / "README.md"
+        page.write_text(
+            '# Features\nx\n\n```json pyeye-example tool=resolve\n{"identifier": "x"}\n```\n',
+            encoding="utf-8",
+        )
+        at = _contradiction(
+            section="features", route="example", example_at={"page": "README.md", "line": 4}
+        )
+        assert review.finding_problems(at, _FACTS, tmp_path) == []
+        wrong = {**at, "example_at": {"page": "README.md", "line": 2}}
+        assert "no runnable example opens at README.md:2" in (
+            review.finding_problems(wrong, _FACTS, tmp_path)
+        )
+        assert (
+            "example_at must be {page, line}"
+            in review.finding_problems({**at, "example_at": "README.md:4"}, _FACTS)[0]
+        )

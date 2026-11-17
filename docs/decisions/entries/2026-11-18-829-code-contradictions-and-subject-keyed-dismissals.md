@@ -33,6 +33,12 @@ superseded_by: []
 - **Rule-anchored findings quote their `subject`**: the exact page text they are about. `validate` rejects a subject that doesn't occur verbatim (whitespace aside) in the section. The subject is part of the dismissal's identity, so a different subject is a `new` finding. When a dismissed subject no longer occurs in its section, the dismissal LAPSES (C16, which reverses C15's fail): `check` stays green, the next `/docs-review` command prunes it, and its finding may resurface. A prose editor never has to touch `review-state.json`. Only fact orphans and unresolved symbols fail `check`. A gone section is pruned the same way.
 - **Prose must not describe an executed example's output (C16).** It may name what the example demonstrates, as explanation or the why ("this example shows a re-export collapsing to its definition"). Describing the fields, values or response shape the example already shows restates a fact. That is the `restated-example` style rule, whose fix deletes the restatement and keeps or adds the "demonstrates" sentence.
 - **One `move` for every anchor kind.** It takes the new fact ID, the new canonical handle or the reworded subject, and moves only an orphan or a lapsed subject. A fact or symbol keeps its old pin, so it holds only if nothing it rests on changed. The orphan message gives the right `move` argument for each kind.
+- **From the #864 review:**
+  - The real resolver doesn't collapse a relative re-export yet (#857). So `project_symbols` follows the binding to its single definition site with Jedi's `goto` and reports that as canonical. A strict xfail flips when #857 lands, to remove the guard.
+  - A docstring excerpt must be at least four whole words, word-bounded.
+  - A subject must occur exactly once in its section, so a dismissal lapses when that instance is fixed.
+  - A `fact` route's `extractor` is a registered extractor name or `new: <what>`.
+  - An `example` route points at a runnable example (`example_at`), or its replacement is one.
 - **`Symbols` is a protocol** (`canonical`, `surface`, `edge`). `project_symbols(root)` answers it with pyeye's `resolve_handle`, `inspect` and `expand` on a lazily built analyzer. `docs_facts check` passes it, and the root, to `orphaned`, so the analyzer is only built when a symbol dismissal exists.
 
 **Anchor:** `pyeye.docs_facts.review.Symbols`; `pyeye.docs_facts.review.project_symbols`; `pyeye.docs_facts.review.finding_problems`; `pyeye.docs_facts.review.orphaned`; `pyeye.docs_facts.review.move`; design C15; #829.
