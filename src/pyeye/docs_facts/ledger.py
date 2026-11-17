@@ -16,17 +16,23 @@ The ledger has two sections:
   release it first appeared uncovered in (``"unreleased"`` until
   ``scripts/changelog.py prepare`` stamps it).
 
-An entry leaves the ledger when its fact is covered or no longer exists. The
-ledger never blocks a PR: a new entry is a line in the diff for the reviewer and
-for ``/docs-review`` to work down. Dismissals ("deliberately not covered") are
-stored with the review's dismissal state (#829), not here.
+An entry leaves the ledger when its fact is covered or no longer exists, or when
+``/docs-review`` records it as deliberately not covered (C13). That dismissal is
+stored once, in the review state (:mod:`.review`, ``docs/facts/review-state.json``),
+and copied into the ledger's read-only ``dismissed`` section
+(``{fact_id: {reason, date}}``) so every dismissal shows in the diff. Hand edits
+to that section are overwritten, like a fact block's. A dismissal lapses when its
+fact's value changes, and the fact returns to the uncovered entries.
+
+The ledger never blocks a PR: a new entry is a line in the diff for the reviewer
+and for ``/docs-review`` to work down.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -43,10 +49,13 @@ class Ledger:
     Attributes:
         baseline: Fact IDs uncovered when the ledger was created, still uncovered.
         new: Fact ID -> ``first_seen`` release, for facts uncovered later.
+        dismissed: Fact ID -> ``{reason, date}``, for facts deliberately not
+            covered, copied from the review state (C13); read-only here.
     """
 
     baseline: tuple[str, ...]
     new: Mapping[str, str]
+    dismissed: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
 
 def expand(ids: Iterable[str], facts: Mapping[str, Bindable]) -> set[str]:
@@ -68,17 +77,29 @@ def load(root: Path) -> Ledger | None:
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
     new = {row["fact_id"]: str(row["first_seen"]) for row in data["new"]}
-    return Ledger(tuple(data["baseline"]), new)
+    dismissed = {i: dict(v) for i, v in data.get("dismissed", {}).items()}
+    return Ledger(tuple(data["baseline"]), new, dismissed)
 
 
-def updated(old: Ledger | None, facts: Mapping[str, Bindable], covered: set[str]) -> Ledger:
-    """The ledger for today's facts and coverage, given the committed one."""
-    uncovered = {i for i, f in facts.items() if isinstance(f, Fact)} - covered
+def updated(
+    old: Ledger | None,
+    facts: Mapping[str, Bindable],
+    covered: set[str],
+    dismissed: Mapping[str, Mapping[str, str]] | None = None,
+) -> Ledger:
+    """The ledger for today's facts and coverage, given the committed one.
+
+    *dismissed* is :func:`.review.dismissed_uncovered`: the facts a human recorded
+    as deliberately not covered, whose dismissal still holds. They leave the
+    uncovered entries and are listed in ``dismissed`` instead.
+    """
+    held = dict(sorted((dismissed or {}).items()))
+    uncovered = {i for i, f in facts.items() if isinstance(f, Fact)} - covered - set(held)
     if old is None:
-        return Ledger(tuple(sorted(uncovered)), {})
+        return Ledger(tuple(sorted(uncovered)), {}, held)
     baseline = tuple(sorted(set(old.baseline) & uncovered))
     new = {i: old.new.get(i, UNRELEASED) for i in uncovered if i not in baseline}
-    return Ledger(baseline, dict(sorted(new.items())))
+    return Ledger(baseline, dict(sorted(new.items())), held)
 
 
 def render(ledger: Ledger) -> str:
@@ -86,5 +107,6 @@ def render(ledger: Ledger) -> str:
     data: dict[str, Any] = {
         "baseline": sorted(ledger.baseline),
         "new": [{"fact_id": i, "first_seen": s} for i, s in sorted(ledger.new.items())],
+        "dismissed": {i: dict(v) for i, v in sorted(ledger.dismissed.items())},
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"

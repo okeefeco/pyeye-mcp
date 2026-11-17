@@ -8,6 +8,7 @@ never decides.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -277,3 +278,204 @@ def test_save_and_load_round_trip(tmp_path: Path) -> None:
     text = (tmp_path / review.STATE_PATH).read_text(encoding="utf-8")
     assert text.endswith("\n")
     assert review.load(tmp_path) == copy.deepcopy(state)
+
+
+# --- the ledger and check (C13, C14) ------------------------------------------
+
+
+class TestLedgerIntegration:
+    def test_a_held_dismissal_leaves_the_uncovered_entries(self) -> None:
+        from pyeye.docs_facts import ledger
+
+        other = Fact("env.PYEYE_OTHER", {"default": 1}, "")
+        facts = {_TTL.id: _TTL, other.id: other}
+        state: dict[str, Any] = {}
+        review.dismiss_uncovered(state, _TTL.id, facts, "tuning knob", "2026-11-18")
+        held = review.dismissed_uncovered(state, facts)
+        old = ledger.Ledger((), {other.id: "2.1.0", _TTL.id: "unreleased"})
+        new = ledger.updated(old, facts, set(), held)
+        assert new.new == {other.id: "2.1.0"}
+        assert new.dismissed == {_TTL.id: {"reason": "tuning knob", "date": "2026-11-18"}}
+        assert '"dismissed": {\n    "env.PYEYE_CACHE_TTL"' in ledger.render(new)
+
+    def test_a_lapsed_dismissal_returns_the_fact(self) -> None:
+        from pyeye.docs_facts import ledger
+
+        state: dict[str, Any] = {}
+        review.dismiss_uncovered(state, _TTL.id, _FACTS, "tuning knob", "2026-11-18")
+        changed = {_TTL.id: Fact(_TTL.id, {"default": 600}, "")}
+        held = review.dismissed_uncovered(state, changed)
+        new = ledger.updated(ledger.Ledger((), {}), changed, set(), held)
+        assert new.new == {_TTL.id: "unreleased"}
+        assert new.dismissed == {}
+
+
+def test_check_fails_on_an_orphaned_dismissal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C14: the PR that removes a fact must remove or move its dismissal."""
+    from pyeye.docs_facts import cli
+
+    ghost = Fact("env.PYEYE_GHOST", {"default": 1}, "")
+    state: dict[str, Any] = {}
+    review.dismiss_uncovered(state, ghost.id, {ghost.id: ghost}, "gone soon", "2026-11-18")
+    monkeypatch.setattr(review, "load", lambda _root: state)
+    problems = cli.plan(Path(__file__).resolve().parents[1]).problems
+    assert any("env.PYEYE_GHOST" in p and "no longer exists" in p for p in problems)
+
+
+def test_the_committed_state_has_no_orphans() -> None:
+    from pyeye.docs_facts.registry import build
+
+    root = Path(__file__).resolve().parents[1]
+    assert review.orphaned(review.load(root), build(root)) == []
+
+
+# --- scope, packets and the command line -------------------------------------
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(scope="module")
+def repo_facts() -> Any:
+    from pyeye.docs_facts.registry import build
+
+    return build(_ROOT)
+
+
+class TestScope:
+    def test_there_is_no_default_scope(self, repo_facts: Any) -> None:
+        with pytest.raises(ValueError, match="no default scope"):
+            review.scope(_ROOT, repo_facts)
+
+    def test_an_unregistered_page_is_refused(self, repo_facts: Any) -> None:
+        with pytest.raises(ValueError, match="matches no registered page"):
+            review.scope(_ROOT, repo_facts, pages=["nowhere/*.md"])
+
+    def test_on_demand_pages_become_packets(self, repo_facts: Any) -> None:
+        out = review.scope(_ROOT, repo_facts, pages=["README.md"])
+        (page,) = out["pages"]
+        assert page["page"] == "README.md"
+        assert page["audience"] == "human"
+        assert page["sections"][0]["line"] == 1
+        assert all({"section", "line", "needs_review", "facts"} <= set(s) for s in page["sections"])
+
+    def test_a_skill_page_carries_its_bound_facts(self, repo_facts: Any) -> None:
+        out = review.scope(_ROOT, repo_facts, pages=["skills/duplication-review/SKILL.md"])
+        (page,) = out["pages"]
+        assert "duplication.default.min_tokens" in page["facts"]
+        assert any("duplication.default.min_tokens" in s["facts"] for s in page["sections"])
+
+    def test_an_audience_selects_its_pages_and_never_reference_pages(self, repo_facts: Any) -> None:
+        out = review.scope(_ROOT, repo_facts, audience="claude")
+        assert out["pages"]
+        assert all(p["audience"] == "claude" and p["kind"] != "reference" for p in out["pages"])
+
+    def test_change_triggered_against_head_has_no_changed_facts(self, repo_facts: Any) -> None:
+        out = review.scope(_ROOT, repo_facts, base="HEAD")
+        assert out["changed"] == []
+        assert out["pages"] == []
+        assert isinstance(out["uncovered"], list)
+
+    def test_change_triggered_picks_pages_binding_a_changed_fact(
+        self, repo_facts: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye.docs_facts import changed
+
+        def older(root: Path, _base: str, _path: str) -> dict[str, Any]:
+            from pyeye.docs_facts.cli import _committed_snapshot
+
+            snap = dict(_committed_snapshot(root))
+            snap["duplication.default.min_tokens"] = 25
+            return snap
+
+        monkeypatch.setattr(changed, "base_snapshot", older)
+        out = review.scope(_ROOT, repo_facts, base="any")
+        assert out["changed"] == ["duplication.default.min_tokens"]
+        paths = [p["page"] for p in out["pages"]]
+        assert "skills/duplication-review/SKILL.md" in paths
+        page = next(p for p in out["pages"] if p["page"] == "skills/duplication-review/SKILL.md")
+        assert page["changed"] == ["duplication.default.min_tokens"]
+
+
+@pytest.fixture
+def memory_state(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The review state in memory, so CLI tests never write the committed file."""
+    state: dict[str, Any] = {
+        "version": 1,
+        "coverage": {},
+        "findings": [],
+        "confirmed_non_issues": [],
+    }
+    monkeypatch.setattr(review, "load", lambda _root: state)
+    monkeypatch.setattr(review, "save", lambda _root, _s: None)
+    return state
+
+
+def _write(tmp_path: Path, findings: list[dict[str, Any]]) -> Path:
+    path = tmp_path / "findings.json"
+    path.write_text(json.dumps(findings), encoding="utf-8")
+    return path
+
+
+class TestCli:
+    @pytest.mark.usefixtures("memory_state")
+    def test_validate_reports_problems_and_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = _write(tmp_path, [_without(_clear(), "replacement")])
+        assert review.main(["validate", str(path)], root=_ROOT) == 1
+        assert "replacement" in capsys.readouterr().out
+
+    @pytest.mark.usefixtures("memory_state")
+    def test_validate_gives_statuses(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        finding = _clear(anchor={"kind": "style_rule", "id": "sentence-case-headings"})
+        path = _write(tmp_path, [finding])
+        assert review.main(["validate", str(path)], root=_ROOT) == 0
+        assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
+
+    @pytest.mark.usefixtures("memory_state")
+    def test_dismiss_then_validate_suppresses_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        finding = _clear(anchor={"kind": "style_rule", "id": "sentence-case-headings"})
+        path = _write(tmp_path, [finding])
+        args = ["dismiss", str(path), "--index", "0", "--reason", "fine", "--date", "2026-11-18"]
+        assert review.main(args, root=_ROOT) == 0
+        capsys.readouterr()
+        assert review.main(["validate", str(path)], root=_ROOT) == 0
+        assert json.loads(capsys.readouterr().out) == {"shown": []}
+
+    def test_dismissing_an_invalid_finding_is_refused(
+        self, tmp_path: Path, memory_state: dict[str, Any]
+    ) -> None:
+        path = _write(tmp_path, [_without(_clear(), "replacement")])
+        args = ["dismiss", str(path), "--index", "0", "--reason", "fine", "--date", "2026-11-18"]
+        assert review.main(args, root=_ROOT) == 2
+        assert memory_state["confirmed_non_issues"] == []
+
+    def test_mark_fine_records_the_section(self, memory_state: dict[str, Any]) -> None:
+        args = ["mark-fine", "README.md", "features", "--date", "2026-11-18"]
+        assert review.main(args, root=_ROOT) == 0
+        assert "README.md#features" in memory_state["coverage"]
+        assert (
+            review.main(["mark-fine", "README.md", "no-such", "--date", "2026-11-18"], root=_ROOT)
+            == 2
+        )
+        assert (
+            review.main(["mark-fine", "nowhere.md", "x", "--date", "2026-11-18"], root=_ROOT) == 2
+        )
+
+    def test_dismiss_uncovered(
+        self, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str], repo_facts: Any
+    ) -> None:
+        fact_id = next(i for i in repo_facts if i.startswith("env."))
+        args = ["dismiss-uncovered", fact_id, "--reason", "internal", "--date", "2026-11-18"]
+        assert review.main(args, root=_ROOT) == 0
+        assert "docs_facts.py generate" in capsys.readouterr().out
+        assert fact_id in review.dismissed_uncovered(memory_state, repo_facts)
+
+    def test_scope_on_the_command_line(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert review.main(["scope", "README.md"], root=_ROOT) == 0
+        assert json.loads(capsys.readouterr().out)["pages"][0]["page"] == "README.md"
+        assert review.main(["scope"], root=_ROOT) == 2

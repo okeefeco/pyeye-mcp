@@ -200,10 +200,12 @@ class Section:
     Attributes:
         slug: The heading's anchor; ``""`` for the text before the first heading.
         text: The section's text, its heading line included.
+        line: The 1-based line it starts on.
     """
 
     slug: str
     text: str
+    line: int = 1
 
 
 def sections(text: str) -> list[Section]:
@@ -228,7 +230,13 @@ def sections(text: str) -> list[Section]:
         base = slug(match.group(2))
         count = seen.get(base, 0)
         seen[base] = count + 1
-        found.append(Section(base if count == 0 else f"{base}-{count}", text[match.start() : end]))
+        found.append(
+            Section(
+                base if count == 0 else f"{base}-{count}",
+                text[match.start() : end],
+                text.count("\n", 0, match.start()) + 1,
+            )
+        )
     return found
 
 
@@ -450,6 +458,133 @@ def triage(
 
 
 # ---------------------------------------------------------------------------
+# Scope: which pages a review covers, and what the reviewer is given
+# ---------------------------------------------------------------------------
+
+
+def _page_fact_ids(text: str, entry: Any, facts: Facts) -> set[str]:
+    """The item facts a page shows in its blocks or declares in ``covers``."""
+    from . import binding, ledger
+
+    blocks, _ = binding.parse(text)
+    return ledger.expand([b.fact_id for b in blocks], facts) | ledger.expand(entry.covers, facts)
+
+
+def _section_fact_ids(section: Section, entry: Any, facts: Facts) -> list[str]:
+    from . import binding, ledger
+
+    blocks, _ = binding.parse(section.text)
+    ids = ledger.expand([b.fact_id for b in blocks], facts) | ledger.expand(entry.covers, facts)
+    return sorted(ids)
+
+
+def packet(
+    root: Path,
+    path: str,
+    entry: Any,
+    facts: Facts,
+    state: Mapping[str, Any],
+    changed_ids: Iterable[str] = (),
+) -> dict[str, Any]:
+    """What the reviewer gets for one page: its audience, facts and sections.
+
+    No page text: the reviewer reads the page itself (targeted reads). Each
+    section says whether it needs review (never reviewed, or its text or facts
+    changed since it was marked fine) and which facts it shows or covers.
+    """
+    text = (root / path).read_text(encoding="utf-8")
+    fact_ids = sorted(_page_fact_ids(text, entry, facts))
+    changed_here = sorted(set(changed_ids) & set(fact_ids))
+    found = []
+    for section in sections(text):
+        ids = _section_fact_ids(section, entry, facts)
+        found.append(
+            {
+                "section": section.slug,
+                "line": section.line,
+                "needs_review": needs_review(state, path, section, ids, facts),
+                "facts": ids,
+            }
+        )
+    return {
+        "page": path,
+        "audience": entry.audience,
+        "kind": entry.kind,
+        "facts": {i: facts[i].markdown for i in fact_ids},
+        "changed": changed_here,
+        "sections": found,
+    }
+
+
+def _reviewable(path: str, entry: Any) -> bool:
+    """Hand-written pages only: generated reference pages hold no prose to review."""
+    return bool(entry.kind != "reference" and path.endswith(".md"))
+
+
+def scope(
+    root: Path,
+    facts: Facts,
+    *,
+    pages: Iterable[str] = (),
+    audience: str | None = None,
+    base: str | None = None,
+) -> dict[str, Any]:
+    """The review scope as reviewer packets (D6).
+
+    - **On demand:** *pages* (registered paths or globs) and/or an *audience*.
+    - **Change-triggered:** *base*, a git revision. The scope is every page that
+      binds or covers a fact added or changed since *base*, plus the ledger's
+      ``new`` uncovered facts, to cover or dismiss.
+
+    Raises:
+        ValueError: If nothing selects pages, or a named page isn't registered.
+    """
+    from fnmatch import fnmatchcase
+
+    from . import (
+        changed as changed_facts,
+        docs,
+        ledger,
+    )
+    from .cli import SNAPSHOT, _committed_snapshot
+
+    wanted = list(pages)
+    if not (wanted or audience or base):
+        raise ValueError("give pages, an audience or a base revision: there is no default scope")
+    registered = dict(docs.registered_files(root))
+    for pattern in wanted:
+        if not any(fnmatchcase(path, pattern) for path in registered):
+            raise ValueError(f"{pattern!r} matches no registered page")
+    changed_ids: set[str] = set()
+    uncovered: list[str] = []
+    if base is not None:
+        before = changed_facts.base_snapshot(root, base, SNAPSHOT)
+        diff = changed_facts.diff(before or {}, _committed_snapshot(root), {})
+        changed_ids = set(diff.added) | set(diff.changed)
+        current = ledger.load(root)
+        uncovered = sorted(current.new) if current is not None else []
+    state = load(root)
+    selected = []
+    for path, entry in registered.items():
+        if not _reviewable(path, entry):
+            continue
+        picked = any(fnmatchcase(path, p) for p in wanted) or (
+            audience is not None and entry.audience == audience
+        )
+        if base is not None and not picked:
+            text = (root / path).read_text(encoding="utf-8")
+            picked = bool(_page_fact_ids(text, entry, facts) & changed_ids)
+        if picked:
+            selected.append(packet(root, path, entry, facts, state, changed_ids))
+    return {
+        "base": base,
+        "changed": sorted(changed_ids),
+        "uncovered": [{"fact": i, "markdown": facts[i].markdown} for i in uncovered if i in facts],
+        "pages": selected,
+    }
+
+
+# ---------------------------------------------------------------------------
 # File I/O
 # ---------------------------------------------------------------------------
 
@@ -466,3 +601,103 @@ def save(root: Path, state: dict[str, Any]) -> None:
     text = path.read_text(encoding="utf-8")
     if not text.endswith("\n"):
         path.write_text(text + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Command line: ``scripts/docs_review.py``
+# ---------------------------------------------------------------------------
+
+
+def _read_findings(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(f, dict) for f in data):
+        raise ValueError(f"{path.as_posix()}: expected a JSON array of finding objects")
+    return data
+
+
+def main(argv: list[str] | None = None, root: Path | None = None) -> int:
+    """Entry point for ``scripts/docs_review.py``; prints JSON for the skill to read."""
+    import argparse
+    import sys
+
+    from .registry import build
+
+    parser = argparse.ArgumentParser(prog="docs_review", description=__doc__.splitlines()[0])
+    parser.add_argument("--root", type=Path, default=root or Path.cwd())
+    sub = parser.add_subparsers(dest="command", required=True)
+    p_scope = sub.add_parser("scope", help="reviewer packets for a scope")
+    p_scope.add_argument("pages", nargs="*", help="registered paths or globs")
+    p_scope.add_argument("--audience", choices=["human", "claude", "both"])
+    p_scope.add_argument("--base", help="git revision: pages bound to facts changed since it")
+    p_check = sub.add_parser("validate", help="check findings and give each one's status")
+    p_check.add_argument("findings", type=Path)
+    p_check.add_argument("--today", help="ISO date; a review-after dismissal comes due")
+    p_fine = sub.add_parser("mark-fine", help="record a section as reviewed and fine")
+    p_fine.add_argument("page")
+    p_fine.add_argument(
+        "section", help="the section's slug ('' for the text before the first heading)"
+    )
+    p_fine.add_argument("--date", required=True)
+    p_dismiss = sub.add_parser("dismiss", help="record a finding as dismissed (the human's call)")
+    p_dismiss.add_argument("findings", type=Path)
+    p_dismiss.add_argument("--index", type=int, required=True)
+    p_dismiss.add_argument("--reason", required=True, choices=list(DISMISSAL_REASONS))
+    p_dismiss.add_argument("--date", required=True)
+    p_dismiss.add_argument("--review-after")
+    p_unc = sub.add_parser("dismiss-uncovered", help="record a fact as deliberately not covered")
+    p_unc.add_argument("fact")
+    p_unc.add_argument("--reason", required=True, help="why it is deliberately not covered")
+    p_unc.add_argument("--date", required=True)
+    args = parser.parse_args(argv)
+    base: Path = args.root
+    try:
+        facts = build(base)
+        if args.command == "scope":
+            out: Any = scope(base, facts, pages=args.pages, audience=args.audience, base=args.base)
+        elif args.command == "validate":
+            findings = _read_findings(args.findings)
+            problems = {
+                str(i): found
+                for i, f in enumerate(findings)
+                if (found := finding_problems(f, facts))
+            }
+            if problems:
+                print(json.dumps({"problems": problems}, indent=2))
+                return 1
+            shown = triage(findings, load(base), facts, args.today)
+            out = {"shown": [{"index": findings.index(f), "status": s} for f, s in shown]}
+        elif args.command == "mark-fine":
+            from . import docs
+
+            entry = docs.entry_for(args.page)
+            if entry is None:
+                raise ValueError(f"{args.page!r} isn't registered")
+            text = (base / args.page).read_text(encoding="utf-8")
+            match = [s for s in sections(text) if s.slug == args.section]
+            if not match:
+                raise ValueError(f"{args.page} has no section {args.section!r}")
+            _check_date(args.date, "--date")
+            state = load(base)
+            ids = _section_fact_ids(match[0], entry, facts)
+            mark_reviewed(state, args.page, match[0], ids, facts, args.date)
+            save(base, state)
+            out = {"marked": coverage_key(args.page, args.section)}
+        elif args.command == "dismiss":
+            findings = _read_findings(args.findings)
+            finding = findings[args.index]
+            found = finding_problems(finding, facts)
+            if found:
+                raise ValueError(f"finding {args.index} is invalid: {found}")
+            state = load(base)
+            out = dismiss_finding(state, finding, facts, args.reason, args.date, args.review_after)
+            save(base, state)
+        else:
+            state = load(base)
+            out = dismiss_uncovered(state, args.fact, facts, args.reason, args.date)
+            save(base, state)
+            out["next"] = "run `uv run python scripts/docs_facts.py generate` to update the ledger"
+    except (ValueError, IndexError, OSError) as exc:
+        print(f"docs_review: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(out, indent=2, sort_keys=True, ensure_ascii=False))
+    return 0
