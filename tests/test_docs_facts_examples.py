@@ -146,6 +146,8 @@ class TestWhereExamplesLive:
         )
         monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
         monkeypatch.setattr(cli.pages, "PAGES", {})
+        # #825's prose rules need the real facts; they aren't under test here.
+        monkeypatch.setattr(cli.rules, "run", lambda _root, _facts: [])
 
         result = cli.plan(tmp_path, facts={})
 

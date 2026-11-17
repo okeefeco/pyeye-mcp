@@ -6,7 +6,8 @@
 - ``check`` computes the same output in memory and fails if anything on disk
   differs: a stale or hand-edited block, page or snapshot. It also fails on a
   block naming an unknown fact (a removed fact, D4), a malformed marker, or a
-  registered file that doesn't exist. CI runs it.
+  registered file that doesn't exist, and on a prose-rule violation beyond a
+  page's allow-list (:mod:`.rules`). CI runs it.
 
 Both read only :data:`~.docs.DOCS`; neither globs on its own.
 """
@@ -21,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, docs, examples, pages, registry
+from . import binding, docs, examples, pages, registry, rules
 from .facts import Bindable, snapshot
 
 SNAPSHOT = "docs/facts/facts.json"
@@ -74,6 +75,7 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     for path, build_page in pages.PAGES.items():
         result.outputs[path] = build_page(facts)
     result.outputs[SNAPSHOT] = snapshot_text(facts)
+    result.problems.extend(rules.run(root, facts))
     return result
 
 

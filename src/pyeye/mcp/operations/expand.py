@@ -67,7 +67,7 @@ Design invariants
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
-  found" for a symbol that does not exist).  The source is resolved BEFORE the
+  found" for a handle pyeye could not resolve).  The source is resolved BEFORE the
   edge registry is consulted, so the unsupported branch is never returned for
   a ghost handle either (#545 — reverses the earlier "callers rule ghosts out
   upstream" design, whose upstream guard, ``inspect``, itself fabricated).

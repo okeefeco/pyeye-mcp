@@ -127,6 +127,7 @@ def tiny_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(docs, "REFERENCE_PAGES", ("ref.md",))
     monkeypatch.setattr(pages, "PAGES", {"ref.md": lambda f: f["x.list"].markdown + "\n"})
     monkeypatch.setattr(cli.registry, "build", lambda _root: FACTS)
+    monkeypatch.setattr(cli.rules, "RULES", ())  # tested in test_docs_facts_rules
     return tmp_path
 
 
