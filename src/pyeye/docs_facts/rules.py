@@ -294,9 +294,27 @@ def edge_counts_claims(text: str, unmeasured: Iterable[str]) -> list[Finding]:
 #: The one phrase every surface that presents a static structural edge carries.
 CEILING_MARKER = "Static-surface ceiling"
 
-#: The structural edges whose answer is bounded by what is written in source.
-_STATIC_STRUCTURAL = ("members", "subclasses")
-_NAMED_EDGE = re.compile(r"[\"`](" + "|".join(_STATIC_STRUCTURAL) + r")[\"`]")
+#: The ceilings the static-surface caveat speaks for: what is literally written
+#: in source (a class body, a ``class B(A):`` statement). Every edge whose
+#: ceiling fact is one of these must carry the marker (design C12).
+STATIC_CEILINGS = frozenset({"static_definitions", "literal_subclassing"})
+
+
+def static_edges(facts: Facts) -> tuple[str, ...]:
+    """The edges whose ``edge.*`` fact has a static-surface ceiling, sorted."""
+    return tuple(
+        sorted(
+            fact_id.split(".", 1)[1]
+            for fact_id, fact in facts.items()
+            if fact_id.startswith("edge.")
+            and isinstance(fact, Fact)
+            and fact.value.get("ceiling") in STATIC_CEILINGS
+        )
+    )
+
+
+def _named_edge(edges: Iterable[str]) -> re.Pattern[str]:
+    return re.compile(r"[\"`](" + "|".join(map(re.escape, edges)) + r")[\"`]")
 
 
 #: A description's entry for one edge: ``- ``members``  — …`` up to the next entry.
@@ -315,7 +333,7 @@ def _edge_entries(text: str) -> dict[str, tuple[int, str]]:
     return entries
 
 
-def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
+def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:
     """The ceiling marker is missing where a static edge is presented (#417).
 
     A registered page presents the edges when it binds ``edges.implemented`` or
@@ -331,15 +349,18 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
             if block.fact_id in {"edges.implemented", "edges.table"}:
                 return [Finding(block.line, f"binds {block.fact_id} without {CEILING_MARKER!r}")]
         return []
+    static = static_edges(facts)
+    if not static:
+        return []
     entries = _edge_entries(page.text)
     found = [
         Finding(line, f"the {edge!r} entry lacks {CEILING_MARKER!r}")
         for edge, (line, body) in sorted(entries.items())
-        if edge in _STATIC_STRUCTURAL and CEILING_MARKER not in body
+        if edge in static and CEILING_MARKER not in body
     ]
     if found or CEILING_MARKER in page.text:
         return found
-    match = _NAMED_EDGE.search(page.text)
+    match = _named_edge(static).search(page.text)
     if match is None:
         return []
     line = page.text.count("\n", 0, match.start()) + 1

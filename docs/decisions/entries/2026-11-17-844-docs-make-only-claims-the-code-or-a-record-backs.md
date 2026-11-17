@@ -26,15 +26,17 @@ superseded_by: []
   Anything else is bound or deleted, not reworded.
 - **Unenforced policy numbers are removed, not bound** (C10 Q3). ">90% new-code coverage" is removed from CONTRIBUTING and the PR template. The copies in `.claude/instructions/` and `.claude/agents/` are seeded instead: those are Claude's own instructions, and they change only on the maintainer's direct word, not on a peer's.
 - **Seeds, not a flag day.** The 195 claims that predate the rule are seeded in `claim_seeds.SEEDS`, merged into each page's `allow`. Each seed is keyed on the claim's kind and matched text (`unbacked duration '0.5 s'`), one per occurrence, so it covers that claim only. #830 binds or deletes each claim and removes its seed. The report still prints the whole line.
+- **The #417 static set comes from the ceiling facts (C12).** The static-surface caveat is required for the edges whose `edge.*` fact has the ceiling `static_definitions` or `literal_subclassing` (`rules.static_edges`), not for edge names listed in `rules.py`. A new edge with one of those ceilings is covered with no code change. Stating each exposed edge's own ceiling meaning is #827's.
 - **Rejected:** a per-page count of violating lines (C10 Q6's wording). #837's review showed it lets a fix pay for a new claim. Also rejected: keying seeds on the full line, which would make every unrelated edit to a seeded line fail.
 
-**Anchor:** `pyeye.docs_facts.claims.claims` / `PATTERNS` / `record_problems` / `code_free`; `pyeye.docs_facts.rules.honest_claims`; `pyeye.docs_facts.claim_seeds.SEEDS`; `pyeye.docs_facts.docs.DOCS`; design `docs/superpowers/specs/2026-11-17-docs-built-on-facts-design.md` D12, C10, C11; #844, #825, #830, #818.
+**Anchor:** `pyeye.docs_facts.claims.claims` / `PATTERNS` / `record_problems` / `code_free`; `pyeye.docs_facts.rules.honest_claims`; `pyeye.docs_facts.claim_seeds.SEEDS`; `pyeye.docs_facts.docs.DOCS`; design `docs/superpowers/specs/2026-11-17-docs-built-on-facts-design.md` D12, C10, C11, C12; #844, #825, #830, #818.
 **Applies-to:**
 
 - the rule: `pyeye.docs_facts.claims`, `pyeye.docs_facts.rules.honest_claims` (in `pyeye.docs_facts.rules.RULES`);
 - the record kind: `pyeye.docs_facts.docs.Kind` (`record`), `pyeye.docs_facts.claims.record_problems`;
 - the seeds: `pyeye.docs_facts.claim_seeds.SEEDS`, merged by `pyeye.docs_facts.docs.DOCS`;
 - the inline defaults: `env.<NAME>.default` views from `pyeye.docs_facts.extractors.env`;
+- the #417 static set: `pyeye.docs_facts.rules.static_edges`, `pyeye.docs_facts.rules.STATIC_CEILINGS`;
 - the released-section exemption: `pyeye.docs_facts.rules.released_blanked`.
 
 **Verify:** PARTIAL. Gold: `uv run python scripts/docs_facts.py check` exits 0, and `uv run pytest tests/test_docs_facts_claims.py` passes. That covers each pattern, each skip, each backing, record front matter, released-changelog exemption, seeds covering only their own claim, and every seeded page being registered. Unverifiable: overclaims no pattern catches ("finds ALL usages", "complete"). Those are left to #829's review checklist.
