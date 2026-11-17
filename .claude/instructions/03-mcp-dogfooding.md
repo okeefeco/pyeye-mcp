@@ -36,17 +36,22 @@ The old Jedi-shaped tools (`find_symbol`, `goto_definition`, `get_type_info`,
 `get_module_info`, `list_project_structure`) have been **removed** from the MCP
 surface — they are gone, not just discouraged.
 
-**Nothing legacy survives.** The last three — `find_references`,
-`get_call_hierarchy`, `analyze_dependencies` — were removed in v2.0 (#505), along
-with the superseded `lookup` entry point. They were removed rather than left
-deprecated because they answered *confidently and wrongly*: `get_call_hierarchy`
-could never populate `callees` at all and anchored bare names on the first match
-with no ambiguity signal; `analyze_dependencies` classified every first-party
-module as third-party on a `src/` layout, which in turn silently disabled its own
-cycle detection; `find_references` advertised "ALL usages" with no way to
-distinguish an empty result from a failed search. Never use the
-reverse-reference tools to answer "who calls / references this" — they no longer
-exist, and the honest-limits rule in the skill is the whole answer. See
+**Nothing legacy survives.** v2.0 removed the last three (#505), along with the
+superseded `lookup` entry point:
+`find_references`, `get_call_hierarchy` and `analyze_dependencies` were removed.
+They were removed rather than left deprecated because they answered *confidently
+and wrongly*:
+
+- the removed `get_call_hierarchy` could never populate `callees` at all, and it
+  anchored bare names on the first match with no ambiguity signal;
+- the removed `analyze_dependencies` classified every first-party module as
+  third-party on a `src/` layout, which in turn silently disabled its own cycle
+  detection;
+- the removed `find_references` advertised "ALL usages" with no way to distinguish
+  an empty result from a failed search.
+
+Never use the reverse-reference tools to answer "who calls / references this":
+they no longer exist, and the honest-limits rule in the skill is the whole answer. See
 `docs/api-redesign.md` for the redesign background.
 
 ## Tool mechanics live in the `python-explore` skill

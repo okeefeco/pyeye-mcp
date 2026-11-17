@@ -10,7 +10,6 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from ...mcp.operations import edges as reg
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
 PREFIXES = ("edge", "edges", "ceiling", "ceilings")
@@ -49,7 +48,24 @@ def inspect_unmeasured(root: Path) -> list[str]:
 
 
 def extract(root: Path) -> Iterator[Bindable]:
-    """Yield a fact per edge and per ceiling, plus the group views."""
+    """Yield a fact per edge and per ceiling, plus the group views and ``inspect``'s unmeasured set."""
+    yield from extract_code()
+    unmeasured = inspect_unmeasured(root)
+    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
+
+
+def extract_code() -> Iterator[Bindable]:
+    """The edge and ceiling facts, from the installed code alone; reads no file (#851).
+
+    The server fills its tool descriptions from these while it loads
+    (:mod:`pyeye.docs_facts.describe`), in every install: a wheel has no
+    ``tests/`` and no repo, so a file read here would stop the server starting.
+    """
+    # Imported here, not at module level: ``pyeye.mcp``'s package ``__init__``
+    # imports the server, which fills its tool descriptions from this extractor
+    # while it loads (#827). A module-level import would make that a cycle.
+    from ...mcp.operations import edges as reg
+
     implemented = sorted(reg.EDGE_RESOLVERS)
     known = (
         set(implemented) | reg._NOT_YET_IMPLEMENTED_EDGES | reg._DEFERRED_REFERENCE_BACKEND_EDGES
@@ -100,5 +116,3 @@ def extract(root: Path) -> Iterator[Bindable]:
         ceilings,
         table(["Ceiling", "Complete over"], [[code(c.id[8:]), c.markdown] for c in ceilings]),
     )
-    unmeasured = inspect_unmeasured(root)
-    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))

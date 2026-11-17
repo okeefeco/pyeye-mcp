@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob
-from ..path_utils import relative_within
+from ..path_utils import normalize_path, relative_within
 from . import (
     binding,
     claims,
@@ -372,16 +372,26 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 
-def _removed_names() -> frozenset[str]:
-    """Names that are gone: a live page may name one only beside the word "removed".
+#: The checkout this package was loaded from: ``src/pyeye/docs_facts/`` -> the root.
+_CHECKOUT = normalize_path(Path(__file__)).parents[3]
 
-    Empty until #826, which reads them from ``docs/facts/removed.json`` (C2).
-    The wrong names the old checks caught (``PYEYE_PACKAGES``, ``uv run pyeye``,
-    ``mcp dev`` and the like) were never read or never worked, so they were
-    never *removed*. They always fail, and "removed" beside them would be a
-    false claim (D12).
+
+def _removed_names() -> frozenset[str]:
+    """Env vars and commands that are gone: a live page may name one only beside "removed".
+
+    Read from ``docs/facts/removed.json`` (#826, C2): every ``env.*`` and ``cli.*``
+    entry, whatever its ``match``. The record's own rule (:mod:`.removed`) handles
+    the allow-list and the sunset for the same lines. An installed package has no
+    record, so the set is empty there. The wrong names the old checks caught
+    (``PYEYE_PACKAGES``, ``uv run pyeye``, ``mcp dev`` and the like) were never
+    read or never worked, so they were never *removed* and aren't in the record.
+    They always fail, and "removed" beside them would be a false claim (D12).
     """
-    return frozenset()
+    from . import removed
+
+    return frozenset(
+        e.name for e in removed.load(_CHECKOUT) if e.fact_id.startswith(("env.", "cli."))
+    )
 
 
 # Includes lowercase suffixes, e.g. the once-documented ``PYEYE_NAMESPACE_company``.

@@ -1,15 +1,20 @@
-"""``generate`` and ``check``: keep the docs' facts equal to the code's.
+"""``generate``, ``check`` and ``changed``: keep the docs' facts equal to the code's.
 
 - ``generate`` rewrites every marker block in the registered docs, every
-  generated reference page and the snapshot ``docs/facts/facts.json``.
+  generated reference page, the snapshot ``docs/facts/facts.json``, the removed
+  names ``docs/facts/removed.json`` (a fact that left the snapshot is appended,
+  #826) and the uncovered-fact ledger ``docs/facts/uncovered.json``.
   Pre-commit runs it; a commit whose docs it changes fails, like a formatter.
+- ``changed`` prints the changed-fact list against a base revision, the scope
+  of a change-triggered ``/docs-review`` (§3). It never fails on a change.
 - ``check`` computes the same output in memory and fails if anything on disk
   differs: a stale or hand-edited block, page or snapshot. It also fails on a
   block naming an unknown fact (a removed fact, D4), a malformed marker, or a
-  registered file that doesn't exist, and on a prose-rule violation beyond a
-  page's allow-list (:mod:`.rules`). CI runs it.
+  registered file that doesn't exist, on a prose-rule violation beyond a page's
+  allow-list (:mod:`.rules`), and on a live page naming a removed name
+  (:mod:`.removed`). CI runs it.
 
-Both read only :data:`~.docs.DOCS`; neither globs on its own.
+All three read only :data:`~.docs.DOCS`; none globs on its own.
 """
 
 from __future__ import annotations
@@ -22,10 +27,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, docs, pages, registry, rules
+from . import binding, changed, docs, examples, ledger, pages, registry, removed, rules
 from .facts import Bindable, snapshot
 
 SNAPSHOT = "docs/facts/facts.json"
+CHANGELOG = "CHANGELOG.md"
+#: Kinds whose prose explains facts and must not name removed things.
+_LIVE_KINDS = ("prose", "skill")
 _DIFF_LINES = 40
 
 
@@ -56,18 +64,68 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     for path in docs.missing_files(root):
         if path not in generated:
             result.problems.append(f"{path}: registered in the doc registry but missing")
-    for path, _entry in docs.registered_files(root):
+    entries = removed.load(root)
+    live = removed.live_names(facts)
+    changelog = root / CHANGELOG
+    major = removed.current_major(
+        changelog.read_text(encoding="utf-8") if changelog.is_file() else ""
+    )
+    covered: set[str] = set()
+    for path, entry in docs.registered_files(root):
         if path in generated:
             continue
         text = (root / path).read_text(encoding="utf-8")
-        new_text, _blocks, problems = binding.render(text, facts)
+        new_text, blocks, problems = binding.render(text, facts)
+        runnable, example_problems = examples.parse_examples(text)
+        problems.extend(example_problems)
+        if runnable and not examples.allows_examples(entry):
+            problems.append(
+                binding.Problem(
+                    runnable[0].line,
+                    "runnable examples belong in docs/api/, docs/reference/ or a skill",
+                )
+            )
         result.problems.extend(f"{path}:{p.line}: {p.message}" for p in problems)
         result.outputs[path] = new_text
+        if entry.kind not in _LIVE_KINDS:
+            continue
+        covered |= ledger.expand((b.fact_id for b in blocks), facts)
+        unknown = [i for i in entry.covers if i not in facts]
+        if unknown:
+            result.problems.append(f"{path}: `covers` names unknown fact IDs {unknown}")
+        covered |= ledger.expand(entry.covers, facts)
+        found = removed.mentions(path, text, entries, live, major)
+        result.problems.extend(_removed_name_problems(path, entry, found))
     for path, build_page in pages.PAGES.items():
         result.outputs[path] = build_page(facts)
     result.outputs[SNAPSHOT] = snapshot_text(facts)
     result.problems.extend(rules.run(root, facts))
+    old_snapshot = _committed_snapshot(root)
+    result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
+    result.outputs[ledger.UNCOVERED] = ledger.render(
+        ledger.updated(ledger.load(root), facts, covered)
+    )
     return result
+
+
+def _committed_snapshot(root: Path) -> dict[str, object]:
+    current = _current(root, SNAPSHOT)
+    if current is None:
+        return {}
+    facts: dict[str, object] = json.loads(current)["facts"]
+    return facts
+
+
+def _removed_name_problems(
+    path: str, entry: docs.DocEntry, found: list[removed.Mention]
+) -> list[str]:
+    """The removed-name rule for one live page (C8): failures, then its ratchet."""
+    problems = [removed.problem(m) for m in found if m.fails]
+    allowed = [removed.allowance(m) for m in found if not m.fails]
+    over = rules.ratchet(entry, removed.RULE_ID, allowed)
+    if over is not None:
+        problems.append(f"{path}: {over}")
+    return problems
 
 
 def _current(root: Path, path: str) -> str | None:
@@ -131,17 +189,34 @@ def check(root: Path) -> int:
     return 0
 
 
+def report_changed(root: Path, base: str) -> int:
+    """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
+    head = _committed_snapshot(root)
+    before = changed.base_snapshot(root, base, SNAPSHOT)
+    if before is None:
+        print(f"### Docs facts changed against `{base}`\n\n`{base}` has no `{SNAPSHOT}`.")
+        return 0
+    facts = registry.build(root)
+    print(changed.summary(changed.diff(before, head, changed.bound_pages(root, facts)), base))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     """Entry point for ``scripts/docs_facts.py``."""
     parser = argparse.ArgumentParser(
         prog="docs_facts", description="Keep the docs' facts equal to the code's."
     )
-    parser.add_argument("command", choices=["generate", "check"])
+    parser.add_argument("command", choices=["generate", "check", "changed"])
     parser.add_argument("--root", type=Path, default=root or Path.cwd(), help="repository root")
+    parser.add_argument(
+        "--base", default="origin/main", help="changed: the git revision to diff against"
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
             return generate(args.root)
+        if args.command == "changed":
+            return report_changed(args.root, args.base)
         return check(args.root)
     except ValueError as error:
         # An extractor whose source changed shape, or two sources of one fact
