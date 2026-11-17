@@ -45,17 +45,6 @@ SEEDS: dict[str, tuple[str, ...]] = {
         "unbacked size '100MB': - Cache: Configurable, default 100MB max",
         "unbacked size '1MB': - File watchers: ~1MB per project",
     ),
-    "README.md": (
-        "unbacked as-of 'As of 2025': As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow...",
-        "unbacked duration '151 s': | 2000 (default) | +1,224 MB | 133–151 s |",
-        "unbacked size '1,224 MB': | 2000 (default) | +1,224 MB | 133–151 s |",
-        "unbacked duration '178 s': | 1000 | +1,353–1,374 MB | 176–178 s |",
-        "unbacked size '1,374 MB': | 1000 | +1,353–1,374 MB | 176–178 s |",
-        "unbacked duration '191 s': | 500 | +1,092–1,096 MB | 179–191 s |",
-        "unbacked size '1,096 MB': | 500 | +1,092–1,096 MB | 179–191 s |",
-        "unbacked duration '195 s': | 250 | +1,002–1,006 MB | 178–195 s |",
-        "unbacked size '1,006 MB': | 250 | +1,002–1,006 MB | 178–195 s |",
-    ),
     "docs/COVERAGE.md": (
         "unbacked percentage '79%': **Current Coverage**: 79% (as of January 2025)",
         "unbacked as-of 'as of January 2025': **Current Coverage**: 79% (as of January 2025)",

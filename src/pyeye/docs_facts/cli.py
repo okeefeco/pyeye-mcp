@@ -103,7 +103,7 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     old_snapshot = _committed_snapshot(root)
     result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
     review_state = review.load(root)
-    result.problems.extend(review.orphaned(review_state, facts))
+    result.problems.extend(review.orphaned(review_state, facts, root, review.project_symbols(root)))
     result.outputs[ledger.UNCOVERED] = ledger.render(
         ledger.updated(
             ledger.load(root), facts, covered, review.dismissed_uncovered(review_state, facts)
