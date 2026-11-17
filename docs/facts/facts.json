@@ -308,7 +308,7 @@
       "syntax": "namespace:<name>"
     },
     "scope.option.package": {
-      "meaning": "that directory, if it exists",
+      "meaning": "that directory, if it exists; give an absolute path, because a relative one is not resolved against the project yet (#842)",
       "syntax": "package:<path>"
     },
     "scope.option.packages": {
@@ -316,7 +316,7 @@
       "syntax": "packages"
     },
     "scope.option.standalone": {
-      "meaning": "the standalone script directories",
+      "meaning": "the standalone script directories: those in the config's standalone.dirs, for scripts that aren't in any package",
       "syntax": "standalone"
     },
     "tool.configure_packages": {

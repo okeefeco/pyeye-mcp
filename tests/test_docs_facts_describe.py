@@ -97,6 +97,23 @@ class TestFill:
         with pytest.raises(SlotError, match=message):
             fill(doc, _facts())
 
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            "Ceilings: <<fact:ceilings.table:bullets>>",
+            "    <<fact:ceilings.table:bullets>> and more",
+        ],
+    )
+    def test_a_bullets_slot_must_be_on_its_own_line(self, doc: str) -> None:
+        """Mid-line, its continuation lines would lose their indentation silently."""
+        with pytest.raises(SlotError, match="on a line of its own"):
+            fill(doc, _facts())
+
+    def test_a_bullets_slot_at_column_zero_or_the_end_is_fine(self) -> None:
+        assert fill("<<fact:ceilings.table:bullets>>", _facts()) == (
+            "- ``static_calls``: calls static analysis resolves."
+        )
+
     def test_unfilled_finds_whole_and_broken_tokens(self) -> None:
         assert unfilled("a <<fact:x.y>> b <<fact:z") == ["<<fact:x.y>>", "<<fact:z"]
         assert unfilled("plain << text >>") == []
@@ -224,6 +241,13 @@ def test_args_match_the_schema(tool: RegisteredTool) -> None:
     exempt = set(_WRAPPER_PARAMS) if tool.plugin else set()
     missing = [p for p in params if p not in documented and p not in exempt]
     assert missing == [], f"{tool.name}: parameters missing from Args: {missing}"
+
+
+def test_plugin_scope_docs_name_the_aliases() -> None:
+    """The scope forms aren't the whole grammar: configured aliases expand first."""
+    for tool in _TOOLS:
+        if tool.plugin and "scope" in tool.schema.get("properties", {}):
+            assert "``scope_aliases``" in tool.description, tool.name
 
 
 def test_the_plugin_note_documents_every_wrapper_parameter() -> None:

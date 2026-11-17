@@ -59,6 +59,8 @@ class DjangoPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         models = []
 
@@ -98,6 +100,8 @@ class DjangoPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         views = []
 
@@ -146,6 +150,8 @@ class DjangoPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         urls = []
 
@@ -169,6 +175,8 @@ class DjangoPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         templates = []
         seen_files = set()  # Track unique files to avoid duplicates
@@ -203,6 +211,8 @@ class DjangoPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         migrations = []
         seen_files = set()  # Track unique files to avoid duplicates

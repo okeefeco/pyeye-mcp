@@ -48,13 +48,23 @@ class ScopeForm:
 SCOPE_FORMS: tuple[ScopeForm, ...] = (
     ScopeForm("main", "main", "the main project"),
     ScopeForm("packages", "packages", "the configured packages only"),
-    ScopeForm("standalone", "standalone", "the standalone script directories"),
+    ScopeForm(
+        "standalone",
+        "standalone",
+        "the standalone script directories: those in the config's standalone.dirs, "
+        "for scripts that aren't in any package",
+    ),
     ScopeForm(
         "namespace",
         "namespace:<name>",
         "one namespace's package directories; namespace:a.b resolves under namespace a",
     ),
-    ScopeForm("package", "package:<path>", "that directory, if it exists"),
+    ScopeForm(
+        "package",
+        "package:<path>",
+        "that directory, if it exists; give an absolute path, because a relative one "
+        "is not resolved against the project yet (#842)",
+    ),
     ScopeForm(
         "all",
         "all",

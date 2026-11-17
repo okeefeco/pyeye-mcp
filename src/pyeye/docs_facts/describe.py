@@ -111,8 +111,12 @@ def _render_applies_to(members: list[Fact], indent: str) -> str:  # noqa: ARG001
     return "; ".join(parts)
 
 
-#: Slot forms. ``list`` (the default) is inline; ``bullets`` puts one member per
-#: line at the slot's own indentation, so put a ``bullets`` slot on a line of its own.
+#: Forms that render several lines, at the slot's own indentation. A slot in one
+#: of them must be on a line of its own, or :func:`fill` raises :class:`SlotError`.
+BLOCK_FORMS = frozenset({"bullets"})
+
+#: Slot forms. ``list`` (the default) and ``applies_to`` are inline; ``bullets``
+#: puts one member per line (see :data:`BLOCK_FORMS`).
 FORMS: dict[str, Callable[[list[Fact], str], str]] = {
     "list": _render_list,
     "bullets": _render_bullets,
@@ -136,9 +140,13 @@ def fill(doc: str, facts: Mapping[str, Bindable] | None = None) -> str:
         if form not in FORMS:
             raise SlotError(f"unknown form {form!r} in slot {match[0]!r}; known: {sorted(FORMS)}")
         line_start = doc.rfind("\n", 0, match.start()) + 1
+        line_end = doc.find("\n", match.end())
         before = doc[line_start : match.start()]
-        indent = before if before.isspace() or not before else ""
-        return FORMS[form](_members(facts[fact_id], facts), indent)
+        after = doc[match.end() : len(doc) if line_end == -1 else line_end]
+        own_line = not before.strip() and not after.strip()
+        if form in BLOCK_FORMS and not own_line:
+            raise SlotError(f"a {form!r} slot must be on a line of its own: {match[0]!r}")
+        return FORMS[form](_members(facts[fact_id], facts), before if own_line else "")
 
     filled = SLOT.sub(replace, doc)
     leftover = unfilled(filled)

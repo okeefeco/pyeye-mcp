@@ -93,6 +93,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         analyzer = self._analyzer()
         await self._warn_unreadable_sources(scope)
@@ -222,6 +224,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         models = await self.find_models(scope)
 
@@ -268,6 +272,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         validators = []
 
@@ -308,6 +314,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         all_validators = await self.find_validators(scope)
         return [v for v in all_validators if v["type"] == "field_validator"]
@@ -320,6 +328,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         configs = []
 
@@ -375,6 +385,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         models = await self.find_models(scope)
         target = next((m for m in models if m["name"] == model_name), None)
@@ -431,6 +443,8 @@ class PydanticPlugin(AnalyzerPlugin):
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
                 <<fact:scopes.options:bullets>>
+                A name from the project's ``scope_aliases`` config expands to the
+                scopes it lists.
         """
         computed_fields = []
 
