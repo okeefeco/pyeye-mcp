@@ -9,16 +9,17 @@ later plugin's tools were dropped with only a log warning, and the documented
 ``find_django_*`` / ``find_flask_*`` names never existed.
 
 Registration is exercised on a fresh ``MCPServer``: the module-level ``mcp``
-must not be mutated here, because ``test_mcp_surface_conformance`` pins its
-exact tool set.
+must not be mutated here, because the facts snapshot pins its exact tool set.
 """
 
 import inspect
+import json
 from pathlib import Path
 
 import pytest
 from mcp.server.mcpserver import MCPServer
 
+from pyeye.docs_facts.cli import SNAPSHOT
 from pyeye.docs_facts.describe import fill
 from pyeye.mcp.server import PLUGIN_PROJECT_PATH_NOTE, mcp, register_plugin_tools
 from pyeye.plugins.base import AnalyzerPlugin
@@ -26,42 +27,40 @@ from pyeye.plugins.django import DjangoPlugin
 from pyeye.plugins.flask import FlaskPlugin
 from pyeye.plugins.pydantic import PydanticPlugin
 
-# The client-visible plugin tool surface. A change here is a rename for every
-# MCP client, so it must be deliberate (and listed in the CHANGELOG).
-EXPECTED_PLUGIN_TOOLS = {
-    PydanticPlugin: {
-        "find_pydantic_models",
-        "get_model_schema",
-        "find_validators",
-        "find_field_validators",
-        "find_model_config",
-        "trace_model_inheritance",
-        "find_computed_fields",
-    },
-    DjangoPlugin: {
-        "find_django_models",
-        "find_django_views",
-        "find_django_urls",
-        "find_django_templates",
-        "find_django_migrations",
-    },
-    FlaskPlugin: {
-        "find_flask_routes",
-        "find_flask_blueprints",
-        "find_flask_views",
-        "find_flask_templates",
-        "find_flask_extensions",
-        "find_flask_config",
-        "find_error_handlers",
-        "find_cli_commands",
-    },
+_PLUGINS = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
+
+
+def _pinned() -> dict[type[AnalyzerPlugin], set[str]]:
+    """The client-visible plugin tool surface, from the committed facts snapshot.
+
+    A change here is a rename for every MCP client. ``docs_facts generate``
+    rewrites ``docs/facts/facts.json`` from the live registration, so a rename
+    shows in the PR's snapshot diff, and ``check`` fails until it is committed
+    (#825; this replaced a hand-kept ``EXPECTED_PLUGIN_TOOLS``).
+    """
+    root = Path(__file__).parent.parent
+    snapshot = json.loads((root / SNAPSHOT).read_text(encoding="utf-8"))["facts"]
+    by_plugin: dict[str, set[str]] = {}
+    for fact_id, value in snapshot.items():
+        if fact_id.count(".") == 1 and fact_id.startswith("tool.") and "plugin" in value:
+            by_plugin.setdefault(value["plugin"], set()).add(fact_id.split(".", 1)[1])
+    return {cls: by_plugin.get(cls(".").name().lower(), set()) for cls in _PLUGINS}
+
+
+EXPECTED_PLUGIN_TOOLS = _pinned()
+
+#: One documented tool per plugin; removing it must change this line too.
+MINIMUM_PLUGIN_TOOLS = {
+    PydanticPlugin: {"find_pydantic_models"},
+    DjangoPlugin: {"find_django_models"},
+    FlaskPlugin: {"find_flask_routes"},
 }
 
 
 @pytest.fixture
 def all_plugins(tmp_path: Path) -> list[AnalyzerPlugin]:
     """One instance of every plugin, in the order ``initialize_plugins`` loads them."""
-    return [cls(tmp_path.as_posix()) for cls in (PydanticPlugin, DjangoPlugin, FlaskPlugin)]
+    return [cls(tmp_path.as_posix()) for cls in _PLUGINS]
 
 
 async def _tool_names(server: MCPServer) -> set[str]:
@@ -69,6 +68,13 @@ async def _tool_names(server: MCPServer) -> set[str]:
 
 
 class TestPluginToolNames:
+    @pytest.mark.parametrize("plugin_class", _PLUGINS)
+    def test_the_pin_holds_each_plugins_anchor_tool(
+        self, plugin_class: type[AnalyzerPlugin]
+    ) -> None:
+        """A hand-written floor, so regenerating the snapshot can't approve a drop."""
+        assert MINIMUM_PLUGIN_TOOLS[plugin_class] <= EXPECTED_PLUGIN_TOOLS[plugin_class]
+
     @pytest.mark.parametrize("plugin_class", list(EXPECTED_PLUGIN_TOOLS))
     def test_declared_names_match_the_pinned_surface(
         self, plugin_class: type[AnalyzerPlugin], tmp_path: Path

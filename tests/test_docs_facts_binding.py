@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyeye.docs_facts.binding import parse, render
+from pyeye.docs_facts.binding import code_spans, fences, parse, render
 from pyeye.docs_facts.facts import Fact, View, code_list, index, literal, snapshot, table, text
 
 FACTS = index(
@@ -205,6 +205,74 @@ class TestCodeDetection:
 
     def test_a_near_miss_in_code_is_text(self) -> None:
         assert parse("`<!-- fact:begin x.y-->`\n") == ([], [])
+
+
+class TestContainers:
+    """Review of #834: fences in list items and blockquotes, and indented code (#828)."""
+
+    def test_list_item_fences_do_not_cancel_out(self) -> None:
+        """The repro: two fences opened on list-marker lines hid the block between them."""
+        page = (
+            "1. ```bash\n   uv sync\n   ```\n"
+            + STALE_BLOCK
+            + "2. ```bash\n   uv run pytest\n   ```\n"
+        )
+
+        new, blocks, problems = render(page, FACTS)
+
+        assert problems == []
+        assert [b.fact_id for b in blocks] == ["ci.coverage_threshold"]
+        assert "-->85%<!-- fact:end -->" in new
+
+    def test_list_item_fences_are_fences(self) -> None:
+        page = "- ```text\n  <!-- fact:begin nope.id -->\n  ```\n- item\n"
+
+        assert parse(page) == ([], [])
+        assert [(f.line, f.end_line, f.info) for f in fences(page)] == [(1, 3, "text")]
+
+    def test_blockquote_fences(self) -> None:
+        page = "> ```\n> <!-- fact:begin nope.id -->\n> ```\n" + STALE_BLOCK
+
+        _, blocks, problems = render(page, FACTS)
+
+        assert problems == []
+        assert [b.line for b in blocks] == [4]
+
+    def test_indented_code_holding_fence_runs_is_not_a_fence(self) -> None:
+        page = "Para.\n\n    ````\n    shown literally\n    ````\n\n" + STALE_BLOCK
+
+        _, blocks, problems = render(page, FACTS)
+
+        assert fences(page) == []
+        assert problems == []
+        assert len(blocks) == 1
+
+    def test_a_fence_nested_in_a_list_item_continuation(self) -> None:
+        page = "1. Install:\n\n   ```bash\n   <!-- fact:begin nope.id -->\n   ```\n\n" + STALE_BLOCK
+
+        _, blocks, problems = render(page, FACTS)
+
+        assert problems == []
+        assert [b.line for b in blocks] == [7]
+
+
+class TestPublicScanners:
+    def test_fences_report_info_offsets_and_closure(self) -> None:
+        page = "a\n~~~~json pyeye-example tool=inspect\n{}\n~~~~\n```\nopen\n"
+
+        found = fences(page)
+
+        assert [(f.line, f.info, f.char, f.length, f.end_line, f.closed) for f in found] == [
+            (2, "json pyeye-example tool=inspect", "~", 4, 4, True),
+            (5, "", "`", 3, None, False),
+        ]
+        assert page[found[0].body_start : found[0].body_end] == "{}\n"
+        assert found[1].body_end == len(page)
+
+    def test_code_spans(self) -> None:
+        line = "a `x` b ``y ` z`` c ` d"
+
+        assert [line[a:b] for a, b in code_spans(line)] == ["`x`", "``y ` z``"]
 
 
 class TestFacts:

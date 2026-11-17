@@ -134,7 +134,9 @@ Notes that matter:
 `expand` and `trace` walk these edges. This is the **complete** set pyeye can answer
 reliably today:
 
-<!-- pyeye-supported-edges: members callees imported_by subclasses superclasses imports enclosing_scope submodules re_exports -->
+<!-- fact:begin edges.implemented -->
+`members`, `callees`, `imported_by`, `subclasses`, `superclasses`, `imports`, `enclosing_scope`, `submodules`, `re_exports`
+<!-- fact:end -->
 
 | Edge | Direction | Meaning |
 |------|-----------|---------|

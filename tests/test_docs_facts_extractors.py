@@ -231,6 +231,33 @@ class TestEnvSurprisesFail:
         with pytest.raises(ExtractionError, match="'PYEYE_HIDDEN' other than as the name"):
             env._direct_reads(tree, "m.py")
 
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'import os\nv = os.environ.get(f"PYEYE_{kind}")\n',
+            'import os\nv = os.getenv("PYEYE_" + kind)\n',
+        ],
+    )
+    def test_a_computed_name_fails(self, source: str) -> None:
+        with pytest.raises(ExtractionError, match="builds a variable name from 'PYEYE_'"):
+            env._direct_reads(ast.parse(source), "m.py")
+
+    def test_a_message_starting_with_the_prefix_is_not_a_name(self) -> None:
+        tree = ast.parse('log(f"PYEYE_X is deprecated: {why}")\n')
+
+        assert env._direct_reads(tree, "m.py") == {}
+
+    def test_another_objects_getenv_is_not_a_read(self) -> None:
+        tree = ast.parse('config.getenv("PYEYE_NOT_A_READ")\n')
+
+        with pytest.raises(ExtractionError, match="other than as the name"):
+            env._direct_reads(tree, "m.py")
+
+    def test_os_getenv_is_a_read(self) -> None:
+        tree = ast.parse('import os\nv = os.getenv("PYEYE_V", "x")\n')
+
+        assert env._direct_reads(tree, "m.py") == {"PYEYE_V": "x"}
+
     def test_a_non_literal_read_default_fails(self) -> None:
         tree = self._settings('import os\nv = os.environ.get("PYEYE_V", compute())\n')
 

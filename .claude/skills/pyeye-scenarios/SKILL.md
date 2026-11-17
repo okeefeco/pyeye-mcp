@@ -33,7 +33,7 @@ path. The catalog is the **axis of variation**:
   is `<current-worktree-root>/.scenario-repos/`, resolved with
   `git rev-parse --show-toplevel` so it follows you **into a worktree** automatically
   (each worktree gets its own isolated clones, removed when the worktree is). Overridable
-  with `PYEYE_SCENARIO_DIR`. The `.pyeye.json` paths are relative, so the scenario's
+  with `SCENARIO_DIR`. The `.pyeye.json` paths are relative, so the scenario's
   siblings just need this common parent. (`.scenario-repos/` is in the repo's
   `.gitignore`; do NOT hardcode a personal path like `~/GitHub/test` — it isn't portable
   and shared external clones collide across worktrees.)
@@ -46,7 +46,7 @@ path. The catalog is the **axis of variation**:
   django is ~366 MB — to avoid re-downloading it per worktree, clone with
   `--reference <shared-django>` (borrows objects from an existing local clone; the
   per-worktree copy is tiny on disk yet can still check out the pinned SHA), or point
-  `PYEYE_SCENARIO_DIR` at a shared cache for that scenario.
+  `SCENARIO_DIR` at a shared cache for that scenario.
 - **Idempotent.** Skip a repo that already exists; never re-clone over local work.
 - **Never vendor.** Third-party code is cloned on demand and **never committed** — a
   gitignored in-repo dir is never in git history, so "in the worktree" ≠ "vendored." The
@@ -57,8 +57,8 @@ path. The catalog is the **axis of variation**:
 For each repo in a scenario's manifest:
 
 ```bash
-# In-repo, gitignored, worktree-local by default (override with PYEYE_SCENARIO_DIR).
-TARGET="${PYEYE_SCENARIO_DIR:-$(git rev-parse --show-toplevel)/.scenario-repos}"
+# In-repo, gitignored, worktree-local by default (override with SCENARIO_DIR).
+TARGET="${SCENARIO_DIR:-$(git rev-parse --show-toplevel)/.scenario-repos}"
 mkdir -p "$TARGET"
 cd "$TARGET"
 [ -d "<repo>" ] || git clone "<url>" "<repo>"   # idempotent, full clone
@@ -82,7 +82,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 |-------|-------|
 | repo | `https://github.com/django/django` |
 | commit | `cd385e6b8c` |
-| size | ~366 MB — clone with **`--reference <shared-django>`** (or set `PYEYE_SCENARIO_DIR` to a shared cache) to avoid a full per-worktree download |
+| size | ~366 MB — clone with **`--reference <shared-django>`** (or set `SCENARIO_DIR` to a shared cache) to avoid a full per-worktree download |
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 

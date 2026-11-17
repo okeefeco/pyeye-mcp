@@ -19,10 +19,11 @@ Paths are repo-relative and POSIX-spelled. The one pattern entry is
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 from .pages import PAGES
@@ -39,11 +40,15 @@ class DocEntry:
         path: Repo-relative POSIX path, or a glob pattern for a churning tree.
         audience: Who reads it (D11).
         kind: How the checks treat it.
+        allow: Prose-rule ID -> the message of each finding this page may still
+            have, one per occurrence (:mod:`.rules`). It only shrinks: ``check``
+            fails on a finding not listed and on a listed one no longer found.
     """
 
     path: str
     audience: Audience
     kind: Kind
+    allow: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def is_pattern(self) -> bool:
@@ -62,6 +67,12 @@ EXCLUDED_TREES: tuple[str, ...] = (
 
 #: The generated reference pages, registered in :data:`DOCS` as kind ``reference``.
 REFERENCE_PAGES: tuple[str, ...] = tuple(PAGES)
+
+
+def _allow(**messages: tuple[str, ...]) -> Mapping[str, tuple[str, ...]]:
+    """An immutable allow-list: prose-rule ID -> the findings still allowed."""
+    return MappingProxyType(messages)
+
 
 _H: Audience = "human"
 _C: Audience = "claude"
@@ -108,7 +119,21 @@ DOCS: tuple[DocEntry, ...] = (
     # docs/
     DocEntry("docs/api-redesign.md", _H, "history"),
     DocEntry("docs/migration-guide.md", _H, "history"),
-    DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
+    # A live guide (design C9). Its per-module table names the long-gone
+    # src/pyeye/server.py; #830 rewrites it.
+    DocEntry(
+        "docs/COVERAGE.md",
+        _H,
+        "prose",
+        _allow(
+            **{
+                "server-command": (
+                    "names src/pyeye/server.py, which doesn't exist (the module is "
+                    "src/pyeye/mcp/server.py; start it with `python -m pyeye.mcp`)",
+                )
+            }
+        ),
+    ),
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
     DocEntry("docs/CLAUDE_AGENTS.md", _H, "prose"),
     DocEntry("docs/DOGFOODING_INTEGRATION.md", _H, "prose"),

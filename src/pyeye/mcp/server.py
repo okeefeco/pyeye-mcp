@@ -1149,6 +1149,11 @@ async def trace(
     all, so a walked hop is never partial — a hop cut by ``max_depth`` or
     ``max_nodes`` records no edges and sets the matching truncation reason.
 
+    Static-surface ceiling: each hop carries its edge's ceiling, so a trace
+    over ``members`` or ``subclasses`` is complete only over that edge's
+    measured scope (see ``expand``); runtime-injected members and
+    dynamically-created subclasses are not walked.
+
     Response shape — ``Subgraph``::
 
         { "nodes": { handle: Stub, ... },        # deduped by canonical handle
