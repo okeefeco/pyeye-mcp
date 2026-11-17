@@ -357,12 +357,30 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         for name in names:
             # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
             # nothing in this scope (#567).
-            if name.full_name == path and not is_attribute_target(name):
+            if _names_path(name, path, analyzer) and not is_attribute_target(name):
                 anchor = _anchor_on_definition(name, path)
                 placed = _canonical_of(anchor, path, analyzer)
                 return (placed, anchor) if placed is not None else None
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
     return None
+
+
+def _names_path(name: Any, path: str, analyzer: JediAnalyzer) -> bool:
+    """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
+
+    Jedi names a file from the first sys_path root that contains it, so a
+    package added inside the project (``.hidden/upstream/clonepkg``) gets a
+    module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
+    pyeye's name comes from the one file -> module mapper (#714), through
+    :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
+    The cheap checks run first, so the mapper is asked only about candidates.
+    """
+    full_name = name.full_name
+    if not full_name or name.name != path.rsplit(".", 1)[-1]:
+        return False
+    if full_name == path:
+        return True
+    return handle_for_anchor(name, full_name, analyzer) == path
 
 
 def _follow_alias(
@@ -392,10 +410,12 @@ def _follow_alias(
         if name.name != head or not _is_module_level(name) or is_attribute_target(name):
             continue
         target = _goto_definition(name)
-        if target is None or not target.full_name or not _is_dotted_path(target.full_name):
+        if target is None or not target.full_name:
             continue
+        # Jedi's raw name may not be a dotted path (``.hidden.upstream.…``, #814);
+        # the respelled handle must be.
         canonical_head = _canonical_of(target, target.full_name, analyzer)
-        if canonical_head is None:
+        if canonical_head is None or not _is_dotted_path(canonical_head):
             continue  # a project file the mapper can't place (#714)
         if len(rest) == 1:
             return canonical_head, target
@@ -583,9 +603,18 @@ def handle_for_anchor(anchor: Any, full_name: str, analyzer: JediAnalyzer) -> st
 def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
     """:func:`handle_for_anchor` of *anchor*'s ``full_name``, or of *fallback* if it has none."""
     full_name = getattr(anchor, "full_name", None)
-    if not (full_name and _is_dotted_path(full_name)):
-        full_name = fallback
-    return handle_for_anchor(anchor, full_name, analyzer)
+    if full_name:
+        # Respell Jedi's name first, even when it isn't itself a dotted path
+        # (``.hidden.upstream.pkg.X``, #814): the respelled handle must be.
+        handle = handle_for_anchor(anchor, full_name, analyzer)
+        if handle is not None and _is_dotted_path(handle):
+            return handle
+        if _is_dotted_path(full_name):
+            # A real name that names no handle stays unplaced: a __main__.*
+            # name is never a handle (#714), never rescued by *fallback*.
+            return None
+    handle = handle_for_anchor(anchor, fallback, analyzer)
+    return handle if handle is not None and _is_dotted_path(handle) else None
 
 
 # ---------------------------------------------------------------------------
