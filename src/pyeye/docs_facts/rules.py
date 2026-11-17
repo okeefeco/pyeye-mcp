@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import io
 import re
+import tokenize
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -71,6 +73,10 @@ RULE_IDS: frozenset[str] = frozenset(
 #: Kinds the phrasing rules apply to. History pages must be free to quote what
 #: was once wrong (C1); generated reference pages hold no hand-written prose.
 _LIVE: frozenset[Kind] = frozenset({"prose", "skill"})
+#: The fact rules also cover history pages: a migration guide is where people
+#: copy env vars and commands from (design C11). Released CHANGELOG sections stay
+#: exempt (:func:`released_blanked`).
+_LIVE_AND_HISTORY: frozenset[Kind] = frozenset({"prose", "skill", "history"})
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +98,24 @@ def prose_text(text: str) -> str:
         cursor = block.end
     pieces.append(text[cursor:])
     return "".join(pieces)
+
+
+#: A released version's heading in ``CHANGELOG.md``: ``## [2.1.0] - 2026-11-12``.
+_RELEASED = re.compile(r"^## \[\d[^\]]*\]", re.MULTILINE)
+CHANGELOG = "CHANGELOG.md"
+
+
+def released_blanked(text: str) -> str:
+    """*text* with every released CHANGELOG section blanked, line numbers kept.
+
+    A released section is a historical record of what was said at that release,
+    not a claim made now, so no rule reads it (design Q1). ``[Unreleased]``
+    above it is still checked.
+    """
+    match = _RELEASED.search(text)
+    if match is None:
+        return text
+    return text[: match.start()] + re.sub(r"[^\n]", " ", text[match.start() :])
 
 
 def paragraphs(text: str) -> Iterator[tuple[int, str]]:
@@ -432,9 +456,17 @@ RULES: tuple[Rule, ...] = (
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
         strings=True,
     ),
-    Rule(ENV_NAME, _LIVE, False, lambda page, facts: env_name_claims(page.prose, facts)),
     Rule(
-        SERVER_COMMAND, _LIVE, False, lambda page, facts: server_command_claims(page.prose, facts)
+        ENV_NAME,
+        _LIVE_AND_HISTORY,
+        False,
+        lambda page, facts: env_name_claims(page.prose, facts),
+    ),
+    Rule(
+        SERVER_COMMAND,
+        _LIVE_AND_HISTORY,
+        False,
+        lambda page, facts: server_command_claims(page.prose, facts),
     ),
 )
 
@@ -519,12 +551,37 @@ def _rendered(node: ast.expr) -> str | None:
     return None
 
 
+def _comment_blocks(source: str) -> Iterator[tuple[int, str]]:
+    """``(first line, text)`` for each run of comments on consecutive lines.
+
+    A run is one page, so a phrase wrapped across comment lines is still seen.
+    """
+    start, last = 0, -1
+    lines: list[str] = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        row = token.start[0]
+        if lines and row != last + 1:
+            yield start, "\n".join(lines)
+            lines = []
+        if not lines:
+            start = row
+        lines.append(token.string.lstrip("#").strip())
+        last = row
+    if lines:
+        yield start, "\n".join(lines)
+
+
 def code_strings() -> Iterator[Page]:
-    """Every string literal and docstring in the ``pyeye.mcp`` package, as pages.
+    """Every string literal, docstring and comment in the ``pyeye.mcp`` package.
 
     The package itself is the scope, never a list of its files: the response
     hints and notes (``not_found``, ``resolve`` …) and the tool docstrings all
-    live there. F-string pieces inside a larger f-string aren't repeated.
+    live there. Comments are included because the original #395 miss was a
+    comment in ``server.py``, and comment wording is what gets copied into
+    docstrings next (design C11). F-string pieces inside a larger f-string
+    aren't repeated.
     """
     from .. import mcp as mcp_package
 
@@ -533,7 +590,11 @@ def code_strings() -> Iterator[Page]:
         rel = relative_within(path, package.parent)
         if rel is None:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        name = f"pyeye/{rel.as_posix()}"
+        for line, comment in _comment_blocks(source):
+            yield Page(name, comment, comment, None, line)
         inner = {
             id(v) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for v in node.values
         }
@@ -542,14 +603,17 @@ def code_strings() -> Iterator[Page]:
                 continue
             text = _rendered(node)
             if text and text.strip():
-                yield Page(f"pyeye/{rel.as_posix()}", text, text, None, node.lineno)
+                yield Page(name, text, text, None, node.lineno)
 
 
 def pages(root: Path, docs: tuple[DocEntry, ...] | None = None) -> Iterator[tuple[Page, DocEntry]]:
     """Every registered doc as a :class:`Page`, with its entry."""
     for path, entry in registered_files(root, docs):
         text = (root / path).read_text(encoding="utf-8")
-        yield Page(path, text, prose_text(text), entry.kind), entry
+        prose = prose_text(text)
+        if path == CHANGELOG:
+            prose = released_blanked(prose)
+        yield Page(path, text, prose, entry.kind), entry
 
 
 def _unallowed(page: Page, rule: Rule, facts: Facts) -> list[str]:

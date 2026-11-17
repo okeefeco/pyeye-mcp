@@ -342,10 +342,45 @@ class TestRun:
         detail = [p for p in problems if re.match(r"p\.md:\d", p)]
         assert len(detail) == 1 and detail[0].startswith("p.md:3:")
 
-    def test_history_pages_are_exempt(self, tmp_path: Path) -> None:
+    def test_history_pages_are_exempt_from_the_phrasing_rules(self, tmp_path: Path) -> None:
         root, docs = self._repo(tmp_path, "The symbol doesn't exist.\n", kind="history")
 
         assert self._run(root, docs) == []
+
+    def test_history_pages_get_the_fact_rules(self, tmp_path: Path) -> None:
+        """A migration guide is where people copy env vars and commands from (C11)."""
+        text = "Set PYEYE_PACKAGES=../lib, then run `uv run pyeye`.\n"
+        root, docs = self._repo(tmp_path, text, kind="history")
+        facts = {**self.FACTS, **ENV_FACTS}
+
+        problems = rules.run(root, facts, docs, descriptions={}, strings=())
+
+        assert any("env-name: PYEYE_PACKAGES" in p for p in problems)
+        assert any("server-command: no console script 'pyeye'" in p for p in problems)
+
+    def test_released_changelog_sections_are_exempt(self, tmp_path: Path) -> None:
+        text = (
+            "# Changelog\n\n## [Unreleased]\n\n- Set `PYEYE_DEBUG`.\n\n"
+            "## [2.0.0] - 2026-11-07\n\n- Set `PYEYE_TIMEOUT`.\n"
+        )
+        (tmp_path / "CHANGELOG.md").write_text(text, encoding="utf-8")
+        docs = (DocEntry("CHANGELOG.md", "human", "history"),)
+
+        problems = rules.run(
+            tmp_path, {**self.FACTS, **ENV_FACTS}, docs, descriptions={}, strings=()
+        )
+
+        assert any("CHANGELOG.md:5: env-name: PYEYE_DEBUG" in p for p in problems)
+        assert not any("PYEYE_TIMEOUT" in p for p in problems)
+
+    def test_released_blanked_keeps_lines(self) -> None:
+        text = "## [Unreleased]\nx\n## [1.0.0] - d\nold\n"
+
+        blanked = rules.released_blanked(text)
+
+        assert blanked.count("\n") == text.count("\n")
+        assert "old" not in blanked and "x" in blanked
+        assert rules.released_blanked("no headings\n") == "no headings\n"
 
     def test_tool_descriptions_are_scanned_with_no_allowance(self, tmp_path: Path) -> None:
         root, docs = self._repo(tmp_path, "fine\n")
@@ -385,6 +420,23 @@ class TestCodeStrings:
         """The old #396 guard: a scan that never sees edge_counts proves nothing."""
         assert any("edge_counts" in p.text for p in strings if p.name == "pyeye/mcp/server.py")
         assert any("did not resolve" in p.text for p in strings)
+
+    def test_comments_are_a_surface(self, strings: list[rules.Page]) -> None:
+        """The original #395 miss was a comment in server.py (C11)."""
+        page = rules.Page("pyeye/mcp/x.py", "", "", None)
+        source = "x = 1\n# replaced by inspect(h).edge_counts\n# .subclasses for the count\ny = 2\n"
+
+        blocks = list(rules._comment_blocks(source))
+
+        assert blocks == [(2, "replaced by inspect(h).edge_counts\n.subclasses for the count")]
+        assert rules.edge_counts_claims(blocks[0][1], ["subclasses"])
+        assert page.line == 1
+        assert any(p.text and p.name == "pyeye/mcp/server.py" for p in strings)
+
+    def test_separate_comment_runs_are_separate_pages(self) -> None:
+        source = "# one\nx = 1\n# two\n"
+
+        assert list(rules._comment_blocks(source)) == [(1, "one"), (3, "two")]
 
     def test_fstrings_render_with_placeholders(self) -> None:
         tree = ast.parse('x = f"Handle {h!r} does not exist."')
