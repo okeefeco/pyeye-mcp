@@ -59,7 +59,7 @@ uv run pytest tests/test_get_type_info_inheritance.py  # Test new feature
 uv run pytest  # ALSO run full suite to ensure nothing broke
 
 # Before pushing (final check)
-uv run pytest --cov=src/pyeye --cov-fail-under=85  # Full suite with coverage
+uv run pytest --cov=src/pyeye  # Full suite with coverage
 ```
 
 **Why This Matters:**
@@ -72,7 +72,6 @@ uv run pytest --cov=src/pyeye --cov-fail-under=85  # Full suite with coverage
 ## Coverage Goals
 
 - **Current threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (enforced by CI)
-- **New code target**: >90% coverage
 - **Bug fixes**: MUST include regression tests
 - **Refactoring**: Must maintain or improve coverage
 
@@ -155,7 +154,7 @@ Pre-commit runs automatically on commit and includes:
 
 ```bash
 # Before ANY commit or task completion:
-uv run pytest --cov=src/pyeye --cov-fail-under=85
+uv run pytest --cov=src/pyeye
 
 # Run specific test file
 uv run pytest tests/test_specific.py
