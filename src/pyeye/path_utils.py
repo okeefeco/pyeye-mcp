@@ -32,8 +32,8 @@ Common Pitfalls to Avoid:
 
 import os
 from collections.abc import Iterable
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePath
+from typing import Any, TypeVar
 
 
 def dedupe_paths(paths: Iterable[str | Path], *, resolve_output: bool = False) -> list[Path]:
@@ -205,6 +205,9 @@ def absolute_path(path: str | Path) -> Path:
     return Path(os.path.abspath(path))
 
 
+_P = TypeVar("_P", bound=PurePath)
+
+
 def anchor(path: str | Path, root: str | Path) -> Path:
     """*path* as the caller meant it: relative to *root*, never to the server's cwd (#842, #843).
 
@@ -214,11 +217,40 @@ def anchor(path: str | Path, root: str | Path) -> Path:
 
     ``~`` is not expanded: this anchors a file or scope path an agent passes to
     a tool, which is not a config entry (``ProjectConfig`` expands ``~`` there).
+
+    A Windows drive-relative path (``C:foo``) is relative to that drive's cwd,
+    which is the same server-cwd trap: on *root*'s drive its drive is dropped
+    and it joins *root*; on another drive it is rejected (:func:`drive_relative`).
+
+    Raises:
+        ValueError: For a drive-relative path on a drive other than *root*'s.
     """
-    candidate = Path(path)
+    candidate = drive_relative(Path(path), Path(root))
     if candidate.is_absolute():
         return candidate
     return absolute_path(Path(root) / candidate)
+
+
+def drive_relative(path: _P, root: PurePath) -> _P:
+    """*path* without a drive-relative prefix (``C:foo`` -> ``foo``) that matches *root*'s drive.
+
+    Pure, so it is testable with :class:`~pathlib.PureWindowsPath` anywhere.
+    Any other path is returned unchanged (on POSIX a path never has a drive).
+
+    Raises:
+        ValueError: If *path* is drive-relative on a drive other than *root*'s:
+            it can't be relative to *root*, and resolving it against that
+            drive's cwd would depend on the server process.
+    """
+    if not path.drive or path.is_absolute():
+        return path
+    if path.drive.lower() != root.drive.lower():
+        raise ValueError(
+            f"{path.as_posix()!r} is relative to drive {path.drive}'s current directory, "
+            f"not to the project on {root.drive or 'no drive'}: pass an absolute path "
+            "or one relative to project_path"
+        )
+    return type(path)(*path.parts[1:])
 
 
 #: Response keys whose string value is a file path, and keys holding lists of

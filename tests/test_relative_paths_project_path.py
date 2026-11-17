@@ -10,12 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import pytest
 
-from pyeye.path_utils import anchor
+from pyeye.path_utils import anchor, drive_relative
 from pyeye.scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
 
 #: A tiny project: ``Cache.evict`` is defined on line 5, its name at column 8.
@@ -87,6 +88,35 @@ class TestAnchor:
         assert anchor("a.py", link) == link / "a.py"
 
 
+class TestWindowsDriveRelative:
+    """``C:foo`` is relative to drive C's cwd: the same trap, on Windows (#852 review)."""
+
+    def test_same_drive_drops_the_drive(self) -> None:
+        assert drive_relative(PureWindowsPath("C:foo/bar.py"), PureWindowsPath("C:/proj")) == (
+            PureWindowsPath("foo/bar.py")
+        )
+
+    def test_drive_letters_compare_case_insensitively(self) -> None:
+        assert drive_relative(PureWindowsPath("c:foo"), PureWindowsPath("C:/proj")) == (
+            PureWindowsPath("foo")
+        )
+
+    def test_another_drive_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="relative to drive C:'s current directory"):
+            drive_relative(PureWindowsPath("C:foo"), PureWindowsPath("D:/proj"))
+
+    @pytest.mark.parametrize("path", ["C:/abs/x.py", "foo/x.py", "\\\\server\\share\\x.py"])
+    def test_absolute_and_plain_relative_are_unchanged(self, path: str) -> None:
+        assert drive_relative(PureWindowsPath(path), PureWindowsPath("D:/proj")) == PureWindowsPath(
+            path
+        )
+
+    def test_posix_paths_have_no_drive(self) -> None:
+        assert drive_relative(PurePosixPath("C:foo"), PurePosixPath("/proj")) == PurePosixPath(
+            "C:foo"
+        )
+
+
 class TestResolveAt:
     """#843."""
 
@@ -106,6 +136,17 @@ class TestResolveAt:
         result = _tool(
             "resolve_at",
             file=(project / "myapp" / "cache.py").as_posix(),
+            line=EVICT_LINE,
+            column=8,
+            project_path=project.as_posix(),
+        )
+
+        assert result["handle"] == "myapp.cache.Cache.evict"
+
+    def test_dot_dot_is_collapsed_inside_the_project(self, project: Path) -> None:
+        result = _tool(
+            "resolve_at",
+            file="myapp/../myapp/cache.py",
             line=EVICT_LINE,
             column=8,
             project_path=project.as_posix(),
@@ -254,3 +295,150 @@ class TestEnvelopeMissingPackage:
         assert payload["results"] == []
         # main is configured and was not searched; the missing path follows it.
         assert payload["unsearched_scopes"] == ["main", "package:not/here"]
+
+    def test_the_per_call_project_path_envelope(self, project: Path, tmp_path: Path) -> None:
+        """#665: plugins registered for another project still anchor on the call's project."""
+        from mcp.server.mcpserver import MCPServer
+
+        from pyeye.config import ProjectConfig
+        from pyeye.mcp.server import _PLUGIN_CLASSES, register_plugin_tools
+        from pyeye.scope_utils import SmartScopeResolver
+
+        startup = tmp_path / "startup"
+        startup.mkdir()
+        server = MCPServer("relative-paths-per-call")
+        register_plugin_tools(
+            server,
+            [cls(startup.as_posix()) for cls in _PLUGIN_CLASSES],
+            SmartScopeResolver(ProjectConfig(startup.as_posix())),
+        )
+
+        result = asyncio.run(
+            server.call_tool(
+                "find_pydantic_models",
+                {
+                    "scope": ["package:myapp", "package:not/here"],
+                    "envelope": True,
+                    "project_path": project.as_posix(),
+                },
+            )
+        )
+
+        assert not result.is_error, result.content
+        payload = json.loads(result.content[0].text)
+        assert [m["name"] for m in payload["results"]] == ["User"]
+        assert "package:myapp" in payload["searched"]
+        assert payload["unsearched_scopes"][-1] == "package:not/here"
+
+
+class TestValidatorKeepsRelativePaths:
+    """The MCP input validator anchored a relative ``..`` path on the cwd (#852 review)."""
+
+    def test_configure_packages_dot_dot_is_relative_to_the_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "app.py").write_text("", encoding="utf-8")
+        lib = tmp_path / "lib" / "libpkg"
+        lib.mkdir(parents=True)
+        (lib / "__init__.py").write_text("class L:\n    pass\n", encoding="utf-8")
+        # Two levels deep, so "../lib" from the cwd is tmp_path/x/lib, not tmp_path/lib.
+        cwd = tmp_path / "x" / "y"
+        cwd.mkdir(parents=True)
+        monkeypatch.chdir(cwd)
+
+        configured = _tool(
+            "configure_packages", packages=["../lib"], save=False, project_path=project.as_posix()
+        )
+        found = _tool("resolve", identifier="libpkg.L", project_path=project.as_posix())
+
+        assert (tmp_path / "lib").as_posix() in configured["packages"]
+        assert found["handle"] == "libpkg.L"
+
+    def test_the_validator_returns_a_relative_path_unchanged(self) -> None:
+        from pyeye.validation import PathValidator
+
+        assert PathValidator.validate_path("a/../b.py") == Path("a/../b.py")
+
+
+#: Either of the validator's two refusals: the given string, or its resolved target.
+REFUSED = "suspicious component|restricted location"
+
+
+def _assert_refused(tool: str, args: dict[str, Any]) -> None:
+    """The call is refused: an MCP ``ToolError`` (or a returned error result)."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from pyeye.mcp.server import mcp
+
+    try:
+        result = asyncio.run(mcp.call_tool(tool, args))
+    except ToolError as error:
+        assert re.search(REFUSED, str(error)), error
+        return
+    assert result.is_error, result.content
+    assert re.search(REFUSED, str(result.content)), result.content
+
+
+def _up_to_root(project: Path) -> str:
+    """Enough ``..`` to climb from *project* to the filesystem root."""
+    return "../" * (len(project.parts) - 1)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the deny-list names POSIX system directories")
+class TestDenyListSeesTheAnchoredPath:
+    """#852 review: keeping relative paths relative must not loosen the deny-list."""
+
+    @pytest.fixture
+    def deep_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        project = tmp_path / "a" / "b" / "c" / "project"
+        (project / "myapp").mkdir(parents=True)
+        (project / "myapp" / "__init__.py").write_text("", encoding="utf-8")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        return project
+
+    @pytest.mark.parametrize("target", ["etc", "etc/passwd", "proc/self", "proc/self/environ"])
+    def test_the_validator_rejects_a_climb_into_a_system_dir(
+        self, deep_project: Path, target: str
+    ) -> None:
+        from pyeye.exceptions import ValidationError
+        from pyeye.validation import PathValidator
+
+        with pytest.raises(ValidationError, match=REFUSED):
+            PathValidator.validate_path(
+                _up_to_root(deep_project) + target, anchor_root=deep_project
+            )
+
+    @pytest.mark.parametrize("target", ["etc", "proc/self"])
+    def test_a_tool_call_is_refused(self, deep_project: Path, target: str) -> None:
+
+        _assert_refused(
+            "resolve_at",
+            {
+                "file": _up_to_root(deep_project) + target,
+                "line": 1,
+                "column": 0,
+                "project_path": deep_project.as_posix(),
+            },
+        )
+
+    def test_configure_packages_is_refused(self, deep_project: Path) -> None:
+
+        _assert_refused(
+            "configure_packages",
+            {
+                "packages": [_up_to_root(deep_project) + "etc"],
+                "save": False,
+                "project_path": deep_project.as_posix(),
+            },
+        )
+
+    def test_a_harmless_climb_inside_tmp_still_passes(self, deep_project: Path) -> None:
+        from pyeye.validation import PathValidator
+
+        assert PathValidator.validate_path("../../x.py", anchor_root=deep_project) == Path(
+            "../../x.py"
+        )

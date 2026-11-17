@@ -22,7 +22,11 @@ superseded_by: []
 - **One anchoring rule** (`pyeye.path_utils.anchor`, the #717 owner):
   - an absolute path is used exactly as given;
   - a relative one is joined to the root and made absolute in the caller's spelling (lexical `..`, no symlink resolution, #714/#603);
-  - `~` is not expanded: these are tool arguments, not config entries.
+  - `~` is not expanded: these are tool arguments, not config entries;
+  - a Windows drive-relative path (`C:foo`) on the root's drive loses its drive and joins the root; on another drive it is a `ValueError` (`path_utils.drive_relative`), because it could only mean that drive's cwd.
+- **The input validator no longer anchors.** `PathValidator.validate_path` (behind `validate_mcp_inputs`) made any relative path containing `..` absolute against the cwd, before a tool could anchor it. It now returns a relative path unchanged, so `file`, `project_path` and `configure_packages`' `packages` reach the tool as the caller wrote them.
+  - **The deny-list is not loosened.** Its checks still run on the real target. An absolute path, or a relative one containing `..`, is resolved for the checks only, anchored where the tool will anchor it: on the call's `project_path` (`anchor_root`) for `file` and `packages`, and on the cwd for `project_path` itself.
+  - **Slightly stricter than before.** The resolved-target patterns (`^/etc/`, …) now also test the path as a directory. Before, `../../etc` resolved to `/etc` and slipped past `^/etc/` for lack of a trailing slash. It is still "a sanity check, not a sandbox" (SECURITY.md).
 - **Where it applies.**
   - `resolve_at`'s `file` and `resolve`'s `path:line` and `path` forms anchor on the analyzer's project. The not-found echo keeps the caller's spelling.
   - `package:<path>` scopes anchor on `ScopeLayout.project_path`, through `scope_utils.package_scope_path`. That function is the one place this is decided; `resolve_scope_paths` (the search) and `describe_scope` (the envelope) both call it, so they can't disagree.
@@ -35,7 +39,8 @@ superseded_by: []
 **Anchor:** `pyeye.path_utils.anchor`; `pyeye.scope_utils.package_scope_path` / `resolve_scope_paths`; `pyeye.plugins.base.AnalyzerPlugin.describe_scope`; `pyeye.mcp.operations.resolve.resolve_at` / `_resolve_identifier`; `tests/test_relative_paths_project_path.py`; #842, #843, #594, #717.
 **Applies-to:**
 
-- the rule: `pyeye.path_utils.anchor`;
+- the rule: `pyeye.path_utils.anchor`, `pyeye.path_utils.drive_relative`;
+- the validator: `pyeye.validation.PathValidator.validate_path` and the `validate_mcp_inputs` wrapper that passes `anchor_root`;
 - its callers: `pyeye.mcp.operations.resolve.resolve_at`, `pyeye.mcp.operations.resolve._resolve_identifier` (the `file_with_line` and `file_only` forms), `pyeye.scope_utils.package_scope_path`;
 - the scope readers: `pyeye.scope_utils.resolve_scope_paths`, `pyeye.plugins.base.AnalyzerPlugin.describe_scope` (and through it the `envelope` of every plugin tool registered by `register_plugin_tools`).
 
