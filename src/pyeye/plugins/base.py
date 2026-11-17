@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..path_utils import normalize_path, relative_within
-from ..scope_utils import ScopeLayout, resolve_scope_paths
+from ..scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +293,10 @@ class AnalyzerPlugin(ABC):
             whole = all(any(p == c or c in p.parents for c in covered) for p in paths)
             (searched if whole else unsearched).append(name)
         for s in [scope] if isinstance(scope, str) else scope:
-            if s.startswith("package:") and Path(s[8:]).exists() and s not in searched:
+            exists = (
+                s.startswith("package:") and package_scope_path(s, self.scope_layout()).exists()
+            )
+            if exists and s not in searched:
                 searched.append(s)
         return searched, unsearched
 

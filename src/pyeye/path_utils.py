@@ -205,6 +205,22 @@ def absolute_path(path: str | Path) -> Path:
     return Path(os.path.abspath(path))
 
 
+def anchor(path: str | Path, root: str | Path) -> Path:
+    """*path* as the caller meant it: relative to *root*, never to the server's cwd (#842, #843).
+
+    An absolute *path* is returned exactly as given. A relative one is joined to
+    *root* and made absolute with :func:`absolute_path` (``..`` collapsed
+    lexically, the caller's spelling kept, no symlink resolution, #714/#603).
+
+    ``~`` is not expanded: this anchors a file or scope path an agent passes to
+    a tool, which is not a config entry (``ProjectConfig`` expands ``~`` there).
+    """
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return absolute_path(Path(root) / candidate)
+
+
 #: Response keys whose string value is a file path, and keys holding lists of
 #: file paths (``tests/test_mcp_path_boundary.py`` sweeps the tools for these).
 _FILE_KEYS = frozenset({"file"})
