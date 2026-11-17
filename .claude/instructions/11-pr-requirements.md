@@ -34,14 +34,14 @@ When to update: When PR requirements or quality standards change
 1. **Unit tests** for new functions/methods
 2. **Integration tests** for new features
 3. **Regression tests** for bug fixes
-4. **Coverage must not drop** - CI will fail if coverage drops below 85%
+4. **Coverage must not drop** - CI will fail if coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
 
 **Before marking any PR as ready:**
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
 # This would have caught the ProjectCache/GranularCache issue in PR #77
-pytest --cov=src/pyeye --cov-fail-under=85
+pytest --cov=src/pyeye
 
 # Note: Pre-commit does NOT run tests - you MUST run them manually!
 ```
@@ -92,7 +92,6 @@ See `tests/utils/performance.py` for `CommonThresholds` constants.
 
 ## Coverage Requirements
 
-- **Current threshold**: 85% (enforced by CI)
-- **New code target**: >90% coverage
+- **Current threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (enforced by CI)
 - **Bug fixes**: MUST include regression tests
 - **ALWAYS run full test suite before pushing** (learned from PR #77)

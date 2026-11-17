@@ -520,7 +520,7 @@ PyEye
 │   └── Jedi (semantic analysis & type inference)
 ├── Caching & Performance
 │   ├── File watchers (watchdog with debouncing)
-│   ├── Granular cache (5min TTL with smart invalidation)
+│   ├── Granular cache (TTL from PYEYE_CACHE_TTL, with smart invalidation)
 │   ├── Metrics collection (p50/p95/p99 latencies)
 │   └── Performance monitoring & reporting
 ├── Validation & Security

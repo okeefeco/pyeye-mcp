@@ -20,16 +20,17 @@ Paths are repo-relative and POSIX-spelled. The one pattern entry is
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
+from .claim_seeds import SEEDS
 from .pages import PAGES
 
 Audience = Literal["human", "claude", "both"]
-Kind = Literal["prose", "reference", "skill", "history"]
+Kind = Literal["prose", "reference", "skill", "history", "record"]
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,7 @@ _H: Audience = "human"
 _C: Audience = "claude"
 _B: Audience = "both"
 
-DOCS: tuple[DocEntry, ...] = (
+_ENTRIES: tuple[DocEntry, ...] = (
     # Repository root
     DocEntry(
         "README.md",
@@ -239,6 +240,17 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry("docs/testing/STRATEGY.md", _H, "prose"),
     *(DocEntry(page, _B, "reference") for page in REFERENCE_PAGES),
 )
+
+
+def _seeded(entry: DocEntry) -> DocEntry:
+    """*entry* with its honest-claims seeds (:mod:`.claim_seeds`) in ``allow``."""
+    seeds = SEEDS.get(entry.path)
+    if not seeds:
+        return entry
+    return replace(entry, allow=MappingProxyType({**entry.allow, "honest-claims": seeds}))
+
+
+DOCS: tuple[DocEntry, ...] = tuple(_seeded(e) for e in _ENTRIES)
 
 
 def is_excluded(path: str) -> bool:
