@@ -71,7 +71,7 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "imprecise-limit": "a configurable default stated as a fixed limit",
         "dated-claim": "an external fact that may be stale and needs checking",
         "duplication": "content repeated from another page",
-        "restated-example": "prose restating what an executed example shows (keys, counts, shapes)",
+        "restated-example": "prose describing an executed example's output, not what it demonstrates",
     },
     "task": {},
 }

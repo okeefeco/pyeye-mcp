@@ -76,10 +76,12 @@ not as a finding.
    - `imprecise-limit`: a configurable default stated as a fixed limit ("max 10" for "default 10");
    - `dated-claim`: an external fact (`as of` a date, a third-party UI or key) that may be stale. Say it needs checking;
    - `duplication`: content that repeats another page; propose linking it instead;
-   - `restated-example`: prose that says in words what an executed example shows
-     (its keys, counts or shapes). That is a restated fact. Prose may point at
-     the example ("the response below shows…") and say why it matters. The fix
-     deletes the restatement and points at the example.
+   - `restated-example`: prose that describes an executed example's OUTPUT: the
+     fields, values or response shape the example already shows ("it returns
+     `found: true` and a `handle` of …"). The example is the fact, so this
+     restates it. Prose MAY name what the example demonstrates, as explanation or
+     the why ("this example shows a re-export collapsing to its definition"). The
+     fix deletes the restatement and keeps or adds the "demonstrates" sentence.
 
 ## Output: a JSON array of findings
 
