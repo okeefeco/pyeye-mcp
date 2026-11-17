@@ -20,6 +20,7 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 
 from pyeye.docs_facts.cli import SNAPSHOT
+from pyeye.docs_facts.describe import fill
 from pyeye.mcp.server import PLUGIN_PROJECT_PATH_NOTE, mcp, register_plugin_tools
 from pyeye.plugins.base import AnalyzerPlugin
 from pyeye.plugins.django import DjangoPlugin
@@ -110,8 +111,9 @@ class TestPluginToolNames:
 
         for plugin in all_plugins:
             for name, func in plugin.register_tools().items():
-                # The plugin's own docstring, then the shared project_path note (#665).
-                expected = (inspect.getdoc(func) or "") + PLUGIN_PROJECT_PATH_NOTE
+                # The plugin's own docstring with its fact slots filled (#827),
+                # then the shared project_path note (#665).
+                expected = fill(inspect.getdoc(func) or "") + PLUGIN_PROJECT_PATH_NOTE
                 assert descriptions[name] == " ".join(expected.split()), name
 
     def test_duplicate_name_raises_instead_of_dropping_a_tool(self, tmp_path: Path) -> None:
