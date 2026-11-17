@@ -171,11 +171,8 @@ class AnalyzerPlugin(ABC):
 
         Args:
             pattern: File pattern to search for (e.g., "*.py", "test_*.py")
-            scope: Search scope specification - can be:
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
-                - List of scopes: Multiple scopes combined
+            scope: A scope or a list of scopes, in the grammar of
+                :data:`pyeye.scope_utils.SCOPE_FORMS`.
 
         Returns:
             List of matching file paths

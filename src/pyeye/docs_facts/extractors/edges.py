@@ -10,7 +10,6 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from ...mcp.operations import edges as reg
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
 PREFIXES = ("edge", "edges", "ceiling", "ceilings")
@@ -50,6 +49,11 @@ def inspect_unmeasured(root: Path) -> list[str]:
 
 def extract(root: Path) -> Iterator[Bindable]:
     """Yield a fact per edge and per ceiling, plus the group views."""
+    # Imported here, not at module level: ``pyeye.mcp``'s package ``__init__``
+    # imports the server, which fills its tool descriptions from this extractor
+    # while it loads (#827). A module-level import would make that a cycle.
+    from ...mcp.operations import edges as reg
+
     implemented = sorted(reg.EDGE_RESOLVERS)
     known = (
         set(implemented) | reg._NOT_YET_IMPLEMENTED_EDGES | reg._DEFERRED_REFERENCE_BACKEND_EDGES
