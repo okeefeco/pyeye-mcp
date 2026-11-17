@@ -333,7 +333,6 @@ class TestEnvNameRule:
         [
             "Set `PYEYE_CACHE_TTL` to 60.",
             "`PYEYE_POOL_TTL` is deprecated and has no effect.",
-            "`PYEYE_DEBUG` was removed; use `PYEYE_CACHE_TTL`.",
         ],
     )
     def test_live_deprecated_and_removed_with_their_word_pass(self, line: str) -> None:
@@ -354,11 +353,17 @@ class TestEnvNameRule:
 
         assert len(found) == 1 and why in found[0].message
 
-    def test_the_pending_list_is_the_only_source_of_removed_names(self) -> None:
-        """#826 replaces both; nothing else may read the constant."""
-        assert rules._removed_names() is rules._PENDING_REMOVED_JSON_826
-        source = Path(rules.__file__).read_text(encoding="utf-8")
-        assert source.count("_PENDING_REMOVED_JSON_826") == 2  # the definition and the reader
+    def test_never_read_names_fail_even_beside_removed(self) -> None:
+        """They never existed, so "removed" would be a false claim (D12)."""
+        assert rules.env_name_claims("`PYEYE_DEBUG` was removed.", ENV_FACTS)
+
+    def test_a_removed_name_passes_only_beside_removed(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """The hook #826 fills from docs/facts/removed.json."""
+        monkeypatch.setattr(rules, "_removed_names", lambda: frozenset({"PYEYE_OLD"}))
+
+        assert rules.env_name_claims("`PYEYE_OLD` was removed in 2.0.", ENV_FACTS) == []
+        assert rules.env_name_claims("Set `PYEYE_OLD`.", ENV_FACTS)
+        assert rules.server_command_claims("`uv run pyeye-old` was removed.", ENV_FACTS)
 
 
 class TestServerCommandRule:
@@ -368,7 +373,6 @@ class TestServerCommandRule:
             "Run `uv run pyeye-mcp`.",
             "Or `python -m pyeye.mcp`.",
             "Edit `src/pyeye/mcp/server.py` to add a tool.",
-            "`uv run pyeye` was removed; the script is `pyeye-mcp`.",
         ],
     )
     def test_working_commands_pass(self, line: str) -> None:
@@ -380,6 +384,7 @@ class TestServerCommandRule:
             "uv run mcp dev src/pyeye/server.py",
             "uv run python ~/repo/src/pyeye/mcp/server.py",
             "Run `uv run pyeye`.",
+            "`uv run pyeye` was removed; the script is `pyeye-mcp`.",
             "claude mcp add /path/to/pyeye",
             'claude mcp add pyeye --command "uv"',
             'claude mcp add pyeye --directory "/path/to/your/repo"',

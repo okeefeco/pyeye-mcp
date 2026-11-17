@@ -269,39 +269,17 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
 # #556 and #553: env vars and server commands named in the docs exist
 # ---------------------------------------------------------------------------
 
-#: TEMPORARY, deleted by #826: names that are gone and that ``docs/facts/removed.json``
-#: will hold. Until #826 lands, a live page may name one only on a line that also
-#: says "removed", the rule #826 applies to every removed name (design C8 Q2).
-#: Read only through :func:`_removed_names`, so #826 swaps one function.
-_PENDING_REMOVED_JSON_826: frozenset[str] = frozenset(
-    {
-        # Env vars the docs named but nothing ever read (#556, #553). Spelled as
-        # prefix + suffix: they are names pyeye must NOT read, and the env
-        # extractor rejects any whole "PYEYE_*" literal in src/ that isn't a read.
-        *(
-            "PYEYE_" + suffix
-            for suffix in (
-                "PACKAGES",
-                "NAMESPACES",
-                "DEBOUNCE",
-                "WORKERS",
-                "TIMEOUT",
-                "CACHE_ENABLED",
-                "CACHE_MEMORY_MB",
-                "DEBUG",
-            )
-        ),
-        # Server commands that never worked (#553).
-        "pyeye",
-        "src/pyeye/server.py",
-        "mcp dev",
-    }
-)
-
 
 def _removed_names() -> frozenset[str]:
-    """Names that are gone: they may appear only beside the word "removed"."""
-    return _PENDING_REMOVED_JSON_826
+    """Names that are gone: a live page may name one only beside the word "removed".
+
+    Empty until #826, which reads them from ``docs/facts/removed.json`` (C2).
+    The wrong names the old checks caught (``PYEYE_PACKAGES``, ``uv run pyeye``,
+    ``mcp dev`` and the like) were never read or never worked, so they were
+    never *removed*. They always fail, and "removed" beside them would be a
+    false claim (D12).
+    """
+    return frozenset()
 
 
 # Includes lowercase suffixes, e.g. the once-documented ``PYEYE_NAMESPACE_company``.
