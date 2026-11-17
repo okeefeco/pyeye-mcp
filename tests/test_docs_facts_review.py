@@ -1025,11 +1025,6 @@ class TestReviewFixes864:
             review.finding_problems(finding, _FACTS, None, symbols)
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#857: resolve_handle doesn't collapse a relative re-export yet; when this "
-        "passes, delete _ProjectSymbols._definition_site and this marker",
-    )
     def test_the_resolver_itself_collapses_a_relative_re_export(self, alias_project: Path) -> None:
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
         from pyeye.resolver import Resolved, resolve_handle
