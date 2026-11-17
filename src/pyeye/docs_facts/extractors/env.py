@@ -91,17 +91,35 @@ def _range(value: dict[str, Any]) -> str:
     return f"{literal(low)}-{literal(high)}"
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the installed package
-    """Yield a fact per ``PYEYE_*`` variable, plus the group views."""
-    settings_path = Path(settings_module.__file__)
-    package = settings_path.parent
+def _parse_package(package: Path) -> dict[str, ast.Module]:
+    """Every module of *package*, parsed, by package-relative POSIX path."""
     trees: dict[str, ast.Module] = {}
     for path in sorted(filtered_rglob("*.py", package)):
         rel = relative_within(path, package)
         if rel is not None:
             trees[rel.as_posix()] = ast.parse(path.read_text(encoding="utf-8"))
+    return trees
+
+
+def _status(name: str, attribute: str, used_attributes: set[str]) -> dict[str, str]:
+    if name in settings_module.DEPRECATED_ENV_VARS:
+        return {"status": "deprecated", "deprecated": settings_module.DEPRECATED_ENV_VARS[name]}
+    return {"status": "live" if attribute in used_attributes else "unused"}
+
+
+def _row(fact: Fact) -> list[str]:
+    value = fact.value
+    status = value["status"]
+    if status == "deprecated":
+        status = f"deprecated, no effect: {value['deprecated']}"
+    return [fact.markdown, literal(value["default"]), _range(value), status]
+
+
+def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the installed package
+    """Yield a fact per ``PYEYE_*`` variable, plus the group views."""
+    settings_path = Path(settings_module.__file__)
+    trees = _parse_package(settings_path.parent)
     settings_rel = settings_path.name
-    loaded = _settings_vars(trees[settings_rel])
     used_attributes = {
         node.attr
         for rel, tree in trees.items()
@@ -111,38 +129,21 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     }
 
     values: dict[str, dict[str, Any]] = {}
-    for name, info in loaded.items():
+    for name, info in _settings_vars(trees[settings_rel]).items():
         value = {k: v for k, v in info.items() if k != "attribute"}
         value["source"] = f"pyeye/{settings_rel}"
-        if name in settings_module.DEPRECATED_ENV_VARS:
-            value["status"] = "deprecated"
-            value["deprecated"] = settings_module.DEPRECATED_ENV_VARS[name]
-        elif info["attribute"] in used_attributes:
-            value["status"] = "live"
-        else:
-            value["status"] = "unused"
+        value.update(_status(name, info["attribute"], used_attributes))
         values[name] = value
     for module, tree in trees.items():
         for name, default in _direct_reads(tree).items():
-            if name not in values:
-                values[name] = {
-                    "type": "str",
-                    "default": default,
-                    "source": f"pyeye/{module}",
-                    "status": "live",
-                }
+            values.setdefault(
+                name,
+                {"type": "str", "default": default, "source": f"pyeye/{module}", "status": "live"},
+            )
 
     facts = [Fact(f"env.{name}", values[name], code(name)) for name in sorted(values)]
     yield from facts
-
-    def row(fact: Fact) -> list[str]:
-        value = fact.value
-        status = value["status"]
-        if status == "deprecated":
-            status = f"deprecated, no effect: {value['deprecated']}"
-        return [fact.markdown, literal(value["default"]), _range(value), status]
-
     headers = ["Variable", "Default", "Range", "Status"]
-    yield view("env.all", facts, table(headers, [row(f) for f in facts]))
+    yield view("env.all", facts, table(headers, [_row(f) for f in facts]))
     deprecated = [f for f in facts if f.value["status"] == "deprecated"]
-    yield view("env.deprecated", deprecated, table(headers, [row(f) for f in deprecated]))
+    yield view("env.deprecated", deprecated, table(headers, [_row(f) for f in deprecated]))
