@@ -305,6 +305,25 @@ def static_edges(facts: Facts) -> tuple[str, ...]:
     )
 
 
+def ceiling_edges(facts: Facts) -> tuple[str, ...]:
+    """The edges whose ``edge.*`` fact has any ceiling, sorted; exact edges are left out.
+
+    The edge-ceiling rule's set (#827, C12), derived from the same facts as
+    :func:`static_edges`: every edge here must state its own ceiling meaning
+    wherever a tool description exposes it. The static set is a subset of it.
+    """
+    return tuple(
+        sorted(
+            fact_id.split(".", 1)[1]
+            for fact_id, fact in facts.items()
+            if fact_id.startswith("edge.")
+            and isinstance(fact, Fact)
+            and isinstance(fact.value, dict)
+            and fact.value.get("ceiling") is not None
+        )
+    )
+
+
 def _named_edge(edges: Iterable[str]) -> re.Pattern[str]:
     return re.compile(r"[\"`](" + "|".join(map(re.escape, edges)) + r")[\"`]")
 
@@ -388,12 +407,9 @@ def missing_edge_ceiling(page: Page, facts: Facts) -> list[Finding]:
     flat = " ".join(page.text.split())
     entries = _edge_entries(page.text)
     found = []
-    for fact_id, fact in sorted(facts.items()):
-        if not (fact_id.startswith("edge.") and isinstance(fact, Fact)):
-            continue
-        edge = fact_id.split(".", 1)[1]
-        if not isinstance(fact.value, dict) or fact.value.get("ceiling") is None:
-            continue
+    for edge in ceiling_edges(facts):
+        fact = facts[f"edge.{edge}"]
+        assert isinstance(fact, Fact)  # nosec B101 - ceiling_edges yields only edge facts
         statement = ceiling_statement(fact, facts)
         if statement is None:
             continue

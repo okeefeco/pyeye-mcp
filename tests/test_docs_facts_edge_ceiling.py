@@ -130,3 +130,11 @@ def test_ceiling_statement_matches_the_registry() -> None:
         fact = facts[f"edge.{edge}"]
         assert isinstance(fact, Fact)
         assert ceiling_statement(fact, facts) == f"``{ceiling}``: {CEILING_MEANINGS[ceiling]}"
+
+
+def test_ceiling_edges_come_from_the_facts_and_contain_the_static_set() -> None:
+    """Derived beside rules.static_edges from the same edge facts (#847): no hand list."""
+    facts = describe.load_time_facts()
+    assert rules.ceiling_edges(facts) == tuple(sorted(EDGE_CEILINGS))
+    assert set(rules.static_edges(facts)) <= set(rules.ceiling_edges(facts))
+    assert "enclosing_scope" not in rules.ceiling_edges(facts)  # exact
