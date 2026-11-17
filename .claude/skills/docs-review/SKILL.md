@@ -99,6 +99,9 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
   section, category and anchor, never the prose.
 - It returns as `resurfaced` when its anchor fact's value changes.
 - A "deliberately not covered" fact returns to the ledger when its value changes.
+- A heading rename resets that section: its "fine" verdict and its dismissals are
+  pruned on the next state write (the command output lists them), so its
+  findings come back for review rather than staying hidden.
 - `docs_facts check` fails on a dismissal whose fact no longer exists. The PR
   that removes or renames a fact fixes it: `move KEY NEW_FACT` for a rename,
   `forget KEY` for a removal. The failure message gives both commands with the key.
