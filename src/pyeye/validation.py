@@ -105,11 +105,14 @@ class PathValidator:
             r"/root/",  # Also check if /root/ appears anywhere
         ]
 
-        # The directory itself counts too: "/etc" (from "../../etc") must not
-        # slip past "^/etc/" for lack of a trailing slash.
+        # The system directory itself counts too: "/etc" (from "../../etc")
+        # must not slip past "^/etc/" for lack of a trailing slash. Only for the
+        # anchored patterns: a project dir that merely ENDS in "root" or "etc"
+        # (/home/u/repos/root) is not a system directory.
         as_dir = path_to_check.rstrip("/") + "/"
         for pattern in suspicious_resolved_patterns:
-            if re.search(pattern, path_to_check) or re.search(pattern, as_dir):
+            anchored = pattern.startswith("^")
+            if re.search(pattern, path_to_check) or (anchored and re.search(pattern, as_dir)):
                 raise ValidationError(f"Path resolves to restricted location: {pattern}")
 
         # If base_path is provided, ensure the path is within it

@@ -442,3 +442,54 @@ class TestDenyListSeesTheAnchoredPath:
         assert PathValidator.validate_path("../../x.py", anchor_root=deep_project) == Path(
             "../../x.py"
         )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory names")
+class TestDirsNamedLikeSystemDirs:
+    """#852 re-review: a project dir that ENDS in root/etc is not a system directory."""
+
+    @pytest.mark.parametrize("last", ["root", "etc"])
+    def test_a_project_path_ending_in_a_system_name_passes(self, tmp_path: Path, last: str) -> None:
+        from pyeye.validation import PathValidator
+
+        project = tmp_path / "repos" / last
+        project.mkdir(parents=True)
+
+        assert PathValidator.validate_path(project.as_posix()) == project
+
+    def test_a_package_dot_dot_root_passes(self, tmp_path: Path) -> None:
+        from pyeye.validation import PathValidator
+
+        project = tmp_path / "repos" / "app"
+        (tmp_path / "repos" / "root").mkdir(parents=True)
+        project.mkdir()
+
+        assert PathValidator.validate_path("../root", anchor_root=project) == Path("../root")
+
+    def test_configure_packages_with_such_dirs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "repos" / "etc"
+        project.mkdir(parents=True)
+        (tmp_path / "repos" / "root").mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        configured = _tool(
+            "configure_packages", packages=["../root"], save=False, project_path=project.as_posix()
+        )
+
+        assert (tmp_path / "repos" / "root").as_posix() in configured["packages"]
+
+
+def test_the_echo_keeps_the_callers_spelling_with_cwd_inside_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#852 re-review: the not-found echo was respelled against a cwd inside the project."""
+    project = tmp_path / "project"
+    (project / "sub").mkdir(parents=True)
+    monkeypatch.chdir(project / "sub")
+
+    result = _tool("resolve_at", file="pkg/m.py", line=1, column=0, project_path=project.as_posix())
+
+    assert result["reason"] == "file_not_found"
+    assert result["file"] == "pkg/m.py"

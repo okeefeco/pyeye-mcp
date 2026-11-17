@@ -267,7 +267,14 @@ def respell_under(file: str, roots: Iterable[str | Path]) -> str:
     resolves both sides (:func:`relative_within`), and the answer is joined onto
     the root as the caller spelled it. A file under no root is returned as
     given, in POSIX form.
+
+    A relative *file* is the caller's own input echoed back (a not-found
+    ``file``), relative to their project: it is returned as given. Testing it
+    would resolve it against the server's cwd, which can lie inside a root and
+    give a wrong absolute path (#852 review).
     """
+    if not Path(file).is_absolute():
+        return Path(file).as_posix()
     for root in roots:
         rel = relative_within(file, root)
         if rel is not None:
