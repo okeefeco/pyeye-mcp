@@ -162,9 +162,11 @@ class TestFindingProblems:
         for kind, ids in review.RULE_IDS.items():
             for rule_id in ids:
                 assert f"`{rule_id}`" in prompt, (kind, rule_id)
-        quoted = set(re.findall(r'"id": "([^"]+)"', prompt))
-        known = {i for ids in review.RULE_IDS.values() for i in ids}
-        assert quoted <= known | {"env.PYEYE_CACHE_TTL"}, quoted - known
+        quoted = set(re.findall(r'"kind": "(\w+)", "id": "([^"]+)"', prompt))
+        for kind, rule_id in quoted:
+            if kind in review.RULE_IDS:
+                assert rule_id in review.RULE_IDS[kind], (kind, rule_id)
+        assert {k for k, _ in quoted} <= set(review.ANCHOR_KINDS)
 
     def test_fact_anchors_are_only_checked_against_facts_when_given(self) -> None:
         assert review.finding_problems(_clear(anchor={"kind": "fact", "id": "env.GONE"})) == []
@@ -684,3 +686,78 @@ class TestLowFixes:
         assert removed == ["gone.md#x", "page.md#renamed", "page.md#renamed"]
         assert list(state["coverage"]) == ["page.md#kept"]
         assert state["confirmed_non_issues"] == [kept, uncovered, foreign]
+
+
+# --- code_contradiction: anchored on a canonical code symbol (#829-2) ----------
+
+
+def _symbols(table: dict[str, str]) -> review.SymbolCheck:
+    return lambda handle: table.get(handle)
+
+
+def _contradiction(**overrides: Any) -> dict[str, Any]:
+    finding = _clear(
+        category="code_contradiction",
+        anchor={"kind": "symbol", "id": "pkg._impl.load"},
+        problem="Says load() returns None on a missing file; it raises FileNotFoundError.",
+        replacement="load() raises FileNotFoundError when the file is missing.",
+    )
+    finding.update(overrides)
+    return finding
+
+
+class TestCodeContradiction:
+    def test_a_canonical_project_symbol_passes(self) -> None:
+        symbols = _symbols({"pkg._impl.load": "pkg._impl.load"})
+        assert review.finding_problems(_contradiction(), _FACTS, None, symbols) == []
+
+    def test_an_unresolved_symbol_is_rejected(self) -> None:
+        (problem,) = review.finding_problems(_contradiction(), _FACTS, None, _symbols({}))
+        assert (
+            problem == "anchor names symbol 'pkg._impl.load', which doesn't resolve in the project"
+        )
+
+    def test_a_re_export_alias_is_rejected_with_the_canonical_handle(self) -> None:
+        symbols = _symbols({"pkg.load": "pkg._impl.load"})
+        finding = _contradiction(anchor={"kind": "symbol", "id": "pkg.load"})
+        assert review.finding_problems(finding, _FACTS, None, symbols) == [
+            "anchor must use the canonical handle 'pkg._impl.load', not 'pkg.load'"
+        ]
+
+    def test_it_is_always_a_clear_fix(self) -> None:
+        finding = _without(_contradiction(), "replacement")
+        finding.update(
+            needs_decision=True,
+            question="Which is right?",
+            options=[{"text": "a", "cost": "b"}, {"text": "c", "cost": "d"}],
+            assessment=f"{review.UNANCHORED}: x",
+        )
+        problems = review.finding_problems(finding, _FACTS)
+        assert "a code_contradiction is a clear fix: state what the code does" in problems
+
+    def test_it_rests_on_a_symbol(self) -> None:
+        finding = _contradiction(anchor={"kind": "fact", "id": _TTL.id})
+        assert "a code_contradiction finding rests on a symbol anchor" in (
+            review.finding_problems(finding, _FACTS)
+        )
+
+    def test_project_symbols_uses_pyeyes_resolver(self) -> None:
+        check = review.project_symbols(_ROOT)
+        assert check("pyeye.resolver.resolve_handle") == "pyeye.resolver.resolve_handle"
+        assert check("pyeye.resolver.no_such_function") is None
+        assert check("os.path.join") is None  # external: not a project symbol
+
+    def test_validate_resolves_symbols(
+        self, tmp_path: Path, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        good = _contradiction(
+            section="features", anchor={"kind": "symbol", "id": "pyeye.resolver.resolve_handle"}
+        )
+        bad = _contradiction(
+            section="features", anchor={"kind": "symbol", "id": "pyeye.resolver.nope"}
+        )
+        assert review.main(["validate", str(_write(tmp_path, [good]))], root=_ROOT) == 0
+        assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
+        assert review.main(["validate", str(_write(tmp_path, [bad]))], root=_ROOT) == 1
+        assert "doesn't resolve in the project" in capsys.readouterr().out
+        assert memory_state["confirmed_non_issues"] == []

@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,14 @@ from .facts import Bindable, Fact, View
 STATE_PATH = "docs/facts/review-state.json"
 
 #: What a finding is about. Closed: an unknown category is rejected.
-CATEGORIES = ("fact_drift", "uncovered_fact", "honest_claims", "audience", "style")
+CATEGORIES = (
+    "fact_drift",
+    "uncovered_fact",
+    "code_contradiction",
+    "honest_claims",
+    "audience",
+    "style",
+)
 
 #: What a finding rests on (§6), and the closed set of IDs for each rule kind.
 #: ``fact`` is any extracted fact ID; ``task`` (a failed scoring task) arrives
@@ -67,12 +74,20 @@ RULE_IDS: dict[str, dict[str, str]] = {
     },
     "task": {},
 }
-ANCHOR_KINDS = ("fact", *RULE_IDS)
+#: ``symbol`` is a code symbol by its canonical pyeye handle (``pkg.mod.func``),
+#: never ``path:line``, so it is stable under unrelated edits; ``validate`` checks
+#: it resolves, in the project, to exactly that handle.
+ANCHOR_KINDS = ("fact", "symbol", *RULE_IDS)
+
+#: Resolves a handle to its canonical project handle, or ``None`` when it doesn't
+#: resolve to a project symbol. :func:`project_symbols` builds one with pyeye.
+SymbolCheck = Callable[[str], str | None]
 
 #: The anchor kind each category rests on.
 CATEGORY_ANCHOR = {
     "fact_drift": "fact",
     "uncovered_fact": "fact",
+    "code_contradiction": "symbol",
     "honest_claims": "claims_rule",
     "audience": "audience_rule",
     "style": "style_rule",
@@ -108,7 +123,9 @@ def _text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _anchor_problems(anchor: Any, where: str, facts: Facts | None) -> list[str]:
+def _anchor_problems(
+    anchor: Any, where: str, facts: Facts | None, symbols: SymbolCheck | None = None
+) -> list[str]:
     if not isinstance(anchor, dict):
         return [f"{where} must be an object {{kind, id}}"]
     kind, anchor_id = anchor.get("kind"), anchor.get("id")
@@ -119,6 +136,15 @@ def _anchor_problems(anchor: Any, where: str, facts: Facts | None) -> list[str]:
     if kind == "fact":
         if facts is not None and anchor_id not in facts:
             return [f"{where} names fact {anchor_id!r}, which doesn't exist"]
+        return []
+    if kind == "symbol":
+        if symbols is None:
+            return []
+        canonical = symbols(str(anchor_id))
+        if canonical is None:
+            return [f"{where} names symbol {anchor_id!r}, which doesn't resolve in the project"]
+        if canonical != anchor_id:
+            return [f"{where} must use the canonical handle {canonical!r}, not {anchor_id!r}"]
         return []
     known = RULE_IDS[kind]
     if anchor_id not in known:
@@ -143,6 +169,28 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
     return []
 
 
+def project_symbols(root: Path) -> SymbolCheck:
+    """A :data:`SymbolCheck` over the project at *root*, with pyeye's own resolver.
+
+    The analyzer is built on the first check, so commands that see no symbol
+    anchor never pay for it.
+    """
+    analyzer: list[Any] = []
+
+    def check(handle: str) -> str | None:
+        from ..analyzers.jedi_analyzer import JediAnalyzer
+        from ..resolver import Resolved, resolve_handle
+
+        if not analyzer:
+            analyzer.append(JediAnalyzer(root.as_posix()))
+        found = resolve_handle(handle, analyzer[0])
+        if isinstance(found, Resolved) and found.scope == "project":
+            return found.handle
+        return None
+
+    return check
+
+
 def _option_problems(options: Any) -> list[str]:
     if not isinstance(options, list) or not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
         return [f"options must be a list of {MIN_OPTIONS} to {MAX_OPTIONS} options"]
@@ -156,7 +204,10 @@ def _option_problems(options: Any) -> list[str]:
 
 
 def finding_problems(
-    finding: Mapping[str, Any], facts: Facts | None = None, root: Path | None = None
+    finding: Mapping[str, Any],
+    facts: Facts | None = None,
+    root: Path | None = None,
+    symbols: SymbolCheck | None = None,
 ) -> list[str]:
     """Why *finding* can't be shown to a human; ``[]`` when it can.
 
@@ -168,8 +219,11 @@ def finding_problems(
     - ``category``: one of :data:`CATEGORIES`.
     - ``anchor``: ``{kind, id}``, what the finding rests on, of the kind its
       category rests on (:data:`CATEGORY_ANCHOR`). A ``fact`` anchor must name a
-      fact in *facts*, when given; any other kind's ID must be in
-      :data:`RULE_IDS`.
+      fact in *facts*, when given; a ``symbol`` anchor must be the canonical
+      handle of a project symbol, checked by *symbols* when given; any other
+      kind's ID must be in :data:`RULE_IDS`.
+    - A ``code_contradiction`` (prose that says the code does what it doesn't)
+      is always a clear fix: its replacement states what the code does.
     - **A clear fix:** ``replacement``, the proposed text, and none of the
       decision fields (options, question, assessment, recommendation).
     - **Genuine ambiguity:** ``needs_decision: true``, a ``question``, 2 or 3
@@ -194,7 +248,9 @@ def finding_problems(
     if category not in CATEGORIES:
         problems.append(f"category must be one of {list(CATEGORIES)}")
     anchor = finding.get("anchor")
-    problems.extend(_anchor_problems(anchor, "anchor", facts))
+    problems.extend(_anchor_problems(anchor, "anchor", facts, symbols))
+    if category == "code_contradiction" and finding.get("needs_decision") is True:
+        problems.append("a code_contradiction is a clear fix: state what the code does")
     if category in CATEGORY_ANCHOR and isinstance(anchor, dict):
         expected = CATEGORY_ANCHOR[category]
         if anchor.get("kind") in ANCHOR_KINDS and anchor.get("kind") != expected:
@@ -217,7 +273,7 @@ def finding_problems(
                 problems.append("recommended must be the index of one of the options")
             problems.extend(
                 _anchor_problems(
-                    finding.get("recommendation_anchor"), "recommendation_anchor", facts
+                    finding.get("recommendation_anchor"), "recommendation_anchor", facts, symbols
                 )
             )
         else:
@@ -870,6 +926,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     base: Path = args.root
     try:
         facts = build(base)
+        symbols = project_symbols(base)
         if args.command == "scope":
             out: Any = scope(base, facts, pages=args.pages, audience=args.audience, base=args.base)
         elif args.command == "validate":
@@ -877,7 +934,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             problems = {
                 str(i): found
                 for i, f in enumerate(findings)
-                if (found := finding_problems(f, facts, base))
+                if (found := finding_problems(f, facts, base, symbols))
             }
             if problems:
                 print(json.dumps({"problems": problems}, indent=2))
@@ -904,7 +961,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         elif args.command == "dismiss":
             findings = _read_findings(args.findings)
             finding = findings[args.index]
-            found = finding_problems(finding, facts, base)
+            found = finding_problems(finding, facts, base, symbols)
             if found:
                 raise ValueError(f"finding {args.index} is invalid: {found}")
             state = load(base)

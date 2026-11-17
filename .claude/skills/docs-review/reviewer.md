@@ -26,7 +26,14 @@ not as a finding.
    prose no longer restates it.
 2. **`uncovered_fact`**: a fact in `changed` that the page should explain but
    doesn't. Anchor on the fact.
-3. **`honest_claims`** (design D12): claims the code or a record can't back,
+3. **`code_contradiction`**: prose that says the code does something it doesn't
+   (a behaviour, a return, an error, a default the code holds but no fact
+   extracts). Anchor `{"kind": "symbol", "id": <canonical handle>}`: the code
+   symbol that shows it. Get the handle with pyeye (`resolve` the name; use the
+   handle it returns, never `path:line`). `validate` rejects a handle that
+   doesn't resolve in the project, or isn't canonical. It's always a clear fix:
+   the replacement states what the code does.
+4. **`honest_claims`** (design D12): claims the code or a record can't back,
    which a pattern rule can't catch. Anchor `{"kind": "claims_rule", "id": …}`:
    - `D12-absolute`: an absolute claim ("complete", "never misses", "all")
      without the scope the code actually guarantees;
@@ -34,14 +41,14 @@ not as a finding.
    - `D12-projection`: a projection or target stated as fact.
 
    Propose honest wording that states the real scope, or deletion.
-4. **`audience`** (D11): the page doesn't serve its audience. Anchor
+5. **`audience`** (D11): the page doesn't serve its audience. Anchor
    `{"kind": "audience_rule", "id": …}`:
    - `human-explains`: human docs explain, with no MUST/NEVER enforcement language;
    - `claude-directs`: Claude docs are concise and directive, with no tutorials;
    - `bridge-problem-fix`: bridge docs (`Audience: Both`) give the problem and an executable fix;
    - `right-audience`: the content belongs in another audience's docs;
    - `link-not-restate`: reference material is restated instead of linked.
-5. **`style`**: the sweep's nit categories. Anchor `{"kind": "style_rule", "id": …}`:
+6. **`style`**: the sweep's nit categories. Anchor `{"kind": "style_rule", "id": …}`:
    - `invalid-example`: a copyable example that doesn't work as written, such as JSON with comments;
    - `broken-link`: a link to a missing file or section;
    - `orphaned-text`: text under the wrong heading, or referring to something absent;

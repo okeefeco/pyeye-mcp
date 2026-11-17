@@ -16,8 +16,9 @@ keeps them right, while this review keeps the prose usable. It sits beside
 
 - **The tool never decides.** A finding is a recommendation or a set of options,
   never an edit. Nothing is applied, codified or dismissed without the human.
-- **Every finding names its anchor**: the fact ID, the D12 clause, the audience
-  rule or the style rule it rests on.
+- **Every finding names its anchor**: the fact ID, the code symbol (its
+  canonical pyeye handle, for prose the code contradicts), the D12 clause, the
+  audience rule or the style rule it rests on.
 - **Every finding gives a way forward:**
   - **a clear fix** (plain fact drift, a broken link) carries one proposed
     replacement text, and no options;
@@ -78,7 +79,8 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
    - `resurfaced`: dismissed before, but its anchor fact's value changed;
    - `review-due`: a dismissal whose `review_after` date has come.
 
-   Lead with `fact_drift` and `honest_claims` findings, then `audience`, then `style`.
+   Lead with `fact_drift`, `code_contradiction` and `honest_claims` findings,
+   then `audience`, then `style`.
 5. **The human decides**, per finding:
    - **accept**: the human edits the page, or tells you to apply the proposed
      text. Only on that explicit instruction, and only that text;
