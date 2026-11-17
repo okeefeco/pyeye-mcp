@@ -32,10 +32,8 @@ Fixes #
 - [ ] I have checked for security vulnerabilities
 
 ## Coverage Requirements
-<!-- IMPORTANT: We're working towards 85% coverage. Every PR must maintain or improve coverage -->
+<!-- CI fails below the coverage threshold set by --cov-fail-under in pyproject.toml. Every PR must maintain or improve coverage. -->
 - [ ] Coverage maintained or improved from baseline (run `pytest --cov=src/pyeye --cov-report=term`)
-- [ ] New code has >90% coverage
-- [ ] Files with <75% coverage have been improved (if modified)
 - [ ] No significant coverage drops in modified files
 
 ## Code Quality Metrics

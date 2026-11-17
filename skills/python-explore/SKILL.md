@@ -208,20 +208,33 @@ When you ask for one, pyeye **refuses** (reports it as unsupported) rather than 
 a wrong or empty answer. Likewise, `inspect`'s `edge_counts` simply **omits** `callers`
 and `references` — it does not report them as `0`.
 
+```json pyeye-example tool=expand
+{"handle": "myapp.cache.Cache.evict", "edge": "callers"}
+```
+
+```json pyeye-output
+{"found": true, "edge": "callers", "unsupported": true, "reason": "deferred_reference_backend",
+ "stubs": "<absent>", "…": "<omitted>"}
+```
+
 **Do NOT fake reverse-reference data.** Delegating to a real reference backend (your
 editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 
 - Do **not** fall back to `grep` to guess who calls or references a symbol.
 
-> **There is no legacy escape hatch.** Earlier versions shipped `find_references`,
-> `get_call_hierarchy`, and `analyze_dependencies`. They were **removed in v2.0**, not
-> deprecated, because they answered confidently and wrongly — `get_call_hierarchy`
-> returned a structurally always-empty `callees` list and anchored bare names on the
-> first match with no ambiguity signal; `analyze_dependencies` classified every
-> first-party module as third-party on a `src/` layout, which silently disabled its own
-> cycle detection; `find_references` claimed "ALL usages" with no way to tell an empty
-> result from a failed search. If you remember them, they are gone — a confident wrong
-> answer is worse than an honest "not available."
+> **There is no legacy escape hatch.** Earlier versions shipped three tools that v2.0
+> removed: `find_references`, `get_call_hierarchy` and `analyze_dependencies` were
+> **removed in v2.0**, not deprecated, because they answered confidently and wrongly:
+>
+> - the removed `get_call_hierarchy` returned a structurally always-empty `callees`
+>   list, and it anchored bare names on the first match with no ambiguity signal;
+> - the removed `analyze_dependencies` classified every first-party module as
+>   third-party on a `src/` layout, which silently disabled its own cycle detection;
+> - the removed `find_references` claimed "ALL usages" with no way to tell an empty
+>   result from a failed search.
+>
+> If you remember them, they are gone — a confident wrong answer is worse than an
+> honest "not available."
 
 Why the line falls here: pyeye answers structural facts from the AST, semantic questions
 with bounded Jedi inference, and leaves the reverse queries Jedi gets wrong to a
@@ -406,35 +419,79 @@ digraph python_explore {
 Handles below use a placeholder project (`myapp.…`) — substitute your own. The
 `pathlib` example is real and works anywhere.
 
+The `json pyeye-example` blocks are real calls (arguments only; `project_path` is
+yours), and each `json pyeye-output` block after one is the response, trimmed.
+`"…": "<omitted>"` marks a level with keys left out, a final `"<omitted>"` an array
+with items left out, and `"<absent>"` a key the response really doesn't have. CI runs
+every one against a small `myapp` project (`tests/test_docs_examples.py`).
+
 **"What is `Settings`?"** — orient in one or two calls:
 
-```text
-resolve("myapp.config.Settings")   -> { handle: "myapp.config.Settings", kind: "class",
-                                        scope: "project", location: {...} }
-inspect("myapp.config.Settings")   -> kind, signature, docstring,
-                                        edge_counts: { members: 7, superclasses: 1 }
+```json pyeye-example tool=resolve
+{"identifier": "myapp.config.Settings"}
 ```
+
+```json pyeye-output
+{"found": true, "handle": "myapp.config.Settings", "kind": "class", "scope": "project",
+ "location": {"…": "<omitted>"}}
+```
+
+```json pyeye-example tool=inspect
+{"handle": "myapp.config.Settings"}
+```
+
+```json pyeye-output
+{"found": true, "kind": "class", "signature": "Settings()",
+ "superclasses": ["myapp.base.ConfigBase"],
+ "edge_counts": {"members": 3, "superclasses": 1, "subclasses": "<absent>", "callers": "<absent>"},
+ "…": "<omitted>"}
+```
+
+`edge_counts` holds only what `inspect` measures: `subclasses` and `callers` are
+absent (not counted), never `0`. `DevSettings` does subclass `Settings`;
+`expand(..., "subclasses")` finds it.
 
 **Ambiguous name** — let `resolve` disambiguate, don't guess:
 
-```text
-resolve("Settings")  -> { ambiguous: true, candidates: [
-                            { handle: "myapp.config.Settings", ... },
-                            { handle: "myapp.cli.Settings", ... } ] }
+```json pyeye-example tool=resolve
+{"identifier": "Settings"}
+```
+
+```json pyeye-output
+{"found": true, "ambiguous": true, "candidates": [
+  {"handle": "myapp.cli.Settings", "kind": "class", "…": "<omitted>"},
+  {"handle": "myapp.config.Settings", "kind": "class", "…": "<omitted>"}]}
 ```
 
 Pick the candidate you meant, or re-resolve with the full dotted handle.
 
 **"I'm looking at this line / stack frame — what is it?"** — position to handle:
 
-```text
-resolve_at("myapp/cache.py", line=42, column=8)  -> { handle: "myapp.cache.Cache.evict", ... }
+```json pyeye-example tool=resolve_at
+{"file": "myapp/cache.py", "line": 25, "column": 8}
+```
+
+```json pyeye-output
+{"found": true, "handle": "myapp.cache.Cache.evict", "kind": "method", "…": "<omitted>"}
 ```
 
 **"What's inside this module?"** — skeleton in one call:
 
+```json pyeye-example tool=outline
+{"handle": "myapp.cache"}
+```
+
+```json pyeye-output
+{"found": true, "ceiling": "static_definitions",
+ "node": {"handle": "myapp.cache", "kind": "module", "…": "<omitted>"},
+ "children": [
+   {"node": {"handle": "myapp.cache.DependencyTracker", "…": "<omitted>"},
+    "truncated": true, "truncation_reason": "max_depth", "member_count": 2},
+   "<omitted>"],
+ "truncation_reasons": ["max_depth"]}
+```
+
 ```text
-outline("myapp.cache")        -> direct members (Cache, DependencyTracker, ...); classes marked truncated: max_depth
 outline("myapp.cache.Cache")  -> drill into one class: its methods and attributes
 outline("myapp.cache", max_depth=2)  -> module + each class's members in one call
 ```
@@ -480,8 +537,16 @@ module → inspect / expand("members") / trace`.
 
 **"What does this function call?"** — forward, reliable:
 
-```text
-expand("myapp.cache.Cache.evict", edge="callees")  -> stubs for each call target
+```json pyeye-example tool=expand
+{"handle": "myapp.cache.Cache.evict", "edge": "callees"}
+```
+
+```json pyeye-output
+{"found": true, "edge": "callees", "ceiling": "static_calls", "unresolved_call_sites": 0,
+ "stubs": [
+   {"handle": "myapp.cache.DependencyTracker.dependents", "kind": "method", "…": "<omitted>"},
+   "<omitted>"],
+ "…": "<omitted>"}
 ```
 
 **"Who imports this module?"** — reverse, but reliably static:
@@ -519,9 +584,9 @@ expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project tha
 **"Who calls `Cache.evict`?"** — pyeye defers it; delegate to the LSP:
 
 ```text
-resolve("myapp.cache.Cache.evict")   -> location: { file: "myapp/cache.py", line_start: 42, column_start: 8 }
+resolve("myapp.cache.Cache.evict")   -> location: { file: "myapp/cache.py", line_start: 25, column_start: 8 }
 # then hand that position to your LSP tool:
-LSP.incomingCalls("myapp/cache.py", line=42, character=9)  -> real callers, with call sites
+LSP.incomingCalls("myapp/cache.py", line=25, character=9)  -> real callers, with call sites
 ```
 
 > pyeye doesn't index callers (deferred to #333), so I delegated: `resolve` gave the

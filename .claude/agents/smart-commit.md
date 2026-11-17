@@ -116,18 +116,18 @@ fi
 
 ### 3. Test Validation (MANDATORY: enforce coverage gate)
 
-Per `.claude/instructions/07-validation.md`, the project's verification gate is **`--cov-fail-under=85`**. Bare `pytest -q` passes when coverage drops to 80% — agent reports success, CI then fails.
+Per `.claude/instructions/07-validation.md`, the project's verification gate is the coverage threshold, <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->, set by `--cov-fail-under` in `pyproject.toml`'s pytest `addopts`. It applies to a FULL run only: a run over a subset of tests reports low coverage and fails, while a run that overrides `addopts` skips the gate. Run the full suite, and never report success on a partial run.
 
 ```bash
 echo "🧪 Running tests with coverage gate..."
-uv run pytest --cov=src/pyeye --cov-fail-under=85 --tb=short -q 2>&1 | tail -10
+uv run pytest --cov=src/pyeye --tb=short -q 2>&1 | tail -10
 PYTEST_EXIT=$?
 if [ $PYTEST_EXIT -ne 0 ]; then
     echo "❌ Test or coverage gate failed (exit $PYTEST_EXIT)"
 fi
 ```
 
-If coverage falls below 85%, surface as a BLOCKER, not a success. Do not declare "Ready to commit" when the project's CI gate is unmet.
+If coverage falls below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->, surface as a BLOCKER, not a success. Do not declare "Ready to commit" when the project's CI gate is unmet.
 
 ### 4. Git Status Check
 

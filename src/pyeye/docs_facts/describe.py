@@ -29,15 +29,17 @@ import functools
 import importlib
 import re
 from collections.abc import Callable, Iterable, Mapping
-from pathlib import Path
 from typing import Any, TypeVar
 
 from .facts import Bindable, Fact, View, index
 
 #: Extractor modules (under :mod:`pyeye.docs_facts.extractors`) whose facts can
-#: fill a slot. Neither reads :mod:`pyeye.mcp.server`. They are imported on the
-#: first fill, not here: ``edges`` imports :mod:`pyeye.mcp`, whose package
-#: ``__init__`` imports the server, which imports this module.
+#: fill a slot, through each one's ``extract_code()``. That reads the installed
+#: code only, never a repo file: the server fills its descriptions while it
+#: loads, in a wheel install too, where there is no repo (#851). Neither reads
+#: :mod:`pyeye.mcp.server`. They are imported on the first fill, not here:
+#: ``edges`` imports :mod:`pyeye.mcp`, whose package ``__init__`` imports the
+#: server, which imports this module.
 LOAD_TIME_EXTRACTORS = ("edges", "scopes")
 
 #: ``<<fact:ID>>`` or ``<<fact:ID:FORM>>``. ``<<`` never occurs naturally in a
@@ -60,12 +62,11 @@ class SlotError(ValueError):
 
 @functools.cache
 def load_time_facts() -> Mapping[str, Bindable]:
-    """Every fact and view a slot can name, indexed by ID (built once)."""
-    root = Path(".")
+    """Every fact and view a slot can name, indexed by ID (built once, from code only)."""
     modules = [
         importlib.import_module(f"{__package__}.extractors.{n}") for n in LOAD_TIME_EXTRACTORS
     ]
-    return index(item for module in modules for item in module.extract(root))
+    return index(item for module in modules for item in module.extract_code())
 
 
 def _members(item: Bindable, facts: Mapping[str, Bindable]) -> list[Fact]:

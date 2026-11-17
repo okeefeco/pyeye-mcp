@@ -32,9 +32,10 @@ from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob
-from ..path_utils import relative_within
+from ..path_utils import normalize_path, relative_within
 from . import (
     binding,
+    claims,
     docs as doc_registry,
 )
 from .docs import DocEntry, Kind, registered_files
@@ -138,7 +139,10 @@ def paragraphs(text: str) -> Iterator[tuple[int, str]]:
 
 @dataclass(frozen=True)
 class Finding:
-    """One violation: the 1-based line it starts on and what's wrong."""
+    """One violation: the 1-based line it starts on and what's wrong.
+
+    The message carries no line number: it is also what an allowance names.
+    """
 
     line: int
     message: str
@@ -156,6 +160,8 @@ class Page:
         kind: The page's registry kind, or ``None`` for a code surface.
         line: The source line the text starts on (a string literal's), so a
             finding's line is reported in the file, not in the string.
+        root: The repository root, for resolving links (registered pages only).
+        records: Repo-relative paths of the registered ``record`` pages.
     """
 
     name: str
@@ -163,6 +169,8 @@ class Page:
     prose: str
     kind: Kind | None
     line: int = 1
+    root: Path | None = None
+    records: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -276,9 +284,27 @@ def edge_counts_claims(text: str, unmeasured: Iterable[str]) -> list[Finding]:
 #: The one phrase every surface that presents a static structural edge carries.
 CEILING_MARKER = "Static-surface ceiling"
 
-#: The structural edges whose answer is bounded by what is written in source.
-_STATIC_STRUCTURAL = ("members", "subclasses")
-_NAMED_EDGE = re.compile(r"[\"`](" + "|".join(_STATIC_STRUCTURAL) + r")[\"`]")
+#: The ceilings the static-surface caveat speaks for: what is literally written
+#: in source (a class body, a ``class B(A):`` statement). Every edge whose
+#: ceiling fact is one of these must carry the marker (design C12).
+STATIC_CEILINGS = frozenset({"static_definitions", "literal_subclassing"})
+
+
+def static_edges(facts: Facts) -> tuple[str, ...]:
+    """The edges whose ``edge.*`` fact has a static-surface ceiling, sorted."""
+    return tuple(
+        sorted(
+            fact_id.split(".", 1)[1]
+            for fact_id, fact in facts.items()
+            if fact_id.startswith("edge.")
+            and isinstance(fact, Fact)
+            and fact.value.get("ceiling") in STATIC_CEILINGS
+        )
+    )
+
+
+def _named_edge(edges: Iterable[str]) -> re.Pattern[str]:
+    return re.compile(r"[\"`](" + "|".join(map(re.escape, edges)) + r")[\"`]")
 
 
 #: A description's entry for one edge: ``- ``members``  — …`` up to the next entry.
@@ -297,7 +323,7 @@ def _edge_entries(text: str) -> dict[str, tuple[int, str]]:
     return entries
 
 
-def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
+def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:
     """The ceiling marker is missing where a static edge is presented (#417).
 
     A registered page presents the edges when it binds ``edges.implemented`` or
@@ -313,15 +339,18 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
             if block.fact_id in {"edges.implemented", "edges.table"}:
                 return [Finding(block.line, f"binds {block.fact_id} without {CEILING_MARKER!r}")]
         return []
+    static = static_edges(facts)
+    if not static:
+        return []
     entries = _edge_entries(page.text)
     found = [
         Finding(line, f"the {edge!r} entry lacks {CEILING_MARKER!r}")
         for edge, (line, body) in sorted(entries.items())
-        if edge in _STATIC_STRUCTURAL and CEILING_MARKER not in body
+        if edge in static and CEILING_MARKER not in body
     ]
     if found or CEILING_MARKER in page.text:
         return found
-    match = _NAMED_EDGE.search(page.text)
+    match = _named_edge(static).search(page.text)
     if match is None:
         return []
     line = page.text.count("\n", 0, match.start()) + 1
@@ -333,16 +362,26 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
 # ---------------------------------------------------------------------------
 
 
-def _removed_names() -> frozenset[str]:
-    """Names that are gone: a live page may name one only beside the word "removed".
+#: The checkout this package was loaded from: ``src/pyeye/docs_facts/`` -> the root.
+_CHECKOUT = normalize_path(Path(__file__)).parents[3]
 
-    Empty until #826, which reads them from ``docs/facts/removed.json`` (C2).
-    The wrong names the old checks caught (``PYEYE_PACKAGES``, ``uv run pyeye``,
-    ``mcp dev`` and the like) were never read or never worked, so they were
-    never *removed*. They always fail, and "removed" beside them would be a
-    false claim (D12).
+
+def _removed_names() -> frozenset[str]:
+    """Env vars and commands that are gone: a live page may name one only beside "removed".
+
+    Read from ``docs/facts/removed.json`` (#826, C2): every ``env.*`` and ``cli.*``
+    entry, whatever its ``match``. The record's own rule (:mod:`.removed`) handles
+    the allow-list and the sunset for the same lines. An installed package has no
+    record, so the set is empty there. The wrong names the old checks caught
+    (``PYEYE_PACKAGES``, ``uv run pyeye``, ``mcp dev`` and the like) were never
+    read or never worked, so they were never *removed* and aren't in the record.
+    They always fail, and "removed" beside them would be a false claim (D12).
     """
-    return frozenset()
+    from . import removed
+
+    return frozenset(
+        e.name for e in removed.load(_CHECKOUT) if e.fact_id.startswith(("env.", "cli."))
+    )
 
 
 # Includes lowercase suffixes, e.g. the once-documented ``PYEYE_NAMESPACE_company``.
@@ -440,6 +479,19 @@ def server_command_claims(text: str, facts: Facts) -> list[Finding]:
 # The rule table
 # ---------------------------------------------------------------------------
 
+#: Every page that holds hand-written claims: history too (D12 applies to every
+#: registered page). A ``record`` is the backing, and a reference page is facts.
+_CLAIMS: frozenset[Kind] = frozenset({"prose", "skill", "history"})
+
+
+def honest_claims(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
+    """Each number or volatile status no fact, record or source backs (D12)."""
+    return [
+        Finding(c.line, c.message)
+        for c in claims.claims(page.prose, page.name, page.root, page.records)
+    ]
+
+
 RULES: tuple[Rule, ...] = (
     Rule(STATIC_CEILING, _LIVE, True, missing_ceiling),
     Rule(
@@ -456,6 +508,7 @@ RULES: tuple[Rule, ...] = (
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
         strings=True,
     ),
+    Rule(HONEST_CLAIMS, _CLAIMS, False, honest_claims),
     Rule(
         ENV_NAME,
         _LIVE_AND_HISTORY,
@@ -474,6 +527,10 @@ RULES: tuple[Rule, ...] = (
 # ---------------------------------------------------------------------------
 # The ratchet
 # ---------------------------------------------------------------------------
+
+
+#: Where a rule's allowances live, when not on the DOCS entries themselves.
+_ALLOW_HOME = {HONEST_CLAIMS: "claim_seeds.py"}
 
 
 def ratchet(entry: DocEntry, rule_id: str, found: Sequence[str]) -> str | None:
@@ -496,7 +553,7 @@ def ratchet(entry: DocEntry, rule_id: str, found: Sequence[str]) -> str | None:
     if stale:
         return (
             f"{rule_id}: allowed but no longer found, so remove from the page's allow "
-            f"in DOCS (src/pyeye/docs_facts/docs.py): {stale}"
+            f"(src/pyeye/docs_facts/{_ALLOW_HOME.get(rule_id, 'docs.py')}): {stale}"
         )
     return None
 
@@ -608,12 +665,14 @@ def code_strings() -> Iterator[Page]:
 
 def pages(root: Path, docs: tuple[DocEntry, ...] | None = None) -> Iterator[tuple[Page, DocEntry]]:
     """Every registered doc as a :class:`Page`, with its entry."""
-    for path, entry in registered_files(root, docs):
+    found = list(registered_files(root, docs))
+    records = claims.record_paths({path: entry.kind for path, entry in found})
+    for path, entry in found:
         text = (root / path).read_text(encoding="utf-8")
         prose = prose_text(text)
         if path == CHANGELOG:
             prose = released_blanked(prose)
-        yield Page(path, text, prose, entry.kind), entry
+        yield Page(path, text, prose, entry.kind, root=root, records=records), entry
 
 
 def _unallowed(page: Page, rule: Rule, facts: Facts) -> list[str]:
@@ -645,31 +704,37 @@ def run(
     entries = doc_registry.DOCS if docs is None else docs
     problems = allow_problems(entries)
     for page, entry in pages(root, entries):
-        for rule in rules:
-            if page.kind not in rule.kinds:
-                continue
-            findings = rule.scan(page, facts)
-            verdict = ratchet(entry, rule.id, [f.message for f in findings])
-            if verdict is None:
-                continue
-            problems.append(f"{page.name}: {verdict}")
-            allowed = Counter(entry.allow.get(rule.id, ()))
-            for finding in findings:
-                if allowed[finding.message]:
-                    allowed[finding.message] -= 1
-                else:
-                    problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
+        problems.extend(_page_problems(page, entry, rules, facts))
     if descriptions is None and any(r.descriptions for r in rules):
         descriptions = _tool_descriptions()
-    for name, text in sorted((descriptions or {}).items()):
-        page = Page(f"tool:{name}", text, text, None)
-        for rule in rules:
-            if rule.descriptions:
-                problems.extend(_unallowed(page, rule, facts))
+    tool_pages = [Page(f"tool:{n}", t, t, None) for n, t in sorted((descriptions or {}).items())]
+    problems.extend(_code_problems(tool_pages, [r for r in rules if r.descriptions], facts))
     if strings is None and any(r.strings for r in rules):
         strings = code_strings()
-    for page in strings or ():
-        for rule in rules:
-            if rule.strings:
-                problems.extend(_unallowed(page, rule, facts))
+    problems.extend(_code_problems(strings or (), [r for r in rules if r.strings], facts))
     return problems
+
+
+def _page_problems(page: Page, entry: DocEntry, rules: Iterable[Rule], facts: Facts) -> list[str]:
+    """A registered page's problems: each rule's findings beyond its allow-list."""
+    problems = claims.record_problems(page.name, page.text) if page.kind == "record" else []
+    for rule in rules:
+        if page.kind not in rule.kinds:
+            continue
+        findings = rule.scan(page, facts)
+        verdict = ratchet(entry, rule.id, [f.message for f in findings])
+        if verdict is None:
+            continue
+        problems.append(f"{page.name}: {verdict}")
+        allowed = Counter(entry.allow.get(rule.id, ()))
+        for finding in findings:
+            if allowed[finding.message]:
+                allowed[finding.message] -= 1
+            else:
+                problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
+    return problems
+
+
+def _code_problems(surfaces: Iterable[Page], rules: list[Rule], facts: Facts) -> list[str]:
+    """Every finding on a code surface: they have no allow-list."""
+    return [p for page in surfaces for rule in rules for p in _unallowed(page, rule, facts)]

@@ -233,10 +233,13 @@ Ordered so that nothing generation will produce gets hand-fixed:
     - `docs_facts generate` reads it, leaves dismissed facts out of the uncovered entries, and writes them into a read-only `dismissed` section of `uncovered.json` (`{fact_id: {reason, date}}`), so every dismissal shows in the ledger diff. Hand edits to that section are overwritten.
     - A dismissal lapses when the fact's value changes.
   - **The finding contract under ambiguity:**
-    - Options are always mandatory, each with its costs.
+    - Under `needs_decision`, options are mandatory, each with its costs (C14: only there).
     - A recommendation is required whenever an anchor exists, and the finding names the anchor.
     - Under `needs_decision` with no anchor, the finding still gives an assessment labelled "unanchored: judgment only" and states the question it needs answered.
     - A finding is never silent, never presents the assessment as settled, and the tool never decides (D8, the review principle).
+- **C14. Two C13 clarifications (maintainer, 2026-11-18).**
+  - **Orphaned dismissals fail.** `check` fails on a dismissal in `review-state.json` whose fact ID no longer exists, matching D4's unknown-ID rule. The PR that removes or renames the fact deletes the dismissal or moves it to the new ID. A rename is a removal plus an addition: the new ID enters the uncovered ledger unless the dismissal is deliberately carried over.
+  - **Options only under ambiguity.** A finding with one clear fix (e.g. fact drift) carries a single proposed replacement text with its anchor, and no options, as D8 says. Options are mandatory only on `needs_decision` findings.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
