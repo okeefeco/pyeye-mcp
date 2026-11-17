@@ -188,3 +188,69 @@ class TestPackageScope:
         assert [m["name"] for m in found] == ["User"]
         assert os.getcwd() != project.as_posix()
         assert json.dumps(found)  # serialisable, as on the wire
+
+    def test_the_envelope_reports_a_relative_package_scope_as_searched(self, project: Path) -> None:
+        from pyeye.mcp.server import _build_plugin_context
+        from pyeye.plugins.pydantic import PydanticPlugin
+
+        plugin = _build_plugin_context(PydanticPlugin, project.as_posix()).plugin
+
+        searched, unsearched = plugin.describe_scope("package:myapp")
+
+        assert "package:myapp" in searched
+        assert "package:myapp" not in unsearched
+
+
+class TestEnvelopeMissingPackage:
+    """#842: a missing package: path is listed in unsearched_scopes, as the caller spelled it."""
+
+    @pytest.mark.parametrize("spec", ["package:not/here", "package:/no/such/dir"])
+    def test_a_missing_package_scope_is_unsearched(self, project: Path, spec: str) -> None:
+        from pyeye.mcp.server import _build_plugin_context
+        from pyeye.plugins.pydantic import PydanticPlugin
+
+        plugin = _build_plugin_context(PydanticPlugin, project.as_posix()).plugin
+
+        searched, unsearched = plugin.describe_scope(spec)
+
+        assert spec in unsearched
+        assert spec not in searched
+
+    def test_one_missing_among_several_is_listed_once(self, project: Path) -> None:
+        from pyeye.mcp.server import _build_plugin_context
+        from pyeye.plugins.pydantic import PydanticPlugin
+
+        plugin = _build_plugin_context(PydanticPlugin, project.as_posix()).plugin
+
+        searched, unsearched = plugin.describe_scope(
+            ["package:myapp", "package:gone", "package:gone"]
+        )
+
+        assert "package:myapp" in searched
+        assert unsearched.count("package:gone") == 1
+
+    def test_the_wire_envelope_lists_it(self, project: Path) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from pyeye.config import ProjectConfig
+        from pyeye.mcp.server import _PLUGIN_CLASSES, register_plugin_tools
+        from pyeye.scope_utils import SmartScopeResolver
+
+        server = MCPServer("relative-paths")
+        plugins = [cls(project.as_posix()) for cls in _PLUGIN_CLASSES]
+        register_plugin_tools(
+            server, plugins, SmartScopeResolver(ProjectConfig(project.as_posix()))
+        )
+
+        result = asyncio.run(
+            server.call_tool(
+                "find_pydantic_models",
+                {"scope": "package:not/here", "envelope": True, "project_path": project.as_posix()},
+            )
+        )
+
+        assert not result.is_error
+        payload = json.loads(result.content[0].text)
+        assert payload["results"] == []
+        # main is configured and was not searched; the missing path follows it.
+        assert payload["unsearched_scopes"] == ["main", "package:not/here"]

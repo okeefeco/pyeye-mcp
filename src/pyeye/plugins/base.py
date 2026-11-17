@@ -280,10 +280,13 @@ class AnalyzerPlugin(ABC):
               whose paths were all searched, then each ``package:<path>`` scope
               given that exists.
             - ``unsearched_scopes``: the configured scopes with any path not
-              searched, so an agent can widen the search (e.g. ``scope="all"``).
+              searched, so an agent can widen the search (e.g. ``scope="all"``),
+              then each ``package:<path>`` scope given whose directory doesn't
+              exist, spelled as given (#842). A relative path is relative to the
+              project (:func:`~pyeye.scope_utils.package_scope_path`).
 
-            A ``namespace:`` that isn't configured, a missing ``package:`` path and
-            an unknown scope search nothing, so they appear in neither list.
+            A ``namespace:`` that isn't configured and an unknown scope search
+            nothing, so they appear in neither list.
         """
         covered = _normalized(self._scope_paths(scope, warn=False))
         searched: list[str] = []
@@ -298,6 +301,10 @@ class AnalyzerPlugin(ABC):
             )
             if exists and s not in searched:
                 searched.append(s)
+            # A missing package: path searched nothing; say so instead of only
+            # logging it, so [] can't read as a measured empty (#842).
+            elif s.startswith("package:") and not exists and s not in unsearched:
+                unsearched.append(s)
         return searched, unsearched
 
     async def _get_scope_roots(self, scope: Scope) -> list[Path]:
