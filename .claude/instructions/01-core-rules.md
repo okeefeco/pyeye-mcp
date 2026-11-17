@@ -95,7 +95,7 @@ When implementing ANY feature or fix:
 
    ```bash
    # IMPORTANT: Run ALL tests, not just your new tests!
-   uv run pytest --cov=src/pyeye --cov-fail-under=85
+   uv run pytest --cov=src/pyeye
    ```
 
 4. **Fix any failing tests or coverage issues**
@@ -104,7 +104,6 @@ When implementing ANY feature or fix:
 ### Coverage Requirements
 
 - **Minimum <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> total coverage** (CI will fail below this)
-- **New code should have >90% coverage**
 - **All bug fixes MUST include regression tests**
 - **ALWAYS run full test suite before pushing** (learned from PR #77)
 
@@ -114,7 +113,7 @@ Always run these validation commands:
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (not just your new tests!)
-uv run pytest --cov=src/pyeye --cov-fail-under=85
+uv run pytest --cov=src/pyeye
 
 # Note: Linting/type checks are handled by pre-commit hooks automatically
 ```

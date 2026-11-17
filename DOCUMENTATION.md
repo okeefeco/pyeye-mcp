@@ -284,7 +284,7 @@ The design contracts are in `docs/architecture/`:
 
 #### Cache System
 
-- File-based result caching (5min TTL)
+- File-based result caching (TTL `PYEYE_CACHE_TTL`, default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end --> s)
 - Automatic invalidation on file changes
 - Per-project cache isolation
 - Memory-efficient LRU eviction
