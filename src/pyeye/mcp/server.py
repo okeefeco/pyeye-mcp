@@ -1401,9 +1401,13 @@ async def get_connection_diagnostics() -> dict[str, Any]:
     }
 
 
+#: The opt-in admin tools: the one list, read by the registration below and by
+#: the docs-facts extractor, so the docs list them whether or not the flag is set.
+ADMIN_TOOLS: tuple[Callable[..., Any], ...] = (get_performance_metrics, get_connection_diagnostics)
+
 if settings.enable_performance_metrics:
-    mcp.tool()(get_performance_metrics)
-    mcp.tool()(get_connection_diagnostics)
+    for _admin_tool in ADMIN_TOOLS:
+        mcp.tool()(_admin_tool)
 
 
 # MCP Resources

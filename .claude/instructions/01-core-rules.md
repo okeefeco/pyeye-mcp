@@ -103,7 +103,7 @@ When implementing ANY feature or fix:
 
 ### Coverage Requirements
 
-- **Minimum 85% total coverage** (CI will fail below this)
+- **Minimum <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> total coverage** (CI will fail below this)
 - **New code should have >90% coverage**
 - **All bug fixes MUST include regression tests**
 - **ALWAYS run full test suite before pushing** (learned from PR #77)

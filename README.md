@@ -281,7 +281,9 @@ Override files are perfect for local development configurations that shouldn't b
 
 ### Performance Settings
 
-Performance settings are configured through environment variables:
+Performance settings are configured through environment variables. The
+[generated reference](docs/reference/env-vars.md) lists every `PYEYE_*` variable
+pyeye reads, with its default and range.
 
 | Environment Variable | Default | Description | Valid Range |
 |---------------------|---------|-------------|-------------|

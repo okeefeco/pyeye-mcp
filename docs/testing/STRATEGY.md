@@ -108,7 +108,7 @@ async def test_complete_refactoring_workflow():
 
 ### Overall Coverage Goals
 
-- **Minimum**: 85% (CI enforced)
+- **Minimum**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (CI enforced)
 - **Target**: 90%
 - **Aspirational**: 95%
 
