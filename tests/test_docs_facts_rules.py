@@ -69,6 +69,11 @@ HONEST_ABSENCE_PROSE = {
         "The call errors only for invalid arguments or a ``project_path`` that doesn't exist."
     ),
     "missing file": "Raises FileNotFoundError: If file doesn't exist.",
+    # Filesystem wording in pyeye.mcp code comments, which get no allowance.
+    "comment: create the file": "# if the file does not exist, create it",
+    "comment: path": "path does not exist",
+    "comment: directory": "the cache directory doesn't exist yet",
+    "comment: named file": "the config file named x does not exist",
     "measured scope": (
         "An absent member is unknown outside the measured scope, not absent from the code."
     ),
