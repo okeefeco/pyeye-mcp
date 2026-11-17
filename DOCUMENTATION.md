@@ -214,6 +214,11 @@ The server automatically detects and activates framework-specific tools when it 
 
 ## Architecture
 
+The design contracts are in `docs/architecture/`:
+[Resolution and Determinism](docs/architecture/resolution.md),
+[Plugin System](docs/architecture/plugin-system.md) and
+[Caching Strategy](docs/architecture/caching.md).
+
 ### Component Overview
 
 ```text

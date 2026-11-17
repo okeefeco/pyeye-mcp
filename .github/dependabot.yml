@@ -19,7 +19,7 @@ updates:
     # support `dependency-type` in groups, so membership is by name pattern
     # only and a dependency joins the FIRST group it matches.
     groups:
-      # Dev/docs tooling (the `dev` and `docs` dependency-groups), all update types
+      # Dev tooling (the `dev` dependency-group), all update types
       dev-dependencies:
         patterns:
           - "pytest*"
@@ -35,8 +35,6 @@ updates:
           - "commitizen"
           - "coverage*"
           - "pydocstyle"
-          - "sphinx*"
-          - "myst-parser"
       # Everything else: minor and patch updates together; majors stay individual
       minor-and-patch:
         patterns:
