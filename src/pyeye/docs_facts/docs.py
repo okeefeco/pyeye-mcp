@@ -40,15 +40,15 @@ class DocEntry:
         path: Repo-relative POSIX path, or a glob pattern for a churning tree.
         audience: Who reads it (D11).
         kind: How the checks treat it.
-        allow: Prose-rule ID -> the count of violating lines this page may still
-            have (:mod:`.rules`). The count only shrinks: ``check`` fails if the
-            page has more, and also if it has fewer and the count wasn't lowered.
+        allow: Prose-rule ID -> the message of each finding this page may still
+            have, one per occurrence (:mod:`.rules`). It only shrinks: ``check``
+            fails on a finding not listed and on a listed one no longer found.
     """
 
     path: str
     audience: Audience
     kind: Kind
-    allow: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    allow: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def is_pattern(self) -> bool:
@@ -69,9 +69,9 @@ EXCLUDED_TREES: tuple[str, ...] = (
 REFERENCE_PAGES: tuple[str, ...] = tuple(PAGES)
 
 
-def _allow(**counts: int) -> Mapping[str, int]:
-    """An immutable allow-list: prose-rule ID -> violating lines still allowed."""
-    return MappingProxyType(counts)
+def _allow(**messages: tuple[str, ...]) -> Mapping[str, tuple[str, ...]]:
+    """An immutable allow-list: prose-rule ID -> the findings still allowed."""
+    return MappingProxyType(messages)
 
 
 _H: Audience = "human"
@@ -108,8 +108,7 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry(".claude/instructions/09-task-management.md", _C, "prose"),
     DocEntry(".claude/instructions/10-cross-platform.md", _C, "prose"),
     DocEntry(".claude/instructions/11-pr-requirements.md", _C, "prose"),
-    # PYEYE_SCENARIO_DIR is this skill's own shell variable, not a pyeye setting.
-    DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill", _allow(**{"env-name": 5})),
+    DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
     DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
     # Shipped skills
     DocEntry("skills/python-explore/SKILL.md", _C, "skill"),
@@ -122,7 +121,19 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry("docs/migration-guide.md", _H, "history"),
     # A live guide (design C9). Its per-module table names the long-gone
     # src/pyeye/server.py; #830 rewrites it.
-    DocEntry("docs/COVERAGE.md", _H, "prose", _allow(**{"server-command": 1})),
+    DocEntry(
+        "docs/COVERAGE.md",
+        _H,
+        "prose",
+        _allow(
+            **{
+                "server-command": (
+                    "names src/pyeye/server.py, which doesn't exist (the module is "
+                    "src/pyeye/mcp/server.py; start it with `python -m pyeye.mcp`)",
+                )
+            }
+        ),
+    ),
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
     DocEntry("docs/CLAUDE_AGENTS.md", _H, "prose"),
     DocEntry("docs/DOGFOODING_INTEGRATION.md", _H, "prose"),

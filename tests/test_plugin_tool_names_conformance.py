@@ -48,6 +48,13 @@ def _pinned() -> dict[type[AnalyzerPlugin], set[str]]:
 
 EXPECTED_PLUGIN_TOOLS = _pinned()
 
+#: One documented tool per plugin; removing it must change this line too.
+MINIMUM_PLUGIN_TOOLS = {
+    PydanticPlugin: {"find_pydantic_models"},
+    DjangoPlugin: {"find_django_models"},
+    FlaskPlugin: {"find_flask_routes"},
+}
+
 
 @pytest.fixture
 def all_plugins(tmp_path: Path) -> list[AnalyzerPlugin]:
@@ -60,10 +67,12 @@ async def _tool_names(server: MCPServer) -> set[str]:
 
 
 class TestPluginToolNames:
-    def test_the_pin_is_not_empty(self) -> None:
-        """Guard the snapshot read: an empty pin would make every test below vacuous."""
-        assert all(EXPECTED_PLUGIN_TOOLS.values()), EXPECTED_PLUGIN_TOOLS
-        assert "find_django_models" in EXPECTED_PLUGIN_TOOLS[DjangoPlugin]
+    @pytest.mark.parametrize("plugin_class", _PLUGINS)
+    def test_the_pin_holds_each_plugins_anchor_tool(
+        self, plugin_class: type[AnalyzerPlugin]
+    ) -> None:
+        """A hand-written floor, so regenerating the snapshot can't approve a drop."""
+        assert MINIMUM_PLUGIN_TOOLS[plugin_class] <= EXPECTED_PLUGIN_TOOLS[plugin_class]
 
     @pytest.mark.parametrize("plugin_class", list(EXPECTED_PLUGIN_TOOLS))
     def test_declared_names_match_the_pinned_surface(

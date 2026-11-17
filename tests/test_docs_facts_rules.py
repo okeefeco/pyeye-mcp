@@ -11,6 +11,8 @@ lands.
 
 from __future__ import annotations
 
+import ast
+import re
 from pathlib import Path
 from types import MappingProxyType
 
@@ -197,6 +199,26 @@ class TestCeilingRule:
 
         assert rules.missing_ceiling(page, {})
 
+    def test_each_static_edge_entry_needs_its_own_marker(self) -> None:
+        """#417: expand's members AND subclasses entries each carry the caveat."""
+        text = (
+            "Supported edges:\n"
+            "  - ``members``  — children. Static-surface ceiling: runtime members.\n"
+            "  - ``callees``  — calls.\n"
+            "  - ``subclasses``  — direct subclasses only.\n"
+        )
+
+        found = rules.missing_ceiling(_page(text, kind=None), {})
+
+        assert [(f.line, "subclasses" in f.message) for f in found] == [(4, True)]
+
+    def test_the_live_expand_entries_are_checked_per_edge(self) -> None:
+        expand = rules._tool_descriptions()["expand"]
+        entries = rules._edge_entries(expand)
+
+        assert {"members", "subclasses"} <= set(entries)
+        assert all(rules.CEILING_MARKER in entries[e][1] for e in ("members", "subclasses"))
+
     def test_a_description_naming_no_static_edge_is_left_alone(self) -> None:
         assert rules.missing_ceiling(_page("Resolves a name.", kind=None), {}) == []
 
@@ -232,38 +254,50 @@ class TestProseText:
         assert "85%" not in prose
 
 
-def _entry(**allow: int) -> DocEntry:
+def _entry(**allow: tuple[str, ...]) -> DocEntry:
     return DocEntry("p.md", "human", "prose", MappingProxyType(dict(allow)))
 
 
+A, B = "first finding", "second finding"
+
+
 class TestRatchet:
-    def test_equal_counts_pass(self) -> None:
-        assert rules.ratchet(_entry(**{"absence-prose": 2}), "absence-prose", 2) is None
-        assert rules.ratchet(_entry(), "absence-prose", 0) is None
+    def test_matching_findings_pass(self) -> None:
+        assert rules.ratchet(_entry(**{"absence-prose": (A, A)}), "absence-prose", [A, A]) is None
+        assert rules.ratchet(_entry(), "absence-prose", []) is None
 
     def test_a_new_violation_fails(self) -> None:
-        problem = rules.ratchet(_entry(), "absence-prose", 1)
+        problem = rules.ratchet(_entry(), "absence-prose", [A])
 
-        assert problem is not None and "1 violating line(s), 0 allowed" in problem
+        assert problem is not None and "not in the page's allow-list" in problem
 
-    def test_a_fix_must_lower_the_count(self) -> None:
-        problem = rules.ratchet(_entry(**{"absence-prose": 3}), "absence-prose", 1)
+    def test_a_fix_must_remove_its_allowance(self) -> None:
+        problem = rules.ratchet(_entry(**{"absence-prose": (A, B)}), "absence-prose", [A])
 
-        assert problem is not None and "lower its count" in problem
+        assert problem is not None and "no longer found" in problem and B in problem
+
+    def test_a_fix_cant_be_traded_for_a_new_violation(self) -> None:
+        """Counting lines let one fix pay for one new violation; messages don't."""
+        assert rules.ratchet(_entry(**{"absence-prose": (A,)}), "absence-prose", [B])
+
+    def test_an_allowance_covers_only_its_own_finding(self) -> None:
+        """More findings on an allowed line are new findings, not covered ones."""
+        assert rules.ratchet(_entry(**{"env-name": (A,)}), "env-name", [A, B])
 
     def test_an_unknown_rule_key_fails(self) -> None:
-        problems = rules.allow_problems([_entry(**{"removed-names": 1})])
+        problems = rules.allow_problems([_entry(**{"removed-names": (A,)})])
 
         assert problems and "unknown rule 'removed-names'" in problems[0]
 
-    def test_a_zero_count_must_be_removed(self) -> None:
-        assert rules.allow_problems([_entry(**{"absence-prose": 0})])
+    @pytest.mark.parametrize("value", [(), "a bare string"])
+    def test_an_allowance_must_list_messages(self, value: object) -> None:
+        assert rules.allow_problems([_entry(**{"absence-prose": value})])  # type: ignore[arg-type]
 
     def test_the_default_allow_is_immutable(self) -> None:
         entry = DocEntry("p.md", "human", "prose")
 
         with pytest.raises(TypeError):
-            entry.allow["absence-prose"] = 1  # type: ignore[index]
+            entry.allow["absence-prose"] = (A,)  # type: ignore[index]
 
     def test_the_registry_allow_lists_are_valid(self) -> None:
         assert rules.allow_problems(DOCS) == []
@@ -271,43 +305,93 @@ class TestRatchet:
 
 class TestRun:
     @staticmethod
-    def _repo(tmp_path: Path, text: str, kind: str = "prose", **allow: int) -> tuple:
+    def _repo(tmp_path: Path, text: str, kind: str = "prose", **allow: tuple[str, ...]) -> tuple:
         (tmp_path / "p.md").write_text(text, encoding="utf-8")
         entry = DocEntry("p.md", "human", kind, MappingProxyType(dict(allow)))  # type: ignore[arg-type]
         return tmp_path, (entry,)
 
     FACTS = {rules.UNMEASURED_FACT: Fact(rules.UNMEASURED_FACT, ["callers"], "")}
 
+    def _run(self, root: Path, docs: tuple, **surfaces: object) -> list[str]:
+        surfaces.setdefault("descriptions", {})
+        surfaces.setdefault("strings", ())
+        return rules.run(root, self.FACTS, docs, **surfaces)  # type: ignore[arg-type]
+
     def test_a_violation_names_page_line_and_rule(self, tmp_path: Path) -> None:
         root, docs = self._repo(tmp_path, "x\n\nThe symbol doesn't exist.\n")
 
-        problems = rules.run(root, self.FACTS, docs, descriptions={})
+        problems = self._run(root, docs)
 
-        assert "p.md: absence-prose: 1 violating line(s), 0 allowed" in problems
+        assert "p.md: absence-prose: 1 finding(s) not in the page's allow-list" in problems
         assert any(p.startswith("p.md:3: absence-prose:") for p in problems)
 
     def test_an_allowed_violation_passes(self, tmp_path: Path) -> None:
-        root, docs = self._repo(tmp_path, "The symbol doesn't exist.\n", **{"absence-prose": 1})
+        text = "The symbol doesn't exist.\n"
+        message = rules.absence_claims(text)[0].message
+        root, docs = self._repo(tmp_path, text, **{"absence-prose": (message,)})
 
-        assert rules.run(root, self.FACTS, docs, descriptions={}) == []
+        assert self._run(root, docs) == []
+
+    def test_only_the_unallowed_finding_is_reported(self, tmp_path: Path) -> None:
+        text = "The symbol doesn't exist.\n\nThe handle does not exist.\n"
+        first = rules.absence_claims(text)[0].message
+        root, docs = self._repo(tmp_path, text, **{"absence-prose": (first,)})
+
+        problems = self._run(root, docs)
+
+        detail = [p for p in problems if re.match(r"p\.md:\d", p)]
+        assert len(detail) == 1 and detail[0].startswith("p.md:3:")
 
     def test_history_pages_are_exempt(self, tmp_path: Path) -> None:
         root, docs = self._repo(tmp_path, "The symbol doesn't exist.\n", kind="history")
 
-        assert rules.run(root, self.FACTS, docs, descriptions={}) == []
+        assert self._run(root, docs) == []
 
     def test_tool_descriptions_are_scanned_with_no_allowance(self, tmp_path: Path) -> None:
         root, docs = self._repo(tmp_path, "fine\n")
 
-        problems = rules.run(
-            root, self.FACTS, docs, descriptions={"t": "Each name that doesn't exist."}
-        )
+        problems = self._run(root, docs, descriptions={"t": "Each name that doesn't exist."})
 
         assert problems and problems[0].startswith("tool:t:1: absence-prose:")
 
+    def test_code_strings_report_the_source_line(self, tmp_path: Path) -> None:
+        root, docs = self._repo(tmp_path, "fine\n")
+        text = "ok\n\nThe handle does not exist."
+        page = rules.Page("pyeye/mcp/x.py", text, text, None, 40)
+
+        problems = self._run(root, docs, strings=[page])
+
+        assert problems and problems[0].startswith("pyeye/mcp/x.py:42: absence-prose:")
+
     def test_the_repo_passes_every_rule(self, facts: dict) -> None:
-        """The live run, as ``docs_facts check`` does it: registry plus tool descriptions."""
+        """The live run, as ``docs_facts check`` does it: every surface."""
         assert rules.run(ROOT, facts) == []
+
+
+class TestCodeStrings:
+    """The third surface (design C10, Q8): what the MCP package says to a model."""
+
+    @pytest.fixture(scope="class")
+    def strings(self) -> list[rules.Page]:
+        return list(rules.code_strings())
+
+    def test_it_covers_the_response_builders(self, strings: list[rules.Page]) -> None:
+        modules = {p.name for p in strings}
+        for module in ("not_found", "resolve", "inspect", "edges", "outline", "expand"):
+            assert f"pyeye/mcp/operations/{module}.py" in modules, module
+        assert "pyeye/mcp/server.py" in modules
+
+    def test_it_is_not_vacuous_for_either_rule(self, strings: list[rules.Page]) -> None:
+        """The old #396 guard: a scan that never sees edge_counts proves nothing."""
+        assert any("edge_counts" in p.text for p in strings if p.name == "pyeye/mcp/server.py")
+        assert any("did not resolve" in p.text for p in strings)
+
+    def test_fstrings_render_with_placeholders(self) -> None:
+        tree = ast.parse('x = f"Handle {h!r} does not exist."')
+        node = tree.body[0].value  # type: ignore[attr-defined]
+
+        assert rules._rendered(node) == "Handle {} does not exist."
+        assert rules.absence_claims(rules._rendered(node) or "")
 
 
 # ---------------------------------------------------------------------------

@@ -11,22 +11,26 @@ The text inside fact blocks is skipped: it is generated from the code, so it is
 the fact checks' business, not a rule's.
 
 **The ratchet.** Today's violations are recorded per page in
-:attr:`~.docs.DocEntry.allow` (rule ID -> count of violating lines). The count
-can only shrink. ``check`` fails when a page has more violating lines than its
-entry allows, and also when it has fewer and the entry wasn't lowered, so a fix
-always lowers the count in the same PR. Tool descriptions have no allow-list:
-they must be clean.
+:attr:`~.docs.DocEntry.allow` (rule ID -> the exact message of each finding still
+allowed). It can only shrink. ``check`` fails on a finding the page doesn't
+allow, and on an allowance no finding uses, so a fix removes its allowance in
+the same PR and can't be traded for a new violation. Tool descriptions and the
+``pyeye.mcp`` string literals have no allow-list: they must be clean.
 """
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import re
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..async_utils import filtered_rglob
+from ..path_utils import relative_within
 from . import (
     binding,
     docs as doc_registry,
@@ -121,16 +125,20 @@ class Page:
     """A surface a rule scans.
 
     Attributes:
-        name: A registered path, or ``tool:<name>`` for a tool description.
+        name: A registered path, ``tool:<name>`` for a tool description, or
+            ``pyeye/<module>:<line>`` for a string the MCP package ships.
         text: The full text, fact blocks included.
         prose: The text with fact-block content blanked (:func:`prose_text`).
-        kind: The page's registry kind, or ``None`` for a tool description.
+        kind: The page's registry kind, or ``None`` for a code surface.
+        line: The source line the text starts on (a string literal's), so a
+            finding's line is reported in the file, not in the string.
     """
 
     name: str
     text: str
     prose: str
     kind: Kind | None
+    line: int = 1
 
 
 @dataclass(frozen=True)
@@ -142,12 +150,16 @@ class Rule:
         kinds: The registry kinds it scans.
         descriptions: Whether it also scans the live tool descriptions.
         scan: Returns the page's violations; takes the page and the facts.
+        strings: Whether it also scans the string literals of the ``pyeye.mcp``
+            package: the hints and notes it returns inside responses, the most
+            model-facing text pyeye has (design C10, Q8).
     """
 
     id: str
     kinds: frozenset[Kind]
     descriptions: bool
     scan: Callable[[Page, Facts], list[Finding]]
+    strings: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -245,26 +257,51 @@ _STATIC_STRUCTURAL = ("members", "subclasses")
 _NAMED_EDGE = re.compile(r"[\"`](" + "|".join(_STATIC_STRUCTURAL) + r")[\"`]")
 
 
+#: A description's entry for one edge: ``- ``members``  — …`` up to the next entry.
+_EDGE_ENTRY = re.compile(r"^(?P<indent>[ \t]*)- ``(?P<edge>\w+)``", re.MULTILINE)
+
+
+def _edge_entries(text: str) -> dict[str, tuple[int, str]]:
+    """Edge name -> (line, text) of each ``- ``edge``  —`` entry in a description."""
+    matches = list(_EDGE_ENTRY.finditer(text))
+    entries: dict[str, tuple[int, str]] = {}
+    for i, match in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        blank = text.find("\n\n", match.start(), end)
+        body = text[match.start() : blank if blank != -1 else end]
+        entries[match.group("edge")] = (text.count("\n", 0, match.start()) + 1, body)
+    return entries
+
+
 def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
-    """The ceiling marker is missing from a surface that presents a static edge (#417).
+    """The ceiling marker is missing where a static edge is presented (#417).
 
     A registered page presents the edges when it binds ``edges.implemented`` or
-    ``edges.table``; a tool description, when it names ``members`` or
-    ``subclasses`` as an edge.
+    ``edges.table``. A tool description that gives a static edge its own entry
+    (``- ``members``  — …``, as ``expand`` does) must carry the marker in that
+    entry, per edge; one that only names the edges must carry it somewhere.
     """
-    if CEILING_MARKER in page.text:
-        return []
-    if page.kind is None:
-        match = _NAMED_EDGE.search(page.text)
-        if match is None:
+    if page.kind is not None:
+        if CEILING_MARKER in page.text:
             return []
-        line = page.text.count("\n", 0, match.start()) + 1
-        return [Finding(line, f"names the {match.group(1)!r} edge without {CEILING_MARKER!r}")]
-    blocks, _ = binding.parse(page.text)
-    for block in blocks:
-        if block.fact_id in {"edges.implemented", "edges.table"}:
-            return [Finding(block.line, f"binds {block.fact_id} without {CEILING_MARKER!r}")]
-    return []
+        blocks, _ = binding.parse(page.text)
+        for block in blocks:
+            if block.fact_id in {"edges.implemented", "edges.table"}:
+                return [Finding(block.line, f"binds {block.fact_id} without {CEILING_MARKER!r}")]
+        return []
+    entries = _edge_entries(page.text)
+    found = [
+        Finding(line, f"the {edge!r} entry lacks {CEILING_MARKER!r}")
+        for edge, (line, body) in sorted(entries.items())
+        if edge in _STATIC_STRUCTURAL and CEILING_MARKER not in body
+    ]
+    if found or CEILING_MARKER in page.text:
+        return found
+    match = _NAMED_EDGE.search(page.text)
+    if match is None:
+        return []
+    line = page.text.count("\n", 0, match.start()) + 1
+    return [Finding(line, f"names the {match.group(1)!r} edge without {CEILING_MARKER!r}")]
 
 
 # ---------------------------------------------------------------------------
@@ -381,12 +418,19 @@ def server_command_claims(text: str, facts: Facts) -> list[Finding]:
 
 RULES: tuple[Rule, ...] = (
     Rule(STATIC_CEILING, _LIVE, True, missing_ceiling),
-    Rule(ABSENCE_PROSE, _LIVE, True, lambda page, _facts: absence_claims(page.prose)),
+    Rule(
+        ABSENCE_PROSE,
+        _LIVE,
+        True,
+        lambda page, _facts: absence_claims(page.prose),
+        strings=True,
+    ),
     Rule(
         EDGE_COUNTS_PROSE,
         _LIVE,
         True,
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
+        strings=True,
     ),
     Rule(ENV_NAME, _LIVE, False, lambda page, facts: env_name_claims(page.prose, facts)),
     Rule(
@@ -400,36 +444,45 @@ RULES: tuple[Rule, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def ratchet(entry: DocEntry, rule_id: str, found: int) -> str | None:
-    """Compare *found* violating lines with what *entry* allows for *rule_id*.
+def ratchet(entry: DocEntry, rule_id: str, found: Sequence[str]) -> str | None:
+    """Compare the *found* finding messages with what *entry* allows for *rule_id*.
+
+    An allowance names what it covers: the exact message of each finding still
+    allowed, one per occurrence. So a fix can't be traded for a new violation,
+    and an allowance for one name covers no other.
 
     Returns:
-        ``None`` when they are equal, or the problem: more lines than allowed (a
-        new violation), or fewer (a fix that didn't lower the count).
+        ``None`` when they match, or the problem: a finding not allowed (new), or
+        an allowance no finding uses (a fix that didn't remove it).
     """
-    allowed = entry.allow.get(rule_id, 0)
-    if found > allowed:
-        return f"{rule_id}: {found} violating line(s), {allowed} allowed"
-    if found < allowed:
+    allowed = Counter(entry.allow.get(rule_id, ()))
+    actual = Counter(found)
+    new = sorted((actual - allowed).elements())
+    stale = sorted((allowed - actual).elements())
+    if new:
+        return f"{rule_id}: {len(new)} finding(s) not in the page's allow-list"
+    if stale:
         return (
-            f"{rule_id}: {found} violating line(s) but {allowed} allowed; lower its "
-            f"count in DOCS (src/pyeye/docs_facts/docs.py) to {found}"
+            f"{rule_id}: allowed but no longer found, so remove from the page's allow "
+            f"in DOCS (src/pyeye/docs_facts/docs.py): {stale}"
         )
     return None
 
 
 def allow_problems(docs: Iterable[DocEntry]) -> list[str]:
-    """Allow-list keys that name no rule, or counts that aren't positive."""
+    """Allow-list keys that name no rule, or that allow nothing."""
     problems: list[str] = []
     for entry in docs:
-        for rule_id, count in sorted(entry.allow.items()):
+        for rule_id, messages in sorted(entry.allow.items()):
             if rule_id not in RULE_IDS:
                 problems.append(
                     f"{entry.path}: allow names unknown rule {rule_id!r} "
                     f"(known: {', '.join(sorted(RULE_IDS))})"
                 )
-            elif count < 1:
-                problems.append(f"{entry.path}: allow[{rule_id!r}] is {count}; remove the key")
+            elif isinstance(messages, str) or not messages:
+                problems.append(
+                    f"{entry.path}: allow[{rule_id!r}] must be a non-empty tuple of messages"
+                )
     return problems
 
 
@@ -454,11 +507,56 @@ def _tool_descriptions() -> dict[str, str]:
     return {t.name: t.description or "" for s in servers for t in asyncio.run(listed(s))}
 
 
+def _rendered(node: ast.expr) -> str | None:
+    """A string literal's text; an f-string's with each placeholder as ``{}``."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else "{}"
+            for v in node.values
+        )
+    return None
+
+
+def code_strings() -> Iterator[Page]:
+    """Every string literal and docstring in the ``pyeye.mcp`` package, as pages.
+
+    The package itself is the scope, never a list of its files: the response
+    hints and notes (``not_found``, ``resolve`` …) and the tool docstrings all
+    live there. F-string pieces inside a larger f-string aren't repeated.
+    """
+    from .. import mcp as mcp_package
+
+    package = Path(mcp_package.__file__).parent
+    for path in sorted(filtered_rglob("*.py", package)):
+        rel = relative_within(path, package.parent)
+        if rel is None:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        inner = {
+            id(v) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for v in node.values
+        }
+        for node in ast.walk(tree):
+            if id(node) in inner or not isinstance(node, ast.expr):
+                continue
+            text = _rendered(node)
+            if text and text.strip():
+                yield Page(f"pyeye/{rel.as_posix()}", text, text, None, node.lineno)
+
+
 def pages(root: Path, docs: tuple[DocEntry, ...] | None = None) -> Iterator[tuple[Page, DocEntry]]:
     """Every registered doc as a :class:`Page`, with its entry."""
     for path, entry in registered_files(root, docs):
         text = (root / path).read_text(encoding="utf-8")
         yield Page(path, text, prose_text(text), entry.kind), entry
+
+
+def _unallowed(page: Page, rule: Rule, facts: Facts) -> list[str]:
+    return [
+        f"{page.name}:{page.line + f.line - 1}: {rule.id}: {f.message}"
+        for f in rule.scan(page, facts)
+    ]
 
 
 def run(
@@ -467,6 +565,7 @@ def run(
     docs: tuple[DocEntry, ...] | None = None,
     rules: Iterable[Rule] | None = None,
     descriptions: Mapping[str, str] | None = None,
+    strings: Iterable[Page] | None = None,
 ) -> list[str]:
     """Run every rule; return ``path:line: message`` problems.
 
@@ -476,6 +575,7 @@ def run(
         docs: The doc registry (default :data:`~.docs.DOCS`, read at call time).
         rules: The rules to run (default :data:`RULES`, read at call time).
         descriptions: Tool name -> description (default: the live registration).
+        strings: The ``pyeye.mcp`` string literals (default :func:`code_strings`).
     """
     rules = RULES if rules is None else tuple(rules)
     entries = doc_registry.DOCS if docs is None else docs
@@ -485,20 +585,27 @@ def run(
             if page.kind not in rule.kinds:
                 continue
             findings = rule.scan(page, facts)
-            lines = sorted({f.line for f in findings})
-            verdict = ratchet(entry, rule.id, len(lines))
+            verdict = ratchet(entry, rule.id, [f.message for f in findings])
             if verdict is None:
                 continue
             problems.append(f"{page.name}: {verdict}")
-            if len(lines) > entry.allow.get(rule.id, 0):
-                problems.extend(f"{page.name}:{f.line}: {rule.id}: {f.message}" for f in findings)
+            allowed = Counter(entry.allow.get(rule.id, ()))
+            for finding in findings:
+                if allowed[finding.message]:
+                    allowed[finding.message] -= 1
+                else:
+                    problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
     if descriptions is None and any(r.descriptions for r in rules):
         descriptions = _tool_descriptions()
     for name, text in sorted((descriptions or {}).items()):
         page = Page(f"tool:{name}", text, text, None)
         for rule in rules:
             if rule.descriptions:
-                problems.extend(
-                    f"{page.name}:{f.line}: {rule.id}: {f.message}" for f in rule.scan(page, facts)
-                )
+                problems.extend(_unallowed(page, rule, facts))
+    if strings is None and any(r.strings for r in rules):
+        strings = code_strings()
+    for page in strings or ():
+        for rule in rules:
+            if rule.strings:
+                problems.extend(_unallowed(page, rule, facts))
     return problems

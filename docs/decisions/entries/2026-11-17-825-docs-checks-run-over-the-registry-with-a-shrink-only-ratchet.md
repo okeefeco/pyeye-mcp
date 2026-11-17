@@ -1,6 +1,6 @@
 ---
 date: "2026-11-17"
-title: "Docs checks run over the doc registry and the live tool descriptions, with a per-page shrink-only allow-list (#825)"
+title: "Docs checks run over the doc registry, the live tool descriptions and the MCP package's strings, with a per-page shrink-only allow-list (#825)"
 issues: [825, 818]
 anchors: ["pyeye.docs_facts.rules.RULES", "pyeye.docs_facts.rules.run", "pyeye.docs_facts.rules.ratchet", "pyeye.docs_facts.rules.RULE_IDS", "pyeye.docs_facts.docs.DocEntry", "pyeye.docs_facts.rules._removed_names", "tests/test_docs_facts_rules.py", "tests/test_docs_facts_skills.py"]
 status: "active"
@@ -10,20 +10,21 @@ amended_by: []
 superseded_by: []
 ---
 
-## 2026-11-17 — Docs checks run over the doc registry and the live tool descriptions, with a per-page shrink-only allow-list (#825)
+## 2026-11-17 — Docs checks run over the doc registry, the live tool descriptions and the MCP package's strings, with a per-page shrink-only allow-list (#825)
 
 **Friction:** After #824 the facts had one source, but the ten point checks still each kept their own file list, the gap #818 found. Moving them showed the cost of those lists. The #417 ceiling check looked only at `expand` and `outline`, so `trace`'s description named the `members` and `subclasses` edges without the static-surface caveat, and CI stayed green. The env-var and server-command checks still globbed `docs/source/*.rst`. Three skills kept exact lists in hidden anchor comments, and the auditor kept hand copies of the taxonomy tables.
 
 **Decision:**
 
-- **Two kinds of check, both over `DOCS`.** A fact check binds a value in a fact block: the skills now bind `edges.implemented`, `review.*` and `duplication.*`, and their old anchors and copied tables are gone. A prose rule requires or forbids phrasing. It is a `Rule` in `RULES`, run by `docs_facts check` over every registered page of its kinds and over every live MCP tool description (core, admin and plugin), never over a list of its own. Fact-block content is skipped. The rules are `static-ceiling` (#417), `absence-prose` (#568), `edge-counts-prose` (#396), `env-name` (#556, #628) and `server-command` (#553). History pages are exempt (C1).
-- **One ratchet.** `DocEntry.allow` maps a rule ID to the count of violating lines a page may still have. `ratchet` fails when a page has more, and also when it has fewer and the count wasn't lowered, so a fix lowers it in the same PR. A key outside `RULE_IDS` or a zero count fails. Tool descriptions have no allow-list. #826's `removed-name` rule uses the same field, agreed with #826 so there is one mechanism, not two.
+- **Two kinds of check, both over `DOCS`.** A fact check binds a value in a fact block: the skills now bind `edges.implemented`, `review.*` and `duplication.*`, and their old anchors and copied tables are gone. A prose rule requires or forbids phrasing. It is a `Rule` in `RULES`, run by `docs_facts check` over three surfaces, never over a list of its own: every registered page of its kinds; every live MCP tool description (core, admin and plugin); and, for `absence-prose` and `edge-counts-prose`, every string literal and docstring in the `pyeye.mcp` package (`code_strings`), which holds the hints and notes returned inside responses (design C10, Q8). Fact-block content is skipped. The rules are `static-ceiling` (#417), `absence-prose` (#568), `edge-counts-prose` (#396), `env-name` (#556, #628) and `server-command` (#553). History pages are exempt (C1).
+- **One ratchet, keyed on what it covers.** `DocEntry.allow` maps a rule ID to the exact message of each finding a page may still have. `ratchet` fails on a finding not listed and on a listed one no longer found, so a fix removes its allowance in the same PR. A fix can't be traded for a new violation, and an allowance for one name covers no other. A per-line count allowed both, as #837's review found with mutation tests. A key outside `RULE_IDS` or an empty allowance fails. Tool descriptions have no allow-list. #826's `removed-name` rule uses the same field, agreed with #826 so there is one mechanism, not two.
 - **Removed names pass only beside "removed"; never-existing names always fail.** `_removed_names()` is the one source of removed names. It is empty until #826 fills it from `docs/facts/removed.json`, and a live page may name one only on a line that says "removed" (C8 Q2). The wrong names the old checks caught (`PYEYE_PACKAGES`, `uv run pyeye`, `mcp dev` and the like) were never read or never worked. They were never removed, so they always fail, and "removed" beside one would be a false claim (D12).
 - **Pins come from the snapshot.** The core and plugin tool-name pins read the committed `docs/facts/facts.json`, not hand-kept sets, so a rename shows in the PR's snapshot diff.
 - **One unmeasured set.** `edges.inspect_unmeasured` is parsed (not imported) from the response linter's `_PHASE4_UNMEASURED_EDGES`, so the #396 rule and the live-response check can't diverge.
-- **Rejected:** allow-lists kept in `rules.py` beside the rules. C8 says the counts live in the registry, and a second home would split them from the page they describe. Also rejected: scanning `operations/*.py` comments as docs. Internal contracts are checked by object (`resolve_members`, `resolve_subclasses`, `outline`), and the docs surface is the descriptions a model actually reads.
+- **Per edge.** A tool description that gives `members` or `subclasses` its own entry (as `expand` does) must carry the static-surface ceiling in that entry.
+- **Rejected:** allow-lists kept in `rules.py` beside the rules. C8 says they live in the registry, and a second home would split them from the page they describe. Also rejected: a count of violating lines (above).
 
-**Anchor:** `pyeye.docs_facts.rules.RULES` / `run` / `ratchet` / `RULE_IDS` / `_removed_names`; `pyeye.docs_facts.docs.DocEntry.allow`; `pyeye.docs_facts.extractors.review`; `pyeye.docs_facts.extractors.duplication`; `pyeye.docs_facts.extractors.edges.inspect_unmeasured`; design `docs/superpowers/specs/2026-11-17-docs-built-on-facts-design.md` (#822) §1, C1, C8; #825, #826, #818.
+**Anchor:** `pyeye.docs_facts.rules.RULES` / `run` / `ratchet` / `RULE_IDS` / `_removed_names`; `pyeye.docs_facts.docs.DocEntry.allow`; `pyeye.docs_facts.extractors.review`; `pyeye.docs_facts.extractors.duplication`; `pyeye.docs_facts.extractors.edges.inspect_unmeasured`; design `docs/superpowers/specs/2026-11-17-docs-built-on-facts-design.md` (#822) §1, C1, C8, C10; #825, #826, #818.
 **Applies-to:**
 
 - the rule table and its runner: `pyeye.docs_facts.rules.RULES`, `pyeye.docs_facts.rules.run`, called from `pyeye.docs_facts.cli.plan`;

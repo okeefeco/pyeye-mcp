@@ -44,6 +44,16 @@ def _pinned_core_tools() -> set[str]:
 
 EXPECTED_TOOLS = _pinned_core_tools()
 
+MINIMUM_CORE_TOOLS = {
+    "configure_packages",
+    "resolve",
+    "resolve_at",
+    "inspect",
+    "outline",
+    "expand",
+    "trace",
+}
+
 # Removed in v2.0.  Reverse-reference questions are deferred to the Pyright
 # backend (#333); these must never come back as tools.
 REMOVED_TOOLS = {
@@ -71,9 +81,15 @@ async def _registered_tool_names() -> set[str]:
 
 
 class TestMcpSurface:
-    def test_the_pin_is_the_primitive_interface(self) -> None:
-        """Guard the snapshot read: an empty pin would make the equality vacuous."""
-        assert {"resolve", "inspect", "expand", "trace", "outline"} <= EXPECTED_TOOLS
+    def test_the_pin_holds_the_whole_primitive_interface(self) -> None:
+        """A hand-written floor, so regenerating the snapshot can't approve a drop.
+
+        ``generate`` rewrites ``facts.json`` from the live registration, so a
+        tool removed from the code would also leave the pin. Every core tool
+        is named here; adding one is free, but removing one fails until this
+        line changes in the same PR (#825 review).
+        """
+        assert MINIMUM_CORE_TOOLS <= EXPECTED_TOOLS
         assert not EXPECTED_TOOLS & ADMIN_TOOLS
 
     @pytest.mark.asyncio
