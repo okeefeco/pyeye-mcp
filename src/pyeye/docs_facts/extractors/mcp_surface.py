@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+from ...scope_utils import SmartScopeResolver
 from ..facts import Bindable, Fact, code, code_list, table, view
 
 PREFIXES = ("tool", "tools")
@@ -47,7 +48,28 @@ async def _list_tools(server: Any) -> list[Any]:
     return list(await server.list_tools())
 
 
-def _tool_facts(tools: list[Any], group: str, plugin: str | None) -> Iterator[Bindable]:
+#: Where an omitted plugin ``scope`` comes from (#559): the resolver, not the schema.
+SCOPE_DEFAULT_SOURCE = (
+    "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default"
+)
+
+
+def _default_cell(value: dict[str, Any]) -> str:
+    if value["required"]:
+        return "required"
+    shown = code(json.dumps(value.get("default")))
+    if "effective_default" in value:
+        effective = code(json.dumps(value["effective_default"]))
+        shown += f" (omitted: {effective} unless `scope_defaults` overrides it)"
+    return shown
+
+
+def _tool_facts(
+    tools: list[Any],
+    group: str,
+    plugin: str | None,
+    scope_default: Callable[[str], Any] | None = None,
+) -> Iterator[Bindable]:
     tool_facts: list[Fact] = []
     for tool in sorted(tools, key=lambda t: t.name):
         schema = tool.input_schema
@@ -60,6 +82,9 @@ def _tool_facts(tools: list[Any], group: str, plugin: str | None) -> Iterator[Bi
             }
             if "default" in pschema:
                 value["default"] = pschema["default"]
+            if pname == "scope" and scope_default is not None:
+                value["effective_default"] = scope_default(tool.name)
+                value["effective_default_source"] = SCOPE_DEFAULT_SOURCE
             shown = "required" if value["required"] else json.dumps(value.get("default"))
             params.append(Fact(f"tool.{tool.name}.param.{pname}", value, f"{code(pname)}: {shown}"))
         yield from params
@@ -73,7 +98,7 @@ def _tool_facts(tools: list[Any], group: str, plugin: str | None) -> Iterator[Bi
             [
                 code(p.id.rsplit(".", 1)[1]),
                 code(p.value["type"]),
-                "required" if p.value["required"] else code(json.dumps(p.value.get("default"))),
+                _default_cell(p.value),
             ]
             for p in params
         ]
@@ -94,16 +119,19 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - live registrati
     from ...mcp import server as srv
 
     admin_server = MCPServer("docs-facts-admin")
-    admin_server.tool()(srv.get_connection_diagnostics)
-    admin_server.tool()(srv.get_performance_metrics)
+    for admin_tool in srv.ADMIN_TOOLS:
+        admin_server.tool()(admin_tool)
     admin_names = {t.name for t in asyncio.run(_list_tools(admin_server))}
     core = [t for t in asyncio.run(_list_tools(srv.mcp)) if t.name not in admin_names]
     yield from _tool_facts(core, "core", None)
     yield from _tool_facts(asyncio.run(_list_tools(admin_server)), "admin", None)
 
+    # A resolver with no project config: the built-in defaults, registered the way
+    # initialize_plugins registers them (which always passes a resolver).
+    resolver = SmartScopeResolver()
     for plugin_class in srv._PLUGIN_CLASSES:
         plugin = plugin_class(".")
         plugin_server = MCPServer(f"docs-facts-{plugin.name()}")
-        srv.register_plugin_tools(plugin_server, [plugin])
+        srv.register_plugin_tools(plugin_server, [plugin], resolver)
         tools = asyncio.run(_list_tools(plugin_server))
-        yield from _tool_facts(tools, "plugin", plugin.name().lower())
+        yield from _tool_facts(tools, "plugin", plugin.name().lower(), resolver.plugin_tool_default)

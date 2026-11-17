@@ -119,6 +119,9 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry("docs/UNIFIED_METRICS.md", _H, "prose"),
     DocEntry("docs/debugging-connection-drops.md", _H, "prose"),
     DocEntry("docs/namespace-packages.md", _H, "prose"),
+    DocEntry("docs/architecture/resolution.md", _H, "prose"),
+    DocEntry("docs/architecture/plugin-system.md", _H, "prose"),
+    DocEntry("docs/architecture/caching.md", _H, "prose"),
     DocEntry("docs/api/README.md", _H, "prose"),
     DocEntry("docs/api/django-tools.md", _H, "prose"),
     DocEntry("docs/api/flask-tools.md", _H, "prose"),
@@ -146,7 +149,10 @@ def entry_for(path: str, docs: tuple[DocEntry, ...] | None = None) -> DocEntry |
         if not entry.is_pattern and entry.path == path:
             return entry
     for entry in docs:
-        if entry.is_pattern and fnmatchcase(path, entry.path):
+        # fnmatch's ``*`` crosses ``/``; a pattern names one directory level only,
+        # the level ``registered_files`` globs, so ``changes/sub/x.md`` is unregistered.
+        same_depth = path.count("/") == entry.path.count("/")
+        if entry.is_pattern and same_depth and fnmatchcase(path, entry.path):
             return entry
     return None
 

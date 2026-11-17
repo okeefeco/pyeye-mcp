@@ -3,7 +3,10 @@
 - ``ci.coverage_threshold``: ``--cov-fail-under`` in pytest's ``addopts``
   (``pyproject.toml``). Every ``--cov-fail-under`` in ``ci.yml`` must agree,
   or extraction fails: two thresholds would be two facts with one name.
-- ``ci.python_versions``: the full ``test-main`` matrix in ``ci.yml``.
+- ``ci.python_versions``: the full matrix in ``ci.yml`` (``test-main``, run on
+  every push to ``main``; its one ``python-version: [...]`` list). Every other
+  ``python-version`` in ``ci.yml`` (the PR matrix's ``include`` entries, the
+  lint job) must be one of these, or extraction fails.
 - ``project.python_versions`` / ``project.requires_python``: the trove
   classifiers and ``requires-python`` in ``pyproject.toml``. The matrix must
   equal the classifiers, and ``requires-python`` must be ``>=`` the oldest of
@@ -20,18 +23,17 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
-from ..facts import Bindable, Fact
+from ..facts import Bindable, ExtractionError, Fact
 
 PREFIXES = ("ci", "project")
+
+__all__ = ["CI_WORKFLOW", "PREFIXES", "ExtractionError", "extract"]
 
 CI_WORKFLOW = ".github/workflows/ci.yml"
 _FAIL_UNDER = re.compile(r"--cov-fail-under=(\d+)")
 _MATRIX = re.compile(r"^\s*python-version:\s*\[([^\]]*)\]", re.MULTILINE)
+_SINGLE = re.compile(r"^\s*(?:-\s+)?python-version:\s*['\"]?(3\.\d+)['\"]?\s*$", re.MULTILINE)
 _CLASSIFIER = re.compile(r"Programming Language :: Python :: (3\.\d+)$")
-
-
-class ExtractionError(ValueError):
-    """A source no longer has the shape the extractor reads."""
 
 
 def extract(root: Path) -> Iterator[Bindable]:
@@ -53,6 +55,11 @@ def extract(root: Path) -> Iterator[Bindable]:
     if len(matrices) != 1:
         raise ExtractionError(f"{CI_WORKFLOW} must have exactly one python-version list")
     versions = [v.strip().strip("'\"") for v in matrices[0].split(",") if v.strip()]
+    outside = sorted(set(_SINGLE.findall(workflow)) - set(versions))
+    if outside:
+        raise ExtractionError(
+            f"{CI_WORKFLOW} runs Python {outside}, outside its full matrix {versions}"
+        )
 
     classifiers = [
         m.group(1)

@@ -21,23 +21,29 @@ from pyeye.docs_facts.facts import Fact, View, index
 ROOT = Path(__file__).parent.parent
 
 
-def _git_markdown() -> list[str]:
+#: Every documentation file type, so a non-Markdown doc tree (the old Sphinx
+#: ``.rst``) can't sit outside the registry unseen (#818).
+DOC_PATTERNS = ("*.md", "*.rst", "*.mdx", "*.markdown", "docs/*.txt", "docs/**/*.txt")
+
+
+def _git_docs() -> list[str]:
     git = shutil.which("git")
     if git is None or not (ROOT / ".git").exists():
         pytest.skip("not a git checkout")
     out = subprocess.run(  # nosec B603 - fixed arguments
-        [git, "ls-files", "--cached", "--others", "--exclude-standard", "*.md"],
+        [git, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *DOC_PATTERNS],
         cwd=ROOT,
         capture_output=True,
-        text=True,
         check=True,
     ).stdout
-    return sorted(set(out.split()))
+    # Deleted-but-unstaged files are still listed by --cached; only report real files.
+    paths = {p for p in out.decode("utf-8").split("\0") if p}
+    return sorted(p for p in paths if (ROOT / p).is_file())
 
 
 class TestDocRegistry:
-    def test_every_markdown_file_is_registered(self) -> None:
-        unregistered = [p for p in _git_markdown() if not is_excluded(p) and entry_for(p) is None]
+    def test_every_doc_file_is_registered(self) -> None:
+        unregistered = [p for p in _git_docs() if not is_excluded(p) and entry_for(p) is None]
 
         assert not unregistered, (
             f"Unregistered docs: {unregistered}. Add each to DOCS in "
@@ -46,7 +52,7 @@ class TestDocRegistry:
 
     def test_the_listing_found_the_docs(self) -> None:
         """Guard the listing: an empty one would make the test above pass vacuously."""
-        found = _git_markdown()
+        found = _git_docs()
 
         assert "README.md" in found
         assert "skills/python-explore/SKILL.md" in found
@@ -74,6 +80,9 @@ class TestDocRegistry:
 
         assert readme is not None and readme.kind == "prose"
         assert fragment is not None and fragment.kind == "history"
+
+    def test_the_pattern_names_one_directory_level(self) -> None:
+        assert entry_for("changes/sub/824.fixed.md") is None
 
     def test_pattern_expands_to_matches_without_their_own_entry(self, tmp_path: Path) -> None:
         (tmp_path / "changes").mkdir()

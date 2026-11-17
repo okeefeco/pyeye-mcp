@@ -22,6 +22,13 @@ from typing import Any
 FACT_ID = re.compile(r"[a-z][a-z0-9_]*(\.[A-Za-z0-9_][A-Za-z0-9_-]*)+")
 
 
+class ExtractionError(ValueError):
+    """A source no longer has the shape its extractor reads, or two sources disagree.
+
+    Extractors raise it instead of yielding a wrong or missing fact.
+    """
+
+
 @dataclass(frozen=True)
 class Fact:
     """One documented item, extracted from the code.

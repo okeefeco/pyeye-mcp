@@ -136,6 +136,77 @@ class TestMalformed:
         assert [(p.line, p.message) for p in problems] == [(line, message)]
 
 
+STALE_BLOCK = "<!-- fact:begin ci.coverage_threshold -->70%<!-- fact:end -->\n"
+
+
+class TestCodeDetection:
+    """Review of #834: code detection must never silently switch checking off."""
+
+    @pytest.mark.parametrize(
+        "above",
+        [
+            # A tilde fence holding a backtick line: only ~~~ closes it.
+            "~~~\n```\n~~~\n",
+            # A 4-backtick fence holding a 3-backtick line: only 4+ closes it.
+            "````markdown\n```\nshown\n```\n````\n",
+            # A line starting with inline code is not a fence opener.
+            "```x``` is inline code\n",
+            # An info string after the closer makes it not a closer, but the
+            # following plain closer still closes.
+            "```\n``` not a closer\n```\n",
+            # One stray backtick doesn't make the rest of the line code.
+            "a stray ` backtick\n",
+        ],
+    )
+    def test_a_block_after_code_is_still_checked(self, above: str) -> None:
+        page = above + STALE_BLOCK
+
+        new, blocks, problems = render(page, FACTS)
+
+        assert problems == []
+        assert [b.fact_id for b in blocks] == ["ci.coverage_threshold"]
+        assert new.endswith("-->85%<!-- fact:end -->\n")
+
+    def test_a_stray_backtick_on_the_same_line_does_not_hide_the_marker(self) -> None:
+        page = "it`s " + STALE_BLOCK
+
+        _, blocks, problems = render(page, FACTS)
+
+        assert problems == []
+        assert len(blocks) == 1
+
+    def test_markers_in_a_double_backtick_span_are_text(self) -> None:
+        page = "Write ``<!-- fact:begin a.b --> ` <!-- fact:end -->`` here.\n"
+
+        assert parse(page) == ([], [])
+
+    def test_an_unclosed_fence_is_a_problem(self) -> None:
+        page = "intro\n```python\n" + STALE_BLOCK
+
+        _, blocks, problems = render(page, FACTS)
+
+        assert blocks == []
+        assert [(p.line, p.message.split(":")[0]) for p in problems] == [(2, "unclosed code fence")]
+
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            "<!-- fact:begin x.y-->",
+            "<!--fact:begin x.y -->",
+            "<!-- fact:end-->",
+            "<!-- FACT:END -->",
+            "<!-- fact: begin x.y -->",
+        ],
+    )
+    def test_a_near_miss_marker_is_a_problem(self, marker: str) -> None:
+        _, problems = parse(f"text {marker} more\n")
+
+        assert [p.message.split(":")[0] for p in problems] == ["malformed fact marker"]
+
+    def test_a_near_miss_in_code_is_text(self) -> None:
+        assert parse("`<!-- fact:begin x.y-->`\n") == ([], [])
+
+
 class TestFacts:
     def test_duplicate_id_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="produced twice"):

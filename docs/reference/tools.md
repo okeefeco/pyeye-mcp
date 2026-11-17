@@ -101,7 +101,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -109,7 +109,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -117,7 +117,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -125,7 +125,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -133,7 +133,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -145,7 +145,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -153,7 +153,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -161,7 +161,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -169,7 +169,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -177,7 +177,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -185,7 +185,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -193,7 +193,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -201,7 +201,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -213,7 +213,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -221,7 +221,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -229,7 +229,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -237,7 +237,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -245,7 +245,7 @@ Registered when the plugin's framework is detected in the project.
 
 | Parameter | Type | Default |
 |---|---|---|
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -254,7 +254,7 @@ Registered when the plugin's framework is detected in the project.
 | Parameter | Type | Default |
 |---|---|---|
 | `model_name` | `str` | required |
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 
@@ -263,6 +263,6 @@ Registered when the plugin's framework is detected in the project.
 | Parameter | Type | Default |
 |---|---|---|
 | `model_name` | `str` | required |
-| `scope` | `str \| list[str]` | `"main"` |
+| `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |

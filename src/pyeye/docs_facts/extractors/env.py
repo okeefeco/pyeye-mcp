@@ -15,6 +15,7 @@ nothing outside ``settings.py`` reads has status ``unused``, not ``live``.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,20 +23,24 @@ from typing import Any
 from ... import settings as settings_module
 from ...async_utils import filtered_rglob
 from ...path_utils import relative_within
-from ..facts import Bindable, Fact, code, literal, table, view
+from ..facts import Bindable, ExtractionError, Fact, code, literal, table, view
 
 PREFIXES = ("env",)
 
 _KINDS = {"_get_int_env": "int", "_get_float_env": "float", "_get_bool_env": "bool"}
 
 
-def _literal(node: ast.expr | None) -> Any:
-    if node is None:
-        return None
+_ENV_NAME = re.compile(r"PYEYE_[A-Z0-9_]+")
+
+
+def _literal(node: ast.expr, what: str) -> Any:
+    """The literal value of *node*; anything else can't be documented truthfully."""
     try:
         return ast.literal_eval(node)
     except ValueError:
-        return None
+        raise ExtractionError(
+            f"{what} is not a literal (line {node.lineno}); the env extractor can't " "document it"
+        ) from None
 
 
 def _settings_vars(tree: ast.Module) -> dict[str, dict[str, Any]]:
@@ -49,12 +54,14 @@ def _settings_vars(tree: ast.Module) -> dict[str, dict[str, Any]]:
             continue
         if not (isinstance(node.target, ast.Attribute) and call.args):
             continue
-        name = _literal(call.args[0])
-        keywords = {k.arg: _literal(k.value) for k in call.keywords}
+        name = _literal(call.args[0], f"the variable name passed to {func.attr}")
+        if not isinstance(name, str):
+            raise ExtractionError(f"{func.attr} is called with a non-string name {name!r}")
+        keywords = {k.arg: _literal(k.value, f"{name}'s {k.arg}") for k in call.keywords}
         found[name] = {
             "attribute": node.target.attr,
             "type": _KINDS[func.attr],
-            "default": _literal(call.args[1]) if len(call.args) > 1 else None,
+            "default": _literal(call.args[1], f"{name}'s default") if len(call.args) > 1 else None,
             "min": keywords.get("min_val"),
             "max": keywords.get("max_val"),
         }
@@ -62,23 +69,57 @@ def _settings_vars(tree: ast.Module) -> dict[str, dict[str, Any]]:
 
 
 def _is_environ(node: ast.expr) -> bool:
-    return isinstance(node, ast.Attribute) and node.attr == "environ"
+    """``os.environ`` or a bare ``environ`` (``from os import environ``)."""
+    return (isinstance(node, ast.Attribute) and node.attr == "environ") or (
+        isinstance(node, ast.Name) and node.id == "environ"
+    )
 
 
-def _direct_reads(tree: ast.Module) -> dict[str, Any]:
-    """``PYEYE_*`` name -> literal default, for each direct environment read."""
+def _read_args(node: ast.AST) -> list[ast.expr]:
+    """The arguments of an environment read (name first), or ``[]``."""
+    if isinstance(node, ast.Call):
+        func = node.func
+        if isinstance(func, ast.Attribute) and (
+            (func.attr == "get" and _is_environ(func.value)) or func.attr == "getenv"
+        ):
+            return list(node.args)
+        if isinstance(func, ast.Name) and func.id == "getenv":
+            return list(node.args)
+    elif isinstance(node, ast.Subscript) and _is_environ(node.value):
+        return [node.slice]
+    return []
+
+
+def _direct_reads(tree: ast.Module, module: str) -> dict[str, Any]:
+    """``PYEYE_*`` name -> literal default, for each direct environment read.
+
+    Raises:
+        ExtractionError: If a ``"PYEYE_*"`` literal is used other than as the
+            name in a read (e.g. through a constant or a wrapper), since that
+            variable would be missing from the docs.
+    """
     found: dict[str, Any] = {}
+    consumed: set[int] = set()
     for node in ast.walk(tree):
-        args: list[ast.expr] = []
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            func = node.func
-            if (func.attr == "get" and _is_environ(func.value)) or func.attr == "getenv":
-                args = list(node.args)
-        elif isinstance(node, ast.Subscript) and _is_environ(node.value):
-            args = [node.slice]
-        name = _literal(args[0]) if args else None
-        if isinstance(name, str) and name.startswith("PYEYE_"):
-            found.setdefault(name, _literal(args[1]) if len(args) > 1 else None)
+        args = _read_args(node)
+        if not args or not isinstance(args[0], ast.Constant):
+            continue
+        name = args[0].value
+        if isinstance(name, str) and _ENV_NAME.fullmatch(name):
+            consumed.add(id(args[0]))
+            default = _literal(args[1], f"{name}'s default") if len(args) > 1 else None
+            found.setdefault(name, default)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _ENV_NAME.fullmatch(node.value)
+            and id(node) not in consumed
+        ):
+            raise ExtractionError(
+                f"pyeye/{module} line {node.lineno} uses {node.value!r} other than as the "
+                "name in an os.environ / getenv read; read it directly so it's documented"
+            )
     return found
 
 
@@ -128,14 +169,22 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
         if isinstance(node, ast.Attribute)
     }
 
+    loaded = _settings_vars(trees[settings_rel])
+    unknown = sorted(set(settings_module.DEPRECATED_ENV_VARS) - set(loaded))
+    if unknown:
+        raise ExtractionError(
+            f"DEPRECATED_ENV_VARS names variables settings.py never loads: {unknown}"
+        )
     values: dict[str, dict[str, Any]] = {}
-    for name, info in _settings_vars(trees[settings_rel]).items():
+    for name, info in loaded.items():
         value = {k: v for k, v in info.items() if k != "attribute"}
         value["source"] = f"pyeye/{settings_rel}"
         value.update(_status(name, info["attribute"], used_attributes))
         values[name] = value
     for module, tree in trees.items():
-        for name, default in _direct_reads(tree).items():
+        if module == settings_rel:
+            continue
+        for name, default in _direct_reads(tree, module).items():
             values.setdefault(
                 name,
                 {"type": "str", "default": default, "source": f"pyeye/{module}", "status": "live"},

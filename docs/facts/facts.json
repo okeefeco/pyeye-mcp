@@ -370,9 +370,11 @@
       "type": "str | None"
     },
     "tool.find_cli_commands.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_computed_fields": {
       "group": "plugin",
@@ -394,9 +396,11 @@
       "type": "str | None"
     },
     "tool.find_computed_fields.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_django_migrations": {
       "group": "plugin",
@@ -418,9 +422,11 @@
       "type": "str | None"
     },
     "tool.find_django_migrations.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_django_models": {
       "group": "plugin",
@@ -442,9 +448,11 @@
       "type": "str | None"
     },
     "tool.find_django_models.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_django_templates": {
       "group": "plugin",
@@ -466,9 +474,11 @@
       "type": "str | None"
     },
     "tool.find_django_templates.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_django_urls": {
       "group": "plugin",
@@ -490,9 +500,11 @@
       "type": "str | None"
     },
     "tool.find_django_urls.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_django_views": {
       "group": "plugin",
@@ -514,9 +526,11 @@
       "type": "str | None"
     },
     "tool.find_django_views.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_error_handlers": {
       "group": "plugin",
@@ -538,9 +552,11 @@
       "type": "str | None"
     },
     "tool.find_error_handlers.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_field_validators": {
       "group": "plugin",
@@ -562,9 +578,11 @@
       "type": "str | None"
     },
     "tool.find_field_validators.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_blueprints": {
       "group": "plugin",
@@ -586,9 +604,11 @@
       "type": "str | None"
     },
     "tool.find_flask_blueprints.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_config": {
       "group": "plugin",
@@ -610,9 +630,11 @@
       "type": "str | None"
     },
     "tool.find_flask_config.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_extensions": {
       "group": "plugin",
@@ -634,9 +656,11 @@
       "type": "str | None"
     },
     "tool.find_flask_extensions.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_routes": {
       "group": "plugin",
@@ -658,9 +682,11 @@
       "type": "str | None"
     },
     "tool.find_flask_routes.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_templates": {
       "group": "plugin",
@@ -682,9 +708,11 @@
       "type": "str | None"
     },
     "tool.find_flask_templates.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_flask_views": {
       "group": "plugin",
@@ -706,9 +734,11 @@
       "type": "str | None"
     },
     "tool.find_flask_views.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_model_config": {
       "group": "plugin",
@@ -730,9 +760,11 @@
       "type": "str | None"
     },
     "tool.find_model_config.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_pydantic_models": {
       "group": "plugin",
@@ -754,9 +786,11 @@
       "type": "str | None"
     },
     "tool.find_pydantic_models.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.find_validators": {
       "group": "plugin",
@@ -778,9 +812,11 @@
       "type": "str | None"
     },
     "tool.find_validators.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.get_connection_diagnostics": {
       "group": "admin",
@@ -811,9 +847,11 @@
       "type": "str | None"
     },
     "tool.get_model_schema.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     },
     "tool.get_performance_metrics": {
       "group": "admin",
@@ -988,9 +1026,11 @@
       "type": "str | None"
     },
     "tool.trace_model_inheritance.param.scope": {
-      "default": "main",
+      "default": null,
+      "effective_default": "main",
+      "effective_default_source": "scope_defaults.methods.<tool>, then scope_defaults.global, then the built-in default",
       "required": false,
-      "type": "str | list[str]"
+      "type": "str | list[str] | None"
     }
   }
 }

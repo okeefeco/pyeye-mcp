@@ -8,15 +8,17 @@ misread its source, fails here.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import inspect
+import textwrap
 from pathlib import Path
 
 import pytest
 
 from pyeye.docs_facts import registry
-from pyeye.docs_facts.extractors import ci
-from pyeye.docs_facts.facts import Bindable, Fact, View
+from pyeye.docs_facts.extractors import ci, env
+from pyeye.docs_facts.facts import Bindable, ExtractionError, Fact, View
 from pyeye.docs_facts.registry import Extractor, build
 
 ROOT = Path(__file__).parent.parent
@@ -51,7 +53,6 @@ class TestMcpSurface:
         admin = _names(_members(facts, "tools.admin"))
 
         assert _names(_members(facts, "tools.core")) == registered - admin
-        assert admin == {"get_performance_metrics", "get_connection_diagnostics"}
 
     def test_plugin_tools_are_the_declared_ones(self, facts: dict[str, Bindable]) -> None:
         from pyeye.mcp.server import _PLUGIN_CLASSES
@@ -63,6 +64,44 @@ class TestMcpSurface:
             assert _names(ids) == set(plugin.register_tools())
             for tool_id in ids:
                 assert _fact(facts, tool_id).value["group"] == "plugin"
+
+    def test_plugin_parameters_match_what_initialize_plugins_registers(
+        self, facts: dict[str, Bindable], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The production path passes a resolver, which changes ``scope``'s schema (#559)."""
+        from mcp.server.mcpserver import MCPServer
+
+        from pyeye.mcp import server as srv
+
+        fresh = MCPServer("docs-facts-test")
+        monkeypatch.setattr(srv, "mcp", fresh)
+        monkeypatch.setattr(srv, "_plugins", [])
+        monkeypatch.setattr(srv, "_registered_plugin_tools", set())
+        monkeypatch.setattr(srv, "_startup_root", None)
+        monkeypatch.setattr(srv, "_startup_resolver", None)
+        monkeypatch.setattr(srv, "_activate_if_detected", lambda cls, path, _config: cls(path))
+        srv.initialize_plugins(tmp_path.as_posix())
+        registered = {t.name: t.input_schema for t in asyncio.run(fresh.list_tools())}
+        documented = {
+            tool_id.split(".", 1)[1]
+            for view_id in facts
+            if view_id.startswith("tools.plugin.")
+            for tool_id in _members(facts, view_id)
+        }
+
+        assert set(registered) == documented
+        for name, schema in registered.items():
+            for pname, pschema in schema["properties"].items():
+                value = _fact(facts, f"tool.{name}.param.{pname}").value
+                assert value.get("default") == pschema.get("default"), (name, pname)
+        scope = _fact(facts, "tool.find_flask_routes.param.scope").value
+        assert scope["default"] is None
+        assert scope["effective_default"] == "main"
+
+    def test_admin_tools_come_from_the_one_list(self, facts: dict[str, Bindable]) -> None:
+        from pyeye.mcp.server import ADMIN_TOOLS
+
+        assert _names(_members(facts, "tools.admin")) == {f.__name__ for f in ADMIN_TOOLS}
 
     def test_core_parameters_match_the_signatures(self, facts: dict[str, Bindable]) -> None:
         from pyeye.mcp import server
@@ -145,6 +184,60 @@ class TestEnv:
         }
 
 
+class TestEnvSurprisesFail:
+    """Review of #834: a source the extractor can't read truthfully is an error."""
+
+    @staticmethod
+    def _settings(source: str) -> ast.Module:
+        return ast.parse(textwrap.dedent(source))
+
+    def test_a_non_literal_default_fails(self) -> None:
+        tree = self._settings("""
+            class S:
+                def __init__(self):
+                    self.x: int = self._get_int_env("PYEYE_X", DEFAULT_X)
+            """)
+
+        with pytest.raises(ExtractionError, match="PYEYE_X's default is not a literal"):
+            env._settings_vars(tree)
+
+    def test_a_non_literal_name_fails(self) -> None:
+        tree = self._settings("""
+            class S:
+                def __init__(self):
+                    self.x: int = self._get_int_env(NAME, 1)
+            """)
+
+        with pytest.raises(ExtractionError, match="variable name passed to _get_int_env"):
+            env._settings_vars(tree)
+
+    def test_bare_environ_and_getenv_reads_are_seen(self) -> None:
+        tree = self._settings("""
+            from os import environ, getenv
+            a = environ.get("PYEYE_A", "1")
+            b = getenv("PYEYE_B")
+            c = environ["PYEYE_C"]
+            """)
+
+        assert env._direct_reads(tree, "m.py") == {"PYEYE_A": "1", "PYEYE_B": None, "PYEYE_C": None}
+
+    def test_a_name_read_through_a_constant_fails(self) -> None:
+        tree = self._settings("""
+            import os
+            NAME = "PYEYE_HIDDEN"
+            value = os.environ.get(NAME)
+            """)
+
+        with pytest.raises(ExtractionError, match="'PYEYE_HIDDEN' other than as the name"):
+            env._direct_reads(tree, "m.py")
+
+    def test_a_non_literal_read_default_fails(self) -> None:
+        tree = self._settings('import os\nv = os.environ.get("PYEYE_V", compute())\n')
+
+        with pytest.raises(ExtractionError, match="PYEYE_V's default"):
+            env._direct_reads(tree, "m.py")
+
+
 class TestCliAndCi:
     def test_entry_points(self, facts: dict[str, Bindable]) -> None:
         assert _fact(facts, "cli.script.pyeye-mcp").value == {"target": "pyeye.mcp.__main__:main"}
@@ -190,6 +283,11 @@ class TestCliAndCi:
             ('"--cov-fail-under=85"', "--cov-fail-under=80\npython-version: ['3.11']\n", "80"),
             ('"--cov-fail-under=85"', "python-version: '3.11'\n", "one python-version list"),
             ('"--cov-fail-under=85"', "python-version: ['3.11', '3.12']\n", "claim"),
+            (
+                '"--cov-fail-under=85"',
+                "python-version: ['3.11']\n  - os: x\n    python-version: '3.10'\n",
+                "outside its full matrix",
+            ),
         ],
     )
     def test_ci_sources_that_changed_shape_fail(
