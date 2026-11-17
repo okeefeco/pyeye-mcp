@@ -1,6 +1,6 @@
 # Documentation built on facts: design (#818)
 
-Status: draft for approval · 2026-11-17 · design session with the maintainer
+Status: approved by the maintainer 2026-11-17 · design session · sub-issues #823–#831
 
 ## Intent
 
