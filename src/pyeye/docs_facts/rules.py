@@ -529,6 +529,10 @@ RULES: tuple[Rule, ...] = (
 # ---------------------------------------------------------------------------
 
 
+#: Where a rule's allowances live, when not on the DOCS entries themselves.
+_ALLOW_HOME = {HONEST_CLAIMS: "claim_seeds.py"}
+
+
 def ratchet(entry: DocEntry, rule_id: str, found: Sequence[str]) -> str | None:
     """Compare the *found* finding messages with what *entry* allows for *rule_id*.
 
@@ -549,7 +553,7 @@ def ratchet(entry: DocEntry, rule_id: str, found: Sequence[str]) -> str | None:
     if stale:
         return (
             f"{rule_id}: allowed but no longer found, so remove from the page's allow "
-            f"in DOCS (src/pyeye/docs_facts/docs.py): {stale}"
+            f"(src/pyeye/docs_facts/{_ALLOW_HOME.get(rule_id, 'docs.py')}): {stale}"
         )
     return None
 

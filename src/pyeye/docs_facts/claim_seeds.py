@@ -9,22 +9,11 @@ removes its entry here in the same PR. Never add one.
 from __future__ import annotations
 
 SEEDS: dict[str, tuple[str, ...]] = {
-    ".claude/agents/smart-commit.md": (
-        "unbacked percentage '80%'",
-        "unbacked percentage '85%'",
-    ),
-    ".claude/instructions/01-core-rules.md": ("unbacked percentage '90%'",),
-    ".claude/instructions/07-validation.md": ("unbacked percentage '90%'",),
     ".claude/instructions/08-project-specific.md": (
         "unbacked duration '5min'",
         "unbacked N-plus '17+ core'",
     ),
     ".claude/instructions/09-task-management.md": ("unbacked duration '10 minute'",),
-    ".claude/instructions/11-pr-requirements.md": (
-        "unbacked percentage '85%'",
-        "unbacked percentage '85%'",
-        "unbacked percentage '90%'",
-    ),
     ".claude/skills/pyeye-scenarios/SKILL.md": (
         "unbacked size '350 KB'",
         "unbacked size '366 MB'",

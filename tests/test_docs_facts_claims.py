@@ -218,3 +218,17 @@ def test_env_defaults_are_bindable_inline() -> None:
     assert facts["env.PYEYE_CACHE_TTL.default"].markdown == str(
         facts["env.PYEYE_CACHE_TTL"].value["default"]  # type: ignore[union-attr]
     )
+
+
+def test_a_stale_seed_points_at_the_seed_file() -> None:
+    entry = DocEntry("p.md", "human", "prose", MappingProxyType({"honest-claims": ("x",)}))
+
+    problem = rules.ratchet(entry, "honest-claims", [])
+
+    assert problem is not None and "claim_seeds.py" in problem
+    other = rules.ratchet(
+        DocEntry("p.md", "human", "prose", MappingProxyType({"absence-prose": ("x",)})),
+        "absence-prose",
+        [],
+    )
+    assert other is not None and "docs.py" in other
