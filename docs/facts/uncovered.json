@@ -33,7 +33,6 @@
     "env.PYEYE_POOL_TTL",
     "env.PYEYE_SCRIPT_CACHE_MAX_ENTRIES",
     "project.python_versions",
-    "project.requires_python",
     "review.grade.ambiguous",
     "review.grade.deterministic_single",
     "review.grade.mechanical_fact",

@@ -7,14 +7,13 @@
   ],
   "scope_aliases": {
     "apps": [
-      "main",
-      "./packages/app-*"
+      "package:packages"
     ],
     "libs": [
-      "packages"
+      "package:libs"
     ],
     "tools": [
-      "./tools/*"
+      "package:tools"
     ]
   },
   "scope_defaults": {
