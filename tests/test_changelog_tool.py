@@ -498,3 +498,60 @@ class TestFragmentCli:
 
     def test_repo_fragments_are_valid(self):
         assert cl.fragment_problems(_ROOT / "changes") == []
+
+
+class TestFactLedgerStamp:
+    """prepare stamps the release into the docs-facts ledgers (#826)."""
+
+    _REMOVED = (
+        '{\n  "removed": [\n'
+        '    {"fact_id": "tool.a", "match": "word", "removed_in": "unreleased"},\n'
+        '    {"fact_id": "tool.b", "match": "word", "removed_in": "2.0.0",'
+        ' "note": "was unreleased"}\n  ]\n}\n'
+    )
+
+    def test_stamp_changes_only_the_release_values(self):
+        stamped = cl.stamp_unreleased(self._REMOVED, "2.1.1")
+        assert '"removed_in": "2.1.1"' in stamped
+        assert '"note": "was unreleased"' in stamped
+        assert '"removed_in": "2.0.0"' in stamped
+        assert cl.stamp_unreleased('{"first_seen": "unreleased"}', "3.0.0") == (
+            '{"first_seen": "3.0.0"}'
+        )
+
+    def test_prepare_stamps_the_ledgers_and_check_still_passes(self, tmp_path, capsys):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # noqa: S603, S607
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(_log("", _V1))
+        _frags(tmp_path, {"1.fixed.md": "- Fix.\n"})
+        facts = tmp_path / "docs" / "facts"
+        facts.mkdir(parents=True)
+        (facts / "removed.json").write_text(self._REMOVED, encoding="utf-8")
+        (facts / "uncovered.json").write_text(
+            '{"baseline": [], "new": [{"fact_id": "x", "first_seen": "unreleased"}]}\n',
+            encoding="utf-8",
+        )
+
+        assert cl.main(["--changelog", str(path), "prepare", "1.0.1", "--date", "2026-11-20"]) == 0
+
+        assert '"removed_in": "1.0.1"' in (facts / "removed.json").read_text(encoding="utf-8")
+        assert '"first_seen": "1.0.1"' in (facts / "uncovered.json").read_text(encoding="utf-8")
+        out = capsys.readouterr().out
+        assert "Stamped 1.0.1 into docs/facts/removed.json." in out
+        assert "Stamped 1.0.1 into docs/facts/uncovered.json." in out
+        assert cl.main(["--changelog", str(path), "check", "--no-tags"]) == 0
+
+    def test_prepare_without_ledgers_is_a_clean_no_op(self, tmp_path, capsys):
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # noqa: S603, S607
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(_log("", _V1))
+        _frags(tmp_path, {"1.fixed.md": "- Fix.\n"})
+
+        assert cl.main(["--changelog", str(path), "prepare", "1.0.1"]) == 0
+        assert "Stamped" not in capsys.readouterr().out
+        assert not (tmp_path / "docs").exists()
+
+    def test_the_ledger_list_names_the_files_docs_facts_writes(self):
+        from pyeye.docs_facts import ledger, removed
+
+        assert set(cl.FACT_LEDGERS) == {removed.REMOVED, ledger.UNCOVERED}

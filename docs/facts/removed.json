@@ -1,0 +1,110 @@
+{
+  "removed": [
+    {
+      "fact_id": "tool.analyze_dependencies",
+      "match": "word",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.configure_namespace_package",
+      "match": "word",
+      "removed_in": "1.1.2"
+    },
+    {
+      "fact_id": "tool.configure_packages.param.exclude_patterns",
+      "match": "none",
+      "note": "Dead standalone-scan option (#513).",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.configure_packages.param.file_pattern",
+      "match": "none",
+      "note": "Dead standalone-scan option (#513).",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.configure_packages.param.recursive",
+      "match": "none",
+      "note": "Dead standalone-scan option (#513).",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.find_imports",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.find_in_namespace",
+      "match": "word",
+      "removed_in": "1.1.2"
+    },
+    {
+      "fact_id": "tool.find_references",
+      "match": "word",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.find_subclasses",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.find_symbol",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.find_symbol_multi",
+      "match": "word",
+      "removed_in": "1.1.2"
+    },
+    {
+      "fact_id": "tool.get_call_hierarchy",
+      "match": "word",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.get_module_info",
+      "match": "word",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.get_type_info",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.goto_definition",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.list_modules",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.list_packages",
+      "match": "heading",
+      "note": "Lives on as a JediAnalyzer method or a scope_defaults key, so only an API heading for it is wrong.",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.list_project_structure",
+      "match": "word",
+      "removed_in": "2.0.0"
+    },
+    {
+      "fact_id": "tool.lookup",
+      "match": "none",
+      "note": "Never registered in a release: the superseded entry point was added and removed between 1.1.2 and 2.0.0 (#505). Too common a word to scan for.",
+      "removed_in": "2.0.0"
+    }
+  ]
+}

@@ -58,6 +58,18 @@ jobs:
         # pre-commit's generate hook only runs on matching files; check always
         # compares every fact block, reference page and the snapshot.
         run: uv run --frozen python scripts/docs_facts.py check
+      - name: Docs facts changed in this PR (#826)
+        # The scope of a change-triggered /docs-review: the snapshot diffed
+        # against the base branch. The checkout is the PR's merge commit, whose
+        # first parent is the base tip, so the diff is exactly this PR's facts.
+        # A summary only; it never fails the job.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          uv run --frozen python scripts/docs_facts.py changed --base FETCH_HEAD >> "$GITHUB_STEP_SUMMARY"
 
   # Detect if only documentation files changed
   changes:
