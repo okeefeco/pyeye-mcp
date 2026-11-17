@@ -37,6 +37,14 @@ class TestPatterns:
             ("It currently has 17 tools.", "currently-N"),
             ("The server ships 17+ core tools.", "N-plus"),
             ("This saves tokens on every call.", "token-savings"),
+            ("Lookups are 3X faster.", "multiplier"),
+            ("It is 3 times faster than before.", "multiplier"),
+            ("A 10-fold improvement.", "multiplier"),
+            ("Each hop takes 40 µs.", "duration"),
+            ("A 300 ns dispatch.", "duration"),
+            ("We reply within 7 days.", "duration"),
+            ("Releases every 2 weeks.", "duration"),
+            ("Ships 1,000+ users a day.", "N-plus"),
             ("A 90% token reduction.", "percentage"),
         ],
     )
@@ -102,6 +110,29 @@ class TestBacking:
 
         assert claims.claims(text) == []
 
+    def test_a_bare_url_backs_it(self) -> None:
+        assert claims.claims("FAT resolution is 2 s, per https://example.org/fat.\n") == []
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "It is 3x faster (`https://example.org/bench`).",
+            "It is 3x faster. <!-- https://example.org/bench -->",
+            "It is 3x faster ![chart](https://example.org/chart.png).",
+            "It is 3x faster [![badge](https://img.shields.io/x.svg)](https://example.org).",
+            "It is 3x faster ([local run](http://localhost:8080/report)).",
+            "It is 3x faster (http://127.0.0.1:8000).",
+        ],
+    )
+    def test_an_invisible_or_local_link_backs_nothing(self, text: str) -> None:
+        """#847 review: only a link a reader can follow to a public host counts."""
+        assert _labels(text) == ["multiplier"]
+
+    def test_a_record_link_in_a_code_span_backs_nothing(self, tmp_path: Path) -> None:
+        text = "It takes 5 s (`[record](../records/run.md)`).\n"
+
+        assert claims.claims(text, "docs/page.md", tmp_path, frozenset({"records/run.md"}))
+
     def test_a_linked_record_backs_it(self, tmp_path: Path) -> None:
         (tmp_path / "records").mkdir()
         (tmp_path / "records" / "run.md").write_text("x", encoding="utf-8")
@@ -128,11 +159,21 @@ class TestBacking:
 
 
 class TestMessages:
-    def test_the_key_names_the_claim_and_the_message_adds_the_line(self) -> None:
+    def test_the_message_names_the_claim_and_its_line(self) -> None:
         (claim,) = claims.claims("Cold lookups take 50 ms each.")
 
-        assert claim.key == "unbacked duration '50 ms'"
-        assert claim.message.startswith(claim.key + ": Cold lookups")
+        assert claim.message == "unbacked duration '50 ms': Cold lookups take 50 ms each."
+
+    @pytest.mark.parametrize(
+        ("text", "matched"),
+        [
+            ("Coverage is 79% (as of January 2025).", "as of January 2025"),
+            ("It currently has 7 tools.", "currently has 7 tools"),
+            ("Ships 1,000+ users a day.", "1,000+ users"),
+        ],
+    )
+    def test_the_match_carries_its_object(self, text: str, matched: str) -> None:
+        assert matched in [c.text for c in claims.claims(text)]
 
 
 class TestOnTheRegistry:
@@ -173,9 +214,26 @@ class TestOnTheRegistry:
 
         assert self._run(tmp_path, "p.md", text, "prose") == []
 
+    @pytest.mark.parametrize(
+        ("seeded", "edited"),
+        [
+            ("Coverage is 79% (as of January 2025).", "Coverage is 79% (as of next month)."),
+            ("Coverage is 79% today.", "Speed improved 79% overall."),
+        ],
+    )
+    def test_a_seed_cant_be_swapped_for_another_claim(
+        self, tmp_path: Path, seeded: str, edited: str
+    ) -> None:
+        """#847 review: a seed covers its own claim in its own sentence only."""
+        keys = tuple(c.message for c in claims.claims(seeded))
+
+        problems = self._run(tmp_path, "p.md", edited + "\n", "prose", **{"honest-claims": keys})
+
+        assert any("not in the page's allow-list" in p for p in problems)
+
     def test_a_seeded_claim_passes_and_a_new_one_fails(self, tmp_path: Path) -> None:
         text = "It is 40% faster.\n\nAnd 2x smaller.\n"
-        seeds = {"honest-claims": ("unbacked percentage '40%'",)}
+        seeds = {"honest-claims": ("unbacked percentage '40%': It is 40% faster.",)}
 
         problems = self._run(tmp_path, "p.md", text, "prose", **seeds)
 

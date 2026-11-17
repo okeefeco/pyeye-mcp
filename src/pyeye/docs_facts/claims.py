@@ -30,6 +30,7 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ..path_utils import relative_within
 from . import binding
@@ -45,14 +46,20 @@ _NUM = r"\d+(?:[.,]\d+)?"
 #: Label -> pattern. Labels name the kind of claim in a finding.
 PATTERNS: dict[str, re.Pattern[str]] = {
     "percentage": re.compile(rf"{_NUM}\s?%"),
-    "multiplier": re.compile(rf"\b{_NUM}\s?[x×](?![\w-])"),
+    "multiplier": re.compile(
+        rf"\b{_NUM}\s?(?:[xX×](?![\w-])|-?fold\b"
+        r"|\s*times\s+(?:faster|slower|more|less|fewer|smaller|larger|bigger|cheaper))"
+    ),
     "duration": re.compile(
-        rf"\b{_NUM}\s?(?:ms|milliseconds?|s|secs?|seconds?|mins?|minutes?|hours?)\b"
+        rf"\b{_NUM}\s?(?:[µμ]s|ns|ms|milliseconds?|s|secs?|seconds?|mins?|minutes?"
+        r"|hours?|days?|weeks?)\b"
     ),
     "size": re.compile(rf"\b{_NUM}\s?(?:[KMGT]i?B|bytes)\b"),
-    "as-of": re.compile(r"\bas of\b", re.IGNORECASE),
-    "currently-N": re.compile(r"\bcurrently\b[^.;:\d]{0,20}\d", re.IGNORECASE),
-    "N-plus": re.compile(r"(?<![\d.])\b\d+\+\s+[A-Za-z][\w-]*"),
+    "as-of": re.compile(r"\bas of\b[^.;,)]{0,30}", re.IGNORECASE),
+    "currently-N": re.compile(
+        r"\bcurrently\b[^.;:\d]{0,20}\d[\d,.]*\+?(?:\s+[A-Za-z][\w-]*)?", re.IGNORECASE
+    ),
+    "N-plus": re.compile(r"(?<![\d.,])\b\d[\d,]*\+\s+[A-Za-z][\w-]*"),
     "token-savings": re.compile(
         r"\btokens?\b[^.;]{0,30}\b(?:sav|reduc|fewer|less)"
         r"|\b(?:sav|reduc)\w*[^.;]{0,30}\btokens?\b",
@@ -80,14 +87,15 @@ class Claim:
     excerpt: str
 
     @property
-    def key(self) -> str:
-        """What an allowance names: the kind and the matched text, no line."""
-        return f"unbacked {self.label} {self.text!r}"
-
-    @property
     def message(self) -> str:
-        """The key, plus the line it's on, for the report."""
-        return f"{self.key}: {self.excerpt}"
+        """The claim and the prose line it's on, with no line number.
+
+        It is also what an allowance names (design C12: keyed on the exact
+        finding message), so a seed covers that claim in that sentence and
+        nothing else: a new "as of …" or another "79%" on the same page is a
+        new finding.
+        """
+        return f"unbacked {self.label} {self.text!r}: {self.excerpt}"
 
 
 def front_matter(text: str) -> dict[str, str]:
@@ -137,9 +145,56 @@ def _prose_line(line: str) -> str:
     return _VERSION.sub(" ", line)
 
 
+_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+#: Hosts that serve only the reader's own machine, so a link to one cites nothing.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _visible(line: str) -> str:
+    """*line* as a reader sees its links: no code spans, comments or images.
+
+    A link inside inline code or a comment isn't a citation, and a badge is an
+    image, not a source. A badge's outer link is left with no text, so it
+    doesn't count either.
+    """
+    for start, end in reversed(binding.code_spans(line)):
+        line = line[:start] + " " * (end - start) + line[end:]
+    line = _HTML_COMMENT.sub(" ", line)
+    while _IMAGE.search(line):
+        line = _IMAGE.sub(" ", line)
+    return line
+
+
+def _visible_links(line: str) -> Iterator[str]:
+    """The targets of the links a reader can follow from *line*."""
+    visible = _visible(line)
+    for match in _MD_LINK.finditer(visible):
+        if match.group(1).strip():
+            yield match.group(2)
+    for match in _BARE_URL.finditer(_MD_LINK.sub(" ", visible)):
+        yield match.group().strip("<>")
+
+
+def _is_external(target: str) -> bool:
+    """An ``http(s)`` URL on a public host: a citable source, not a local server."""
+    if not _EXTERNAL.match(target):
+        return False
+    host = urlparse(target).hostname or ""
+    return bool(host) and host not in _LOCAL_HOSTS
+
+
+def links_a_source(line: str) -> bool:
+    """True if *line* visibly links an external source.
+
+    Whether that source is *primary* is a judgment, left to review (#829).
+    """
+    return any(_is_external(t) for t in _visible_links(line))
+
+
 def _link_targets(line: str) -> Iterator[str]:
-    for match in _MD_LINK.finditer(line):
-        yield match.group(2).split("#", 1)[0]
+    for target in _visible_links(line):
+        if not _EXTERNAL.match(target):
+            yield target.split("#", 1)[0]
 
 
 def links_a_record(line: str, page: str, root: Path, records: frozenset[str]) -> bool:
@@ -178,8 +233,8 @@ def claims(
         ]
         if not hits:
             continue
-        if _EXTERNAL.search(raw):
-            continue  # a primary source is linked from the line
+        if links_a_source(raw):
+            continue
         if root is not None and links_a_record(raw, page, root, records):
             continue
         excerpt = " ".join(prose.split())

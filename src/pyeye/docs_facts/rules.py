@@ -141,21 +141,11 @@ def paragraphs(text: str) -> Iterator[tuple[int, str]]:
 class Finding:
     """One violation: the 1-based line it starts on and what's wrong.
 
-    Attributes:
-        line: The 1-based line.
-        message: What's wrong, as reported.
-        key: What an allowance names, when shorter than *message* (the claim
-            without its line excerpt); defaults to *message*.
+    The message carries no line number: it is also what an allowance names.
     """
 
     line: int
     message: str
-    key: str = ""
-
-    @property
-    def allow_key(self) -> str:
-        """The text a page's allow-list entry must match."""
-        return self.key or self.message
 
 
 @dataclass(frozen=True)
@@ -497,7 +487,7 @@ _CLAIMS: frozenset[Kind] = frozenset({"prose", "skill", "history"})
 def honest_claims(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
     """Each number or volatile status no fact, record or source backs (D12)."""
     return [
-        Finding(c.line, c.message, c.key)
+        Finding(c.line, c.message)
         for c in claims.claims(page.prose, page.name, page.root, page.records)
     ]
 
@@ -732,14 +722,14 @@ def _page_problems(page: Page, entry: DocEntry, rules: Iterable[Rule], facts: Fa
         if page.kind not in rule.kinds:
             continue
         findings = rule.scan(page, facts)
-        verdict = ratchet(entry, rule.id, [f.allow_key for f in findings])
+        verdict = ratchet(entry, rule.id, [f.message for f in findings])
         if verdict is None:
             continue
         problems.append(f"{page.name}: {verdict}")
         allowed = Counter(entry.allow.get(rule.id, ()))
         for finding in findings:
-            if allowed[finding.allow_key]:
-                allowed[finding.allow_key] -= 1
+            if allowed[finding.message]:
+                allowed[finding.message] -= 1
             else:
                 problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
     return problems
