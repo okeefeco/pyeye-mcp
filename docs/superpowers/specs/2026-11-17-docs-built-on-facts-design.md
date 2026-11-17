@@ -203,7 +203,7 @@ Ordered so that nothing generation will produce gets hand-fixed:
     - Unenforced policy numbers (">90% new-code coverage") are **removed**, not bound. Enforcing diff coverage would be a separate issue.
     - Prose-only scanning; URLs, badges, inline code, version strings and commands are skipped.
     - A `record` kind, with `date`, `command` and `commit` in front matter. A line passes only by linking a registered record.
-    - A per-page shrink-only count of violating lines.
+    - A shrink-only allow-list keyed on the exact finding message, one entry per occurrence, with the snippets printed on failure (as amended by C12).
     - The patterns are units, multipliers, %, "as of", "currently N", "N+ noun" and token-savings phrasing. Bare counts are left to review.
   - **#825, what the prose rules scan:**
     - registered docs;
@@ -221,6 +221,11 @@ Ordered so that nothing generation will produce gets hand-fixed:
 - **C11. Two corrections from #837's mutation tests (maintainer, 2026-11-17).** They amend C1 and C10.
   - **Comments are scanned.** The phrasing rules (absence-vs-zero, `edge_counts`) also scan the `COMMENT` tokens of the modules whose strings they scan. The original #395 miss was a `server.py` comment. This replaces C10's "comments are not scanned".
   - **Fact rules apply to history pages.** The env-var and server-command rules apply to `history` pages too, such as `migration-guide.md`. A gone name passes there only on a line that says "removed" (C8). Released CHANGELOG sections stay exempt. This narrows C1: history exempts a page from the phrasing rules and from the plain removed-name scan, not from the fact rules.
+- **C12. Ratchet shape and per-edge ceilings (2026-11-18).**
+  - **Every allow-list is keyed on the exact finding message,** one entry per occurrence, and only shrinks. This applies to the prose rules, D12 and #826. A per-page count would let a fix be traded for a new violation (found by #837's mutation tests).
+  - **#417, the maintainer's option (c):**
+    - #825 derives the "Static-surface ceiling" marker set from the ceiling facts (edges whose ceiling is `static_definitions` or `literal_subclassing`), not from a hand list of edge names.
+    - #827 makes every tool description state the ceiling meaning of each edge it exposes, taken from that edge's `EDGE_CEILINGS` fact, with a check that no exposed edge lacks one.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
