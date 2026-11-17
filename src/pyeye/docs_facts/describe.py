@@ -29,15 +29,17 @@ import functools
 import importlib
 import re
 from collections.abc import Callable, Iterable, Mapping
-from pathlib import Path
 from typing import Any, TypeVar
 
 from .facts import Bindable, Fact, View, index
 
 #: Extractor modules (under :mod:`pyeye.docs_facts.extractors`) whose facts can
-#: fill a slot. Neither reads :mod:`pyeye.mcp.server`. They are imported on the
-#: first fill, not here: ``edges`` imports :mod:`pyeye.mcp`, whose package
-#: ``__init__`` imports the server, which imports this module.
+#: fill a slot, through each one's ``extract_code()``. That reads the installed
+#: code only, never a repo file: the server fills its descriptions while it
+#: loads, in a wheel install too, where there is no repo (#851). Neither reads
+#: :mod:`pyeye.mcp.server`. They are imported on the first fill, not here:
+#: ``edges`` imports :mod:`pyeye.mcp`, whose package ``__init__`` imports the
+#: server, which imports this module.
 LOAD_TIME_EXTRACTORS = ("edges", "scopes")
 
 #: ``<<fact:ID>>`` or ``<<fact:ID:FORM>>``. ``<<`` never occurs naturally in a
@@ -60,12 +62,11 @@ class SlotError(ValueError):
 
 @functools.cache
 def load_time_facts() -> Mapping[str, Bindable]:
-    """Every fact and view a slot can name, indexed by ID (built once)."""
-    root = Path(".")
+    """Every fact and view a slot can name, indexed by ID (built once, from code only)."""
     modules = [
         importlib.import_module(f"{__package__}.extractors.{n}") for n in LOAD_TIME_EXTRACTORS
     ]
-    return index(item for module in modules for item in module.extract(root))
+    return index(item for module in modules for item in module.extract_code())
 
 
 def _members(item: Bindable, facts: Mapping[str, Bindable]) -> list[Fact]:
@@ -87,11 +88,14 @@ def _rst(name: str) -> str:
     return f"``{name}``"
 
 
-def _render_list(members: list[Fact], indent: str) -> str:  # noqa: ARG001 - inline
+Facts = Mapping[str, Bindable]
+
+
+def _render_list(members: list[Fact], indent: str, facts: Facts) -> str:  # noqa: ARG001 - inline
     return ", ".join(_rst(label(m)) for m in members)
 
 
-def _render_bullets(members: list[Fact], indent: str) -> str:
+def _render_bullets(members: list[Fact], indent: str, facts: Facts) -> str:  # noqa: ARG001
     lines = []
     for m in members:
         meaning = m.value.get("meaning") if isinstance(m.value, dict) else None
@@ -101,7 +105,7 @@ def _render_bullets(members: list[Fact], indent: str) -> str:
     return ("\n" + indent).join(lines)
 
 
-def _render_applies_to(members: list[Fact], indent: str) -> str:  # noqa: ARG001 - inline
+def _render_applies_to(members: list[Fact], indent: str, facts: Facts) -> str:  # noqa: ARG001
     parts = []
     for m in members:
         kinds = m.value.get("applies_to") if isinstance(m.value, dict) else None
@@ -111,16 +115,58 @@ def _render_applies_to(members: list[Fact], indent: str) -> str:  # noqa: ARG001
     return "; ".join(parts)
 
 
+def ceiling_statement(edge: Fact, facts: Facts) -> str | None:
+    """How a description states *edge*'s ceiling: ````<ceiling>``: <meaning>``.
+
+    ``None`` for an exact edge (no ceiling). The edge-ceiling rule (#827, design
+    C12) looks for exactly this text, so the slot and the check can't disagree.
+
+    Raises:
+        SlotError: If *edge* isn't an edge fact, or its ceiling has no fact.
+    """
+    if not edge.id.startswith("edge.") or not isinstance(edge.value, dict):
+        raise SlotError(f"{edge.id!r} is not an edge, so it has no ceiling")
+    ceiling_id = edge.value.get("ceiling")
+    if ceiling_id is None:
+        return None
+    ceiling = facts.get(f"ceiling.{ceiling_id}")
+    if not isinstance(ceiling, Fact):
+        raise SlotError(f"{edge.id!r} has ceiling {ceiling_id!r}, which has no fact")
+    return f"{_rst(ceiling_id)}: {ceiling.value['meaning']}"
+
+
+def _render_ceiling(members: list[Fact], indent: str, facts: Facts) -> str:  # noqa: ARG001
+    parts = []
+    for m in members:
+        statement = ceiling_statement(m, facts)
+        parts.append(statement if statement is not None else "exact (no ceiling)")
+    return "; ".join(parts)
+
+
+def _render_ceilings(members: list[Fact], indent: str, facts: Facts) -> str:
+    lines = []
+    for m in members:
+        statement = ceiling_statement(m, facts)
+        # "On ``edge``", not "``edge``": a bullet that starts with the edge name
+        # is that edge's own entry to the #417 marker rule.
+        lines.append(f"- On {_rst(label(m))}: {statement or 'exact (no ceiling)'}.")
+    return ("\n" + indent).join(lines)
+
+
 #: Forms that render several lines, at the slot's own indentation. A slot in one
 #: of them must be on a line of its own, or :func:`fill` raises :class:`SlotError`.
-BLOCK_FORMS = frozenset({"bullets"})
+BLOCK_FORMS = frozenset({"bullets", "ceilings"})
 
-#: Slot forms. ``list`` (the default) and ``applies_to`` are inline; ``bullets``
-#: puts one member per line (see :data:`BLOCK_FORMS`).
-FORMS: dict[str, Callable[[list[Fact], str], str]] = {
+#: Slot forms. Inline: ``list`` (the default), ``applies_to``, and ``ceiling``
+#: (an edge's ceiling statement). Block (one member per line, see
+#: :data:`BLOCK_FORMS`): ``bullets`` (each member's meaning) and ``ceilings``
+#: (each edge with its ceiling statement).
+FORMS: dict[str, Callable[[list[Fact], str, Facts], str]] = {
     "list": _render_list,
     "bullets": _render_bullets,
     "applies_to": _render_applies_to,
+    "ceiling": _render_ceiling,
+    "ceilings": _render_ceilings,
 }
 
 
@@ -146,7 +192,7 @@ def fill(doc: str, facts: Mapping[str, Bindable] | None = None) -> str:
         own_line = not before.strip() and not after.strip()
         if form in BLOCK_FORMS and not own_line:
             raise SlotError(f"a {form!r} slot must be on a line of its own: {match[0]!r}")
-        return FORMS[form](_members(facts[fact_id], facts), before if own_line else "")
+        return FORMS[form](_members(facts[fact_id], facts), before if own_line else "", facts)
 
     filled = SLOT.sub(replace, doc)
     leftover = unfilled(filled)

@@ -5,7 +5,7 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from .exceptions import ValidationError
-from .path_utils import absolute_path, ensure_posix_path, normalize_path, relative_within
+from .path_utils import absolute_path, anchor, ensure_posix_path, normalize_path, relative_within
 
 
 class PathValidator:
@@ -24,13 +24,56 @@ class PathValidator:
         r"^/sys/",  # System info (Unix)
     ]
 
+    #: Checked against every form of the target (:meth:`check_forms`).
+    RESTRICTED_TARGETS: tuple[str, ...] = (
+        r"^/etc/",
+        r"^/root/",
+        r"^/proc/",
+        r"^/sys/",
+        r"^/dev/",
+        r"/etc/",  # Also check if /etc/ appears anywhere in path
+        r"/root/",  # Also check if /root/ appears anywhere
+    )
+
+    @staticmethod
+    def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
+        """``(resolved, forms)``: the deny-list checks the target's lexical and resolved forms.
+
+        An absolute path, or a relative one containing ``..``, is checked both
+        **lexically** (anchored, ``..`` collapsed, symlinks kept) and
+        **resolved**. Either matching rejects it: on macOS ``/etc`` resolves to
+        ``/private/etc``, which the resolved form alone never matches. A relative
+        one is anchored on *anchor_root* (the call's project) when given, else
+        the cwd. Any other relative path is checked as given.
+        """
+        if path.is_absolute():
+            lexical = absolute_path(path)
+        elif ".." in path.as_posix():
+            lexical = absolute_path(anchor(path, anchor_root) if anchor_root is not None else path)
+        else:
+            return path, [path.as_posix()]
+        resolved = normalize_path(lexical)
+        return resolved, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
+
     @classmethod
-    def validate_path(cls, path: str | Path, base_path: str | Path | None = None) -> Path:
+    def validate_path(
+        cls,
+        path: str | Path,
+        base_path: str | Path | None = None,
+        anchor_root: str | Path | None = None,
+    ) -> Path:
         """Validate and sanitize a file path.
+
+        The checks run on where the path really goes, but a relative path is
+        returned as the caller wrote it, for the tool to anchor on its project
+        (``path_utils.anchor``, #842, #843).
 
         Args:
             path: The path to validate
             base_path: Optional base path to restrict access within
+            anchor_root: The directory a relative *path* is relative to (the
+                call's ``project_path``). A relative path containing ``..`` is
+                checked as anchored there; without it, as anchored on the cwd.
 
         Returns:
             Validated Path object
@@ -64,33 +107,25 @@ class PathValidator:
         # Convert to Path object
         try:
             path_obj = Path(path_str)
-            # Only resolve if the path contains .. or is absolute
-            # This preserves relative paths for testing
-            if ".." in path_str or path_obj.is_absolute():
-                resolved_path = normalize_path(path_obj)
-            else:
-                # Keep relative paths as-is
-                resolved_path = path_obj
+            # The deny-list below must see the real target, so an absolute path,
+            # or a relative one with ``..``, is resolved for the checks: a
+            # relative one where the tool will anchor it (*anchor_root*), else
+            # on the cwd as before. Only the checks use it; a relative path is
+            # returned unchanged (#842, #843).
+            resolved_path, forms = cls.check_forms(path_obj, anchor_root)
         except (ValueError, RuntimeError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
 
-        # Check the path (resolved or not) for dangerous locations
-        path_to_check = resolved_path.as_posix()
-
-        # Check for actual security issues in paths
-        suspicious_resolved_patterns = [
-            r"^/etc/",
-            r"^/root/",
-            r"^/proc/",
-            r"^/sys/",
-            r"^/dev/",
-            r"/etc/",  # Also check if /etc/ appears anywhere in path
-            r"/root/",  # Also check if /root/ appears anywhere
-        ]
-
-        for pattern in suspicious_resolved_patterns:
-            if re.search(pattern, path_to_check):
-                raise ValidationError(f"Path resolves to restricted location: {pattern}")
+        # The system directory itself counts too: "/etc" (from "../../etc")
+        # must not slip past "^/etc/" for lack of a trailing slash. Only for the
+        # anchored patterns: a project dir that merely ENDS in "root" or "etc"
+        # (/home/u/repos/root) is not a system directory.
+        for form in forms:
+            as_dir = form.rstrip("/") + "/"
+            for pattern in cls.RESTRICTED_TARGETS:
+                anchored = pattern.startswith("^")
+                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
+                    raise ValidationError(f"Path resolves to restricted location: {pattern}")
 
         # If base_path is provided, ensure the path is within it
         if base_path:
@@ -119,9 +154,9 @@ class PathValidator:
         # spelling, made absolute: a symlinked project_path must stay as the
         # agent gave it, or every location comes back under the real path and
         # can't be matched to the agent's own paths (#603, #717).
-        if resolved_path.is_absolute():
+        if path_obj.is_absolute():
             return absolute_path(path_str)
-        return resolved_path
+        return path_obj
 
 
 class InputValidator:
@@ -238,6 +273,10 @@ def validate_mcp_inputs(func: Any) -> Any:
         # Get function name to apply specific validation rules
         func_name = func.__name__
 
+        # Relative paths in this call are relative to its project (#842, #843).
+        raw_project = bound.arguments.get("project_path")
+        project_root = raw_project if isinstance(raw_project, str | Path) else "."
+
         # Validate based on parameter names
         for param_name, value in bound.arguments.items():
             if value is None:
@@ -246,7 +285,10 @@ def validate_mcp_inputs(func: Any) -> Any:
             # File path validation
             if param_name in ["file", "file_path", "path", "project_path"]:
                 try:
-                    validated = PathValidator.validate_path(value)
+                    # A file is relative to the call's project; project_path
+                    # itself is relative to the cwd (#842, #843).
+                    root = None if param_name == "project_path" else project_root
+                    validated = PathValidator.validate_path(value, anchor_root=root)
                     # POSIX, never str(): str() gives native backslashes on
                     # Windows, and the value is echoed back to the agent (#717).
                     bound.arguments[param_name] = (
@@ -310,7 +352,7 @@ def validate_mcp_inputs(func: Any) -> Any:
                     validated_list = []
                     for i, item in enumerate(value):
                         try:
-                            validated = PathValidator.validate_path(item)
+                            validated = PathValidator.validate_path(item, anchor_root=project_root)
                             validated_list.append(str(validated))
                         except ValidationError as e:
                             raise ValidationError(

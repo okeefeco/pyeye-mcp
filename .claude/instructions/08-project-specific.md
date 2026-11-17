@@ -77,7 +77,7 @@ Example `.pyeye.json`:
 
 ```bash
 # Run tests with coverage
-uv run pytest --cov=src/pyeye --cov-fail-under=85
+uv run pytest --cov=src/pyeye  # enforces the coverage threshold (pyproject addopts)
 
 # Format code
 uv run black src/

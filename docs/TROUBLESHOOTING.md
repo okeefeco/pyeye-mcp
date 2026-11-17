@@ -295,7 +295,7 @@ sudo dnf install python3-devel
 
 1. Watchers already ignore `.git`, `__pycache__`, virtualenvs and other
    non-source directories (`watch_exclude` is deprecated and has no effect, #581).
-2. Increase debounce time (default: 0.5s):
+2. Increase debounce time (default: <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s):
 
    ```bash
    export PYEYE_WATCHER_DEBOUNCE=2

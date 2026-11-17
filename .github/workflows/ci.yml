@@ -52,12 +52,20 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Install dependencies
-        run: uv sync --locked  # creates .venv so the repo:local hooks' `uv run <tool>` resolves
+        # Creates .venv so the repo:local hooks' `uv run <tool>` resolves. The
+        # `docs` group is the site's (#861), so pip-audit covers it too.
+        run: uv sync --locked --group docs
       - uses: pre-commit/action@v3.0.1
       - name: Docs facts are current (#824)
         # pre-commit's generate hook only runs on matching files; check always
         # compares every fact block, reference page and the snapshot.
         run: uv run --frozen python scripts/docs_facts.py check
+      - name: Docs site builds (#861)
+        # Strict: a broken link or a page MkDocs can't place fails. This job
+        # runs on merge_group, so the queue enforces it with no new check.
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: uv run --frozen --group docs mkdocs build --strict
       - name: Docs facts changed in this PR (#826)
         # The scope of a change-triggered /docs-review: the snapshot diffed
         # against the base branch. The checkout is the PR's merge commit, whose
@@ -336,6 +344,18 @@ jobs:
 
       - name: Run mypy
         run: uv run mypy src/pyeye --ignore-missing-imports
+
+      # #851: an installed wheel must start with no repo around it. Built and
+      # installed into a clean venv, then imported isolated (-I) from an empty
+      # directory, so nothing in the checkout can be read. Part of this required
+      # job, which runs on merge_group, so the queue enforces it.
+      - name: Import the installed wheel outside the repo
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv" "$RUNNER_TEMP"/dist/*.whl
+          cd "$(mktemp -d)"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -I -c "import pyeye.mcp.server"
 
   changelog-validation:
     # Validate CHANGELOG.md structure and that every v* tag has a section (#583)

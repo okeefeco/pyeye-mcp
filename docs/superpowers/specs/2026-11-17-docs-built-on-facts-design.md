@@ -26,7 +26,7 @@ The goal is documentation that is **built on facts**, so a code change cannot si
 - Generating prose. Explanation, ordering and examples stay hand-written.
 - An umbrella `/review` that runs architecture, duplication and docs together. It is a later sub-issue (see Follow-ups).
 - Historical records: `docs/superpowers/**`, `docs/decisions/**` and `docs/audits/**` are not bound or reviewed (as in the sweep).
-- A published docs site.
+- ~~A published docs site.~~ Removed by C16: the Markdown docs are published again (#861).
 
 ## Anti-goals (failure even if it "works")
 
@@ -41,7 +41,7 @@ The goal is documentation that is **built on facts**, so a code change cannot si
 
 | # | Decision | By |
 |---|---|---|
-| D1 | **Retire the Sphinx tree** (`docs/source/**`), its workflow, the `docs` dependency group and Dependabot's `sphinx*` group, and unpublish Pages. Port `architecture/resolution.rst` (current, and linked from the `python-explore` skill) and the still-correct parts of `plugin-system.rst` and `caching-strategy.rst` to `docs/architecture/*.md`. Delete the rest: it duplicates the README, CONTRIBUTING and `docs/`, and it teaches the v1 API. | Maintainer |
+| D1 | *(Amended by C16: the Markdown docs are published with MkDocs.)* **Retire the Sphinx tree** (`docs/source/**`), its workflow, the `docs` dependency group and Dependabot's `sphinx*` group, and unpublish Pages. Port `architecture/resolution.rst` (current, and linked from the `python-explore` skill) and the still-correct parts of `plugin-system.rst` and `caching-strategy.rst` to `docs/architecture/*.md`. Delete the rest: it duplicates the README, CONTRIBUTING and `docs/`, and it teaches the v1 API. | Maintainer |
 | D2 | **The binding is named marker blocks in Markdown, filled by our own stdlib script, plus fully generated reference pages** under `docs/reference/`. | Maintainer (approach A) |
 | D3 | **Fact drift is caught at commit time.** A pre-commit hook regenerates, and CI fails if the committed blocks differ from fresh ones. No bot regeneration PRs. | Claude's call, not contested |
 | D4 | **A removed or renamed fact that prose still names fails CI.** | Claude's call, not contested |
@@ -240,6 +240,35 @@ Ordered so that nothing generation will produce gets hand-fixed:
 - **C14. Two C13 clarifications (maintainer, 2026-11-18).**
   - **Orphaned dismissals fail.** `check` fails on a dismissal in `review-state.json` whose fact ID no longer exists, matching D4's unknown-ID rule. The PR that removes or renames the fact deletes the dismissal or moves it to the new ID. A rename is a removal plus an addition: the new ID enters the uncovered ledger unless the dismissal is deliberately carried over.
   - **Options only under ambiguity.** A finding with one clear fix (e.g. fact drift) carries a single proposed replacement text with its anchor, and no options, as D8 says. Options are mandatory only on `needs_decision` findings.
+- **C15. Prose must not state code facts (maintainer, 2026-11-18).** This is the binding rule ("prose references facts, never restates them") applied to statements of behaviour.
+  - **The rule.** A statement of what the code does or exposes may not be hand-written prose. That covers subprocesses started, files written and where, what the validator rejects, what `configure_packages` saves, and response shapes. It must come from a bound fact or from an executed example (#828). Prose keeps the why, the how-to and the concepts.
+  - **The main route is to add facts.** The first candidates come from #859: the subprocesses the server starts, the paths it writes, and the validator's deny-list. Each gets an extractor, so `fact_drift` and CI cover it.
+  - **`code_contradiction` is a narrow fallback,** only for behaviour claims that genuinely can't be a fact or an executed example (e.g. "re-exports collapse to their definition"):
+    - Its finding first recommends converting the claim to a fact or example. Only when that's impossible does it propose replacement wording.
+    - Its anchor is a code symbol, by its canonical pyeye handle, never `path:line`. `validate` checks that the handle resolves.
+    - It must carry **evidence** of what the code does, from pyeye for that handle (`inspect`'s signature, a docstring excerpt, or edge lists). `validate` checks each item against pyeye.
+  - **Symbol dismissals** are pinned to the symbol's signature and docstring as `inspect` reports them. A change to either brings the finding back; body edits don't. A handle that no longer resolves is an orphan (C14).
+  - **Non-fact dismissals** (style, claims, audience rules) key on a required `subject`: the exact text quoted from the page, checked to occur in the section. When the subject no longer occurs, the dismissal lapses (C16 replaced the orphan failure). If the whole section is gone, the dismissal is pruned, and the text is reviewed fresh under its new heading.
+  - **#830 sequencing:**
+    1. `SECURITY.md` by hand (#859, done).
+    2. Facts for #859's three candidates, which then replace that page's hand-written behaviour statements.
+    3. The rest through `/docs-review`, with code statements converted to facts or examples, not reworded.
+- **C16. Dismissal lapse, examples and the published site (maintainer, 2026-11-18).**
+  - **Non-fact dismissals lapse; they don't fail.** When a subject-keyed dismissal's quoted text no longer occurs, `check` stays green and the next `/docs-review` run (or `generate`) prunes it, so the finding can come back. A prose editor never touches `review-state.json`. Hard failure stays only for fact orphans and unresolved symbols (C14, C15).
+  - **Prose and executed examples.**
+    - Prose **may** say what an example demonstrates, as explanation or the why ("this example shows a re-export collapsing to its definition").
+    - It **may not** describe the example's output: the fields, values or response shape it already shows. The example is the fact.
+    - The rule is in the `/docs-review` checklist, and #830 applies it.
+  - **D1 amended: the Markdown docs are published (#861).**
+    - **Toolchain:** MkDocs with Material on GitHub Pages, with a strict build in CI. Every push to `main` deploys, replacing the stale Sphinx build. Sphinx stays retired. A docs dependency group returns for the site build; C4's "no new dependency" applies to the checks.
+    - **Page selection:**
+      - A `site: bool | None` field on each registry entry. The default is audience human or both, plus `docs/reference/`; `True`/`False` overrides it.
+      - No path rule in the generator, which would be a hidden second list.
+      - Sections follow the repo folders.
+      - Root pages (README, CONTRIBUTING, SECURITY) are served from the root by a build hook, with no copies.
+    - **The honest-claims gate:**
+      - A `history` page is published only once it has no honest-claims seeds. Today that means only CHANGELOG; the migration guide, `api-redesign.md` and the measurement records appear once #830 clears them.
+      - Live pages publish now even with seeds. The maintainer chose this because the stale site is far worse, and #830 cleans them in place.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder

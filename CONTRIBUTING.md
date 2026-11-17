@@ -34,7 +34,7 @@ Pull requests that aren't linked to an issue assigned to their author may be clo
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to the project maintainers.
+Everyone participating in this project is expected to be respectful and constructive. Please report unacceptable behavior to the project maintainers.
 
 ## How Can I Contribute?
 
@@ -133,8 +133,6 @@ Please follow these steps for your contribution:
    any `.git/hooks/post-checkout.legacy` pre-commit leaves behind) so the
    metrics session does not start twice.
 
-For detailed setup instructions, including worktree configuration and advanced development workflows, see [Development Setup Guide](docs/development-setup.md).
-
 #### Dependency lockfile policy
 
 `uv.lock` is **authoritative**: every environment — pre-commit hooks, CI, local
@@ -170,7 +168,6 @@ you changed `pyproject.toml` without re-locking — run `uv lock` and commit the
 3. **Write tests**:
    - All new features must have tests
    - Bug fixes should include regression tests
-   - Aim for >90% coverage on new code
 
 4. **Commit your changes**:
 
@@ -196,7 +193,7 @@ uv run pytest tests/test_specific.py
 uv run pytest -v
 ```
 
-For comprehensive testing guidelines, including performance testing and cross-platform considerations, see [Testing Guide](docs/testing-guide.md).
+For comprehensive testing guidelines, including performance testing and cross-platform considerations, see the [testing strategy](docs/testing/STRATEGY.md).
 
 To call tools by hand in a browser (optional; needs Node.js), start the
 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) on the server:
@@ -255,7 +252,7 @@ src/pyeye/
 
 - **GitHub Issues** - For bug reports and feature requests
 - **GitHub Discussions** - For questions and general discussion
-- **Documentation** - Check the [docs](docs/) folder for guides
+- **Documentation** - Read the [docs site](https://okeefeco.github.io/pyeye-mcp/), built from the [docs](docs/) folder
 
 ### Communication Guidelines
 

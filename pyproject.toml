@@ -66,6 +66,13 @@ dev = [
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
+# The docs site (#861): only the docs CI steps install it, never the server.
+# Floors are the locked versions; majors are capped, so a breaking release
+# (MkDocs 2, Material 10) is a deliberate change, not a Dependabot bump.
+docs = [
+    "mkdocs>=1.6.1,<2",
+    "mkdocs-material>=9.8.1,<10",
+]
 
 [project.scripts]
 pyeye-mcp = "pyeye.mcp.__main__:main"
