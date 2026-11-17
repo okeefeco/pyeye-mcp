@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Sphinx is retired; Markdown under docs/ is the only docs tree (#823)"
 issues: [823, 818]
 anchors: ["docs/architecture/resolution.md", "docs/architecture/plugin-system.md", "docs/architecture/caching.md", "tests/test_sphinx_retired.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-861-the-markdown-docs-are-published-with-mkdocs-nav-from-the-registry.md"]
 superseded_by: []
 ---
 

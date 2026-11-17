@@ -41,6 +41,9 @@ class DocEntry:
         path: Repo-relative POSIX path, or a glob pattern for a churning tree.
         audience: Who reads it (D11).
         kind: How the checks treat it.
+        site: Whether the docs site publishes the page (:mod:`.site`). ``None``
+            takes the default rule; ``True`` or ``False`` overrides it, on the
+            entry itself rather than in a list of its own (design C16).
         allow: Prose-rule ID -> the message of each finding this page may still
             have, one per occurrence (:mod:`.rules`). It only shrinks: ``check``
             fails on a finding not listed and on a listed one no longer found.
@@ -54,6 +57,7 @@ class DocEntry:
     kind: Kind
     allow: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
     covers: tuple[str, ...] = ()
+    site: bool | None = None
 
     @property
     def is_pattern(self) -> bool:
@@ -104,14 +108,15 @@ _ENTRIES: tuple[DocEntry, ...] = (
     DocEntry("SECURITY.md", _H, "prose"),
     DocEntry("CLAUDE.md", _C, "prose"),
     DocEntry("CHANGELOG.md", _H, "history"),
-    DocEntry("changes/README.md", _H, "prose"),
-    DocEntry("changes/*.md", _H, "history"),
-    DocEntry(".github/pull_request_template.md", _H, "prose"),
+    # Contributor plumbing stays off the site (C16).
+    DocEntry("changes/README.md", _H, "prose", site=False),
+    DocEntry("changes/*.md", _H, "history", site=False),
+    DocEntry(".github/pull_request_template.md", _H, "prose", site=False),
     DocEntry("benchmarks/BASELINE_RESULTS.md", _H, "history"),
     DocEntry("plugins/worktree-hook/README.md", _H, "prose"),
     DocEntry("scripts/claude_hooks/README.md", _H, "prose"),
     # Claude instructions, agents and internal skills
-    DocEntry(".claude/README.md", _H, "prose"),
+    DocEntry(".claude/README.md", _H, "prose", site=False),  # about Claude's files
     DocEntry(".claude/agents/smart-commit.md", _C, "prose"),
     DocEntry(".claude/agents/smart-commit-examples.md", _C, "prose"),
     DocEntry(".claude/instructions/00-documentation-system.md", _B, "prose"),

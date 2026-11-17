@@ -363,4 +363,4 @@ make test-parallel
 - [Testing Conventions](./CONVENTIONS.md)
 - [Fixture Guide](./FIXTURES.md)
 - [Performance Testing](./PERFORMANCE.md)
-- [Coverage Tracking](./COVERAGE.md)
+- [Coverage Tracking](../COVERAGE.md)
