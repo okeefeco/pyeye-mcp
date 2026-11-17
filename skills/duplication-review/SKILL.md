@@ -57,15 +57,15 @@ current directory), and the state file's keys use them. A scope outside
 listed as `unparseable`; its source is never printed. Bad arguments or a bad
 state file exit 2 with a one-line message, before anything is scanned.
 
-<!-- duplication-review-flags: review dismiss --root --min-tokens --max-occurrences --state --today --json --family --reason --date --review-after -->
+Commands: <!-- fact:begin duplication.commands -->`review`, `dismiss`<!-- fact:end -->. Flags: <!-- fact:begin duplication.flags -->`--root`, `--min-tokens`, `--max-occurrences`, `--state`, `--today`, `--json`, `--family`, `--reason`, `--date`, `--review-after`<!-- fact:end -->.
 
 `review <scope…>`:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--root` | `.` | Locations are reported relative to it. |
-| `--min-tokens` | `35` | Minimum clone length in normalised AST tokens. `25` finds more, mostly noise. |
-| `--max-occurrences` | `50` | A token window seen more often than this is paired with its next occurrence only, so the run stays linear on repeated data tables (all-pairs ran a machine out of memory). Every copy is still reported. |
+| `--min-tokens` | <!-- fact:begin duplication.default.min_tokens -->`35`<!-- fact:end --> | Minimum clone length in normalised AST tokens. `25` finds more, mostly noise. |
+| `--max-occurrences` | <!-- fact:begin duplication.default.max_occurrences -->`50`<!-- fact:end --> | A token window seen more often than this is paired with its next occurrence only, so the run stays linear on repeated data tables (all-pairs ran a machine out of memory). Every copy is still reported. |
 | `--state` | none | Dismissal state file. Suggested: `.pyeye/duplication-review.json`, committed. |
 | `--today` | none | Today's ISO date. Needed for `--review-after` dismissals to come due; nothing reads a clock. |
 | `--json` | off | Machine-readable output. |
@@ -78,8 +78,7 @@ records a family as a confirmed non-issue. Use the same scope, `--root`,
 - `--date` — the dismissal date, ISO `YYYY-MM-DD` (caller-supplied).
 - `--review-after` — optional ISO date to re-surface it for review. No expiry by default.
 
-`--reason` is one of: `benign-idiom`, `deliberate-twin`, `vendored`,
-`generated`, `other`.
+`--reason` is one of: <!-- fact:begin duplication.reasons -->`benign-idiom`, `deliberate-twin`, `vendored`, `generated`, `other`<!-- fact:end -->.
 
 ## What a Result Means
 
@@ -98,9 +97,9 @@ folded into the class. Two definitions with the same name in one file (an
 
 Filters, always on and stated in every run:
 
-- **Function filter.** A clone counts only when more than half the lines of one
+- **Function filter.** A clone counts only when more than <!-- fact:begin duplication.filter.function_line_share -->50 %<!-- fact:end --> of the lines of one
   of its regions are inside a `def`; module-level and class-body data drops out.
-- **Signature/stub guard.** A clone is dropped when at least 60 % of both
+- **Signature/stub guard.** A clone is dropped when at least <!-- fact:begin duplication.filter.signature_line_share -->60 %<!-- fact:end --> of both
   regions' lines are decorators, signatures or stubs (`@overload`,
   `@abstractmethod`, or bodies of only `...`, `pass`, a docstring or
   `raise NotImplementedError`). A concrete method of an ABC or `Protocol` is

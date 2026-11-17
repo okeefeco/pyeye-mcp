@@ -308,3 +308,82 @@ class TestRun:
     def test_the_repo_passes_every_rule(self, facts: dict) -> None:
         """The live run, as ``docs_facts check`` does it: registry plus tool descriptions."""
         assert rules.run(ROOT, facts) == []
+
+
+# ---------------------------------------------------------------------------
+# #556 / #628: env vars, and #553: server commands
+# ---------------------------------------------------------------------------
+
+
+def _env(status: str) -> dict:
+    return {"type": "int", "status": status}
+
+
+ENV_FACTS = {
+    "env.PYEYE_CACHE_TTL": Fact("env.PYEYE_CACHE_TTL", _env("live"), ""),
+    "env.PYEYE_POOL_TTL": Fact("env.PYEYE_POOL_TTL", _env("deprecated"), ""),
+    "env.PYEYE_IDLE": Fact("env.PYEYE_IDLE", _env("unused"), ""),
+    "cli.script.pyeye-mcp": Fact("cli.script.pyeye-mcp", {}, ""),
+}
+
+
+class TestEnvNameRule:
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Set `PYEYE_CACHE_TTL` to 60.",
+            "`PYEYE_POOL_TTL` is deprecated and has no effect.",
+            "`PYEYE_DEBUG` was removed; use `PYEYE_CACHE_TTL`.",
+        ],
+    )
+    def test_live_deprecated_and_removed_with_their_word_pass(self, line: str) -> None:
+        assert rules.env_name_claims(line, ENV_FACTS) == []
+
+    @pytest.mark.parametrize(
+        ("line", "why"),
+        [
+            ("Set `PYEYE_POOL_TTL` to 5.", "deprecated; say so"),
+            ("Tune `PYEYE_IDLE`.", "loaded but nothing uses it"),
+            ("Set `PYEYE_PACKAGES=../lib`.", "not a variable pyeye reads"),
+            ("Set `PYEYE_NAMESPACE_company`.", "not a variable pyeye reads"),
+            ("Use `PYEYE_DEBUG=1`.", "not a variable pyeye reads"),
+        ],
+    )
+    def test_names_that_take_no_effect_fail(self, line: str, why: str) -> None:
+        found = rules.env_name_claims(line, ENV_FACTS)
+
+        assert len(found) == 1 and why in found[0].message
+
+    def test_the_pending_list_is_the_only_source_of_removed_names(self) -> None:
+        """#826 replaces both; nothing else may read the constant."""
+        assert rules._removed_names() is rules._PENDING_REMOVED_JSON_826
+        source = Path(rules.__file__).read_text(encoding="utf-8")
+        assert source.count("_PENDING_REMOVED_JSON_826") == 2  # the definition and the reader
+
+
+class TestServerCommandRule:
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Run `uv run pyeye-mcp`.",
+            "Or `python -m pyeye.mcp`.",
+            "Edit `src/pyeye/mcp/server.py` to add a tool.",
+            "`uv run pyeye` was removed; the script is `pyeye-mcp`.",
+        ],
+    )
+    def test_working_commands_pass(self, line: str) -> None:
+        assert rules.server_command_claims(line, ENV_FACTS) == []
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "uv run mcp dev src/pyeye/server.py",
+            "uv run python ~/repo/src/pyeye/mcp/server.py",
+            "Run `uv run pyeye`.",
+            "claude mcp add /path/to/pyeye",
+            'claude mcp add pyeye --command "uv"',
+            'claude mcp add pyeye --directory "/path/to/your/repo"',
+        ],
+    )
+    def test_commands_that_never_worked_fail(self, line: str) -> None:
+        assert rules.server_command_claims(line, ENV_FACTS)

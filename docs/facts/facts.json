@@ -34,6 +34,71 @@
     "cli.script.pyeye-mcp": {
       "target": "pyeye.mcp.__main__:main"
     },
+    "duplication.command.dismiss": {},
+    "duplication.command.review": {},
+    "duplication.default.max_occurrences": 50,
+    "duplication.default.min_tokens": 35,
+    "duplication.filter.function_line_share": 0.5,
+    "duplication.filter.signature_line_share": 0.6,
+    "duplication.flag.date": {
+      "commands": [
+        "dismiss"
+      ]
+    },
+    "duplication.flag.family": {
+      "commands": [
+        "dismiss"
+      ]
+    },
+    "duplication.flag.json": {
+      "commands": [
+        "review"
+      ]
+    },
+    "duplication.flag.max-occurrences": {
+      "commands": [
+        "review",
+        "dismiss"
+      ]
+    },
+    "duplication.flag.min-tokens": {
+      "commands": [
+        "review",
+        "dismiss"
+      ]
+    },
+    "duplication.flag.reason": {
+      "commands": [
+        "dismiss"
+      ]
+    },
+    "duplication.flag.review-after": {
+      "commands": [
+        "dismiss"
+      ]
+    },
+    "duplication.flag.root": {
+      "commands": [
+        "review",
+        "dismiss"
+      ]
+    },
+    "duplication.flag.state": {
+      "commands": [
+        "review",
+        "dismiss"
+      ]
+    },
+    "duplication.flag.today": {
+      "commands": [
+        "review"
+      ]
+    },
+    "duplication.reason.benign-idiom": {},
+    "duplication.reason.deliberate-twin": {},
+    "duplication.reason.generated": {},
+    "duplication.reason.other": {},
+    "duplication.reason.vendored": {},
     "edge.callees": {
       "applies_to": [
         "function",
@@ -304,6 +369,88 @@
       "3.14"
     ],
     "project.requires_python": ">=3.11",
+    "review.axis.cross_cutting": {
+      "description": "Cross-cutting access: logging, config, path handling.",
+      "facets": [
+        "logging",
+        "config_access",
+        "path_handling"
+      ],
+      "stakes_bucket": "med",
+      "stakes_prior": 0.5
+    },
+    "review.axis.dependency_acquisition": {
+      "description": "Dependency acquisition: constructor-injection vs import vs global/singleton.",
+      "facets": [
+        "injection",
+        "global_singleton",
+        "import_time_construction"
+      ],
+      "stakes_bucket": "med",
+      "stakes_prior": 0.6
+    },
+    "review.axis.error_handling": {
+      "description": "Error handling: raise vs return-sentinel vs result-type; exception types; where caught.",
+      "facets": [
+        "raise_vs_sentinel",
+        "exception_types",
+        "catch_site"
+      ],
+      "stakes_bucket": "high",
+      "stakes_prior": 0.9
+    },
+    "review.axis.layering": {
+      "description": "Layering / dependency direction: which layers/packages may import which.",
+      "facets": [
+        "import_direction",
+        "layer_skip",
+        "import_cycle"
+      ],
+      "stakes_bucket": "med",
+      "stakes_prior": 0.7
+    },
+    "review.axis.module_boundaries": {
+      "description": "Module & placement boundaries: where a *kind* of thing lives.",
+      "facets": [
+        "placement",
+        "module_split",
+        "public_surface"
+      ],
+      "stakes_bucket": "med",
+      "stakes_prior": 0.6
+    },
+    "review.axis.naming_api_shape": {
+      "description": "Naming & API shape: naming patterns, return-type conventions, sync/async split.",
+      "facets": [
+        "name_pattern",
+        "sync_async",
+        "return_shape"
+      ],
+      "stakes_bucket": "low",
+      "stakes_prior": 0.3
+    },
+    "review.axis.validation_placement": {
+      "description": "Validation placement: at the boundary vs in core vs scattered.",
+      "facets": [
+        "boundary_vs_core",
+        "duplicated_check",
+        "missing_check"
+      ],
+      "stakes_bucket": "high",
+      "stakes_prior": 0.9
+    },
+    "review.grade.ambiguous": {
+      "tier": 0
+    },
+    "review.grade.deterministic_single": {
+      "tier": 1
+    },
+    "review.grade.mechanical_fact": {
+      "tier": 1
+    },
+    "review.grade.no_signal": {
+      "tier": 2
+    },
     "tool.configure_packages": {
       "group": "core",
       "params": [

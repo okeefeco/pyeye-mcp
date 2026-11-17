@@ -12,30 +12,37 @@ The registered set is read from the FastMCP server itself, not from a hand-kept
 list, so it cannot drift from what actually ships.
 """
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
 import pyeye
+from pyeye.docs_facts.cli import SNAPSHOT
 from pyeye.mcp.server import mcp
 
-# The complete primitive interface plus configuration.
-EXPECTED_TOOLS = {
-    "configure_packages",
-    "resolve",
-    "resolve_at",
-    "inspect",
-    "outline",
-    "expand",
-    "trace",
-}
-
 # Opt-in admin tools, registered only when PYEYE_ENABLE_PERFORMANCE_METRICS is set.
-# They are excluded from the equality assertion rather than assumed absent — an
-# earlier version of this test asserted bare equality and failed whenever the env
-# var was set, contradicting its own comment.
+# They are excluded from the equality assertion rather than assumed absent.
 ADMIN_TOOLS = {"get_performance_metrics", "get_connection_diagnostics"}
+
+
+def _pinned_core_tools() -> set[str]:
+    """The primitive interface, from the committed facts snapshot (#825).
+
+    It replaced a hand-kept ``EXPECTED_TOOLS``: ``docs_facts generate`` rewrites
+    ``docs/facts/facts.json`` from the live registration, so adding or renaming
+    a tool shows in the PR's snapshot diff, and ``check`` fails until it does.
+    """
+    snapshot = json.loads((Path(__file__).parent.parent / SNAPSHOT).read_text(encoding="utf-8"))
+    return {
+        fact_id.split(".", 1)[1]
+        for fact_id, value in snapshot["facts"].items()
+        if fact_id.count(".") == 1 and fact_id.startswith("tool.") and value["group"] == "core"
+    }
+
+
+EXPECTED_TOOLS = _pinned_core_tools()
 
 # Removed in v2.0.  Reverse-reference questions are deferred to the Pyright
 # backend (#333); these must never come back as tools.
@@ -64,6 +71,11 @@ async def _registered_tool_names() -> set[str]:
 
 
 class TestMcpSurface:
+    def test_the_pin_is_the_primitive_interface(self) -> None:
+        """Guard the snapshot read: an empty pin would make the equality vacuous."""
+        assert {"resolve", "inspect", "expand", "trace", "outline"} <= EXPECTED_TOOLS
+        assert not EXPECTED_TOOLS & ADMIN_TOOLS
+
     @pytest.mark.asyncio
     async def test_registered_tools_are_exactly_the_primitive_interface(self) -> None:
         """Holds whether or not the opt-in admin tools are enabled."""

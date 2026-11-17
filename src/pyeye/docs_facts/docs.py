@@ -68,6 +68,12 @@ EXCLUDED_TREES: tuple[str, ...] = (
 #: The generated reference pages, registered in :data:`DOCS` as kind ``reference``.
 REFERENCE_PAGES: tuple[str, ...] = tuple(PAGES)
 
+
+def _allow(**counts: int) -> Mapping[str, int]:
+    """An immutable allow-list: prose-rule ID -> violating lines still allowed."""
+    return MappingProxyType(counts)
+
+
 _H: Audience = "human"
 _C: Audience = "claude"
 _B: Audience = "both"
@@ -102,7 +108,8 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry(".claude/instructions/09-task-management.md", _C, "prose"),
     DocEntry(".claude/instructions/10-cross-platform.md", _C, "prose"),
     DocEntry(".claude/instructions/11-pr-requirements.md", _C, "prose"),
-    DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
+    # PYEYE_SCENARIO_DIR is this skill's own shell variable, not a pyeye setting.
+    DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill", _allow(**{"env-name": 5})),
     DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
     # Shipped skills
     DocEntry("skills/python-explore/SKILL.md", _C, "skill"),
@@ -113,7 +120,9 @@ DOCS: tuple[DocEntry, ...] = (
     # docs/
     DocEntry("docs/api-redesign.md", _H, "history"),
     DocEntry("docs/migration-guide.md", _H, "history"),
-    DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
+    # A live guide (design C9). Its per-module table names the long-gone
+    # src/pyeye/server.py; #830 rewrites it.
+    DocEntry("docs/COVERAGE.md", _H, "prose", _allow(**{"server-command": 1})),
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
     DocEntry("docs/CLAUDE_AGENTS.md", _H, "prose"),
     DocEntry("docs/DOGFOODING_INTEGRATION.md", _H, "prose"),

@@ -47,11 +47,21 @@ HONEST_CLAIMS = "honest-claims"
 #: Owned by #826 (removed names in prose); registered here so its allow-list
 #: entries are valid keys.
 REMOVED_NAME = "removed-name"
+ENV_NAME = "env-name"
+SERVER_COMMAND = "server-command"
 
 #: Every rule ID a :attr:`~.docs.DocEntry.allow` key may name. A key outside this
 #: set is a typo that would silently allow nothing, so it fails.
 RULE_IDS: frozenset[str] = frozenset(
-    {STATIC_CEILING, ABSENCE_PROSE, EDGE_COUNTS_PROSE, HONEST_CLAIMS, REMOVED_NAME}
+    {
+        STATIC_CEILING,
+        ABSENCE_PROSE,
+        EDGE_COUNTS_PROSE,
+        HONEST_CLAIMS,
+        REMOVED_NAME,
+        ENV_NAME,
+        SERVER_COMMAND,
+    }
 )
 
 #: Kinds the phrasing rules apply to. History pages must be free to quote what
@@ -256,6 +266,136 @@ def missing_ceiling(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
 
 
 # ---------------------------------------------------------------------------
+# #556 and #553: env vars and server commands named in the docs exist
+# ---------------------------------------------------------------------------
+
+#: TEMPORARY, deleted by #826: names that are gone and that ``docs/facts/removed.json``
+#: will hold. Until #826 lands, a live page may name one only on a line that also
+#: says "removed", the rule #826 applies to every removed name (design C8 Q2).
+#: Read only through :func:`_removed_names`, so #826 swaps one function.
+_PENDING_REMOVED_JSON_826: frozenset[str] = frozenset(
+    {
+        # Env vars the docs named but nothing ever read (#556, #553). Spelled as
+        # prefix + suffix: they are names pyeye must NOT read, and the env
+        # extractor rejects any whole "PYEYE_*" literal in src/ that isn't a read.
+        *(
+            "PYEYE_" + suffix
+            for suffix in (
+                "PACKAGES",
+                "NAMESPACES",
+                "DEBOUNCE",
+                "WORKERS",
+                "TIMEOUT",
+                "CACHE_ENABLED",
+                "CACHE_MEMORY_MB",
+                "DEBUG",
+            )
+        ),
+        # Server commands that never worked (#553).
+        "pyeye",
+        "src/pyeye/server.py",
+        "mcp dev",
+    }
+)
+
+
+def _removed_names() -> frozenset[str]:
+    """Names that are gone: they may appear only beside the word "removed"."""
+    return _PENDING_REMOVED_JSON_826
+
+
+# Includes lowercase suffixes, e.g. the once-documented ``PYEYE_NAMESPACE_company``.
+_ENV = re.compile(r"\bPYEYE_[A-Za-z][A-Za-z0-9_]*[A-Za-z0-9]")
+
+
+def _lines(text: str) -> Iterator[tuple[int, str]]:
+    yield from enumerate(text.splitlines(), 1)
+
+
+def _says_removed(line: str) -> bool:
+    return "removed" in line.lower()
+
+
+def env_name_claims(text: str, facts: Facts) -> list[Finding]:
+    """Each ``PYEYE_*`` name that doesn't take effect, on its line (#556, #628).
+
+    A name passes when pyeye reads *and uses* it (status ``live``), or when it is
+    deprecated and the line says so. A loaded-but-unused variable fails: the docs
+    would promise a knob that does nothing.
+    """
+    removed = _removed_names()
+    found: list[Finding] = []
+    for number, line in _lines(text):
+        for name in sorted(set(_ENV.findall(line))):
+            fact = facts.get(f"env.{name}")
+            status = fact.value.get("status") if isinstance(fact, Fact) else None
+            if status == "live":
+                continue
+            if status == "deprecated":
+                if "deprecated" not in line.lower():
+                    found.append(Finding(number, f"{name} is deprecated; say so on the line"))
+                continue
+            if status == "unused":
+                found.append(Finding(number, f"{name} is loaded but nothing uses it"))
+            elif name in removed and _says_removed(line):
+                continue
+            else:
+                found.append(Finding(number, f"{name} is not a variable pyeye reads"))
+    return found
+
+
+_RUN_SCRIPT = re.compile(r"\buv (?:--directory \S+ )?run (pyeye[\w-]*)\b")
+_OLD_SERVER_PATH = re.compile(r"src/pyeye/server\.py")
+_RUN_AS_FILE = re.compile(r"python\s+\S*src/pyeye/mcp/server\.py")
+_MCP_DEV = re.compile(r"\bmcp dev\b")
+#: ``claude mcp add`` forms that aren't valid syntax.
+_INVALID_FORMS = ("claude mcp add /", '--command "', '--directory "/path/to/your')
+
+
+def server_command_claims(text: str, facts: Facts) -> list[Finding]:
+    """Each documented way to start the server that doesn't work (#553).
+
+    The ways that work are the ``cli.*`` facts: the console scripts and
+    ``python -m pyeye.mcp``. The server module can't run as a file (relative
+    imports), and ``mcp dev`` can't load it.
+    """
+    removed = _removed_names()
+    found: list[Finding] = []
+    for number, line in _lines(text):
+        for match in _RUN_SCRIPT.finditer(line):
+            name = match.group(1)
+            if f"cli.script.{name}" in facts:
+                continue
+            if name in removed and _says_removed(line):
+                continue
+            scripts = sorted(i.split(".", 2)[2] for i in facts if i.startswith("cli.script."))
+            found.append(Finding(number, f"no console script {name!r} (have {scripts})"))
+        for pattern, name, problem in (
+            (
+                _OLD_SERVER_PATH,
+                "src/pyeye/server.py",
+                "names src/pyeye/server.py, which doesn't exist (the module is "
+                "src/pyeye/mcp/server.py; start it with `python -m pyeye.mcp`)",
+            ),
+            (
+                _RUN_AS_FILE,
+                "",
+                "runs the server module as a file, which fails on its relative imports; "
+                "use `python -m pyeye.mcp`",
+            ),
+            (_MCP_DEV, "mcp dev", "`mcp dev` can't load the server; use the MCP Inspector via npx"),
+        ):
+            if pattern.search(line) and not (name in removed and _says_removed(line)):
+                found.append(Finding(number, problem))
+        found.extend(
+            Finding(number, f"invalid `claude mcp add` form {form!r}")
+            for form in _INVALID_FORMS
+            if form in line
+        )
+    return found
+
+
+# ---------------------------------------------------------------------------
 # The rule table
 # ---------------------------------------------------------------------------
 
@@ -267,6 +407,10 @@ RULES: tuple[Rule, ...] = (
         _LIVE,
         True,
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
+    ),
+    Rule(ENV_NAME, _LIVE, False, lambda page, facts: env_name_claims(page.prose, facts)),
+    Rule(
+        SERVER_COMMAND, _LIVE, False, lambda page, facts: server_command_claims(page.prose, facts)
     ),
 )
 
