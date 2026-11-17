@@ -173,5 +173,30 @@
     "tool.trace_model_inheritance.param.scope"
   ],
   "dismissed": {},
-  "new": []
+  "new": [
+    {
+      "fact_id": "security.jedi_unsafe_extensions",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "security.path_checks",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "security.subprocesses",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "security.write_sites",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "security.writes.config",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "security.writes.metrics",
+      "first_seen": "unreleased"
+    }
+  ]
 }

@@ -18,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
-from ..constants import PROJECT_NAME
+from ..constants import CONFIG_FILE
 from ..docs_facts.describe import described, fill
 from ..metrics import metrics
 from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
@@ -762,7 +762,7 @@ def configure_packages(
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
-        "config_file": (config.project_path / f".{PROJECT_NAME}.json").as_posix(),
+        "config_file": (config.project_path / CONFIG_FILE).as_posix(),
     }
     # #659: present whenever re-detection ran (the startup project); [] when no
     # framework newly activated.  Their tools are callable by name at once.
