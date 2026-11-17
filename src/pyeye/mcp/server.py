@@ -19,6 +19,7 @@ from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import PROJECT_NAME
+from ..docs_facts.describe import described, fill
 from ..metrics import metrics
 from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
 
@@ -277,7 +278,11 @@ PLUGIN_PROJECT_PATH_NOTE = """
 ``project_path`` selects the project to analyse; omitted, it is the project
 the server started in, exactly as before.  Plugin tools run against the given project even if its
 framework wasn't auto-detected there; an empty result means the scan found
-none.  A ``project_path`` that doesn't exist is an MCP tool error."""
+none.  A ``project_path`` that doesn't exist is an MCP tool error.
+
+``envelope`` (default false): when true, the result is wrapped as
+``{scope, searched, unsearched_scopes, results}``, so a caller can see which
+scopes were searched and which configured scopes were not (#594)."""
 
 
 class _PluginContext(NamedTuple):
@@ -447,7 +452,9 @@ def _plugin_tool(
         annotations["scope"] = Scope | None
     wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
-    wrapper.__doc__ = (func.__doc__ or "").rstrip() + PLUGIN_PROJECT_PATH_NOTE
+    # Fact slots are filled here, from the same extractors as the docs (#827).
+    wrapper.__doc_template__ = func.__doc__ or ""  # type: ignore[attr-defined]
+    wrapper.__doc__ = fill((func.__doc__ or "").rstrip()) + PLUGIN_PROJECT_PATH_NOTE
     return wrapper
 
 
@@ -803,6 +810,8 @@ async def resolve(
             - File:line: "src/foo.py:42"
             - File only: "src/foo.py"
         project_path: Project root path (default: current directory)
+        max_candidates: Most candidates an ambiguous result returns (default 50;
+            ``None`` for all; see Returns).
 
     Returns:
         ResolveResult dict — one of:
@@ -917,6 +926,7 @@ async def inspect(
 @metrics.measure("expand")
 @track_mcp_operation("expand")
 @on_jedi_worker
+@described
 async def expand(
     handle: str,
     edge: str,
@@ -1000,18 +1010,21 @@ async def expand(
         def/class/variable → its module.  At most ONE Stub.  A module returns
         the unsupported branch with ``reason: "not_applicable"``: a module has no
         enclosing lexical scope (packages are not lexical scopes).
+      - ``submodules``  — package → its DIRECT child modules and subpackages
+        (module Stubs), from a directory scan with no Jedi lookup; PEP 420
+        namespace subpackages included.  A plain (non-package) module has none:
+        ``stubs: []``.  A non-module handle returns the unsupported branch with
+        ``reason: "not_applicable"``.
 
     Unsupported edges return the unsupported branch (never raise):
-      - Inbound/reference edges (``callers``, ``references``,
-        ``overrides``, …) require the Pyright reference backend (#333) and return
+      - Inbound/reference edges (<<fact:edges.deferred>>) require the Pyright
+        reference backend (#333) and return
         ``unsupported: true, reason: "deferred_reference_backend"``.
       - Wrong-kind handles (an edge that doesn't apply to the handle's kind, e.g.
         ``imported_by`` on a class or ``members`` on a function) return the
         unsupported branch with ``reason: "not_applicable"`` (#626). Which kinds
         each edge applies to is one table, ``edges.EDGE_APPLIES_TO``:
-        members → class, module; callees → function, method; imports,
-        imported_by, submodules → module; subclasses, superclasses → class;
-        enclosing_scope → every kind except module.
+        <<fact:edges.implemented:applies_to>>.
       - A source whose own file can't be parsed by the server's Python (e.g.
         code using newer syntax) returns the unsupported branch with
         ``reason: "unparseable"`` (#703), never ``stubs: []``: its edges were
@@ -1046,13 +1059,7 @@ async def expand(
     ``enclosing_scope``, which is exact.  A name missing from ``stubs`` is
     unknown beyond that scope, not absent:
 
-      - ``static_definitions``: definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included.
-      - ``literal_subclassing``: project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included.
-      - ``declared_bases``: the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses.
-      - ``static_imports``: import statements written in source; importlib / __import__ with a computed name is not included.
-      - ``static_calls``: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
-      - ``on_disk_modules``: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
-      - ``package_reexports``: import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included.
+      <<fact:ceilings.table:bullets>>
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -1111,6 +1118,7 @@ async def expand(
 @metrics.measure("trace")
 @track_mcp_operation("trace")
 @on_jedi_worker
+@described
 async def trace(
     start: str | list[str],
     follow: list[str],
@@ -1128,8 +1136,7 @@ async def trace(
     chains, reverse-import closures, member trees).
 
     Composes the same edge registry as ``expand``; the implemented edges
-    (``members``, ``callees``, ``imported_by``, ``subclasses``, ``superclasses``,
-    ``imports``, ``enclosing_scope``) are traversed.  Any other edge named in
+    (<<fact:edges.implemented>>) are traversed.  Any other edge named in
     ``follow`` (deferred reference edges, unknown names) is reported in
     ``unsupported_edges`` rather than silently dropped — a silent drop would
     falsely read as "no such neighbours".  So is an implemented edge that does
@@ -1171,8 +1178,8 @@ async def trace(
 
     Args:
         start: One canonical handle, or a list of them, as BFS roots.
-        follow: Edge names to traverse at every hop (e.g. ``["members"]``,
-            ``["callees"]``, ``["imported_by"]``).
+        follow: Edge names to traverse at every hop, from the implemented
+            edges above (e.g. ``["members"]`` or ``["imported_by"]``).
         project_path: Project root path (default: current directory).
         max_depth: Maximum hop distance from a root before a node becomes a
             non-expanded frontier leaf (default 3).
@@ -1182,7 +1189,7 @@ async def trace(
             ``module_pattern`` / ``exclude_tests``); a matching adjacent is a
             pruned boundary.  Roots are never pruned.  ``exclude_external`` stops
             at stdlib/site-packages nodes — keeps a trace inside the project (the
-            common ``callees`` case).
+            common case for a call chain).
 
     Returns:
         A ``Subgraph`` dict (plain, JSON-serialisable).  A lookup miss never raises. The call errors (an MCP tool error, not a response) only when it can't run:
