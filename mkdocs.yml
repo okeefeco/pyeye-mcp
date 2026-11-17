@@ -1,0 +1,29 @@
+# The docs site (#861). The pages and the nav come from the doc registry
+# (pyeye.docs_facts.docs) through scripts/mkdocs_hooks.py: list no pages here.
+site_name: PyEye
+site_description: Semantic Python code intelligence for AI agents, over MCP.
+site_url: https://okeefeco.github.io/pyeye-mcp/
+repo_url: https://github.com/okeefeco/pyeye-mcp
+edit_uri: edit/main/
+docs_dir: docs
+theme:
+  name: material
+  features:
+    - navigation.indexes
+    - navigation.sections
+    - search.suggest
+    - content.code.copy
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight
+hooks:
+  - scripts/mkdocs_hooks.py
+validation:
+  links:
+    not_found: warn
+    absolute_links: info
+    unrecognized_links: warn

@@ -179,3 +179,27 @@ no two can produce the same fact. To add a family, write an extractor that reads
 code, add it to `EXTRACTORS` and add tests that compare its output with the code read
 another way (see `tests/test_docs_facts_extractors.py`). An extractor that can no longer
 read its source fails loudly instead of yielding nothing.
+
+## The docs site
+
+The same Markdown is published to [GitHub Pages](https://okeefeco.github.io/pyeye-mcp/)
+with MkDocs and the Material theme. Nothing on the site is written separately:
+
+- **What's published** comes from the doc registry (`src/pyeye/docs_facts/site.py`):
+  pages for human readers, plus the generated reference pages. Skills and Claude's
+  instructions stay off. A history page waits until its honest-claims seeds are gone.
+  An entry's `site=True` or `site=False` overrides the rule (the PR template and
+  `changes/` are `site=False`).
+- **The nav** is built from the same list by `scripts/mkdocs_hooks.py`. `mkdocs.yml`
+  lists no pages, so a page reaches the site only by being registered.
+- **Paths are repo paths:** `README.md` is the home page and `docs/api/README.md` is
+  `/docs/api/`. A relative link works the same on GitHub and on the site. A link to a
+  repo file the site doesn't publish points at that file on GitHub.
+
+CI builds the site with `mkdocs build --strict` in the `pre-commit` job, so a broken link
+fails the PR, and deploys it on every push to `main`. To preview it locally:
+
+```bash
+uv sync --frozen --group docs
+uv run --frozen --group docs mkdocs serve
+```

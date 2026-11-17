@@ -614,6 +614,8 @@ uv run ruff check src/
 
 ## Documentation
 
+The full documentation is published at **[okeefeco.github.io/pyeye-mcp](https://okeefeco.github.io/pyeye-mcp/)**, built from the Markdown in this repository.
+
 - [Installation Guide](#installation)
 - [Configuration Guide](#configuration)
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions

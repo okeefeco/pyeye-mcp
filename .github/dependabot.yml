@@ -35,6 +35,11 @@ updates:
           - "commitizen"
           - "coverage*"
           - "pydocstyle"
+      # The docs site (the `docs` dependency-group, #861), all update types
+      docs-dependencies:
+        patterns:
+          - "mkdocs*"
+          - "pymdown-extensions"
       # Everything else: minor and patch updates together; majors stay individual
       minor-and-patch:
         patterns:
