@@ -229,6 +229,19 @@ repos:
         pass_filenames: false
         always_run: true
 
+  # Docs built on facts (#824): rewrite the fact blocks in the registered docs,
+  # docs/reference/ and docs/facts/facts.json from the code. A commit whose docs
+  # it changes fails, like a formatter: stage the result and commit again. CI
+  # runs `check` in the pre-commit job. ~3-4 s (it imports the server).
+  - repo: local
+    hooks:
+      - id: docs-facts-generate
+        name: Docs facts (generate from the code)
+        entry: uv run --frozen python scripts/docs_facts.py generate
+        language: system
+        files: \.(py|md|toml|ya?ml)$
+        pass_filenames: false
+
   # Markdown
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.38.0

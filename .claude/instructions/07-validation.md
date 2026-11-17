@@ -71,7 +71,7 @@ uv run pytest --cov=src/pyeye --cov-fail-under=85  # Full suite with coverage
 
 ## Coverage Goals
 
-- **Current threshold**: 85% (enforced by CI)
+- **Current threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (enforced by CI)
 - **New code target**: >90% coverage
 - **Bug fixes**: MUST include regression tests
 - **Refactoring**: Must maintain or improve coverage
@@ -95,6 +95,14 @@ threshold = PerformanceThresholds(
 )
 assert_performance_threshold(elapsed_ms, threshold, "Operation name")
 ```
+
+## Docs Built on Facts (#824)
+
+- NEVER edit inside a `<!-- fact:begin ID -->`…`<!-- fact:end -->` block, a `docs/reference/` page or `docs/facts/facts.json`. Change the code, then run `uv run python scripts/docs_facts.py generate`.
+- When prose states a fact the code owns (a tool, parameter, edge, env var, command or CI value), use a fact block. NEVER copy the value by hand. IDs are listed in `docs/facts/facts.json`.
+- A new `.md` file MUST get a `DocEntry` (audience and kind) in `src/pyeye/docs_facts/docs.py` in the same PR.
+- A docs check MUST iterate `DOCS`. NEVER glob for its own file list. A new fact family is a new extractor in `EXTRACTORS` (`src/pyeye/docs_facts/registry.py`).
+- `uv run python scripts/docs_facts.py check` MUST pass (CI runs it). See `docs/development/docs-facts.md`.
 
 ## Pre-commit Hooks
 
@@ -171,12 +179,12 @@ uv run ruff check src/
 CI runs on:
 
 - **Platforms**: Windows, macOS, Linux
-- **Python versions**: 3.10, 3.11, 3.12
+- **Python versions**: <!-- fact:begin ci.python_versions -->3.11, 3.12, 3.13, 3.14<!-- fact:end -->
 - **All PRs**: Must pass all checks
 
 CI will fail if:
 
-- Coverage drops below 85%
+- Coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
 - Any test fails
 - Security issues detected
 - Linting errors

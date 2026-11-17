@@ -1,0 +1,996 @@
+{
+  "facts": {
+    "ceiling.declared_bases": {
+      "meaning": "the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses"
+    },
+    "ceiling.literal_subclassing": {
+      "meaning": "project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included"
+    },
+    "ceiling.on_disk_modules": {
+      "meaning": "modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included"
+    },
+    "ceiling.package_reexports": {
+      "meaning": "import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included"
+    },
+    "ceiling.static_calls": {
+      "meaning": "calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed"
+    },
+    "ceiling.static_definitions": {
+      "meaning": "definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included"
+    },
+    "ceiling.static_imports": {
+      "meaning": "import statements written in source; importlib / __import__ with a computed name is not included"
+    },
+    "ci.coverage_threshold": 85,
+    "ci.python_versions": [
+      "3.11",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "cli.module.pyeye.mcp": {
+      "command": "python -m pyeye.mcp"
+    },
+    "cli.script.pyeye-mcp": {
+      "target": "pyeye.mcp.__main__:main"
+    },
+    "edge.callees": {
+      "applies_to": [
+        "function",
+        "method"
+      ],
+      "ceiling": "static_calls",
+      "status": "implemented"
+    },
+    "edge.callers": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.decorated_by": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.decorates": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.enclosing_scope": {
+      "applies_to": [
+        "attribute",
+        "class",
+        "enum_member",
+        "function",
+        "method",
+        "property",
+        "variable"
+      ],
+      "ceiling": null,
+      "status": "implemented"
+    },
+    "edge.imported_by": {
+      "applies_to": [
+        "module"
+      ],
+      "ceiling": "static_imports",
+      "status": "implemented"
+    },
+    "edge.imports": {
+      "applies_to": [
+        "module"
+      ],
+      "ceiling": "static_imports",
+      "status": "implemented"
+    },
+    "edge.members": {
+      "applies_to": [
+        "class",
+        "module"
+      ],
+      "ceiling": "static_definitions",
+      "status": "implemented"
+    },
+    "edge.overridden_by": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.overrides": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.passed_by": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.re_exports": {
+      "applies_to": [
+        "attribute",
+        "class",
+        "enum_member",
+        "function",
+        "method",
+        "property",
+        "variable"
+      ],
+      "ceiling": "package_reexports",
+      "status": "implemented"
+    },
+    "edge.read_by": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.references": {
+      "status": "deferred_reference_backend"
+    },
+    "edge.subclasses": {
+      "applies_to": [
+        "class"
+      ],
+      "ceiling": "literal_subclassing",
+      "status": "implemented"
+    },
+    "edge.submodules": {
+      "applies_to": [
+        "module"
+      ],
+      "ceiling": "on_disk_modules",
+      "status": "implemented"
+    },
+    "edge.superclasses": {
+      "applies_to": [
+        "class"
+      ],
+      "ceiling": "declared_bases",
+      "status": "implemented"
+    },
+    "edge.written_by": {
+      "status": "deferred_reference_backend"
+    },
+    "env.PYEYE_ANALYSIS_TIMEOUT": {
+      "default": 30.0,
+      "deprecated": "nothing ever used it (#592)",
+      "max": 300.0,
+      "min": 1.0,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "float"
+    },
+    "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES": {
+      "default": 2000,
+      "max": 1000000,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "int"
+    },
+    "env.PYEYE_CACHE_TTL": {
+      "default": 300,
+      "max": 86400,
+      "min": 0,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "int"
+    },
+    "env.PYEYE_ENABLE_CONNECTION_POOLING": {
+      "default": true,
+      "deprecated": "the connection pool was removed (#628)",
+      "max": null,
+      "min": null,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "bool"
+    },
+    "env.PYEYE_ENABLE_MEMORY_PROFILING": {
+      "default": false,
+      "deprecated": "nothing ever used it (#592)",
+      "max": null,
+      "min": null,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "bool"
+    },
+    "env.PYEYE_ENABLE_PERFORMANCE_METRICS": {
+      "default": false,
+      "max": null,
+      "min": null,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "bool"
+    },
+    "env.PYEYE_ISSUE": {
+      "default": null,
+      "source": "pyeye/metrics_hook.py",
+      "status": "live",
+      "type": "str"
+    },
+    "env.PYEYE_LOG_FILE": {
+      "default": null,
+      "source": "pyeye/mcp/__main__.py",
+      "status": "live",
+      "type": "str"
+    },
+    "env.PYEYE_LOG_LEVEL": {
+      "default": "INFO",
+      "source": "pyeye/mcp/__main__.py",
+      "status": "live",
+      "type": "str"
+    },
+    "env.PYEYE_MAX_FILE_SIZE": {
+      "default": 1048576,
+      "deprecated": "nothing ever used it (#592)",
+      "max": 104857600,
+      "min": 1024,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "int"
+    },
+    "env.PYEYE_MAX_PROJECTS": {
+      "default": 10,
+      "max": 1000,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "int"
+    },
+    "env.PYEYE_MAX_WORKERS": {
+      "default": 4,
+      "deprecated": "nothing ever used it (#592)",
+      "max": 32,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "int"
+    },
+    "env.PYEYE_PARENT_SESSION": {
+      "default": null,
+      "source": "pyeye/metrics_hook.py",
+      "status": "live",
+      "type": "str"
+    },
+    "env.PYEYE_PARSO_CACHE_MAX_ENTRIES": {
+      "default": 600,
+      "max": 1000000,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "int"
+    },
+    "env.PYEYE_POOL_MAX_CONNECTIONS": {
+      "default": 10,
+      "deprecated": "the connection pool was removed (#628)",
+      "max": 100,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "int"
+    },
+    "env.PYEYE_POOL_TTL": {
+      "default": 3600,
+      "deprecated": "the connection pool was removed (#628)",
+      "max": 86400,
+      "min": 60,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
+      "type": "int"
+    },
+    "env.PYEYE_SCRIPT_CACHE_MAX_ENTRIES": {
+      "default": 200,
+      "max": 1000000,
+      "min": 1,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "int"
+    },
+    "env.PYEYE_WATCHER_DEBOUNCE": {
+      "default": 0.5,
+      "max": 10.0,
+      "min": 0.0,
+      "source": "pyeye/settings.py",
+      "status": "live",
+      "type": "float"
+    },
+    "project.python_versions": [
+      "3.11",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "project.requires_python": ">=3.11",
+    "tool.configure_packages": {
+      "group": "core",
+      "params": [
+        "tool.configure_packages.param.packages",
+        "tool.configure_packages.param.namespaces",
+        "tool.configure_packages.param.standalone_dirs",
+        "tool.configure_packages.param.save",
+        "tool.configure_packages.param.project_path"
+      ]
+    },
+    "tool.configure_packages.param.namespaces": {
+      "default": null,
+      "required": false,
+      "type": "dict[str, list[str]] | None"
+    },
+    "tool.configure_packages.param.packages": {
+      "default": null,
+      "required": false,
+      "type": "list[str] | None"
+    },
+    "tool.configure_packages.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.configure_packages.param.save": {
+      "default": true,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.configure_packages.param.standalone_dirs": {
+      "default": null,
+      "required": false,
+      "type": "list[str] | None"
+    },
+    "tool.expand": {
+      "group": "core",
+      "params": [
+        "tool.expand.param.handle",
+        "tool.expand.param.edge",
+        "tool.expand.param.project_path",
+        "tool.expand.param.max_stubs"
+      ]
+    },
+    "tool.expand.param.edge": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.expand.param.handle": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.expand.param.max_stubs": {
+      "default": 200,
+      "required": false,
+      "type": "int | None"
+    },
+    "tool.expand.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.find_cli_commands": {
+      "group": "plugin",
+      "params": [
+        "tool.find_cli_commands.param.scope",
+        "tool.find_cli_commands.param.envelope",
+        "tool.find_cli_commands.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_cli_commands.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_cli_commands.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_cli_commands.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_computed_fields": {
+      "group": "plugin",
+      "params": [
+        "tool.find_computed_fields.param.scope",
+        "tool.find_computed_fields.param.envelope",
+        "tool.find_computed_fields.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.find_computed_fields.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_computed_fields.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_computed_fields.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_django_migrations": {
+      "group": "plugin",
+      "params": [
+        "tool.find_django_migrations.param.scope",
+        "tool.find_django_migrations.param.envelope",
+        "tool.find_django_migrations.param.project_path"
+      ],
+      "plugin": "django"
+    },
+    "tool.find_django_migrations.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_django_migrations.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_django_migrations.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_django_models": {
+      "group": "plugin",
+      "params": [
+        "tool.find_django_models.param.scope",
+        "tool.find_django_models.param.envelope",
+        "tool.find_django_models.param.project_path"
+      ],
+      "plugin": "django"
+    },
+    "tool.find_django_models.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_django_models.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_django_models.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_django_templates": {
+      "group": "plugin",
+      "params": [
+        "tool.find_django_templates.param.scope",
+        "tool.find_django_templates.param.envelope",
+        "tool.find_django_templates.param.project_path"
+      ],
+      "plugin": "django"
+    },
+    "tool.find_django_templates.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_django_templates.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_django_templates.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_django_urls": {
+      "group": "plugin",
+      "params": [
+        "tool.find_django_urls.param.scope",
+        "tool.find_django_urls.param.envelope",
+        "tool.find_django_urls.param.project_path"
+      ],
+      "plugin": "django"
+    },
+    "tool.find_django_urls.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_django_urls.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_django_urls.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_django_views": {
+      "group": "plugin",
+      "params": [
+        "tool.find_django_views.param.scope",
+        "tool.find_django_views.param.envelope",
+        "tool.find_django_views.param.project_path"
+      ],
+      "plugin": "django"
+    },
+    "tool.find_django_views.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_django_views.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_django_views.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_error_handlers": {
+      "group": "plugin",
+      "params": [
+        "tool.find_error_handlers.param.scope",
+        "tool.find_error_handlers.param.envelope",
+        "tool.find_error_handlers.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_error_handlers.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_error_handlers.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_error_handlers.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_field_validators": {
+      "group": "plugin",
+      "params": [
+        "tool.find_field_validators.param.scope",
+        "tool.find_field_validators.param.envelope",
+        "tool.find_field_validators.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.find_field_validators.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_field_validators.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_field_validators.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_blueprints": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_blueprints.param.scope",
+        "tool.find_flask_blueprints.param.envelope",
+        "tool.find_flask_blueprints.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_blueprints.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_blueprints.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_blueprints.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_config": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_config.param.scope",
+        "tool.find_flask_config.param.envelope",
+        "tool.find_flask_config.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_config.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_config.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_config.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_extensions": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_extensions.param.scope",
+        "tool.find_flask_extensions.param.envelope",
+        "tool.find_flask_extensions.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_extensions.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_extensions.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_extensions.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_routes": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_routes.param.scope",
+        "tool.find_flask_routes.param.envelope",
+        "tool.find_flask_routes.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_routes.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_routes.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_routes.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_templates": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_templates.param.scope",
+        "tool.find_flask_templates.param.envelope",
+        "tool.find_flask_templates.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_templates.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_templates.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_templates.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_flask_views": {
+      "group": "plugin",
+      "params": [
+        "tool.find_flask_views.param.scope",
+        "tool.find_flask_views.param.envelope",
+        "tool.find_flask_views.param.project_path"
+      ],
+      "plugin": "flask"
+    },
+    "tool.find_flask_views.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_flask_views.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_flask_views.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_model_config": {
+      "group": "plugin",
+      "params": [
+        "tool.find_model_config.param.scope",
+        "tool.find_model_config.param.envelope",
+        "tool.find_model_config.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.find_model_config.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_model_config.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_model_config.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_pydantic_models": {
+      "group": "plugin",
+      "params": [
+        "tool.find_pydantic_models.param.scope",
+        "tool.find_pydantic_models.param.envelope",
+        "tool.find_pydantic_models.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.find_pydantic_models.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_pydantic_models.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_pydantic_models.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.find_validators": {
+      "group": "plugin",
+      "params": [
+        "tool.find_validators.param.scope",
+        "tool.find_validators.param.envelope",
+        "tool.find_validators.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.find_validators.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.find_validators.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.find_validators.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.get_connection_diagnostics": {
+      "group": "admin",
+      "params": []
+    },
+    "tool.get_model_schema": {
+      "group": "plugin",
+      "params": [
+        "tool.get_model_schema.param.model_name",
+        "tool.get_model_schema.param.scope",
+        "tool.get_model_schema.param.envelope",
+        "tool.get_model_schema.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.get_model_schema.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.get_model_schema.param.model_name": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.get_model_schema.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.get_model_schema.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    },
+    "tool.get_performance_metrics": {
+      "group": "admin",
+      "params": [
+        "tool.get_performance_metrics.param.metric_name",
+        "tool.get_performance_metrics.param.export_format"
+      ]
+    },
+    "tool.get_performance_metrics.param.export_format": {
+      "default": "json",
+      "required": false,
+      "type": "str"
+    },
+    "tool.get_performance_metrics.param.metric_name": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.inspect": {
+      "group": "core",
+      "params": [
+        "tool.inspect.param.handle",
+        "tool.inspect.param.project_path"
+      ]
+    },
+    "tool.inspect.param.handle": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.inspect.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.outline": {
+      "group": "core",
+      "params": [
+        "tool.outline.param.handle",
+        "tool.outline.param.project_path",
+        "tool.outline.param.max_depth",
+        "tool.outline.param.max_nodes"
+      ]
+    },
+    "tool.outline.param.handle": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.outline.param.max_depth": {
+      "default": 1,
+      "required": false,
+      "type": "int | None"
+    },
+    "tool.outline.param.max_nodes": {
+      "default": 200,
+      "required": false,
+      "type": "int"
+    },
+    "tool.outline.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.resolve": {
+      "group": "core",
+      "params": [
+        "tool.resolve.param.identifier",
+        "tool.resolve.param.project_path",
+        "tool.resolve.param.max_candidates"
+      ]
+    },
+    "tool.resolve.param.identifier": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.resolve.param.max_candidates": {
+      "default": 50,
+      "required": false,
+      "type": "int | None"
+    },
+    "tool.resolve.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.resolve_at": {
+      "group": "core",
+      "params": [
+        "tool.resolve_at.param.file",
+        "tool.resolve_at.param.line",
+        "tool.resolve_at.param.column",
+        "tool.resolve_at.param.project_path"
+      ]
+    },
+    "tool.resolve_at.param.column": {
+      "required": true,
+      "type": "int"
+    },
+    "tool.resolve_at.param.file": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.resolve_at.param.line": {
+      "required": true,
+      "type": "int"
+    },
+    "tool.resolve_at.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.trace": {
+      "group": "core",
+      "params": [
+        "tool.trace.param.start",
+        "tool.trace.param.follow",
+        "tool.trace.param.project_path",
+        "tool.trace.param.max_depth",
+        "tool.trace.param.max_nodes",
+        "tool.trace.param.stop_when"
+      ]
+    },
+    "tool.trace.param.follow": {
+      "required": true,
+      "type": "list[str]"
+    },
+    "tool.trace.param.max_depth": {
+      "default": 3,
+      "required": false,
+      "type": "int"
+    },
+    "tool.trace.param.max_nodes": {
+      "default": 50,
+      "required": false,
+      "type": "int"
+    },
+    "tool.trace.param.project_path": {
+      "default": ".",
+      "required": false,
+      "type": "str"
+    },
+    "tool.trace.param.start": {
+      "required": true,
+      "type": "str | list[str]"
+    },
+    "tool.trace.param.stop_when": {
+      "default": null,
+      "required": false,
+      "type": "dict | None"
+    },
+    "tool.trace_model_inheritance": {
+      "group": "plugin",
+      "params": [
+        "tool.trace_model_inheritance.param.model_name",
+        "tool.trace_model_inheritance.param.scope",
+        "tool.trace_model_inheritance.param.envelope",
+        "tool.trace_model_inheritance.param.project_path"
+      ],
+      "plugin": "pydantic"
+    },
+    "tool.trace_model_inheritance.param.envelope": {
+      "default": false,
+      "required": false,
+      "type": "bool"
+    },
+    "tool.trace_model_inheritance.param.model_name": {
+      "required": true,
+      "type": "str"
+    },
+    "tool.trace_model_inheritance.param.project_path": {
+      "default": null,
+      "required": false,
+      "type": "str | None"
+    },
+    "tool.trace_model_inheritance.param.scope": {
+      "default": "main",
+      "required": false,
+      "type": "str | list[str]"
+    }
+  }
+}

@@ -3,7 +3,7 @@
 ## 📊 Current Status
 
 **Current Coverage**: 79% (as of January 2025)
-**CI Threshold**: 75%
+**CI Threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
 **Target**: 85% (Phase 2)
 
 [![codecov](https://codecov.io/gh/okeefeco/pyeye-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/pyeye-mcp)

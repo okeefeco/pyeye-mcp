@@ -54,6 +54,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked  # creates .venv so the repo:local hooks' `uv run <tool>` resolves
       - uses: pre-commit/action@v3.0.1
+      - name: Docs facts are current (#824)
+        # pre-commit's generate hook only runs on matching files; check always
+        # compares every fact block, reference page and the snapshot.
+        run: uv run --frozen python scripts/docs_facts.py check
 
   # Detect if only documentation files changed
   changes:
