@@ -51,11 +51,21 @@ class TestWhatIsPublished:
         assert ".claude/README.md" not in pages
         assert not [p for p in pages if p.startswith("changes/")]
 
-    def test_seeded_history_waits_for_830(self, pages: list[str]) -> None:
-        """C16: a history page with unbacked figures stays off until they're cleared."""
-        assert "CHANGELOG.md" in pages
-        assert "docs/METRICS_BASELINE.md" not in pages
-        assert "benchmarks/BASELINE_RESULTS.md" not in pages
+    def test_history_is_published_exactly_when_its_seeds_are_gone(self, pages: list[str]) -> None:
+        """C16: a history page waits while it has honest-claims seeds, then publishes.
+
+        #830 cleared the four held-back pages, so they're on the site now; any
+        history page that still has seeds stays off.
+        """
+        history = [
+            (path, entry)
+            for path, entry in registered_files(ROOT)
+            if entry.kind == "history" and entry.site is None
+        ]
+        assert history, "no history pages registered: the check would be vacuous"
+        for path, entry in history:
+            assert (path in pages) is (not entry.allow.get("honest-claims")), path
+        assert {"CHANGELOG.md", "docs/migration-guide.md", "docs/api-redesign.md"} <= set(pages)
 
     @pytest.mark.parametrize(
         ("entry", "published"),

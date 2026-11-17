@@ -45,6 +45,12 @@ def is_jedi_private_path(entry: str) -> bool:
         return False
 
 
+#: Whether Jedi may load compiled extension modules from outside the environment's
+#: own ``sys.path`` (the analysed project, configured packages). Loading one runs
+#: its native code, so it stays off (docs fact ``security.jedi_unsafe_extensions``).
+LOAD_UNSAFE_EXTENSIONS = False
+
+
 def make_project(path: str | Path, added_sys_path: Iterable[str] = ()) -> jedi.Project:
     """Build a ``jedi.Project`` whose base ``sys.path`` excludes Jedi's own directory.
 
@@ -58,7 +64,10 @@ def make_project(path: str | Path, added_sys_path: Iterable[str] = ()) -> jedi.P
         environment's path can't be read, Jedi's default (unfiltered) base path
         is kept rather than failing analysis.
     """
-    kwargs: dict[str, Any] = {"path": Path(path).as_posix()}
+    kwargs: dict[str, Any] = {
+        "path": Path(path).as_posix(),
+        "load_unsafe_extensions": LOAD_UNSAFE_EXTENSIONS,
+    }
     added = list(added_sys_path)
     if added:  # Jedi's own default otherwise; it doesn't accept None
         kwargs["added_sys_path"] = added

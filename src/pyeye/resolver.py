@@ -5,36 +5,17 @@ single implementation behind ``inspect``, ``outline``, ``expand`` and the
 ``trace`` roots, so those tools cannot disagree about whether a handle exists,
 which definition it names, or which handle to echo back.
 
-Strategy order (the first hit wins):
-
-1. **Project module**: :func:`pyeye.project_layout.file_for_module` finds the
-   ``__init__.py`` / ``<name>.py``; the anchor is the module ``Name`` or a
-   :class:`~pyeye._module_sentinel.ModuleSentinel`.
-2. **PEP 420 namespace package** (#444): a directory with importable content and
-   no ``__init__.py``, anchored as a directory ``ModuleSentinel``.
-3. **External module**: a stdlib / site-packages module (``logging``, ``os``,
-   ``os.path``) located through a Jedi module import.
-4. **Definition placement**: strip trailing components to the DEEPEST project
-   module file, then match the definition whose ``full_name`` is the handle. A
-   re-export alias (``package.Thing`` for ``package._impl.Thing``) is matched
-   by name and followed to its definition, whose ``full_name`` becomes the
-   canonical handle. There is no fallback to shallower modules after a miss.
-5. **Private stdlib definition** (#544), for a stdlib class or function
-   outside the project: the real ``.py`` chain is followed statically to a
-   definition in a private stdlib module, named by its public re-exporting
-   module (:mod:`pyeye._stdlib_static`), so ``collections.abc.Mapping`` is the
-   class in ``_collections_abc.py``, not typeshed's reversed re-export of
-   ``typing.Mapping``.
+The strategy is data, so the code and the docs can't disagree about it
+(``resolver.strategy`` docs facts, #830): :data:`STRATEGY` runs first, then the
+path's top-level package picks :data:`PROJECT_STRATEGY` (inside the project,
+with no fallback after a miss) or :data:`EXTERNAL_STRATEGY` (outside it, so
+the external steps never run on a project path, #506). The first step that
+answers wins.
 
 A handle in a platform-selected module (``os.path``, #329) is located at the
 ``sys.platform`` branch that selects its implementation, the same on every OS.
-6. **Guarded inference**, last and only for handles outside the project
-   boundary (#506): infer ``module.leaf`` through a synthetic import and accept
-   a result only if its name equals the leaf. Inference can land on a
-   different object (``typing.TYPE_CHECKING`` infers to ``bool``); refusing it
-   is an honest miss rather than a wrong answer.
 
-Steps 3 and 6 read one :func:`_synthetic_import`, the one place a
+The external steps that infer read one :func:`_synthetic_import`, the one place a
 ``jedi.Script(code=...)`` is built (``tests/test_decision_invariants_fitness.py``).
 
 This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
@@ -44,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -163,52 +145,94 @@ def resolve_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
 async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | NotFound:
     """Resolve a bare (dot-free) name: an exact top-level module wins (#623).
 
-    Policy, first rule that applies:
-
-    1. **Shadow** (#423): the name is a top-level package or module under more
-       than one project root (``<name>/`` in both the project and ``src/``).
-       Picking one would hide the collision, so the result is ambiguous.
-    2. **Exact top-level module**: the name is itself a complete top-level
-       module (the project's own package, a PEP 420 namespace root, or an
-       external module such as ``functools`` or ``inspect``).  It wins even
-       when project definitions share the name; those are reachable by their
-       dotted handles.
-    3. **Name index**: every project definition named *bare*, each
-       re-resolved through :func:`resolve_handle` so every candidate is
-       canonical; duplicates (an alias and its definition) collapse.  One
-       left is the answer; several are ambiguous.
-    4. **Members, as a fallback** (#508): only when rules 1-3 find nothing,
-       every method or class-body attribute named *bare*, canonicalised and
-       decided the same way.  Because it is a fallback, a top-level ``helper``
-       answers ``resolve("helper")`` and a same-named ``Class.helper`` is not
-       listed.  Dunder names (``__init__``) are never members here: every class
-       defines them, so they stay not-found, with a hint to expand the class's
-       members.
+    The policy is :data:`BARE_NAME_POLICY`, first rule that answers wins
+    (``resolver.bare_name`` docs facts, #830). Picking one of several same-named
+    candidates would hide the collision, so several are always ambiguous.
 
     Never raises.
     """
     if "." in bare or not _is_dotted_path(bare):
         return NotFound(reason="unresolved", detail=f"{bare!r} is not a bare name.")
+    for rule in BARE_NAME_POLICY:
+        answer = await rule.run(bare, analyzer)
+        if answer is not None:
+            return answer
+    return NotFound(reason="unresolved", detail=_miss_detail(bare))
 
-    shadow = _top_level_shadow(bare, analyzer)
-    if len(shadow) > 1:
-        return Ambiguous(candidates=_ordered(shadow))
 
-    exact = resolve_handle(bare, analyzer)
-    if isinstance(exact, Resolved) and exact.kind == "module" and exact.handle == bare:
-        return exact
+@dataclass(frozen=True)
+class NameRule:
+    """One rule of the bare-name policy: the first rule that answers wins.
 
-    # An index or lookup failure propagates (#704): it isn't evidence the name is absent.
-    matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
-    found = _canonical_candidates(matches, analyzer)
-    if not found:  # 4: members, only as a fallback (#508)
-        members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
-        found = _canonical_candidates(members, analyzer)
+    Attributes:
+        name: Short identifier (``exact_module``); the docs fact's ID segment.
+        summary: What the rule decides, one sentence; the docs show it as written.
+        run: Takes ``(bare, analyzer)``; returns the answer, or ``None`` to fall through.
+    """
+
+    name: str
+    summary: str
+    run: Callable[[str, JediAnalyzer], Awaitable[Resolved | Ambiguous | None]]
+
+
+def _decide(found: dict[str, Resolved]) -> Resolved | Ambiguous | None:
+    """One candidate is the answer, several are ambiguous, none falls through."""
     if not found:
-        return NotFound(reason="unresolved", detail=_miss_detail(bare))
+        return None
     if len(found) == 1:
         return next(iter(found.values()))
     return Ambiguous(candidates=_ordered(list(found.values())))
+
+
+async def _rule_shadow(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | None:
+    shadow = _top_level_shadow(bare, analyzer)
+    return Ambiguous(candidates=_ordered(shadow)) if len(shadow) > 1 else None
+
+
+async def _rule_exact_module(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | None:
+    exact = resolve_handle(bare, analyzer)
+    if isinstance(exact, Resolved) and exact.kind == "module" and exact.handle == bare:
+        return exact
+    return None
+
+
+async def _rule_name_index(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | None:
+    # An index or lookup failure propagates (#704): it isn't evidence the name is absent.
+    matches = [m.get("full_name") for m in await analyzer.find_symbol(bare)]
+    return _decide(_canonical_candidates(matches, analyzer))
+
+
+async def _rule_members(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | None:
+    members = [d.full_name for d in await analyzer.find_member_definitions(bare)]
+    return _decide(_canonical_candidates(members, analyzer))
+
+
+#: How :func:`resolve_name` decides a bare name, in order (docs fact ``resolver.bare_name``).
+BARE_NAME_POLICY: tuple[NameRule, ...] = (
+    NameRule(
+        "shadow",
+        "a top-level package or module under more than one project root is ambiguous",
+        _rule_shadow,
+    ),
+    NameRule(
+        "exact_module",
+        "a complete top-level module (the project's package, a namespace root or an "
+        "external module) wins over same-named definitions",
+        _rule_exact_module,
+    ),
+    NameRule(
+        "name_index",
+        "every project definition with that name, canonicalised: one is the answer, "
+        "several are ambiguous",
+        _rule_name_index,
+    ),
+    NameRule(
+        "members",
+        "only when nothing above matched, every method or class attribute with that "
+        "name, decided the same way; dunder names never match",
+        _rule_members,
+    ),
+)
 
 
 def _canonical_candidates(
@@ -286,25 +310,58 @@ def _ordered(candidates: list[Resolved]) -> tuple[Resolved, ...]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class Step:
+    """One step of a resolution chain: the first step that answers wins.
+
+    Attributes:
+        name: Short identifier (``project_module``); the docs fact's ID segment.
+        summary: What the step tries, one sentence; the docs show it as written.
+        run: Takes ``(path, analyzer, hops, inference)``; returns
+            ``(canonical handle, anchor)`` or ``None`` to fall through.
+    """
+
+    name: str
+    summary: str
+    run: Callable[[str, JediAnalyzer, int, _Inference], tuple[str, Any] | None]
+
+
+class _Inference:
+    """*path*'s synthetic import, run at most once and only if a step asks for it."""
+
+    def __init__(self, path: str, analyzer: JediAnalyzer) -> None:
+        self._path = path
+        self._analyzer = analyzer
+        self._result: tuple[list[Any], Any | None] | None = None
+
+    def get(self) -> tuple[list[Any], Any | None]:
+        if self._result is None:
+            self._result = _synthetic_import(self._path, self._analyzer)
+        return self._result
+
+
 def _resolve(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str, Any] | None:
-    """Run the strategy chain; return ``(canonical handle, anchor)`` or ``None``."""
+    """Run the strategy chain; return ``(canonical handle, anchor)`` or ``None``.
+
+    :data:`STRATEGY` runs first. Then the path's top-level package picks one
+    side (#506): :data:`PROJECT_STRATEGY` inside the project, where there is no
+    fallback after a miss, else :data:`EXTERNAL_STRATEGY`, whose steps never run
+    on a project path.
+    """
     if not _is_dotted_path(path):
         return None
-
-    module = _project_module(path, analyzer)  # 1
-    if module is not None:
-        return path, module
-
-    ns_dirs = find_namespace_package_dirs(path, analyzer)  # 2
-    if ns_dirs:
-        return path, ModuleSentinel(ns_dirs[0], path, analyzer)
-
-    # Steps 3-5.  Placement (4) needs a project module along the path, and the
-    # external steps (3, 5) must never run inside the project (#506), so the
-    # top-level package decides which side runs; the order is unchanged.
-    if _top_level_in_project(path, analyzer):
-        return _place_definition(path, analyzer, hops)  # 4
-    return _external(path, analyzer)  # 3, then 5
+    inference = _Inference(path, analyzer)
+    for step in STRATEGY:
+        found = step.run(path, analyzer, hops, inference)
+        if found is not None:
+            return found
+    # Only now, after the shared steps missed, does the side matter.
+    side = PROJECT_STRATEGY if _top_level_in_project(path, analyzer) else EXTERNAL_STRATEGY
+    for step in side:
+        found = step.run(path, analyzer, hops, inference)
+        if found is not None:
+            return found
+    return None
 
 
 def _is_dotted_path(path: str) -> bool:
@@ -438,52 +495,142 @@ def _follow_alias(
     return None
 
 
-def _external(path: str, analyzer: JediAnalyzer) -> tuple[str, Any] | None:
-    """Steps 3, 5 and 6 for a handle outside the project.
+def _step_project_module(
+    path: str, analyzer: JediAnalyzer, _hops: int, _inference: _Inference
+) -> tuple[str, Any] | None:
+    module = _project_module(path, analyzer)
+    return (path, module) if module is not None else None
 
-    5. **Private stdlib definition** (#544), checked first because it needs no
-       Jedi inference: the real ``.py`` chain is followed statically
-       (:func:`pyeye._stdlib_static.stdlib_definition`) to a definition in a
-       private stdlib module; it is named by the public re-exporting module and
-       anchored on Jedi's definition ``Name`` at that file and line.
-    3. **External module**: an inferred module whose ``full_name`` is *path*.
-    6. **External definition**, from one synthetic import; first rule that applies:
 
-       a. *Definition at the requested site*: ``goto`` (through the one picker,
-          :func:`pyeye._goto.goto_target`) lands on a definition whose
-          ``full_name`` IS *path* and that has a file.  This is placement by
-          definition lookup (#506) for names whose value is something else:
-          ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
-          ``bool``.  A target at a DIFFERENT path is refused here, so a
-          re-export never becomes canonical through this step
-          (typeshed's ``collections.abc.Mapping`` → ``typing.Mapping``, #544;
-          step 5 places the stdlib ABCs before this runs).
-       b. *Guarded inference*: an inferred definition whose name equals the
-          leaf; its ``full_name`` is the canonical handle (a re-export under the
-          same name, ``pathlib.Path`` → ``pathlib._local.Path`` on 3.13).
+def _step_namespace_package(
+    path: str, analyzer: JediAnalyzer, _hops: int, _inference: _Inference
+) -> tuple[str, Any] | None:
+    ns_dirs = find_namespace_package_dirs(path, analyzer)
+    return (path, ModuleSentinel(ns_dirs[0], path, analyzer)) if ns_dirs else None
+
+
+def _step_place_definition(
+    path: str, analyzer: JediAnalyzer, hops: int, _inference: _Inference
+) -> tuple[str, Any] | None:
+    return _place_definition(path, analyzer, hops)
+
+
+def _step_private_stdlib(
+    path: str, analyzer: JediAnalyzer, _hops: int, _inference: _Inference
+) -> tuple[str, Any] | None:
+    """Follow the real ``.py`` chain statically (:func:`pyeye._stdlib_static.stdlib_definition`).
+
+    It needs no Jedi inference, so it runs before the steps that do. The
+    definition is named by the public re-exporting module and anchored on
+    Jedi's definition ``Name`` at that file and line (#544).
     """
     private = stdlib_definition(path)
-    if private is not None:  # a private stdlib definition, public handle (#544)
-        anchor = _anchor_at_stdlib_definition(private, analyzer)
-        if anchor is not None:
-            return private.handle, anchor
-    inferred, target = _synthetic_import(path, analyzer)
-    for name in inferred:  # 3
+    if private is None:
+        return None
+    anchor = _anchor_at_stdlib_definition(private, analyzer)
+    return (private.handle, anchor) if anchor is not None else None
+
+
+def _step_external_module(
+    path: str, _analyzer: JediAnalyzer, _hops: int, inference: _Inference
+) -> tuple[str, Any] | None:
+    inferred, _target = inference.get()
+    for name in inferred:
         if name.type == "module" and name.full_name == path:
             return path, name
+    return None
+
+
+def _step_external_definition(
+    path: str, _analyzer: JediAnalyzer, _hops: int, inference: _Inference
+) -> tuple[str, Any] | None:
+    """Placement by definition lookup (#506), for names whose value is something else.
+
+    ``typing.TYPE_CHECKING`` is defined in ``typing.pyi`` but infers to
+    ``bool``. A target at a DIFFERENT path is refused here, so a re-export never
+    becomes canonical through this step (typeshed's ``collections.abc.Mapping``
+    → ``typing.Mapping``, #544; the private-stdlib step places the stdlib ABCs
+    first).
+    """
     if "." not in path:
         return None
-    if (  # 6a
+    _inferred, target = inference.get()
+    if (
         target is not None
         and target.full_name == path
         and getattr(target, "module_path", None) is not None
     ):
         return path, target
+    return None
+
+
+def _step_guarded_inference(
+    path: str, _analyzer: JediAnalyzer, _hops: int, inference: _Inference
+) -> tuple[str, Any] | None:
+    """Accept an inferred definition only if its name equals the leaf.
+
+    Inference can land on a different object; refusing it is an honest miss
+    rather than a wrong answer. Its ``full_name`` is the canonical handle (a
+    re-export under the same name: ``pathlib.Path`` → ``pathlib._local.Path``
+    on 3.13).
+    """
+    if "." not in path:
+        return None
+    inferred, _target = inference.get()
     leaf = path.rsplit(".", 1)[-1]
-    for name in inferred:  # 6b
+    for name in inferred:
         if name.name == leaf and name.full_name and _is_dotted_path(name.full_name):
             return name.full_name, name
     return None
+
+
+#: The steps every path runs first, in order (docs fact ``resolver.strategy``).
+STRATEGY: tuple[Step, ...] = (
+    Step(
+        "project_module",
+        "a project module, as a package or a single file",
+        _step_project_module,
+    ),
+    Step(
+        "namespace_package",
+        "a PEP 420 namespace package: a directory with importable content and no init file",
+        _step_namespace_package,
+    ),
+)
+
+#: The steps after :data:`STRATEGY` for a path whose top-level package is in the project.
+PROJECT_STRATEGY: tuple[Step, ...] = (
+    Step(
+        "definition_placement",
+        "the definition in the deepest project module along the path, following a "
+        "re-export alias to its definition, with no fallback to shallower modules",
+        _step_place_definition,
+    ),
+)
+
+#: The steps after :data:`STRATEGY` for a path outside the project, in order.
+EXTERNAL_STRATEGY: tuple[Step, ...] = (
+    Step(
+        "private_stdlib",
+        "a stdlib definition in a private module, named by its public re-exporting module",
+        _step_private_stdlib,
+    ),
+    Step(
+        "external_module",
+        "a stdlib or site-packages module, through a Jedi import",
+        _step_external_module,
+    ),
+    Step(
+        "external_definition",
+        "a definition at exactly the requested path, found by goto",
+        _step_external_definition,
+    ),
+    Step(
+        "guarded_inference",
+        "an inferred definition, accepted only if its name equals the last component",
+        _step_guarded_inference,
+    ),
+)
 
 
 def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer) -> Any | None:
