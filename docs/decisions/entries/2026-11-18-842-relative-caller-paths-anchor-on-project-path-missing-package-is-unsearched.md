@@ -26,6 +26,9 @@ superseded_by: []
   - a Windows drive-relative path (`C:foo`) on the root's drive loses its drive and joins the root; on another drive it is a `ValueError` (`path_utils.drive_relative`), because it could only mean that drive's cwd.
 - **The input validator no longer anchors.** `PathValidator.validate_path` (behind `validate_mcp_inputs`) made any relative path containing `..` absolute against the cwd, before a tool could anchor it. It now returns a relative path unchanged, so `file`, `project_path` and `configure_packages`' `packages` reach the tool as the caller wrote them.
   - **The deny-list is not loosened.** Its checks still run on the real target. An absolute path, or a relative one containing `..`, is resolved for the checks only, anchored where the tool will anchor it: on the call's `project_path` (`anchor_root`) for `file` and `packages`, and on the cwd for `project_path` itself.
+  - **Two forms, either rejects.** The deny-list runs over the target's lexical form (anchored, `..` collapsed, symlinks kept) and its resolved form (`PathValidator.check_forms`). On macOS `/etc` is a symlink to `/private/etc`, so the resolved form alone never matched `^/etc/`. That made #852's first version fail its own tests there.
+    - In base, absolute `/etc/x` and relative `…/etc/x` were rejected on every OS, macOS included, by the given-string substring check, so files had no extra macOS hole.
+    - The directory itself (`/etc`, `../../etc`) passed on every OS in base.
   - **Slightly stricter than before.** The anchored resolved-target patterns (`^/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`) now also test the path as a directory. The match-anywhere ones (`/etc/`, `/root/`) don't, so a project directory that merely ends in `etc` or `root` (`/home/u/repos/root`) still passes, as in 2.x. Before, `../../etc` resolved to `/etc` and slipped past `^/etc/` for lack of a trailing slash. It is still "a sanity check, not a sandbox" (SECURITY.md).
 - **Where it applies.**
   - `resolve_at`'s `file` and `resolve`'s `path:line` and `path` forms anchor on the analyzer's project. The not-found echo keeps the caller's spelling.
@@ -40,7 +43,7 @@ superseded_by: []
 **Applies-to:**
 
 - the rule: `pyeye.path_utils.anchor`, `pyeye.path_utils.drive_relative`;
-- the validator: `pyeye.validation.PathValidator.validate_path` and the `validate_mcp_inputs` wrapper that passes `anchor_root`;
+- the validator: `pyeye.validation.PathValidator.validate_path`, `PathValidator.check_forms` and the `validate_mcp_inputs` wrapper that passes `anchor_root`;
 - its callers: `pyeye.mcp.operations.resolve.resolve_at`, `pyeye.mcp.operations.resolve._resolve_identifier` (the `file_with_line` and `file_only` forms), `pyeye.scope_utils.package_scope_path`;
 - the scope readers: `pyeye.scope_utils.resolve_scope_paths`, `pyeye.plugins.base.AnalyzerPlugin.describe_scope` (and through it the `envelope` of every plugin tool registered by `register_plugin_tools`).
 

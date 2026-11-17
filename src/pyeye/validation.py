@@ -24,6 +24,37 @@ class PathValidator:
         r"^/sys/",  # System info (Unix)
     ]
 
+    #: Checked against every form of the target (:meth:`check_forms`).
+    RESTRICTED_TARGETS: tuple[str, ...] = (
+        r"^/etc/",
+        r"^/root/",
+        r"^/proc/",
+        r"^/sys/",
+        r"^/dev/",
+        r"/etc/",  # Also check if /etc/ appears anywhere in path
+        r"/root/",  # Also check if /root/ appears anywhere
+    )
+
+    @staticmethod
+    def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
+        """``(resolved, forms)``: the deny-list checks the target's lexical and resolved forms.
+
+        An absolute path, or a relative one containing ``..``, is checked both
+        **lexically** (anchored, ``..`` collapsed, symlinks kept) and
+        **resolved**. Either matching rejects it: on macOS ``/etc`` resolves to
+        ``/private/etc``, which the resolved form alone never matches. A relative
+        one is anchored on *anchor_root* (the call's project) when given, else
+        the cwd. Any other relative path is checked as given.
+        """
+        if path.is_absolute():
+            lexical = absolute_path(path)
+        elif ".." in path.as_posix():
+            lexical = absolute_path(anchor(path, anchor_root) if anchor_root is not None else path)
+        else:
+            return path, [path.as_posix()]
+        resolved = normalize_path(lexical)
+        return resolved, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
+
     @classmethod
     def validate_path(
         cls,
@@ -81,39 +112,20 @@ class PathValidator:
             # relative one where the tool will anchor it (*anchor_root*), else
             # on the cwd as before. Only the checks use it; a relative path is
             # returned unchanged (#842, #843).
-            if path_obj.is_absolute():
-                resolved_path = normalize_path(path_obj)
-            elif ".." in path_str:
-                target = anchor(path_obj, anchor_root) if anchor_root is not None else path_obj
-                resolved_path = normalize_path(target)
-            else:
-                resolved_path = path_obj
+            resolved_path, forms = cls.check_forms(path_obj, anchor_root)
         except (ValueError, RuntimeError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
-
-        # Check the path (resolved or not) for dangerous locations
-        path_to_check = resolved_path.as_posix()
-
-        # Check for actual security issues in paths
-        suspicious_resolved_patterns = [
-            r"^/etc/",
-            r"^/root/",
-            r"^/proc/",
-            r"^/sys/",
-            r"^/dev/",
-            r"/etc/",  # Also check if /etc/ appears anywhere in path
-            r"/root/",  # Also check if /root/ appears anywhere
-        ]
 
         # The system directory itself counts too: "/etc" (from "../../etc")
         # must not slip past "^/etc/" for lack of a trailing slash. Only for the
         # anchored patterns: a project dir that merely ENDS in "root" or "etc"
         # (/home/u/repos/root) is not a system directory.
-        as_dir = path_to_check.rstrip("/") + "/"
-        for pattern in suspicious_resolved_patterns:
-            anchored = pattern.startswith("^")
-            if re.search(pattern, path_to_check) or (anchored and re.search(pattern, as_dir)):
-                raise ValidationError(f"Path resolves to restricted location: {pattern}")
+        for form in forms:
+            as_dir = form.rstrip("/") + "/"
+            for pattern in cls.RESTRICTED_TARGETS:
+                anchored = pattern.startswith("^")
+                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
+                    raise ValidationError(f"Path resolves to restricted location: {pattern}")
 
         # If base_path is provided, ensure the path is within it
         if base_path:

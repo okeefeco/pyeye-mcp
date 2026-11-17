@@ -493,3 +493,47 @@ def test_the_echo_keeps_the_callers_spelling_with_cwd_inside_the_project(
 
     assert result["reason"] == "file_not_found"
     assert result["file"] == "pkg/m.py"
+
+
+class TestDenyListChecksLexicalAndResolvedForms:
+    """#852 on macOS: /etc is a symlink to /private/etc, so the resolved form alone missed it."""
+
+    def test_check_forms_lexical_branch(self, tmp_path: Path) -> None:
+        from pyeye.validation import PathValidator
+
+        root = tmp_path / "a" / "project"
+        resolved, forms = PathValidator.check_forms(Path("../../x"), anchor_root=root)
+
+        assert forms[0] == (tmp_path / "x").as_posix()  # lexical, anchored on root
+        assert resolved == (tmp_path / "x").resolve()
+
+    def test_check_forms_plain_relative_is_checked_as_given(self) -> None:
+        from pyeye.validation import PathValidator
+
+        assert PathValidator.check_forms(Path("pkg/m.py")) == (Path("pkg/m.py"), ["pkg/m.py"])
+
+    @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+    def test_a_symlinked_system_dir_is_caught_by_the_lexical_form(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stand-in for macOS: <tmp>/etc -> <tmp>/private/etc, and a pattern for <tmp>/etc."""
+        from pyeye.exceptions import ValidationError
+        from pyeye.validation import PathValidator
+
+        real = tmp_path / "private" / "etc"
+        real.mkdir(parents=True)
+        link = tmp_path / "sysetc"
+        link.symlink_to(real, target_is_directory=True)
+        monkeypatch.setattr(
+            PathValidator, "RESTRICTED_TARGETS", (f"^{re.escape(link.as_posix())}/",)
+        )
+        project = tmp_path / "a" / "project"
+        project.mkdir(parents=True)
+
+        # Resolved, it is <tmp>/private/etc: only the lexical form matches the pattern.
+        with pytest.raises(ValidationError, match="restricted location"):
+            PathValidator.validate_path("../../sysetc", anchor_root=project)
+        with pytest.raises(ValidationError, match="restricted location"):
+            PathValidator.validate_path(link.as_posix())
+        # The real directory, named by its real path, is not the pattern's.
+        assert PathValidator.validate_path(real.as_posix()) == real
