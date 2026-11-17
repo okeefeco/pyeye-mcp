@@ -34,6 +34,7 @@ The goal is documentation that is **built on facts**, so a code change cannot si
 - **Findings without a way forward.** Every `/docs-review` finding carries proposed text or concrete options with a recommendation. The reviewer must never have to work out the fix themselves.
 - **A second copy of a page** (templates beside their output) or generated text someone has to hand-edit.
 - **Code PRs stalled** by prose work for a newly added fact.
+- **Docs that boast or state unverified facts** (D12). One unbacked "X% faster" undermines trust in every fact the docs state.
 - **A parallel list of files.** If a check can scan a list of files other than the registry's, the `.rst` blind spot can come back.
 
 ## Decisions taken in the session
@@ -50,6 +51,7 @@ The goal is documentation that is **built on facts**, so a code change cannot si
 | D8 | **`/docs-review` reports findings with recommendations or options and never applies them.** A recommendation names its anchor: the fact, the failed task or the audience. | Maintainer |
 | D9 | **MCP tool descriptions take their fact parts from the same extractors** when `server.py` loads: edge lists, scope options, parameter lists. The prose parts stay hand-written. | Claude's call |
 | D10 | **Code blocks marked as runnable are executed in CI** against a fixture project, and their responses are checked by `tests/conformance/response_linter.py`. | Claude's call |
+| D12 | **Docs make only claims the code or a record can back. This is the same honesty contract as the code layer (absence-vs-zero, #568).** It applies to EVERY registered page, history pages included.<br>• **Numbers and comparisons** ("40% faster", "finds 90% of bugs", "50 ms", "100 MB", "saves N tokens") appear only as a bound fact, with its provenance, or as a link to a dated, reproducible record that gives the command that produced it. Anything else is deleted, not reworded.<br>• **Volatile status** ("currently", "as of <date>", "latest version", current coverage, "17+ tools") is a bound fact or removed. Live prose never holds a snapshot. Example: the coverage *threshold* is the `ci.coverage_threshold` fact. A *current coverage* figure isn't a code fact, so it is removed, and the live codecov badge is the source.<br>• **Absolute claims** ("finds ALL usages", "complete", "never misses") appear only where the code makes that guarantee, stated with its scope.<br>• **Projections and targets** ("expected 90% fewer bugs") are not allowed in live docs.<br>**Enforced** mechanically, as a #825 prose rule: a pattern rule for percentages, multipliers, durations, sizes, "as of <date>" and "currently N", with a shrink-only allow-list. A match passes only inside a fact block or on a line that links a record. Overclaims a pattern can't catch are left to judgment, in #829's review checklist; each finding names the missing anchor and proposes honest wording or deletion. | Maintainer ("critical": docs that boast or state false facts undermine the whole purpose) |
 | D11 | **Audiences.** One fact layer, three presentations: human docs (README, `docs/`), Claude docs (`.claude/instructions/`, `skills/`, tool descriptions) and bridge docs (`Audience: Both`). Each page is registered with its audience, and review and scoring tasks are set per audience. | Claude's call, per `00-documentation-system.md` |
 
 ## Approaches considered (for the binding)
@@ -168,6 +170,7 @@ Ordered so that nothing generation will produce gets hand-fixed:
 ## Decision entries to write
 
 - Sphinx retired; Markdown under `docs/` is the only docs tree (D1).
+- Docs make only claims the code or a record can back (D12).
 - Facts reach the docs only through registered extractors and marker blocks or generated pages; one doc registry, with no private file lists (D2, D3, D11).
 - Removed facts fail; new facts go to the ledger (D4, D5).
 - Review principle: tools never decide; a recommendation is an anchored assessment; ambiguity asks for a decision. `/docs-review` always recommends or gives options (D8). This deliberately differs from `/architecture-review`'s rule of withholding a recommendation when no anchor exists.
@@ -175,12 +178,24 @@ Ordered so that nothing generation will produce gets hand-fixed:
 
 ## Settled after the builder check (Claude's calls; correct any)
 
-- **C1. History pages.** The doc registry has a `history` kind, for pages that must name removed things: `CHANGELOG.md`, `changes/*.md`, `docs/migration-guide.md`, `docs/api-redesign.md`. A history page is registered, so nothing can escape the list. Fact blocks still apply to it, but the removed-name rule (D4) and the prose rules do not. `docs/superpowers/**`, `docs/decisions/**` and `docs/audits/**` stay unregistered, as before.
+- **C1. History pages.** The doc registry has a `history` kind, for pages that must name removed things: `CHANGELOG.md`, `changes/*.md`, `docs/migration-guide.md`, `docs/api-redesign.md`. A history page is registered, so nothing can escape the list. Fact blocks and the honest-claims rule (D12) still apply to it; the removed-name rule (D4) and the other prose rules do not. Example: `migration-guide.md`'s unsourced "2.5x faster" table fails D12. `docs/superpowers/**`, `docs/decisions/**` and `docs/audits/**` stay unregistered, as before.
 - **C2. Where removed names come from.** `docs/facts/removed.json` is committed. It is seeded from #509's `GONE_ENTIRELY` and `SURVIVES_AS_INTERNAL_METHOD` (the v1 names, which no extractor can produce) and from today's removed env vars and server commands. `generate` appends to it whenever a fact that's in the committed snapshot (C4) disappears, so a removal is caught in the same PR. Entries are never deleted.
 - **C3. One fact per item, and what "covered" means.** There is one fact per parameter, edge, env var, tool, CLI command and CI value. Group IDs (`tool.trace.params`) are views over item facts, used by marker blocks. A fact is "covered" only when a prose section declares it in the page registry. A link to its `docs/reference/` entry doesn't count, because the reference page covers every fact and would make the ledger meaningless. **Day one:** facts that exist when the ledger is first created are recorded as the `baseline` section of `uncovered.json`. That section is triaged once, in the sweep fix-up (sub-issue 8), and isn't left as standing noise. Only facts added later appear as new entries.
 - **C4. Environment and change detection.** The extractors live in `src/pyeye/docs_facts/` and import the pyeye in the PR, in the normal `uv` environment, as the mypy hook already does. "Stdlib only" means **no new dependency**. `generate` also writes a committed snapshot, `docs/facts/facts.json`. The changed-fact list (§3) is the diff of that snapshot against the merge base's copy, so no second environment is needed. The snapshot diff shows in the PR, which is also the reviewer's signal.
 - **C5. Scoring variance.** The model is pinned for each baseline and recorded with it. Each task runs 3 times. A task's score is pass or fail by majority, plus the tally. A regression is a task that passed in the baseline and fails by majority now. A worse tally on a task that still passes by majority is reported as "weaker", not as a regression. A coordinator-assigned worker runs it at release time, under the dev01 cap (≤2 heavy jobs, memory-capped). A model change starts a new baseline, so it's never compared across models.
 - **C6. The sweep list is stale.** It was taken against `95c7b40b`, and v2.1.0 and #495 have landed since. Sub-issue 8 starts by re-checking the 183 findings against current `main` (still wrong / fixed / generated away). It doesn't run a fresh sweep: the internal `/docs-review` run over the fix-up scope serves as that.
+- **C8. Removed-name matching (#826, settled with the maintainer).**
+  - **Q1.** Each `removed.json` entry has a `match` field: `word` (any mention fails), `heading` (only an API heading fails, for names that live on as internal methods, such as `find_symbol`) or `none` (recorded, not scanned in prose). The defaults are `word` for tools and env vars and `none` for parameters, and the field is the only hand-edited part of an entry. Removed parameters are caught in runnable examples by #828.
+  - **Q2.** A live-page line that names a removed name passes only if it also says "removed". On top of that:
+    - **A ratchet:** the count of such lines per page is recorded in the registry and can only shrink.
+    - **A sunset:** each entry records the release that removed it. From the next major release after that, live-page mentions fail outright, and only history pages may name it. The v2.0 removals leave live pages by v3.0.
+  - **Q3.** The surface tests read the removed tool names from `removed.json`. The analyzer-method and module checks keep their own lists, because those aren't doc facts.
+- **C9. Registry kinds (#824).**
+  - `tests/fixtures/**` is excluded (test input).
+  - `changes/*.md` is one history entry; `changes/README.md` is prose.
+  - `docs/COVERAGE.md` is **prose**, not history: it's a live guide, and its threshold is bound to `ci.coverage_threshold`.
+  - `docs/METRICS_BASELINE.md` and `benchmarks/BASELINE_RESULTS.md` are history, but D12 still applies to them, so their projections and unsourced figures go.
+  - `TOKEN_SAVINGS_VERIFICATION.md`: see D12. It must give a reproducible record or be retired from the live tree (#830).
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
