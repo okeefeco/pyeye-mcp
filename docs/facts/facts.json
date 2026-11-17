@@ -138,6 +138,22 @@
     "edge.written_by": {
       "status": "deferred_reference_backend"
     },
+    "edges.inspect_unmeasured": [
+      "callees",
+      "callers",
+      "decorated_by",
+      "decorates",
+      "enclosing_scope",
+      "imported_by",
+      "imports",
+      "overridden_by",
+      "overrides",
+      "passed_by",
+      "read_by",
+      "references",
+      "subclasses",
+      "written_by"
+    ],
     "env.PYEYE_ANALYSIS_TIMEOUT": {
       "default": 30.0,
       "deprecated": "nothing ever used it (#592)",

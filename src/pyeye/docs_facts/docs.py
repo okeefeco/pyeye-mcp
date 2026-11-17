@@ -19,10 +19,11 @@ Paths are repo-relative and POSIX-spelled. The one pattern entry is
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 from .pages import PAGES
@@ -39,11 +40,15 @@ class DocEntry:
         path: Repo-relative POSIX path, or a glob pattern for a churning tree.
         audience: Who reads it (D11).
         kind: How the checks treat it.
+        allow: Prose-rule ID -> the count of violating lines this page may still
+            have (:mod:`.rules`). The count only shrinks: ``check`` fails if the
+            page has more, and also if it has fewer and the count wasn't lowered.
     """
 
     path: str
     audience: Audience
     kind: Kind
+    allow: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
 
     @property
     def is_pattern(self) -> bool:
