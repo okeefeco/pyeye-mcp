@@ -183,7 +183,7 @@ def _documented_method_keys() -> dict[str, list[str]]:
     files = [
         *(_ROOT / "examples" / "configurations").glob("*.json"),
         *(_ROOT / "docs").glob("*.md"),
-        *(_ROOT / "docs" / "source").rglob("*.rst"),
+        *(_ROOT / "docs" / "architecture").glob("*.md"),
         _ROOT / "README.md",
         _ROOT / "DOCUMENTATION.md",
     ]
