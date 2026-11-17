@@ -380,7 +380,7 @@ class JediAnalyzer:
     async def find_member_definitions(self, name: str) -> list[Any]:
         """Every method or class-body attribute named *name*, project-wide (#508).
 
-        The fallback behind ``resolve_name`` rule 4: these definitions are never
+        The fallback behind ``resolve_name``'s ``members`` rule: these definitions are never
         bare-name *indexed* (#457), so ``find_symbol`` can't see them.  Dunder
         names are never returned.  Same index build, caching and scope
         filtering as :meth:`_search_all_scopes`.
