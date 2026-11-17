@@ -79,8 +79,15 @@ def _read_args(node: ast.AST) -> list[ast.expr]:
     """The arguments of an environment read (name first), or ``[]``."""
     if isinstance(node, ast.Call):
         func = node.func
+        # os.environ.get(...), environ.get(...), os.getenv(...): never <obj>.getenv,
+        # which could be any object's method.
+        is_os_getenv = (
+            func.attr == "getenv" and isinstance(func.value, ast.Name) and func.value.id == "os"
+            if isinstance(func, ast.Attribute)
+            else False
+        )
         if isinstance(func, ast.Attribute) and (
-            (func.attr == "get" and _is_environ(func.value)) or func.attr == "getenv"
+            (func.attr == "get" and _is_environ(func.value)) or is_os_getenv
         ):
             return list(node.args)
         if isinstance(func, ast.Name) and func.id == "getenv":
@@ -88,6 +95,23 @@ def _read_args(node: ast.AST) -> list[ast.expr]:
     elif isinstance(node, ast.Subscript) and _is_environ(node.value):
         return [node.slice]
     return []
+
+
+def _computed_prefix(node: ast.AST) -> str | None:
+    """The ``"PYEYE_..."`` prefix of an f-string or ``+`` that builds a name, else ``None``."""
+    first: ast.expr | None = None
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        first = node.left
+    if (
+        isinstance(first, ast.Constant)
+        and isinstance(first.value, str)
+        and first.value.startswith("PYEYE_")
+        and " " not in first.value
+    ):
+        return first.value
+    return None
 
 
 def _direct_reads(tree: ast.Module, module: str) -> dict[str, Any]:
@@ -110,6 +134,12 @@ def _direct_reads(tree: ast.Module, module: str) -> dict[str, Any]:
             default = _literal(args[1], f"{name}'s default") if len(args) > 1 else None
             found.setdefault(name, default)
     for node in ast.walk(tree):
+        prefix = _computed_prefix(node)
+        if prefix is not None and isinstance(node, ast.expr):
+            raise ExtractionError(
+                f"pyeye/{module} line {node.lineno} builds a variable name from {prefix!r}; "
+                "a computed PYEYE_* name can't be documented, so spell it out"
+            )
         if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)

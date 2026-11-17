@@ -32,12 +32,55 @@ END = re.compile(r"<!-- fact:end -->")
 #: Anything that looks like it means to be a marker. One that isn't exactly
 #: :data:`BEGIN` or :data:`END` is a problem, never silently plain text.
 _NEAR_MISS = re.compile(r"<!--\s*fact\s*:", re.IGNORECASE)
-#: A fence opener (CommonMark): a run of 3+ backticks or tildes, then an info
-#: string. A backtick fence's info string can't contain a backtick (so a line
-#: starting with inline ```code``` is not a fence). Any indent is accepted, since
-#: a fence nested in a list item is indented.
-_FENCE_OPEN = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>[^\n]*)$")
+#: The rest of a line after its container prefixes, tested for a fence run.
+_FENCE_RUN = re.compile(r"(?P<run>`{3,}|~{3,})(?P<info>.*)")
+#: Container prefixes (CommonMark): blockquote ``>`` and list markers (``-``,
+#: ``*``, ``+``, ``1.``, ``1)``), each optionally indented and nested. A fence
+#: can open right after one (``1. ```bash``), and its closer may carry one too.
+_CONTAINER = re.compile(r"(?:[ ]{0,3}(?:>[ ]?|(?:[-*+]|\d{1,9}[.)])[ ]+))*")
 _BACKTICKS = re.compile(r"`+")
+
+
+@dataclass(frozen=True)
+class Fence:
+    """One fenced code block.
+
+    Attributes:
+        line: 1-based line of the opener.
+        info: The opener's info string, stripped (``"json pyeye-example tool=inspect"``).
+        char: The fence character, a backtick or ``~``.
+        length: The opener's run length; the closer must be at least as long.
+        body_start: Offset of the first body line (just after the opener line).
+        body_end: Offset of the closer line, or the end of the text if unclosed.
+        end_line: 1-based line of the closer, or ``None`` if the fence is unclosed.
+    """
+
+    line: int
+    info: str
+    char: str
+    length: int
+    body_start: int
+    body_end: int
+    end_line: int | None
+
+    @property
+    def closed(self) -> bool:
+        """True if a closer was found."""
+        return self.end_line is not None
+
+
+def _split(line: str) -> tuple[int, str, int]:
+    """``(prefix width, rest, column)``: container prefixes, then the rest of the line.
+
+    *column* is where the rest's first non-space character sits; tabs are not
+    expanded (the repo's Markdown is space-indented, and markdownlint keeps it so).
+    """
+    body = line.rstrip("\r\n")
+    prefix = _CONTAINER.match(body)
+    width = prefix.end() if prefix else 0
+    rest = body[width:]
+    return width, rest, width + len(rest) - len(rest.lstrip(" "))
+
 
 Marker = tuple[str, int, int, int, str | None]
 
@@ -71,10 +114,11 @@ class Problem:
     message: str
 
 
-def _code_spans(line: str) -> list[tuple[int, int]]:
-    """Inline code spans in *line* (CommonMark): a run of N backticks to the next run of N.
+def code_spans(line: str) -> list[tuple[int, int]]:
+    """Inline code spans in *line* (CommonMark), as half-open ``(start, end)`` ranges.
 
-    A run with no matching run after it is literal backticks, not a span.
+    A run of N backticks opens a span that the next run of exactly N closes. A
+    run with no matching run after it is literal backticks, not a span.
     """
     spans: list[tuple[int, int]] = []
     runs = list(_BACKTICKS.finditer(line))
@@ -91,26 +135,64 @@ def _code_spans(line: str) -> list[tuple[int, int]]:
     return spans
 
 
-def _fence_opener(line: str) -> tuple[str, int] | None:
-    """``(character, length)`` if *line* opens a fenced code block."""
-    m = _FENCE_OPEN.match(line.rstrip("\r\n"))
-    if m is None:
-        return None
-    run = m.group("run")
-    if run[0] == "`" and "`" in m.group("info"):
-        return None
-    return run[0], len(run)
+def fences(text: str) -> list[Fence]:
+    """Every fenced code block in *text* (CommonMark rules, container-aware).
 
-
-def _closes(line: str, fence: tuple[str, int]) -> bool:
-    """True if *line* closes *fence*: the same character, at least as long, nothing after."""
-    stripped = line.strip()
-    char, length = fence
-    return len(stripped) >= length and stripped == char * len(stripped)
+    - An opener is a run of 3+ backticks or tildes after any container prefixes
+      (``>``, list markers). A backtick opener's info string can't contain a
+      backtick, so a line starting with inline ```code``` is not a fence.
+    - Indentation counts from the enclosing content column (the last non-blank
+      line's content, or a list item's text): 4+ spaces past it is indented code,
+      not a fence. That is what keeps a fence inside a list item a fence, and a
+      ```` line in an indented code block plain text.
+    - A closer is the same character, at least as long, with nothing after it,
+      indented less than 4 past the opener's content column.
+    - An unclosed fence runs to the end of the text (``end_line`` is ``None``).
+    """
+    found: list[Fence] = []
+    offset = 0
+    content_col = 0
+    current: tuple[int, str, str, int, int, int] | None = None  # line, info, char, len, base, start
+    lines = text.splitlines(keepends=True)
+    for number, line in enumerate(lines, 1):
+        width, rest, col = _split(line)
+        stripped = rest.strip()
+        if current is not None:
+            opener_line, info, char, length, base, body_start = current
+            if len(stripped) >= length and stripped == char * len(stripped) and col - base < 4:
+                found.append(Fence(opener_line, info, char, length, body_start, offset, number))
+                current = None
+                content_col = col
+        else:
+            run = _FENCE_RUN.match(rest.lstrip(" "))
+            base = width if width else content_col
+            is_opener = (
+                run is not None
+                and col - base < 4
+                and not (run.group("run")[0] == "`" and "`" in run.group("info"))
+            )
+            if is_opener and run is not None:
+                current = (
+                    number,
+                    run.group("info").strip(),
+                    run.group("run")[0],
+                    len(run.group("run")),
+                    base,
+                    offset + len(line),
+                )
+            # Indented code (4+ past the content column) never moves the column,
+            # or its own lines would make the next ```` line look like a fence.
+            if width or (stripped and col - content_col < 4):
+                content_col = col
+        offset += len(line)
+    if current is not None:
+        opener_line, info, char, length, _, body_start = current
+        found.append(Fence(opener_line, info, char, length, body_start, len(text), None))
+    return found
 
 
 def _line_markers(line: str, number: int, offset: int, problems: list[Problem]) -> list[Marker]:
-    spans = _code_spans(line)
+    spans = code_spans(line)
 
     def in_code(column: int) -> bool:
         return any(a <= column < b for a, b in spans)
@@ -138,23 +220,20 @@ def _line_markers(line: str, number: int, offset: int, problems: list[Problem]) 
 
 def _markers(text: str, problems: list[Problem]) -> list[Marker]:
     """``(kind, line, start, end, fact_id)`` for each marker outside code."""
+    in_fence: set[int] = set()
+    for fence in fences(text):
+        last = fence.end_line if fence.end_line is not None else len(text.splitlines())
+        in_fence.update(range(fence.line, last + 1))
+        if not fence.closed:
+            problems.append(
+                Problem(fence.line, "unclosed code fence: every marker after it would be ignored")
+            )
     found: list[Marker] = []
     offset = 0
-    fence: tuple[str, int] | None = None
-    fence_line = 0
     for number, line in enumerate(text.splitlines(keepends=True), 1):
-        if fence is not None:
-            if _closes(line, fence):
-                fence = None
-        elif (opener := _fence_opener(line)) is not None:
-            fence, fence_line = opener, number
-        else:
+        if number not in in_fence:
             found.extend(_line_markers(line, number, offset, problems))
         offset += len(line)
-    if fence is not None:
-        problems.append(
-            Problem(fence_line, "unclosed code fence: every marker after it would be ignored")
-        )
     found.sort(key=lambda marker: marker[2])
     return found
 
