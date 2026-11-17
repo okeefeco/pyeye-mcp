@@ -196,6 +196,8 @@ _BRACE_KEY = re.compile(r"[\"']?(\w+)[\"']?\s*:")
 # edge_counts.X, edge_counts["X"], and result["edge_counts"]["X"]
 _ACCESS_FORM = re.compile(r"edge_counts(?:[\"']\])?\s*(?:\.\s*(\w+)|\[\s*[\"'](\w+)[\"']\s*\])")
 _COUNT_FORM = re.compile(r"\b(\w+)\s*:\s*\d")
+#: The longest paragraph quoted in a finding.
+_SNIPPET = 160
 
 
 #: The fact holding the edges ``inspect`` doesn't measure (the response linter's set).
@@ -226,7 +228,7 @@ def edge_counts_claims(text: str, unmeasured: Iterable[str]) -> list[Finding]:
         claimed += [dotted or subscript for dotted, subscript in _ACCESS_FORM.findall(flat)]
         claimed += _COUNT_FORM.findall(flat)
         for edge in sorted(set(claimed) & skip):
-            snippet = flat if len(flat) <= 160 else flat[:157] + "..."
+            snippet = flat if len(flat) <= _SNIPPET else flat[: _SNIPPET - 3] + "..."
             found.append(Finding(line, f"unmeasured edge {edge!r} shown in edge_counts: {snippet}"))
     return found
 
