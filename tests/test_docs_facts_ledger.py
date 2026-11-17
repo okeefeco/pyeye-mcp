@@ -58,6 +58,7 @@ class TestLedger:
         assert json.loads((tmp_path / ledger.UNCOVERED).read_text(encoding="utf-8")) == {
             "baseline": ["x.a", "x.b"],
             "new": [{"fact_id": "x.c", "first_seen": "unreleased"}],
+            "dismissed": {},
         }
         assert ledger.load(tmp_path) == Ledger(("x.a", "x.b"), {"x.c": "unreleased"})
         assert ledger.load(tmp_path / "nowhere") is None

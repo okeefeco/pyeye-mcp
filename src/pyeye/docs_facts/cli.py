@@ -27,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, changed, docs, examples, ledger, pages, registry, removed, rules
+from . import binding, changed, docs, examples, ledger, pages, registry, removed, review, rules
 from .facts import Bindable, snapshot
 
 SNAPSHOT = "docs/facts/facts.json"
@@ -102,8 +102,12 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     result.problems.extend(rules.run(root, facts))
     old_snapshot = _committed_snapshot(root)
     result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
+    review_state = review.load(root)
+    result.problems.extend(review.orphaned(review_state, facts))
     result.outputs[ledger.UNCOVERED] = ledger.render(
-        ledger.updated(ledger.load(root), facts, covered)
+        ledger.updated(
+            ledger.load(root), facts, covered, review.dismissed_uncovered(review_state, facts)
+        )
     )
     return result
 

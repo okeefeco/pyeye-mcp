@@ -172,5 +172,6 @@
     "tool.trace_model_inheritance.param.project_path",
     "tool.trace_model_inheritance.param.scope"
   ],
+  "dismissed": {},
   "new": []
 }
