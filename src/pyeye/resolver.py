@@ -42,6 +42,7 @@ This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
 
 from __future__ import annotations
 
+import ast
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -354,18 +355,22 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
             all_scopes=True, definitions=True, references=False
         )
-        for name in names:
-            # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
-            # nothing in this scope (#567).
-            if _names_path(name, path, analyzer) and not is_attribute_target(name):
-                anchor = _anchor_on_definition(name, path)
-                placed = _canonical_of(anchor, path, analyzer)
-                return (placed, anchor) if placed is not None else None
+        # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
+        # nothing in this scope (#567).
+        matches = [
+            name
+            for name in names
+            if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
+        ]
+        if matches:
+            anchor = _anchor_on_bindings(matches, mod_file, path)
+            placed = _canonical_of(anchor, path, analyzer)
+            return (placed, anchor) if placed is not None else None
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
     return None
 
 
-def _names_path(name: Any, path: str, analyzer: JediAnalyzer) -> bool:
+def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
     """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
 
     Jedi names a file from the first sys_path root that contains it, so a
@@ -373,13 +378,21 @@ def _names_path(name: Any, path: str, analyzer: JediAnalyzer) -> bool:
     module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
     pyeye's name comes from the one file -> module mapper (#714), through
     :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
-    The cheap checks run first, so the mapper is asked only about candidates.
+    The cheap checks run first, so the mapper is asked only about candidates:
+    the respelling changes only the module part, so a name whose Jedi
+    ``full_name`` doesn't end with *qualname* (the part of *path* after its
+    module) can't match.
     """
+    # ``name.name`` is cheap; ``full_name`` makes Jedi compute the scope chain.
+    if name.name != path.rsplit(".", 1)[-1]:
+        return False
     full_name = name.full_name
-    if not full_name or name.name != path.rsplit(".", 1)[-1]:
+    if not full_name:
         return False
     if full_name == path:
         return True
+    if not full_name.endswith(f".{qualname}"):
+        return False
     return handle_for_anchor(name, full_name, analyzer) == path
 
 
@@ -534,6 +547,78 @@ def _goto_definition(name: Any) -> Any | None:
     return None
 
 
+def _import_lines(mod_file: Path) -> frozenset[int] | None:
+    """The lines of *mod_file* that hold an ``import`` / ``from … import`` statement.
+
+    ``None`` when the server's Python can't parse the file (#703): Jedi's parser
+    tolerates it, so resolution must too, just without telling imports apart.
+    """
+    try:
+        tree = file_artifact_cache.get_ast(mod_file)
+    except (SyntaxError, ValueError):
+        return None
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+    return frozenset(lines)
+
+
+def _cross_file_target(name: Any) -> Any | None:
+    """The definition an import binding *name* leads to in ANOTHER file, or ``None``."""
+    try:
+        targets = name.goto(follow_imports=True)
+    except Exception:
+        return None
+    own_file = getattr(name, "module_path", None)
+    for target in targets:
+        if (
+            target.module_path is not None
+            and own_file is not None
+            and not paths_equal(target.module_path, own_file)
+            and target.full_name
+        ):
+            return target
+    return None
+
+
+def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
+    """Anchor *handle* among every binding in its module that names it (#857).
+
+    - **Only imports bind it**, and they lead to ONE definition elsewhere (a
+      relative re-export, possibly repeated): collapse to that definition, as
+      for every other re-export.
+    - **Imports leading to different definitions** (``if …: from .a import T
+      else: from .b import T``): no collapse. The handle stays the re-export
+      path rather than confidently naming one branch.
+    - **A real definition binds it** (``from .src import A`` then ``class A``):
+      the LAST binding wins, as at runtime, anchored on itself, so the handle
+      and its members agree.
+    - **The file doesn't parse** with the server's Python: the first binding,
+      uncollapsed, as before.
+
+    A single binding needs no AST: its goto leading to another file makes it an
+    import, so it collapses.
+    """
+    if len(matches) == 1:
+        # One binding: if its goto leads to a definition in another file it can
+        # only be an import, so collapse; no AST needed on this common path.
+        return _cross_file_target(matches[0]) or _anchor_on_definition(matches[0], handle)
+    imports = _import_lines(mod_file)
+    if imports is None:
+        # Unparseable here: no way to tell an import from a definition, so keep
+        # the first binding, as before #857.
+        return _anchor_on_definition(matches[0], handle)
+    if all((m.line or 0) in imports for m in matches):
+        targets = [_cross_file_target(m) for m in matches]
+        found = {(t.module_path, t.line, t.column) for t in targets if t is not None}
+        if len(found) == 1 and all(t is not None for t in targets):
+            return next(t for t in targets if t is not None)
+        return _anchor_on_definition(matches[0], handle)
+    last = max(matches, key=lambda m: (m.line or 0, m.column or 0))
+    return _anchor_on_definition(last, handle)
+
+
 def _anchor_on_definition(name: Any, handle: str) -> Any:
     """Anchor a ``full_name`` match on its definition site (#429).
 
@@ -550,20 +635,6 @@ def _anchor_on_definition(name: Any, handle: str) -> Any:
         return name
     for target in targets:
         if target.full_name == handle and target.module_path is not None:
-            return target
-    # A RELATIVE re-export (``from .thing import X`` in ``pkg/__init__.py``):
-    # Jedi names the binding ``pkg.X``, so it matched; its definition lives in
-    # another file under another full_name. Collapse to that definition, as
-    # for every other re-export (#857). A genuine definition's goto stays in
-    # its own file, so it is kept.
-    own_file = getattr(name, "module_path", None)
-    for target in targets:
-        if (
-            target.module_path is not None
-            and own_file is not None
-            and not paths_equal(target.module_path, own_file)
-            and target.full_name
-        ):
             return target
     return name
 
