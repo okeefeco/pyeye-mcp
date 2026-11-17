@@ -27,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, changed, docs, ledger, pages, registry, removed, rules
+from . import binding, changed, docs, examples, ledger, pages, registry, removed, rules
 from .facts import Bindable, snapshot
 
 SNAPSHOT = "docs/facts/facts.json"
@@ -76,6 +76,15 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
             continue
         text = (root / path).read_text(encoding="utf-8")
         new_text, blocks, problems = binding.render(text, facts)
+        runnable, example_problems = examples.parse_examples(text)
+        problems.extend(example_problems)
+        if runnable and not examples.allows_examples(entry):
+            problems.append(
+                binding.Problem(
+                    runnable[0].line,
+                    "runnable examples belong in docs/api/, docs/reference/ or a skill",
+                )
+            )
         result.problems.extend(f"{path}:{p.line}: {p.message}" for p in problems)
         result.outputs[path] = new_text
         if entry.kind not in _LIVE_KINDS:
