@@ -955,23 +955,36 @@ class TestSubjects:
         other = self._style("[b](also-gone.md)")
         assert review.triage([other], state, _FACTS) == [(other, "new")]
 
-    def test_a_vanished_subject_fails_check_and_moves_to_the_reworded_text(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_vanished_subject_lapses_and_check_stays_green(self, tmp_path: Path) -> None:
+        """C16: a prose edit never turns CI red; the next review run prunes the entry."""
         page = tmp_path / "page.md"
         page.write_text("# Links\nSee [a](gone.md).\n", encoding="utf-8")
         state: dict[str, Any] = {}
         entry = review.dismiss_finding(
             state, self._style("[a](gone.md)"), _FACTS, "fine", "2026-11-18"
         )
-        assert review.orphaned(state, _FACTS, tmp_path) == []
+        assert not review.subject_lapsed(entry, tmp_path)
         page.write_text("# Links\nSee [the docs](gone.md).\n", encoding="utf-8")
-        (message,) = review.orphaned(state, _FACTS, tmp_path)
-        assert "quotes '[a](gone.md)', which no longer occurs in page.md#links" in message
-        assert f'move {entry["key"]} "<the reworded subject>"' in message
+        assert review.subject_lapsed(entry, tmp_path)
+        assert review.orphaned(state, _FACTS, tmp_path) == []
+        assert review.prune(state, tmp_path) == ["page.md#links"]
+        assert state["confirmed_non_issues"] == []
+        reworded = self._style("[the docs](gone.md)")
+        assert review.triage([reworded], state, _FACTS) == [(reworded, "new")]
+
+    def test_a_lapsed_subject_can_still_move_to_the_reworded_text(self, tmp_path: Path) -> None:
+        page = tmp_path / "page.md"
+        page.write_text("# Links\nSee [a](gone.md).\n", encoding="utf-8")
+        state: dict[str, Any] = {}
+        entry = review.dismiss_finding(
+            state, self._style("[a](gone.md)"), _FACTS, "fine", "2026-11-18"
+        )
+        with pytest.raises(ValueError, match="still exists"):
+            review.move(state, entry["key"], "[a](gone.md)", _FACTS, tmp_path)
+        page.write_text("# Links\nSee [the docs](gone.md).\n", encoding="utf-8")
         with pytest.raises(ValueError, match="doesn't occur verbatim"):
             review.move(state, entry["key"], "[c](x.md)", _FACTS, tmp_path)
         review.move(state, entry["key"], "[the docs](gone.md)", _FACTS, tmp_path)
-        assert review.orphaned(state, _FACTS, tmp_path) == []
+        assert review.prune(state, tmp_path) == []
         moved = self._style("[the docs](gone.md)")
         assert review.triage([moved], state, _FACTS) == []

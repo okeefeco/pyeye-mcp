@@ -71,6 +71,7 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "imprecise-limit": "a configurable default stated as a fixed limit",
         "dated-claim": "an external fact that may be stale and needs checking",
         "duplication": "content repeated from another page",
+        "restated-example": "prose restating what an executed example shows (keys, counts, shapes)",
     },
     "task": {},
 }
@@ -740,10 +741,32 @@ def dismissed_uncovered(state: Mapping[str, Any], facts: Facts) -> dict[str, dic
 _SCRIPT = "uv run python scripts/docs_review.py"
 
 
+def subject_lapsed(entry: Mapping[str, Any], root: Path | None) -> bool:
+    """Whether a subject-keyed dismissal's quoted subject has left its live section.
+
+    Such a dismissal LAPSES (C16): ``check`` stays green, the next ``/docs-review``
+    command prunes it (:func:`prune`), and its finding may resurface. A prose
+    editor never has to touch the review state. Only fact and symbol orphans
+    fail ``check``.
+    """
+    anchor = entry.get("anchor") or {}
+    subject = entry.get("subject")
+    handles = entry.get("handles")
+    if anchor.get("kind") not in SUBJECT_KINDS or root is None or not _text(subject) or not handles:
+        return False
+    page, _, slug_ = str(handles[0]).partition("#")
+    text = section_text(root, page, slug_)
+    return text is not None and _flat(str(subject)) not in _flat(text)
+
+
 def _orphan_reason(
-    entry: Mapping[str, Any], facts: Facts, root: Path | None, symbols: Symbols | None
+    entry: Mapping[str, Any], facts: Facts, _root: Path | None, symbols: Symbols | None
 ) -> tuple[str, str] | None:
-    """Why *entry* is an orphan, and what ``move``'s argument would be; else ``None``."""
+    """Why *entry* is an orphan that fails ``check``, and ``move``'s argument; else ``None``.
+
+    Only fact and symbol anchors orphan. A subject-keyed dismissal lapses
+    instead (:func:`subject_lapsed`).
+    """
     anchor = entry.get("anchor") or {}
     kind, anchor_id = anchor.get("kind"), anchor.get("id")
     if kind == "fact" and anchor_id not in facts:
@@ -753,15 +776,6 @@ def _orphan_reason(
             f"names symbol {anchor_id!r}, which no longer resolves in the project",
             "<new canonical handle>",
         )
-    subject = entry.get("subject")
-    if kind in SUBJECT_KINDS and root is not None and _text(subject) and entry.get("handles"):
-        page, _, slug_ = str(entry["handles"][0]).partition("#")
-        text = section_text(root, page, slug_)
-        if text is not None and _flat(str(subject)) not in _flat(text):
-            return (
-                f"quotes {subject!r}, which no longer occurs in {entry['handles'][0]}",
-                '"<the reworded subject>"',
-            )
     return None
 
 
@@ -773,9 +787,9 @@ def orphaned(
 ) -> list[str]:
     """Dismissals whose anchor is gone (C14, C15); ``check`` fails on each.
 
-    An anchor is gone when its fact no longer exists, its symbol no longer
-    resolves (with *symbols*), or its quoted subject no longer occurs in its
-    section (with *root*; a gone section is pruned instead, see :func:`prune`).
+    An anchor is gone when its fact no longer exists or its symbol no longer
+    resolves (with *symbols*). A subject that left its section lapses instead,
+    and a gone section is pruned (:func:`prune`): neither fails ``check`` (C16).
     The message is for whoever made the change, who may never have heard of
     ``/docs-review``: it names the anchor, the file, what the dismissal was for,
     and the command for each fix (move it to the new anchor, or forget it).
@@ -849,7 +863,7 @@ def move(
     kind = anchor.get("kind")
     if kind not in ("fact", "symbol", *SUBJECT_KINDS):
         raise ValueError(f"dismissal {key} has no anchor that can move")
-    if _orphan_reason(old, facts, root, symbols) is None:
+    if _orphan_reason(old, facts, root, symbols) is None and not subject_lapsed(old, root):
         if kind in SUBJECT_KINDS and root is None:
             raise ValueError("moving a subject needs the repo root to read the section")
         if kind == "symbol" and symbols is None:
@@ -892,7 +906,10 @@ def move(
 
 
 def prune(state: dict[str, Any], root: Path) -> list[str]:
-    """Drop coverage entries and finding dismissals whose page or section is gone.
+    """Drop coverage and finding dismissals for gone sections, and lapsed subjects.
+
+    A subject-keyed dismissal whose subject left its section has lapsed (C16):
+    it is dropped here, and its finding may resurface.
 
     A renamed heading or a deleted page leaves them behind: a finding there would
     have a new key anyway, so they can never match again. They are removed, not
@@ -919,7 +936,7 @@ def prune(state: dict[str, Any], root: Path) -> list[str]:
     for entry in state.get("confirmed_non_issues", []):
         handles = entry.get("handles") or []
         is_section = _ours(entry) and entry.get("reason") != "not-covered" and handles
-        if is_section and not exists(handles[0]):
+        if is_section and (not exists(handles[0]) or subject_lapsed(entry, root)):
             removed.append(handles[0])
             continue
         kept.append(entry)

@@ -57,7 +57,7 @@ All mechanics are in `scripts/docs_review.py` (logic in
 | `mark-fine PAGE SECTION --date D` | Records a section as reviewed and fine. |
 | `dismiss FINDINGS.json --index N --reason R --date D [--review-after D]` | Records one finding as dismissed. |
 | `dismiss-uncovered FACT --reason TEXT --date D` | Records a fact as deliberately not covered. |
-| `move KEY NEW` | Carries an orphaned dismissal over to its anchor's new form: the new fact ID, the new canonical handle, or the reworded subject. |
+| `move KEY NEW` | Carries an orphaned or lapsed dismissal over to its anchor's new form: the new fact ID, the new canonical handle, or the reworded subject. |
 | `forget KEY` | Deletes a dismissal, e.g. one whose fact was removed. |
 
 State lives in `docs/facts/review-state.json`. Commit it, so the whole team
@@ -108,11 +108,13 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
 - A heading rename resets that section: its "fine" verdict and its dismissals are
   pruned on the next state write (the command output lists them), so its
   findings come back for review rather than staying hidden.
-- `docs_facts check` fails on a dismissal whose anchor is gone: its fact no
-  longer exists, its symbol no longer resolves, or its quoted subject no longer
-  occurs in its section. The PR that made the change fixes it: `move KEY NEW`
-  for a rename or a rewording, `forget KEY` otherwise. The failure message gives
-  both commands with the key.
+- A dismissal whose quoted subject no longer occurs in its section has lapsed:
+  `check` stays green, the next command here prunes it (the output lists it),
+  and its finding may come back. Editing prose never means touching the state.
+- `docs_facts check` fails on a dismissal whose fact no longer exists or whose
+  symbol no longer resolves. The PR that made the change fixes it: `move KEY NEW`
+  for a rename, `forget KEY` otherwise. The failure message gives both commands
+  with the key.
 
 ## Honest Limits
 
