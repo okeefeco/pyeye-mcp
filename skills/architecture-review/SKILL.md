@@ -11,7 +11,7 @@ decide which convention to keep. This skill is the single source of truth for
 *how* to run the audit; it orchestrates a fresh-context auditor over a supplied
 scope and drives the human review loop.
 
-<!-- architecture-review-axes: layering module_boundaries dependency_acquisition error_handling validation_placement naming_api_shape cross_cutting -->
+The seed axes: <!-- fact:begin review.axes -->`layering`, `module_boundaries`, `dependency_acquisition`, `error_handling`, `validation_placement`, `naming_api_shape`, `cross_cutting`<!-- fact:end -->.
 
 ## What This Is (and Is NOT) — Read First
 
