@@ -18,6 +18,7 @@
     "edge.read_by",
     "edge.references",
     "edge.written_by",
+    "edges.inspect_unmeasured",
     "env.PYEYE_ANALYSIS_TIMEOUT",
     "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
     "env.PYEYE_CACHE_TTL",
@@ -38,6 +39,17 @@
     "env.PYEYE_WATCHER_DEBOUNCE",
     "project.python_versions",
     "project.requires_python",
+    "review.grade.ambiguous",
+    "review.grade.deterministic_single",
+    "review.grade.mechanical_fact",
+    "review.grade.no_signal",
+    "scope.default.plugin",
+    "scope.option.all",
+    "scope.option.main",
+    "scope.option.namespace",
+    "scope.option.package",
+    "scope.option.packages",
+    "scope.option.standalone",
     "tool.configure_packages",
     "tool.configure_packages.param.namespaces",
     "tool.configure_packages.param.packages",
@@ -160,26 +172,5 @@
     "tool.trace_model_inheritance.param.project_path",
     "tool.trace_model_inheritance.param.scope"
   ],
-  "new": [
-    {
-      "fact_id": "edges.inspect_unmeasured",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "review.grade.ambiguous",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "review.grade.deterministic_single",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "review.grade.mechanical_fact",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "review.grade.no_signal",
-      "first_seen": "unreleased"
-    }
-  ]
+  "new": []
 }
