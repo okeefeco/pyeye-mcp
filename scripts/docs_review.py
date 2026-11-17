@@ -6,7 +6,7 @@
     uv run python scripts/docs_review.py mark-fine README.md quick-start --date 2026-11-18
     uv run python scripts/docs_review.py dismiss findings.json --index 0 --reason fine --date …
     uv run python scripts/docs_review.py dismiss-uncovered env.X --reason "…" --date …
-    uv run python scripts/docs_review.py move <key> <new fact ID>     # a renamed fact
+    uv run python scripts/docs_review.py move <key> <new fact, handle or subject>
     uv run python scripts/docs_review.py forget <key>                 # a removed fact
 
 The logic lives in ``pyeye.docs_facts.review``; the skill is

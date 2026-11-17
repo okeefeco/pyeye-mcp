@@ -1,5 +1,10 @@
 # PyEye API Redesign: resolve / inspect
 
+> This page records the **design** of the resolve / inspect redesign. For the
+> response shapes as they are now, see [tools.md](reference/tools.md),
+> [edges.md](reference/edges.md) and the
+> [python-explore skill](../skills/python-explore/SKILL.md).
+
 ## Overview
 
 This document describes the redesigned PyEye API surface introduced across
@@ -18,10 +23,13 @@ etc.) were modelled on LSP-bridge tools: each response shipped full source
 context. That makes sense for humans reading an editor, but wastes wire
 bandwidth when an AI agent just needs a structural fact.
 
-Measurement from 2026-05-02: `mcp-language-server`'s `definition` call for
-`GranularCache` (a 234-line class) returned ~17,500 bytes per copy. The new
-`inspect` operation returns the same structural information in ~527 bytes —
-roughly 0.03× the wire cost.
+An `mcp-language-server` `definition` call for `GranularCache` (a large class,
+since deleted in #628) shipped the class's full source with every copy, while
+`inspect` on the same class returned only its structural facts. The measured
+baseline and the ratio `inspect` must stay within are recorded in
+`tests/conformance/test_spec_acceptance.py`, which keeps the LSP-bridge size as
+a fixed literal (`LSP_BRIDGE_BASELINE_BYTES`) and checks `inspect` on a large
+live class (`JediAnalyzer`) against it.
 
 ### Current status
 
@@ -38,10 +46,10 @@ roughly 0.03× the wire cost.
 | 8 | TypeRef recursive trees on type-bearing fields | Done |
 
 `expand()` and `trace()` are also shipped, live MCP tools. The full primitive
-set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) and
-the complete static edge set (`members` / `callees` / `imported_by` /
-`subclasses` / `superclasses` / `imports` / `enclosing_scope`) are implemented;
-see `skills/python-explore/SKILL.md` for the live, conformance-tested reference.
+set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) is
+implemented. For the edges they traverse, see the live edge list in
+`skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page
+doesn't repeat it.
 
 ---
 
@@ -65,7 +73,7 @@ Converts any identifier form to a canonical handle.
 
 **Returns:** `ResolveResult` — one of three variants:
 
-```json
+```jsonc
 // Success
 {
   "found": true,
@@ -73,24 +81,23 @@ Converts any identifier form to a canonical handle.
   "kind": "class",
   "scope": "project",
   "location": {
-    "file": "src/mypackage/_impl/config.py",
-    "line_start": 10,
-    "line_end": 22,
-    "column_start": 6,
-    "column_end": 12
+    "file": "/abs/path/to/project/src/mypackage/_impl/config.py",
+    "line_start": 10, "line_end": 22, "column_start": 6, "column_end": 12
   }
 }
 
-// Not found
+// Not found (reason is one of "unresolved", "file_not_found", "no_symbol_at_position")
 {
   "found": false,
-  "handle": null,
-  "reason": "no match for 'UnknownClass'"
+  "identifier": "UnknownClass",
+  "reason": "unresolved",
+  "detail": "'UnknownClass' did not resolve to a symbol. Check the spelling, or call resolve('UnknownClass') with the bare name to search the whole project."
 }
 
-// Ambiguous (bare name matches multiple definitions)
+// Ambiguous (a bare name matches several definitions)
 {
-  "found": "ambiguous",
+  "found": true,
+  "ambiguous": true,
   "candidates": [
     {"handle": "pkg_a.Widget", "kind": "class", "scope": "project", "location": {...}},
     {"handle": "pkg_b.Widget", "kind": "class", "scope": "project", "location": {...}}
@@ -115,10 +122,10 @@ navigate to the definition.
 **Example:**
 
 ```json
-resolve_at("src/pyeye/cache.py", 238, 6) →
+resolve_at("src/mypackage/_impl/config.py", 10, 6) →
 {
   "found": true,
-  "handle": "pyeye.cache.GranularCache",
+  "handle": "mypackage._impl.config.Config",
   "kind": "class",
   "scope": "project",
   "location": {...}
@@ -136,26 +143,24 @@ kind-dependent fields. **Never returns source content.**
 **Example:**
 
 ```json
-inspect("pyeye.cache.GranularCache") →
+inspect("mypackage._impl.config.Config") →
 {
-  "handle": "pyeye.cache.GranularCache",
+  "found": true,
+  "handle": "mypackage._impl.config.Config",
   "kind": "class",
   "scope": "project",
   "location": {
-    "file": "src/pyeye/cache.py",
-    "line_start": 238,
-    "line_end": 412,
+    "file": "/abs/path/to/project/src/mypackage/_impl/config.py",
+    "line_start": 10,
+    "line_end": 22,
     "column_start": 6,
-    "column_end": 18
+    "column_end": 12
   },
-  "docstring": "Granular per-file cache that invalidates only changed files.",
-  "signature": "class GranularCache(ProjectCache)",
-  "superclasses": ["pyeye.cache.ProjectCache"],
-  "edge_counts": {
-    "members": 12,
-    "superclasses": 1
-  },
-  "re_exports": []
+  "docstring": "Project configuration.",
+  "signature": "Config(path: str)",
+  "superclasses": ["mypackage._impl.base.BaseConfig"],
+  "edge_counts": {"members": 12, "superclasses": 1},
+  "re_exports": ["mypackage.Config"]
 }
 ```
 
@@ -191,14 +196,15 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 
 ```json
 {
-  "file": "src/pyeye/cache.py",
-  "line_start": 238,
-  "line_end": 412,
+  "file": "/abs/path/to/project/src/mypackage/_impl/config.py",
+  "line_start": 10,
+  "line_end": 22,
   "column_start": 6,
-  "column_end": 18
+  "column_end": 12
 }
 ```
 
+- `file` is an absolute path, spelled the way you spelled `project_path`.
 - `line_start`/`line_end` — span the full definition body
 - `column_start`/`column_end` — span the name token only
 - **No source content** — location is a pointer. Use the `Read` tool
@@ -218,8 +224,11 @@ cheaply-measurable edges (see below).
 |------|---------------|
 | `class` | `members`, `superclasses` |
 | `function`, `method` | _(none — see note)_ |
-| `module` | `members` |
+| `module` | `members`; also `submodules` for a package (absent for a plain module) |
 | `variable`, `attribute`, `property` | _(none — see note)_ |
+
+An edge whose measurement overruns its time budget is left out of
+`edge_counts`, not reported as `0`.
 
 `edge_counts` reports only edges derivable cheaply from the symbol's own
 definition. Three edge types that earlier drafts measured are no longer in
@@ -496,16 +505,18 @@ guess. See `degraded_counts` and `get_and_reset_degraded_counts()` in
 
 ### Caching
 
-TypeRef builds are cached per `(file_path, mtime_ns, raw)` in a
-per-process dict. When a file is edited, its `mtime_ns` changes and the
-old key is unreachable, so the next `inspect` call rebuilds. This keeps
-repeated `inspect` calls on heavily-typed modules cheap.
+TypeRef builds are cached in a bounded, per-process LRU keyed on the project
+root, the annotation's file and its `mtime_ns`, the annotation's position, and
+its source text (see `_typeref_cache` in `src/pyeye/mcp/operations/typeref.py`).
+An edit to that file changes `mtime_ns`, so the old entry is never hit again and
+the next `inspect` rebuilds it. This keeps repeated `inspect` calls on heavily
+typed modules cheap.
 
 ### Spec cross-reference
 
 Full normative discussion lives in
 `docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`
-under "Type fields as `TypeRef` trees" (lines ~395–475). Acceptance
+section "Type fields as `TypeRef` trees". Acceptance
 fixtures are under
 `tests/integration/api_redesign/fixtures/typeref_compound/` and the
 end-to-end conformance tests are in
@@ -553,7 +564,8 @@ reachable from an MCP tool called them.
 ## Cross-references
 
 - Spec: `docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`
-- Layering principle: `~/.claude/projects/okeefeco/pyeye-mcp.md`
-  (memory entry: "Pyeye is semantic, never content")
+- Layering principle: `docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`,
+  section "1. Layering — semantic vs. content" (pyeye returns pointers and
+  structural facts, never file content)
 - Conformance linter: `tests/conformance/response_linter.py`
 - Spec acceptance tests: `tests/conformance/test_spec_acceptance.py`

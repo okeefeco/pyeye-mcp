@@ -4,19 +4,13 @@
 
 > **Historical record.** This baseline was taken against the v1 tool surface, and
 > the tool names below are the ones in use at the time. Most of them were removed
-> in 2.0; the CHANGELOG's migration map lists their replacements. The document is
-> kept unedited as a record of where adoption started.
+> in 2.0; the CHANGELOG's migration map lists their replacements. It is kept as a
+> record of where adoption started. Figures with no reproducible record, and the
+> targets and projections, were removed (#830).
 
 ### Current State (Before Dogfooding Initiative)
 
 Based on analysis of recent development patterns:
-
-#### Tool Usage Patterns
-
-- **Grep/manual search**: ~85% of code navigation
-- **MCP tools**: ~15% of code navigation
-- **File reading**: 100% manual (Read tool, not semantic)
-- **Refactoring prep**: 0% using find_references
 
 #### Common Anti-patterns Observed
 
@@ -26,19 +20,6 @@ Based on analysis of recent development patterns:
 4. Manual dependency tracing
 5. No usage of subclass finding
 
-#### Time Inefficiencies
-
-- Average time to find a symbol: 30-60 seconds (grep)
-- Average time to trace dependencies: 5-10 minutes (manual)
-- Average time to find all references: 2-3 minutes (grep, often incomplete)
-
-### Week 1 Goals (2025-08-22 to 2025-08-29)
-
-- [ ] Achieve 30% MCP tool usage
-- [ ] Document 5 time-saving examples
-- [ ] Identify 3 feature gaps
-- [ ] Prevent at least 1 bug through find_references
-
 ### Metrics to Track
 
 1. **MCP Usage Rate**: (MCP queries) / (MCP queries + grep usage)
@@ -46,44 +27,17 @@ Based on analysis of recent development patterns:
 3. **Bugs Prevented**: Count of issues caught by MCP
 4. **Feature Gaps**: List of missing capabilities discovered
 
-### Initial MCP Performance Metrics
-
-```json
-{
-  "uptime_seconds": 13208,
-  "operations": {
-    "find_symbol": {
-      "avg_ms": 225,
-      "success_rate": 66%
-    }
-  },
-  "cache_hit_rate": 0%
-}
-```
-
 ### Baseline Session (Issue #135)
 
 - Session start: 2025-08-22 20:52:15
-- MCP queries so far: 3
-- Grep usage: 0
-- Current adoption rate: 100% (session just started)
 
 ### Historical Context
 
 From previous PRs without dogfooding:
 
 - PR #77: Cache bug could have been prevented with find_references
-- PR #121: Path issues across 8 files - find_symbol would have found all
-- PR #122: Test coverage - analyze_dependencies would have shown gaps
-
-### Expected Improvements
-
-By Week 4, we expect:
-
-- 50-70% reduction in navigation time
-- 90% reduction in refactoring bugs
-- 10+ documented workflow improvements
-- Clear feature roadmap from real usage
+- PR #121: Path issues across 8 files
+- PR #122: Test coverage gaps
 
 ## Next Steps
 
@@ -97,5 +51,5 @@ By Week 4, we expect:
 When you discover a pattern or time-saver:
 
 1. Log it: `python scripts/dogfooding_metrics.py saved <minutes> "<reason>"`
-2. Document it in CLAUDE.md
+2. Describe it in the issue or PR where you found it
 3. Add to weekly metrics review

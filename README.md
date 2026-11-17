@@ -14,19 +14,16 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 ## Features
 
 - 🔍 **Semantic Code Navigation**: Resolve any identifier to a stable canonical handle, then inspect or outline it
-- 📊 **Structural Traversal**: Walk `members`, `callees`, `imports`, `imported_by`, `subclasses`, `superclasses`, and `submodules` — one hop with `expand`, many with `trace`
+- 📊 **Structural Traversal**: Walk relationship edges ([listed below](#known-limitation-no-reverse-references)) one hop with `expand`, or many with `trace`
 - 🤝 **Honest by Construction**: Unsupported questions (notably "who calls this") are *refused*, not guessed; absent counts mean "not measured", never "zero"
 - 🏗️ **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - 📦 **Namespace Packages**: Handle packages distributed across multiple repositories
-- 📝 **Standalone Scripts**: Analyze notebooks, scripts, and examples alongside formal packages
-- 🔄 **Auto-Update**: Automatically detects and reflects file changes with smart cache invalidation
-- ⚙️ **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
-- 🔌 **Extensible Plugin System**: Framework-specific analyzers (Pydantic, Django, Flask)
-- 🚀 **Fast & Cached**: Intelligent caching with LRU eviction and performance optimization
-- 🎯 **Type-Aware**: Full understanding of Python type hints and annotations
-- 📈 **Performance Monitoring**: Built-in metrics tracking with p50/p95/p99 latencies
-- 🛡️ **Input Validation**: Secure parameter validation and path checking
-- 🤖 **Development Automation**: Release automation, dogfooding metrics, and worktree safety
+- 📝 **Standalone Scripts**: Analyze standalone `.py` files (for example in `scripts/` or `examples/` directories) alongside formal packages
+- 🔄 **Auto-Update**: Watches the project's files and drops cached results when they change
+- ⚙️ **Configuration System**: Configure packages and namespaces in config files, or let pyeye auto-discover them; tune performance with environment variables
+- 🔌 **Plugin System**: Built-in framework analyzers (Pydantic, Django, Flask)
+- 🎯 **Type-Aware**: Uses Jedi's type inference, including type hints and annotations
+- 📈 **Performance Metrics**: Optional per-tool latency metrics (`get_performance_metrics`)
 
 ## Installation
 
@@ -34,13 +31,13 @@ PyEye can be installed in three ways: as a Claude Code plugin (zero-config), int
 
 ### Option 0: Claude Code Plugin (zero-config)
 
-When PyEye is installed as a Claude Code plugin, dependencies install automatically into a per-user venv on first session start — no manual `pip install` needed.
+When PyEye is installed as a Claude Code plugin, it installs its own
+dependencies into a per-user virtual environment on the first session start, and
+reinstalls them only when its lockfile changes. No manual `pip install` is needed.
 
-- **First session start**: a `SessionStart` hook runs `uv sync --no-dev --frozen` against the plugin checkout, with the venv built at `${CLAUDE_PLUGIN_DATA}/.venv` (typically `~/.claude/plugins/data/<plugin-id>/.venv`).
-- **Subsequent sessions**: the hook compares `uv.lock` in the plugin checkout against the last-installed copy in `${CLAUDE_PLUGIN_DATA}` and is a silent no-op unless the lockfile changed.
 - **Requirement**: `uv` must be on your `PATH`. See [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
 
-Both the install hook and the MCP server invocation use `uv run`, so this works on Linux, macOS, and Windows without OS-specific configuration.
+This works on Linux, macOS, and Windows without OS-specific configuration.
 
 ### Option 1: Project-Specific Installation (Recommended)
 
@@ -96,7 +93,7 @@ pip install --user .
 
 ```bash
 # Add the MCP server globally (available in all projects)
-claude mcp add pyeye -s user -- python -m pyeye.mcp
+claude mcp add pyeye -s user -- pyeye-mcp
 
 # Verify it's connected
 claude mcp list
@@ -120,118 +117,24 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 
 Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `C:\\Python311\\python.exe`).
 
-### Configure with GitHub Copilot (VS Code)
+### Configure with GitHub Copilot and other MCP clients
 
-As of 2025, GitHub Copilot has full MCP support in VS Code, JetBrains, Eclipse, and Xcode. Follow these steps to use this PyEye server with GitHub Copilot:
+pyeye is a standard stdio MCP server, so any MCP client can run it. Point the
+client at one of the [entry points](docs/reference/cli.md) (for example
+`python -m pyeye.mcp`, using the Python that has pyeye installed).
 
-#### Prerequisites
+Where the server entry goes depends on the client and its version, and changes
+often, so follow the client's own documentation rather than a copy here:
 
-- **GitHub Copilot Business or Enterprise subscription** (required for MCP support)
-- **VS Code version 1.102 or later** (MCP support is GA)
-- **Organization MCP policy enabled** by your admin
+- **VS Code (GitHub Copilot):** [Add and manage MCP servers in VS Code](https://code.visualstudio.com/docs/agent-customization/mcp-servers).
+  Run **MCP: List Servers** from the Command Palette to check that `pyeye` started.
+- **JetBrains IDEs, Visual Studio, Eclipse and Xcode (GitHub Copilot):**
+  [Extending Copilot Chat with MCP](https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/extend-copilot-chat-with-mcp).
+  On Copilot Business and Enterprise, an administrator must first enable the
+  organization's **MCP servers in Copilot** policy.
 
-#### Step 1: Enable MCP in Your Organization
-
-Your GitHub Copilot administrator needs to enable the MCP servers policy:
-
-1. Go to your organization settings on GitHub
-2. Navigate to **Copilot** → **Policies**
-3. Enable **"MCP servers in Copilot"** policy
-4. Save changes
-
-#### Step 2: Install the MCP Server
-
-Install the PyEye server in your project or globally:
-
-```bash
-# Option A: Install in your project's virtual environment (recommended)
-pip install pyeye-mcp
-
-# Option B: Install globally with pipx
-pipx install pyeye-mcp
-
-# Option C: Install from source
-git clone https://github.com/okeefeco/pyeye-mcp.git
-pip install -e ./pyeye-mcp
-```
-
-#### Step 3: Configure VS Code
-
-Add the MCP server configuration to your VS Code settings:
-
-**User Settings** (applies to all projects):
-
-```json
-// File: ~/.config/Code/User/settings.json (Linux/Mac)
-// or %APPDATA%\Code\User\settings.json (Windows)
-{
-  "github.copilot.chat.mcpServers": {
-    "pyeye": {
-      "command": "python",
-      "args": ["-m", "pyeye.mcp"],
-      "env": {}
-    }
-  }
-}
-```
-
-**Workspace Settings** (project-specific):
-
-```json
-// File: .vscode/settings.json in your project root
-{
-  "github.copilot.chat.mcpServers": {
-    "pyeye": {
-      "command": "${workspaceFolder}/.venv/bin/python",
-      "args": ["-m", "pyeye.mcp"],
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    }
-  }
-}
-```
-
-#### Step 4: Verify Connection
-
-1. Open VS Code in your Python project
-2. Open the GitHub Copilot Chat panel
-3. Type: `@mcp list` to see available MCP servers
-4. You should see `pyeye` in the list
-5. Test with: `@mcp pyeye resolve MyClass`
-
-#### Troubleshooting
-
-**MCP not available:**
-
-- Ensure you have Copilot Business/Enterprise (not Free/Pro)
-- Check that your organization admin enabled the MCP policy
-- Update VS Code to version 1.102 or later
-
-**Server not connecting:**
-
-- Verify Python path in the configuration
-- Check that `pyeye` is installed: `python -m pyeye.mcp --help`
-- Look for errors in VS Code Output panel → GitHub Copilot Logs
-
-**Import errors:**
-
-- If using a virtual environment, ensure the path points to the venv Python
-- Add `PYTHONPATH` to the env configuration if needed
-
-#### Other IDEs
-
-**JetBrains IDEs** (IntelliJ, PyCharm, etc.):
-
-- MCP support is GA - configure in Settings → Tools → GitHub Copilot → MCP Servers
-
-**Visual Studio**:
-
-- MCP support is in preview - configure in Tools → Options → GitHub Copilot → MCP Servers
-
-**Eclipse & Xcode**:
-
-- MCP support is GA - see IDE-specific documentation for configuration
+If the server starts but can't import your project's dependencies, point the
+entry at your project's virtual-environment Python.
 
 ## Configuration
 
@@ -259,15 +162,16 @@ Configuration is loaded in the following order (later sources override earlier o
 
 1. **Global Config**: `~/.config/pyeye/config.json` or `~/.pyeye.json` - User defaults
 2. **Project Config**: `.pyeye.json` in project root or `[tool.pyeye]` in `pyproject.toml`
-3. **Override File**: `.pyeye.override.json` - Local development overrides (git-ignored)
+3. **Override File**: `.pyeye.override.json` - Local development overrides (keep it out of git)
 4. **Auto-Discovery**: Automatically detects source layouts and sibling packages if no packages configured
 
 ### Using Override Files
 
-Override files are perfect for local development configurations that shouldn't be committed:
+Override files are perfect for local development configurations that shouldn't be committed.
+`.pyeye.override.json` takes precedence over the other sources; add it to your
+project's `.gitignore`:
 
 ```json
-// .pyeye.override.json (git-ignored)
 {
   "packages": [
     "../my-local-dev-package",
@@ -283,24 +187,8 @@ Override files are perfect for local development configurations that shouldn't b
 
 Performance settings are configured through environment variables. The
 [generated reference](docs/reference/env-vars.md) lists every `PYEYE_*` variable
-pyeye reads, with its default and range.
-
-| Environment Variable | Default | Description | Valid Range |
-|---------------------|---------|-------------|-------------|
-| `PYEYE_MAX_PROJECTS` | 10 | Maximum number of projects in memory | 1-1000 |
-| `PYEYE_CACHE_TTL` | 300 | Seconds a cached scope file list or lookup result lives (file changes also clear it) | 0-86400 (24h) |
-| `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` | 2000 | Parsed files (AST/Jedi script) kept in memory; see [Sizing the parsed-file cache](#sizing-the-parsed-file-cache) | 1-1000000 |
-| `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | Parse trees kept in Jedi's parse cache (least recently used are dropped first; answers are unaffected) | 1-1000000 |
-| `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` | 200 | Jedi scripts kept in memory (each keeps the modules it inferred alive, so this bounds parse-tree memory; answers are unaffected) | 1-1000000 |
-| `PYEYE_WATCHER_DEBOUNCE` | 0.5 | File watcher debounce delay in seconds | 0.0-10.0 |
-| `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | Enable performance metrics | true/false |
-| **Deprecated** | | **No effect; removed in v3.0** | |
-| `PYEYE_ENABLE_CONNECTION_POOLING` | true | Deprecated, no effect: the connection pool was removed (#628) | |
-| `PYEYE_POOL_MAX_CONNECTIONS` | 10 | Deprecated, no effect: the connection pool was removed (#628) | |
-| `PYEYE_POOL_TTL` | 3600 | Deprecated, no effect: the connection pool was removed (#628) | |
-| **Logging** | | | |
-| `PYEYE_LOG_LEVEL` | INFO | `DEBUG`, `INFO`, `WARNING` or `ERROR` | |
-| `PYEYE_LOG_FILE` | unset | Append logs to this file (otherwise stderr only) | |
+pyeye reads, with its default, range and status (live or deprecated). Deprecated
+variables have no effect.
 
 These are read when the server starts, from the server's own environment.
 The MCP client starts the server, so set them on its server entry (Claude
@@ -321,49 +209,34 @@ subclass and import graphs, and rebuilds them after every file change.
 in memory between walks. Answers are the same at any value; only speed and
 memory change.
 
-- **Set it at or above your project's `.py` file count** (the default 2000
-  covers most projects). Each rebuild after an edit then re-parses only what
+- **Set it at or above your project's `.py` file count** (the default is
+  <!-- fact:begin env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES.default -->2000<!-- fact:end -->). Each rebuild after an edit then re-parses only what
   changed.
 - **Don't set it just below that count.** The cache then evicts files during
   each walk and parses them again in the same walk, so it is both slower *and*
   uses more memory than the default.
-- **To save memory, go well below it (about 250)** and accept slower rebuilds.
+- **To save memory, go well below it** and accept slower rebuilds.
 
-Measured on a 1,167-file project (#768), including a rebuild after one edit:
-
-| Value | Resident memory | Rebuild after an edit |
-|-------|-----------------|-----------------------|
-| 2000 (default) | +1,224 MB | 133–151 s |
-| 1000 | +1,353–1,374 MB | 176–178 s |
-| 500 | +1,092–1,096 MB | 179–191 s |
-| 250 | +1,002–1,006 MB | 178–195 s |
+This advice comes from measurements on one large project in [#768](https://github.com/okeefeco/pyeye-mcp/issues/768).
 
 #### Performance Tuning Examples
 
-**Large codebase with stable files:**
+Set the variables on the server entry, so they reach the server however the
+client was started. For example, with Claude Code:
 
 ```bash
-export PYEYE_MAX_PROJECTS=50        # Handle more projects
-export PYEYE_CACHE_TTL=1800         # 30 minute cache
-export PYEYE_WATCHER_DEBOUNCE=2.0   # Less frequent updates
+# Keep more projects in memory, cache longer and batch file changes more
+claude mcp add pyeye -s user \
+  -e PYEYE_MAX_PROJECTS=50 -e PYEYE_CACHE_TTL=1800 -e PYEYE_WATCHER_DEBOUNCE=2.0 \
+  -- pyeye-mcp
+
+# Use less memory: fewer projects and fewer parsed files kept
+claude mcp add pyeye -s user \
+  -e PYEYE_MAX_PROJECTS=3 -e PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=250 \
+  -- pyeye-mcp
 ```
 
-**Active development with frequent changes:**
-
-```bash
-export PYEYE_MAX_PROJECTS=5         # Fewer projects, faster switching
-export PYEYE_CACHE_TTL=60           # 1 minute cache
-export PYEYE_WATCHER_DEBOUNCE=0.1   # Near real-time updates
-```
-
-**Memory-constrained environment:**
-
-```bash
-export PYEYE_MAX_PROJECTS=3                 # Minimal project cache
-export PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=250  # Fewer parsed files: less memory, slower rebuilds
-```
-
-This file is automatically ignored by git and takes precedence over all other configuration sources.
+Other clients take the same names in the server entry's `env` map.
 
 ### Auto-Detection of Source Layouts
 
@@ -406,22 +279,17 @@ If no configuration is found in `pyproject.toml`, PyEye will also check for the 
 
 PyEye exposes a small set of **progressive-disclosure primitives** that work on
 canonical handles (a re-exported path collapses to its definition site). They are
-cheap by default — they return structural facts and pointers, never source
-content. For the full mechanics, the authoritative list of supported edges, and
-worked examples, see the `python-explore` skill (`skills/python-explore/SKILL.md`).
+cheap by default: they return structural facts and pointers, never source
+content.
 
-### Navigation & Inspection
-
-- **`resolve`** - Resolve a name or dotted path to canonical handle(s); the usual entry point
-- **`resolve_at`** - Resolve the symbol at a `file:line:column` location
-- **`inspect`** - Structured facts for a handle: signature, type, docstring, edge counts
-- **`outline`** - Structural outline of a module, package, or class and its members
-- **`expand`** - Follow one relationship edge from a handle (e.g. `members`, `imports`, `imported_by`, `subclasses`); the skill lists the full supported-edge set
-- **`trace`** - Multi-hop traversal across edges (e.g. `follow=["imports"]` for the dependency closure, `follow=["subclasses"]` for the full hierarchy)
-
-### Multi-Project
-
-- **`configure_packages`** - Register additional package locations to analyze alongside the project
+The core tools are <!-- fact:begin tools.core -->`configure_packages`, `expand`, `inspect`, `outline`, `resolve`, `resolve_at`, `trace`<!-- fact:end -->. The usual
+flow is to `resolve` a name to a handle, `inspect` or `outline` it, then follow
+relationship edges with `expand` (one hop) or `trace` (many hops);
+`configure_packages` registers extra package locations. The
+[tool reference](docs/reference/tools.md) gives every tool's parameters and
+defaults, and the [edge reference](docs/reference/edges.md) lists the supported
+edges. For worked examples, see the `python-explore` skill
+(`skills/python-explore/SKILL.md`).
 
 ### Known limitation: no reverse references
 
@@ -433,8 +301,11 @@ guessing, and `inspect`'s `edge_counts` omits those keys entirely instead of
 reporting `0`. Delegate caller questions to a language server; pyeye's `resolve`
 gives you the definition-site position an LSP reference query needs.
 
-Forward and structural questions *are* answered: `callees` (what a function calls),
-`imported_by` / `imports`, `subclasses` / `superclasses`, `members`, `submodules`.
+Forward and structural questions *are* answered, through the implemented edges:
+<!-- fact:begin edges.implemented -->`members`, `callees`, `imported_by`, `subclasses`, `superclasses`, `imports`, `enclosing_scope`, `submodules`, `re_exports`<!-- fact:end -->.
+**Static-surface ceiling:** each edge measures a stated scope, and its answer is
+complete only over that scope. The
+[edge reference](docs/reference/edges.md#ceilings) gives each edge's ceiling.
 
 > **Removed in v2.0.** `find_references`, `get_call_hierarchy`, and
 > `analyze_dependencies` were removed in
@@ -444,173 +315,81 @@ Forward and structural questions *are* answered: `callees` (what a function call
 
 ### Framework-Specific Tools (Auto-Activated)
 
-#### Django (when Django is detected)
+A plugin's tools are registered when its framework is detected in the project.
+See the [tool reference](docs/reference/tools.md#plugin-tools) for each tool's
+parameters.
 
-- **`find_django_models`** - Find all Django models
-- **`find_django_views`** - Find all views
-- **`find_django_urls`** - Find URL patterns
-- **`find_django_templates`** - Find templates
-- **`find_django_migrations`** - Find migrations
-
-#### Pydantic (when Pydantic is detected)
-
-- **`find_pydantic_models`** - Discover all BaseModel classes
-- **`get_model_schema`** - Extract complete model schema
-- **`find_validators`** - Locate all validation methods
-- **`find_field_validators`** - Find field-specific validators
-- **`find_model_config`** - Extract model configurations
-- **`trace_model_inheritance`** - Map model inheritance hierarchies
-- **`find_computed_fields`** - Find computed_field and @property fields
-
-#### Flask (when Flask is detected)
-
-- **`find_flask_routes`** - Discover all route decorators with methods and endpoints
-- **`find_flask_blueprints`** - Locate Blueprint definitions and registrations
-- **`find_flask_views`** - Find view functions and MethodView classes
-- **`find_flask_templates`** - Locate Jinja2 templates and render_template calls
-- **`find_flask_extensions`** - Identify Flask extensions (SQLAlchemy, Login, CORS, etc.)
-- **`find_flask_config`** - Find configuration files and app.config usage
-- **`find_error_handlers`** - Locate @app.errorhandler decorators
-- **`find_cli_commands`** - Find Flask CLI commands (@app.cli.command)
+- **Django:** <!-- fact:begin tools.plugin.django -->`find_django_migrations`, `find_django_models`, `find_django_templates`, `find_django_urls`, `find_django_views`<!-- fact:end -->
+- **Pydantic:** <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->
+- **Flask:** <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_error_handlers`, `find_flask_blueprints`, `find_flask_config`, `find_flask_extensions`, `find_flask_routes`, `find_flask_templates`, `find_flask_views`<!-- fact:end -->
 
 ## Advanced Features
 
 ### Multi-Project Support
 
-Analyze your main project along with local dependencies:
+Analyze your main project along with local dependencies. Put them in
+`.pyeye.json` (see [Configuration](#configuration)), or ask your assistant to
+call the [`configure_packages`](docs/reference/tools.md#configure_packages) tool
+with arguments like these:
 
-```python
-# Configure to analyze multiple packages
-configure_packages(
-    packages=["../my-lib", "~/repos/shared-utils"],
-    namespaces={"company": ["~/repos/company-*"]}
-)
+```json
+{
+  "packages": ["../my-lib", "~/repos/shared-utils"],
+  "namespaces": {"company": ["~/repos/company-*"]}
+}
 ```
 
 ### Namespace Packages
 
-Handle packages distributed across multiple repositories:
+Handle packages distributed across multiple repositories, for example
+`company.auth` in one repo and `company.api` in another:
 
-```python
-# company.auth in repo A, company.api in repo B
-configure_packages(
-    namespaces={"company": ["~/repos/company-auth", "~/repos/company-api"]}
-)
+```json
+{
+  "namespaces": {"company": ["~/repos/company-auth", "~/repos/company-api"]}
+}
 ```
 
 ### Auto-Update on File Changes
 
-The server uses file watching to automatically update when code changes:
-
-- Detects modifications in real-time
-- Invalidates cache for changed files
-- Maintains separate watchers per project
+The server watches the project's files and drops cached results for the files
+that change, so answers follow your edits without a restart. See
+[Caching](docs/architecture/caching.md) for how invalidation works.
 
 ## Architecture
 
-```text
-PyEye
-├── Core Server (MCPServer, MCP Python SDK)
-│   └── MCP tools (primitives + auto-activated framework plugins)
-├── Project Manager
-│   ├── Multi-project support (LRU cache, max 10)
-│   ├── Namespace resolver
-│   └── Configuration loader (multiple sources)
-├── Analysis Engine
-│   └── Jedi (semantic analysis & type inference)
-├── Caching & Performance
-│   ├── File watchers (watchdog with debouncing)
-│   ├── Granular cache (TTL from PYEYE_CACHE_TTL, with smart invalidation)
-│   ├── Metrics collection (p50/p95/p99 latencies)
-│   └── Performance monitoring & reporting
-├── Validation & Security
-│   ├── Input validation (MCP tool parameters)
-│   ├── Path security checks
-│   └── Safe file operations
-├── Plugin System
-│   ├── Base plugin class (AnalyzerPlugin)
-│   ├── Pydantic plugin (7 specialized tools)
-│   ├── Django plugin (5 specialized tools)
-│   └── Flask plugin (8 specialized tools)
-├── Utility Systems
-│   ├── Dependency tracking & circular detection
-│   ├── Import analysis & re-export resolution
-│   ├── Scope management (main/all/namespace scoping)
-│   ├── Async utilities (concurrent operations)
-│   └── Cross-platform path handling
-└── Development & Automation
-    ├── Release automation agent
-    ├── Dogfooding metrics tracking
-    └── Worktree safety management
-```
+The architecture pages describe how pyeye works inside:
+
+- [Resolution](docs/architecture/resolution.md): how a name becomes a canonical handle
+- [Caching](docs/architecture/caching.md): what is cached and when it is invalidated
+- [Plugin system](docs/architecture/plugin-system.md): how framework plugins are detected and register their tools
 
 ## Plugin Development
 
-Create custom plugins for your project patterns:
+Plugins are built into pyeye; there is no dynamic loading. To add a framework
+plugin, follow [Adding a plugin](docs/architecture/plugin-system.md#adding-a-plugin).
 
-```python
-from pyeye.plugins.base import AnalyzerPlugin
+## Performance Monitoring
 
-class MyProjectPlugin(AnalyzerPlugin):
-    def name(self) -> str:
-        return "MyProject"
-
-    def detect(self) -> bool:
-        # Return True if this plugin should activate
-        return (self.project_path / "my_framework.conf").exists()
-
-    def find_patterns(self, pattern_name: str):
-        # Find your custom patterns
-        pass
-```
-
-## Performance Monitoring Details
-
-The server includes comprehensive performance monitoring to help identify bottlenecks and optimize performance for large-scale deployments.
-
-### Connection Pooling (deprecated)
-
-The connection pool was removed in #628: it built `jedi.Project` objects that
-nothing used. Its three settings are deprecated and have no effect; setting one
-logs a warning at startup, and they will be removed in v3.0:
-
-```bash
-PYEYE_ENABLE_CONNECTION_POOLING   # deprecated, no effect
-PYEYE_POOL_MAX_CONNECTIONS        # deprecated, no effect
-PYEYE_POOL_TTL                    # deprecated, no effect
-```
-
-### Metrics Tracked
-
-- **Operation Latencies**: p50, p95, p99 percentiles for all MCP tools
-- **Cache Performance**: Hit rate, miss rate, evictions
-- **Memory Usage**: RSS, VMS, percentage used
-- **Error Rates**: Track failures per operation
-- **Throughput**: Operations per second
-
-### Performance Baselines
-
-The following performance baselines are enforced in CI:
-
-| Operation | p50 (ms) | p95 (ms) | p99 (ms) |
-|-----------|----------|----------|----------|
-| symbol_search | 50 | 100 | 200 |
-| goto_definition | 30 | 75 | 150 |
-| cache_lookup | 0.1 | 0.5 | 1.0 |
+Set `PYEYE_ENABLE_PERFORMANCE_METRICS` to register the `get_performance_metrics`
+tool, which reports per-tool latencies. Its parameters are in the
+[tool reference](docs/reference/tools.md#admin-tools).
 
 ## Development
 
 ```bash
-# Install development dependencies
-uv add --dev pytest black ruff mypy
+# Install pyeye with its development dependencies, exactly as locked
+uv sync --frozen
 
 # Run tests
 uv run pytest
 
-# Format code
+# Format and lint
 uv run black src/
 uv run ruff check src/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and workflow.
 
 ## Documentation
 
@@ -619,7 +398,7 @@ The full documentation is published at **[okeefeco.github.io/pyeye-mcp](https://
 - [Installation Guide](#installation)
 - [Configuration Guide](#configuration)
 - [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [API Reference](#core-tools)
+- [API Reference](docs/reference/tools.md) - every tool and its parameters
 
 ## Security
 
@@ -631,11 +410,11 @@ reads whatever paths the MCP client points it at).
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License - see [LICENSE](LICENSE) for details
 
 ## Acknowledgments
 
