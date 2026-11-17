@@ -45,6 +45,21 @@ class PathValidator:
         r"/root/",  # Also check if /root/ appears anywhere
     )
 
+    @classmethod
+    def _check_spelling(cls, path_str: str) -> None:
+        """Reject a path by how it's spelled, before anything resolves it.
+
+        Null bytes and patterns that might be attacks are rejected even if the
+        path doesn't exist, and so is a system directory named in any spelling.
+        """
+        for sequence, described in cls.REJECTED_SEQUENCES:
+            if sequence in path_str:
+                raise ValidationError(f"Path contains {described}")
+        path_lower = path_str.lower()
+        for comp in cls.RESTRICTED_COMPONENTS:
+            if comp in path_lower:
+                raise ValidationError(f"Path contains suspicious component: {comp}")
+
     @staticmethod
     def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
         """``(resolved, forms)``: the deny-list checks the target's lexical and resolved forms.
@@ -97,17 +112,7 @@ class PathValidator:
         # Convert to string for validation
         path_str = Path(path).as_posix()
 
-        # Null bytes and patterns that might be attacks, even if they don't exist
-        for sequence, described in cls.REJECTED_SEQUENCES:
-            if sequence in path_str:
-                raise ValidationError(f"Path contains {described}")
-
-        # Check for attempts to access system directories
-        # even if they resolve to non-existent paths
-        path_lower = path_str.lower()
-        for comp in cls.RESTRICTED_COMPONENTS:
-            if comp in path_lower:
-                raise ValidationError(f"Path contains suspicious component: {comp}")
+        cls._check_spelling(path_str)
 
         # Convert to Path object
         try:

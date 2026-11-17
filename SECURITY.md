@@ -65,45 +65,60 @@ Vulnerabilities in pyeye itself, for example:
 
 ## Security Model
 
-How pyeye behaves, so you can judge what counts as a vulnerability:
+How pyeye behaves, so you can judge what counts as a vulnerability. The values
+in this section are generated from pyeye's code (`scripts/docs_facts.py`), so
+they can't drift from it.
 
 - **Static analysis only.** pyeye parses and analyses Python source with
   [Jedi](https://github.com/davidhalter/jedi). It doesn't import or run the
-  analysed project's code, and the server starts no subprocess of its own.
-  Jedi starts one helper subprocess: the server's own Python interpreter running
-  a script from Jedi's package, without a shell. Jedi uses it to introspect
-  compiled modules, and imports them only from the server's Python environment.
-  pyeye leaves Jedi's `load_unsafe_extensions` off, so compiled extensions
-  inside the analysed project or a configured package are never loaded.
+  analysed project's code. Calls in the server's code that start a process:
+  <!-- fact:begin security.subprocesses -->none<!-- fact:end -->.
+  Jedi itself runs a helper process, the server's own Python interpreter, to
+  introspect compiled modules. pyeye's Jedi setting `load_unsafe_extensions` is
+  <!-- fact:begin security.jedi_unsafe_extensions -->off<!-- fact:end -->, so Jedi
+  loads compiled extensions only from the server's Python environment, never
+  from the analysed project or a configured package.
 - **It reads what the MCP client points it at.** Tools take a `project_path`,
   and `configure_packages` can add package, namespace and standalone-script
   paths. pyeye reads those paths with the permissions of the user running the
-  server. Some path inputs are checked: null bytes and `...` are rejected, and so
-  is a path naming one of a few system directories (`/etc/`, `/root/`, `/proc/`,
-  `/sys/`, `/dev/`). This is a sanity check, **not a sandbox**:
+  server. A path that goes through the input check is rejected for:
+
+  <!-- fact:begin security.path_checks -->
+  - anywhere in the path: null bytes, suspicious triple dots;
+  - naming one of these directories: `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`;
+  - a target matching one of these patterns: `^/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
+  - forms checked: the deny-list checks the target's lexical and resolved forms.
+  <!-- fact:end -->
+
+  This is a sanity check, **not a sandbox**:
   - any directory the server's user can read can be analysed if a client asks
     for it;
-  - not every path input goes through the check, and a relative path or a
-    symlink isn't checked in the form that's finally read
+  - not every path input goes through the check yet
     ([#856](https://github.com/okeefeco/pyeye-mcp/issues/856) tracks closing
     those gaps).
 
   Run the server as a user whose read access you're comfortable exposing to your
   MCP client.
-- **What it writes:**
-  - `configure_packages` writes `.pyeye.json` in the `project_path` it was given,
-    replacing any existing one, whenever the call adds packages, namespaces or
-    standalone directories. `save` defaults to `true`; pass `save=false` to change
-    the running configuration only. The file holds the project's whole merged
-    configuration, not just the keys the call added.
-  - Usage metrics go to `~/.pyeye/metrics/`: per server session, the tool names
-    called, call counts, durations, error counts and timestamps. No tool
-    arguments, paths or source are recorded.
-  - Logs go to the file named by `PYEYE_LOG_FILE`, if it's set.
+- **What it writes.** Every place in the server's code that writes a file or
+  creates a directory:
+  <!-- fact:begin security.write_sites -->`pyeye.config:ProjectConfig.save_config`, `pyeye.config:create_example_config`, `pyeye.mcp.__main__:_configure_logging`, `pyeye.unified_metrics:UnifiedMetricsCollector.__init__`, `pyeye.unified_metrics:UnifiedMetricsCollector._append_jsonl`, `pyeye.unified_metrics:UnifiedMetricsCollector._write_json`, `pyeye.unified_metrics:UnifiedMetricsCollector.cleanup_old_sessions`, `pyeye.unified_metrics:UnifiedMetricsCollector.export_metrics`<!-- fact:end -->.
+  Among them, the files the server keeps:
+  - the project configuration,
+    <!-- fact:begin security.writes.config -->`<project_path>/.pyeye.json`<!-- fact:end -->, when
+    `configure_packages` adds packages, namespaces or standalone directories.
+    The parameter and its default:
+    <!-- fact:begin tool.configure_packages.param.save -->`save`: true<!-- fact:end -->;
+    pass `save=false` to change only the running configuration;
+  - usage metrics, under <!-- fact:begin security.writes.metrics -->`~/.pyeye/metrics/`<!-- fact:end -->.
+    A tool call hands the metrics recorder only
+    <!-- fact:begin security.metrics_inputs -->`tool_name`, `session_id`, `success`, `duration_ms`<!-- fact:end -->, so no tool
+    arguments, paths or source reach it;
+  - logs, to the file named by
+    <!-- fact:begin env.PYEYE_LOG_FILE -->`PYEYE_LOG_FILE`<!-- fact:end -->, if it's set.
 
-  It doesn't modify the analysed source.
-- **No network access** is needed for analysis, and the server makes no
-  network requests.
+  None of these writes the analysed source files.
+- **No network access** is needed for analysis. Imports of a networking module
+  in the server's code: <!-- fact:begin security.network_imports -->none<!-- fact:end -->.
 
 ## Security Checks in Development
 

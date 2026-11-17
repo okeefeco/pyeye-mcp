@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from pathlib import Path
 from textwrap import dedent
 
@@ -53,6 +54,25 @@ class TestProcessSites:
                     self.system('x')
         """
         assert _sites(source)[0] == set()
+
+
+class TestNetworkImports:
+    def test_networking_imports_are_found_anywhere(self) -> None:
+        source = """
+            import socket
+            def f():
+                from urllib.request import urlopen
+                import http.client
+            import os
+        """
+        tree = ast.parse(dedent(source))
+        found = security._Sites("pyeye.m", tree)
+        found.visit(tree)
+        assert found.network == {
+            "pyeye.m:<module> imports socket",
+            "pyeye.m:f imports urllib.request",
+            "pyeye.m:f imports http.client",
+        }
 
 
 class TestWriteSites:
@@ -146,6 +166,16 @@ class TestFacts:
         assert facts["security.subprocesses"].value == []  # type: ignore[attr-defined]
         assert facts["security.subprocesses"].markdown == "none"  # type: ignore[attr-defined]
 
+    def test_the_server_imports_no_networking_module(self, facts: dict[str, object]) -> None:
+        assert facts["security.network_imports"].value == []  # type: ignore[attr-defined]
+
+    def test_metrics_inputs_are_the_recorders_parameters(self, facts: dict[str, object]) -> None:
+        from pyeye.unified_metrics import UnifiedMetricsCollector
+
+        params = list(inspect.signature(UnifiedMetricsCollector.record_mcp_operation).parameters)
+        assert facts["security.metrics_inputs"].value == params[1:]  # type: ignore[attr-defined]
+        assert "tool_name" in params and not {"args", "kwargs", "arguments"} & set(params)
+
     def test_the_known_writers_are_listed(self, facts: dict[str, object]) -> None:
         sites = facts["security.write_sites"].value  # type: ignore[attr-defined]
         assert "pyeye.config:ProjectConfig.save_config" in sites
@@ -162,14 +192,33 @@ class TestFacts:
         }
 
     def test_path_checks_match_what_validate_path_rejects(self, facts: dict[str, object]) -> None:
-        value = facts["security.path_checks"].value  # type: ignore[attr-defined]
-        for component in value["restricted_components"]:
-            with pytest.raises(ValidationError):
-                PathValidator.validate_path(f"/tmp{component}x")
+        rejected = facts["security.path_checks.rejected"].value  # type: ignore[attr-defined]
         for sequence, described in PathValidator.REJECTED_SEQUENCES:
-            assert described in value["rejected"]
+            assert described in rejected
             with pytest.raises(ValidationError, match=described):
                 PathValidator.validate_path(f"a{sequence}b")
+        components = facts["security.path_checks.components"].value  # type: ignore[attr-defined]
+        for component in components:
+            with pytest.raises(ValidationError, match="suspicious component"):
+                PathValidator.validate_path(f"/tmp{component}x")
+        targets = facts["security.path_checks.targets"].value  # type: ignore[attr-defined]
+        assert targets == list(PathValidator.RESTRICTED_TARGETS)
+        # A relative path that climbs to /etc has no "/etc/" in its spelling, so only
+        # the target check (on its anchored forms) can stop it.
+        with pytest.raises(ValidationError, match="restricted location"):
+            PathValidator.validate_path("../" * 40 + "etc", anchor_root=ROOT)
+
+    def test_the_checked_forms_come_from_check_forms(self, facts: dict[str, object]) -> None:
+        forms = facts["security.path_checks.forms"].value  # type: ignore[attr-defined]
+        assert "lexical" in forms and "resolved" in forms
+        assert len(PathValidator.check_forms(Path("/a/../b"))[1]) >= 1
+
+    def test_a_changed_check_forms_docstring_fails_loudly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(PathValidator.check_forms, "__doc__", "Checks things.", raising=False)
+        with pytest.raises(ExtractionError, match="check_forms"):
+            list(security._path_checks())
 
     def test_jedi_unsafe_extensions_is_what_make_project_passes(
         self, facts: dict[str, object], monkeypatch: pytest.MonkeyPatch

@@ -9,11 +9,16 @@ SECURITY.md states these as facts, so they come from the code:
 - ``security.subprocesses``: the call sites in those modules that start a process;
 - ``security.write_sites``: the call sites in those modules that write a file or
   create a directory;
+- ``security.network_imports``: the imports of a networking module in those modules;
+- ``security.metrics_inputs``: everything a tool call hands the usage-metrics
+  recorder, the parameters of
+  :meth:`pyeye.unified_metrics.UnifiedMetricsCollector.record_mcp_operation`;
 - ``security.writes.config`` and ``security.writes.metrics``: where the two
   files the server keeps are written, from :data:`pyeye.constants.CONFIG_FILE`
   and :data:`pyeye.constants.METRICS_DIR`;
-- ``security.path_checks``: what :meth:`pyeye.validation.PathValidator.validate_path`
-  rejects outright, from its class constants;
+- ``security.path_checks.*``: what :meth:`pyeye.validation.PathValidator.validate_path`
+  rejects, from its class constants, and which forms of a target it checks,
+  from :meth:`~pyeye.validation.PathValidator.check_forms`' docstring;
 - ``security.jedi_unsafe_extensions``: whether Jedi may load compiled extensions
   from outside the environment, from :data:`pyeye._jedi_project.LOAD_UNSAFE_EXTENSIONS`.
 
@@ -24,6 +29,7 @@ number, so the fact only changes when a site is added, removed or moved.
 from __future__ import annotations
 
 import ast
+import inspect
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -33,8 +39,9 @@ from ... import _jedi_project
 from ...async_utils import filtered_rglob
 from ...constants import CONFIG_FILE, METRICS_DIR
 from ...path_utils import relative_within
+from ...unified_metrics import UnifiedMetricsCollector
 from ...validation import PathValidator
-from ..facts import Bindable, ExtractionError, Fact, code, code_list, view
+from ..facts import Bindable, ExtractionError, Fact, code, code_list, text, view
 
 PREFIXES = ("security",)
 
@@ -55,6 +62,22 @@ _PROCESS_CALLS: dict[str, frozenset[str]] = {
     "multiprocessing": frozenset({"Process", "Pool"}),
     "concurrent.futures": frozenset({"ProcessPoolExecutor"}),
 }
+
+#: Modules that make network requests; importing one in a server module is a network site.
+_NETWORK_MODULES = frozenset(
+    {
+        "socket",
+        "ssl",
+        "http",
+        "urllib",
+        "requests",
+        "httpx",
+        "aiohttp",
+        "websockets",
+        "ftplib",
+        "smtplib",
+    }
+)
 
 #: Method names that write a file or create a directory, on any object.
 _WRITE_METHODS = frozenset({"write_text", "write_bytes", "mkdir", "touch", "symlink_to"})
@@ -193,6 +216,7 @@ class _Sites(ast.NodeVisitor):
         self.scope: list[str] = []
         self.process: set[str] = set()
         self.write: set[str] = set()
+        self.network: set[str] = set()
 
     def _site(self) -> str:
         return f"{self.module}:{'.'.join(self.scope) or '<module>'}"
@@ -203,6 +227,18 @@ class _Sites(ast.NodeVisitor):
         self.scope.pop()
 
     visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _scoped  # noqa: N815
+
+    def _imported(self, module: str) -> None:
+        if module.split(".")[0] in _NETWORK_MODULES:
+            self.network.add(f"{self._site()} imports {module}")
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802 - ast.NodeVisitor API
+        for alias in node.names:
+            self._imported(alias.name)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802 - ast.NodeVisitor API
+        if node.module and not node.level:
+            self._imported(node.module)
 
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802 - ast.NodeVisitor API
         target = _call_target(node.func, self.mods, self.names)
@@ -225,21 +261,71 @@ def _list(sites: list[str]) -> str:
     return code_list(sites) if sites else "none"
 
 
+def _path_checks() -> Iterator[Bindable]:
+    """What :meth:`PathValidator.validate_path` rejects, from its constants and docstring."""
+    rejected = Fact(
+        "security.path_checks.rejected",
+        [described for _sequence, described in PathValidator.REJECTED_SEQUENCES],
+        ", ".join(described for _sequence, described in PathValidator.REJECTED_SEQUENCES),
+    )
+    components = Fact(
+        "security.path_checks.components",
+        list(PathValidator.RESTRICTED_COMPONENTS),
+        code_list(PathValidator.RESTRICTED_COMPONENTS),
+    )
+    targets = Fact(
+        "security.path_checks.targets",
+        list(PathValidator.RESTRICTED_TARGETS),
+        code_list(PathValidator.RESTRICTED_TARGETS),
+    )
+    summary = (inspect.getdoc(PathValidator.check_forms) or "").split("\n", 1)[0]
+    prefix = "``(resolved, forms)``: "
+    if not summary.startswith(prefix):
+        raise ExtractionError(
+            "PathValidator.check_forms' docstring no longer starts with "
+            f"{prefix!r}, so the checked forms can't be read from it"
+        )
+    forms = Fact("security.path_checks.forms", summary[len(prefix) :], text(summary[len(prefix) :]))
+    yield from (rejected, components, targets, forms)
+    yield view(
+        "security.path_checks",
+        [rejected, components, targets, forms],
+        "\n".join(
+            [
+                f"- anywhere in the path: {rejected.markdown};",
+                f"- naming one of these directories: {components.markdown};",
+                f"- a target matching one of these patterns: {targets.markdown};",
+                f"- forms checked: {forms.markdown}",
+            ]
+        ),
+    )
+
+
 def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the installed package
     """Yield the security facts."""
     modules = _modules(Path(pyeye.__file__).parent)
     process: set[str] = set()
     write: set[str] = set()
+    network: set[str] = set()
     for name in sorted(server_modules(modules)):
         sites = _Sites(name, modules[name][1])
         sites.visit(modules[name][1])
         process |= sites.process
         write |= sites.write
+        network |= sites.network
 
     subprocesses = sorted(process)
     yield Fact("security.subprocesses", subprocesses, _list(subprocesses))
     writes = sorted(write)
     yield Fact("security.write_sites", writes, _list(writes))
+    networks = sorted(network)
+    yield Fact("security.network_imports", networks, _list(networks))
+    recorded = [
+        name
+        for name in inspect.signature(UnifiedMetricsCollector.record_mcp_operation).parameters
+        if name != "self"
+    ]
+    yield Fact("security.metrics_inputs", recorded, code_list(recorded))
 
     config = Fact(
         "security.writes.config",
@@ -253,13 +339,7 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     yield metrics
     yield view("security.writes", [config, metrics], f"{config.markdown}, {metrics.markdown}")
 
-    rejected = [described for _seq, described in PathValidator.REJECTED_SEQUENCES]
-    restricted = list(PathValidator.RESTRICTED_COMPONENTS)
-    yield Fact(
-        "security.path_checks",
-        {"rejected": rejected, "restricted_components": restricted},
-        f"{', '.join(rejected)}, and a path naming {code_list(restricted)}",
-    )
+    yield from _path_checks()
 
     unsafe = _jedi_project.LOAD_UNSAFE_EXTENSIONS
     yield Fact("security.jedi_unsafe_extensions", unsafe, "on" if unsafe else "off")

@@ -25,7 +25,6 @@
     "env.PYEYE_ENABLE_MEMORY_PROFILING",
     "env.PYEYE_ENABLE_PERFORMANCE_METRICS",
     "env.PYEYE_ISSUE",
-    "env.PYEYE_LOG_FILE",
     "env.PYEYE_LOG_LEVEL",
     "env.PYEYE_MAX_FILE_SIZE",
     "env.PYEYE_MAX_PROJECTS",
@@ -52,7 +51,6 @@
     "tool.configure_packages.param.namespaces",
     "tool.configure_packages.param.packages",
     "tool.configure_packages.param.project_path",
-    "tool.configure_packages.param.save",
     "tool.configure_packages.param.standalone_dirs",
     "tool.expand",
     "tool.expand.param.edge",
@@ -171,30 +169,5 @@
     "tool.trace_model_inheritance.param.scope"
   ],
   "dismissed": {},
-  "new": [
-    {
-      "fact_id": "security.jedi_unsafe_extensions",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "security.path_checks",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "security.subprocesses",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "security.write_sites",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "security.writes.config",
-      "first_seen": "unreleased"
-    },
-    {
-      "fact_id": "security.writes.metrics",
-      "first_seen": "unreleased"
-    }
-  ]
+  "new": []
 }
