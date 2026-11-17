@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .constants import CONFIG_DIR, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
+from .constants import CONFIG_DIR, CONFIG_FILE, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
@@ -624,7 +624,7 @@ class ProjectConfig:
             config_path: Path to save to (defaults to .pyeye.json)
         """
         if config_path is None:
-            config_path = self.project_path / f".{PROJECT_NAME}.json"
+            config_path = self.project_path / CONFIG_FILE
 
         try:
             with open(config_path, "w") as f:

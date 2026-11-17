@@ -11,6 +11,16 @@ from .path_utils import absolute_path, anchor, ensure_posix_path, normalize_path
 class PathValidator:
     """Validates and sanitizes file paths for security."""
 
+    #: Substrings that reject a path outright, with how the error names them
+    #: (docs fact ``security.path_checks``).
+    REJECTED_SEQUENCES: tuple[tuple[str, str], ...] = (
+        ("\x00", "null bytes"),
+        ("...", "suspicious triple dots"),
+    )
+
+    #: System directories a given path may not name (docs fact ``security.path_checks``).
+    RESTRICTED_COMPONENTS: tuple[str, ...] = ("/etc/", "/root/", "/proc/", "/sys/", "/dev/")
+
     # Patterns for potentially dangerous file names
     DANGEROUS_NAMES = [
         r"\.git/",  # Git directory
@@ -34,6 +44,21 @@ class PathValidator:
         r"/etc/",  # Also check if /etc/ appears anywhere in path
         r"/root/",  # Also check if /root/ appears anywhere
     )
+
+    @classmethod
+    def _check_spelling(cls, path_str: str) -> None:
+        """Reject a path by how it's spelled, before anything resolves it.
+
+        Null bytes and patterns that might be attacks are rejected even if the
+        path doesn't exist, and so is a system directory named in any spelling.
+        """
+        for sequence, described in cls.REJECTED_SEQUENCES:
+            if sequence in path_str:
+                raise ValidationError(f"Path contains {described}")
+        path_lower = path_str.lower()
+        for comp in cls.RESTRICTED_COMPONENTS:
+            if comp in path_lower:
+                raise ValidationError(f"Path contains suspicious component: {comp}")
 
     @staticmethod
     def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
@@ -87,22 +112,7 @@ class PathValidator:
         # Convert to string for validation
         path_str = Path(path).as_posix()
 
-        # Check for null bytes
-        if "\x00" in path_str:
-            raise ValidationError("Path contains null bytes")
-
-        # Check for suspicious patterns that might be attacks
-        # Even if they don't exist, we should reject them
-        if "..." in path_str:
-            raise ValidationError("Path contains suspicious triple dots")
-
-        # Check for attempts to access system directories
-        # even if they resolve to non-existent paths
-        suspicious_components = ["/etc/", "/root/", "/proc/", "/sys/", "/dev/"]
-        path_lower = path_str.lower()
-        for comp in suspicious_components:
-            if comp in path_lower:
-                raise ValidationError(f"Path contains suspicious component: {comp}")
+        cls._check_spelling(path_str)
 
         # Convert to Path object
         try:
