@@ -325,6 +325,18 @@ jobs:
       - name: Run mypy
         run: uv run mypy src/pyeye --ignore-missing-imports
 
+      # #851: an installed wheel must start with no repo around it. Built and
+      # installed into a clean venv, then imported isolated (-I) from an empty
+      # directory, so nothing in the checkout can be read. Part of this required
+      # job, which runs on merge_group, so the queue enforces it.
+      - name: Import the installed wheel outside the repo
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv" "$RUNNER_TEMP"/dist/*.whl
+          cd "$(mktemp -d)"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -I -c "import pyeye.mcp.server"
+
   changelog-validation:
     # Validate CHANGELOG.md structure and that every v* tag has a section (#583)
     runs-on: ubuntu-latest
