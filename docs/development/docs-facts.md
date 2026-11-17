@@ -83,6 +83,45 @@ same PR**. The only trees outside the registry are the historical records
 (`docs/superpowers/`, `docs/decisions/`, `docs/audits/`) and test fixtures
 (`tests/fixtures/`).
 
+## Executed examples
+
+A tool example in `docs/api/`, `docs/reference/` or a skill can be **executed**
+instead of trusted (#828). Tag the fenced block, and give the call's arguments as a
+JSON object. Leave out `project_path`; the runner supplies it:
+
+````markdown
+```json pyeye-example tool=inspect
+{"handle": "myapp.config.Settings"}
+```
+
+```json pyeye-output
+{"found": true, "kind": "class", "edge_counts": {"members": 3, "superclasses": 1},
+ "…": "<omitted>"}
+```
+````
+
+The `json pyeye-output` block is optional. It must come straight after its example,
+with only blank lines between them. `fixture=<name>` runs the example against
+`tests/fixtures/<name>/` instead of the default, `tests/fixtures/docs_examples/` (a
+small `myapp` package).
+
+`tests/test_docs_examples.py` calls each example through the MCP server. It checks a
+primitive's response with the conformance linter, and matches a shown output on
+**structure**, not values (design C10):
+
+| In a shown output | Means | Fails when |
+|---|---|---|
+| a key | the response has it, with the same JSON kind | it's missing or a different kind |
+| `"…": "<omitted>"` | this level leaves keys out | it's missing while keys are left out, or present when none are |
+| `"<omitted>"` as the last array item | items are left out | it's missing while items are left out, or present when none are |
+| `"k": "<absent>"` | the response does **not** have `k` | the response has `k` |
+| `found`, `kind`, `reason`, `ambiguous` | compared by value | the value differs |
+
+A reader must never take a trimmed example for the whole response, so every trim is
+marked. `check` also fails on a malformed tag (anything mentioning `pyeye-` that
+doesn't fit), an output block with no example straight before it, a body that isn't
+JSON, and an example outside the three allowed places. Untagged blocks are prose.
+
 ## Removed names
 
 A fact that disappears from the code can't fail a block once nothing binds it, but
