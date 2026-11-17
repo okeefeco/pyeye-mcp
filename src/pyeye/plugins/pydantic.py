@@ -89,11 +89,10 @@ class PydanticPlugin(AnalyzerPlugin):
         doesn't resolve.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         analyzer = self._analyzer()
         await self._warn_unreadable_sources(scope)
@@ -219,11 +218,10 @@ class PydanticPlugin(AnalyzerPlugin):
 
         Args:
             model_name: Name of the model to get schema for
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         models = await self.find_models(scope)
 
@@ -266,11 +264,10 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all Pydantic validators in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         validators = []
 
@@ -307,11 +304,10 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all field-specific validators.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         all_validators = await self.find_validators(scope)
         return [v for v in all_validators if v["type"] == "field_validator"]
@@ -320,11 +316,10 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all model configurations.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         configs = []
 
@@ -376,11 +371,10 @@ class PydanticPlugin(AnalyzerPlugin):
 
         Args:
             model_name: Name of the model to trace
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         models = await self.find_models(scope)
         target = next((m for m in models if m["name"] == model_name), None)
@@ -433,11 +427,10 @@ class PydanticPlugin(AnalyzerPlugin):
         """Find all computed fields (properties, computed_field decorator).
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         computed_fields = []
 

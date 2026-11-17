@@ -55,11 +55,10 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django models in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         models = []
 
@@ -95,11 +94,10 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django views in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         views = []
 
@@ -144,11 +142,10 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all URL patterns in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         urls = []
 
@@ -168,11 +165,10 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django templates in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         templates = []
         seen_files = set()  # Track unique files to avoid duplicates
@@ -203,11 +199,10 @@ class DjangoPlugin(AnalyzerPlugin):
         """Find all Django migrations in the project.
 
         Args:
-            scope: Search scope (default: this tool's ``scope_defaults`` entry in the
-                project config, else ``scope_defaults.global``, else "main"):
-                - "main": Only the main project (default for plugins)
-                - "all": Include configured namespaces
-                - "namespace:name": Specific namespace
+            scope: One scope or a list of scopes (default: this tool's
+                ``scope_defaults.methods`` entry in the project config, else
+                ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
+                <<fact:scopes.options:bullets>>
         """
         migrations = []
         seen_files = set()  # Track unique files to avoid duplicates

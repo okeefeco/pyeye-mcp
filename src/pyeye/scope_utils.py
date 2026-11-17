@@ -22,6 +22,52 @@ Scope = str | list[str]
 
 
 @dataclass(frozen=True)
+class ScopeForm:
+    """One form of the scope grammar :func:`resolve_scope_paths` accepts (#827).
+
+    Attributes:
+        name: Short name, used in fact IDs (``scope.option.<name>``).
+        syntax: How a caller writes it; a ``<...>`` part is filled in by the caller.
+        meaning: What it searches, in one sentence.
+    """
+
+    name: str
+    syntax: str
+    meaning: str
+
+    @property
+    def prefix(self) -> str | None:
+        """The literal prefix of a parameterised form (``"namespace:"``), else ``None``."""
+        return self.syntax.split("<", 1)[0] if "<" in self.syntax else None
+
+
+#: The scope grammar, in documentation order: the one list (#827). The docs and
+#: the plugin tool descriptions take it from here, through the docs-facts
+#: ``scope`` extractor. ``tests/test_docs_facts_scopes.py`` checks it against
+#: :func:`resolve_scope_paths`, which implements it.
+SCOPE_FORMS: tuple[ScopeForm, ...] = (
+    ScopeForm("main", "main", "the main project"),
+    ScopeForm("packages", "packages", "the configured packages only"),
+    ScopeForm("standalone", "standalone", "the standalone script directories"),
+    ScopeForm(
+        "namespace",
+        "namespace:<name>",
+        "one namespace's package directories; namespace:a.b resolves under namespace a",
+    ),
+    ScopeForm("package", "package:<path>", "that directory, if it exists"),
+    ScopeForm(
+        "all",
+        "all",
+        "the main project, every configured package and namespace, and the standalone directories",
+    ),
+)
+
+#: The scope a plugin tool searches when neither the call nor ``scope_defaults``
+#: names one (#559): framework code usually lives in the main project.
+PLUGIN_FALLBACK_SCOPE = "main"
+
+
+@dataclass(frozen=True)
 class ScopeLayout:
     """What a search scope can name: the one layout every scope→paths call reads (#690).
 
@@ -251,7 +297,7 @@ class SmartScopeResolver:
             return self.user_method_defaults[tool_name]
         if self.global_default:
             return self.global_default
-        return "main"
+        return PLUGIN_FALLBACK_SCOPE
 
     def ignored_method_keys(self, tool_names: set[str]) -> list[str]:
         """Configured ``scope_defaults.methods`` keys that aren't plugin tool names.

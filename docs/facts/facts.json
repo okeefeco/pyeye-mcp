@@ -288,6 +288,37 @@
       "3.14"
     ],
     "project.requires_python": ">=3.11",
+    "scope.default.plugin": {
+      "fallback": "main",
+      "order": [
+        "scope_defaults.methods.<tool name>",
+        "scope_defaults.global"
+      ]
+    },
+    "scope.option.all": {
+      "meaning": "the main project, every configured package and namespace, and the standalone directories",
+      "syntax": "all"
+    },
+    "scope.option.main": {
+      "meaning": "the main project",
+      "syntax": "main"
+    },
+    "scope.option.namespace": {
+      "meaning": "one namespace's package directories; namespace:a.b resolves under namespace a",
+      "syntax": "namespace:<name>"
+    },
+    "scope.option.package": {
+      "meaning": "that directory, if it exists",
+      "syntax": "package:<path>"
+    },
+    "scope.option.packages": {
+      "meaning": "the configured packages only",
+      "syntax": "packages"
+    },
+    "scope.option.standalone": {
+      "meaning": "the standalone script directories",
+      "syntax": "standalone"
+    },
     "tool.configure_packages": {
       "group": "core",
       "params": [
