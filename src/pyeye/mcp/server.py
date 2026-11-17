@@ -945,15 +945,15 @@ async def expand(
         members; that is NOT the same as unsupported.  Measured scope: a class's
         members are its class-body definitions; instance attributes assigned in
         methods (``self.x = ...``) are NOT measured.  A module's members are its
-        module-level definitions.  Static-surface ceiling: runtime-injected
-        members (metaclass / ``setattr`` / ``__getattr__`` / ``type()`` /
-        ``__init_subclass__``) are NOT captured — e.g. a Django ``Model`` shows
+        module-level definitions.  Static-surface ceiling:
+        <<fact:edge.members:ceiling>>.  For example, a Django ``Model`` shows
         none of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.
         A name missing from ``stubs`` is unknown outside that scope, not absent.
       - ``callees``  — function/method → forward static call targets.  Includes
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
-        counted in ``unresolved_call_sites`` rather than invented.
+        counted in ``unresolved_call_sites`` rather than invented.  Ceiling:
+        <<fact:edge.callees:ceiling>>.
       - ``imported_by``  — module → the project modules that import it (module
         Stubs), computed by static AST import-graph reversal (no reverse symbol
         search).  Covers importers anywhere in the project including tests and
@@ -966,8 +966,7 @@ async def expand(
         in ``unresolved_importers`` (#668), never dropped; a file the server's
         Python can't parse is listed in ``unparseable_files`` (#729).  Non-module handles
         return the unsupported branch with ``reason: "not_applicable"`` (#626).
-        Ceiling: runtime-dynamic imports
-        (``importlib``/``__import__`` with computed targets) are not detected.
+        Ceiling: <<fact:edge.imported_by:ceiling>>.
       - ``re_exports``  — symbol → the public MODULES that re-export it (#393).
         Each stub is the re-exporting module; its ``bindings`` lists the public
         dotted paths it provides (``["pkg.Foo"]``). Public means a package
@@ -976,7 +975,8 @@ async def expand(
         Package files the server's Python can't parse are listed in
         ``unparseable_files``, and the rest are still reported.  Module handles
         return ``not_applicable``.  Not in ``inspect``'s ``edge_counts``;
-        ``inspect``'s ``re_exports`` field is deprecated in its favour.
+        ``inspect``'s ``re_exports`` field is deprecated in its favour.  Ceiling:
+        <<fact:edge.re_exports:ceiling>>.
       - ``subclasses``  — class → the project classes that **directly** subclass
         it (class Stubs), computed by an AST class-graph walk + forward ``goto``
         (no reverse symbol search).  Returns the DIRECT (depth-1) subclasses only
@@ -990,20 +990,20 @@ async def expand(
         count is a reverse query needing the same project-wide scan as
         ``callers``/``references``.  ``stubs: []`` means the class has no project
         subclasses (measured-none).  A non-class handle returns the unsupported
-        branch with ``reason: "not_applicable"`` (#626).  Static-surface ceiling: the result is complete only over literal
-        ``class B(A):`` subclassing; dynamically-created subclasses
-        (``type('B', (A,), {})``, factory-built classes, ``__init_subclass__``
-        registration) are NOT captured.
+        branch with ``reason: "not_applicable"`` (#626).  Static-surface ceiling:
+        <<fact:edge.subclasses:ceiling>>.
       - ``superclasses``  — class → its base classes (class Stubs), resolved by
         Jedi from the class definition (no reverse search).  A non-class handle
         returns the unsupported branch with ``reason: "not_applicable"``.
+        Ceiling: <<fact:edge.superclasses:ceiling>>.
       - ``imports``  — module → the symbols/modules it imports (Stubs), computed
         by static AST + forward ``goto``.  Counts the imports that bind a
         module-scope name (guarded ones included; imports inside a function or
         class body are not), and reports each imported symbol at its canonical
         definition site.  ``stubs: []`` is measured-none.  A
         non-module handle returns the unsupported branch with
-        ``reason: "not_applicable"`` (mirrors ``imported_by``).
+        ``reason: "not_applicable"`` (mirrors ``imported_by``).  Ceiling:
+        <<fact:edge.imports:ceiling>>.
       - ``enclosing_scope``  — symbol → its immediate lexical enclosing scope
         (the inverse of ``members``), resolved by Jedi ``parent()``: a method →
         its class, a nested def/class → its enclosing def/class, a top-level
@@ -1014,7 +1014,7 @@ async def expand(
         (module Stubs), from a directory scan with no Jedi lookup; PEP 420
         namespace subpackages included.  A plain (non-package) module has none:
         ``stubs: []``.  A non-module handle returns the unsupported branch with
-        ``reason: "not_applicable"``.
+        ``reason: "not_applicable"``.  Ceiling: <<fact:edge.submodules:ceiling>>.
 
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (<<fact:edges.deferred>>) require the Pyright
@@ -1055,11 +1055,10 @@ async def expand(
           "unparseable_files": [file, ...],  # subclasses / imported_by / re_exports ONLY (#729); [] when all parsed
           "ceiling": str }               # #417 — the scope the list is complete over
 
-    ``ceiling`` names the edge's static-surface ceiling (#417), absent only for
-    ``enclosing_scope``, which is exact.  A name missing from ``stubs`` is
-    unknown beyond that scope, not absent:
-
-      <<fact:ceilings.table:bullets>>
+    ``ceiling`` names the edge's static-surface ceiling (#417), as each edge's
+    entry above states it, and is absent only for ``enclosing_scope``, which is
+    exact.  A name missing from ``stubs`` is unknown beyond that scope, not
+    absent.
 
     *Unsupported branch* (``found: True``, ``"stubs"`` key absent):
     ::
@@ -1151,8 +1150,10 @@ async def trace(
 
     Static-surface ceiling: each hop carries its edge's ceiling, so a trace
     over ``members`` or ``subclasses`` is complete only over that edge's
-    measured scope (see ``expand``); runtime-injected members and
-    dynamically-created subclasses are not walked.
+    measured scope; runtime-injected members and dynamically-created
+    subclasses are not walked.  Each edge's ceiling:
+
+    <<fact:edges.implemented:ceilings>>
 
     Response shape — ``Subgraph``::
 
@@ -1223,6 +1224,7 @@ async def trace(
 @metrics.measure("outline")
 @track_mcp_operation("outline")
 @on_jedi_worker
+@described
 async def outline(
     handle: str,
     project_path: str = ".",
@@ -1298,11 +1300,10 @@ async def outline(
     When both ``max_nodes`` AND a depth/external cap could apply to the same
     node, ``truncation_reason`` is ``"max_nodes"`` (the harder global bound).
 
-    **Ceiling (#417).** The root carries ``ceiling``: ``"static_definitions"``
-    for a members walk (a class body or a module's top level; no ``self.x``
-    instance attributes, nothing injected at runtime) or ``"on_disk_modules"``
-    for a package survey.  The tree is complete over that scope only (see
-    ``expand`` for every ceiling id).  Absent for a non-container root.
+    **Ceiling (#417).** The root carries ``ceiling``, and the tree is complete
+    over that scope only.  For a members walk it is
+    <<fact:edge.members:ceiling>>.  For a package survey it is
+    <<fact:edge.submodules:ceiling>>.  Absent for a non-container root.
 
     **Result-level summary (#435).** The root also carries
     ``truncation_reasons``: the sorted set of every node's
