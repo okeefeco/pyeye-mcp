@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, docs, pages, registry
+from . import binding, docs, examples, pages, registry
 from .facts import Bindable, snapshot
 
 SNAPSHOT = "docs/facts/facts.json"
@@ -55,11 +55,20 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     for path in docs.missing_files(root):
         if path not in generated:
             result.problems.append(f"{path}: registered in the doc registry but missing")
-    for path, _entry in docs.registered_files(root):
+    for path, entry in docs.registered_files(root):
         if path in generated:
             continue
         text = (root / path).read_text(encoding="utf-8")
         new_text, _blocks, problems = binding.render(text, facts)
+        found, example_problems = examples.parse_examples(text)
+        problems.extend(example_problems)
+        if found and not examples.allows_examples(entry):
+            problems.append(
+                binding.Problem(
+                    found[0].line,
+                    "runnable examples belong in docs/api/, docs/reference/ or a skill",
+                )
+            )
         result.problems.extend(f"{path}:{p.line}: {p.message}" for p in problems)
         result.outputs[path] = new_text
     for path, build_page in pages.PAGES.items():
