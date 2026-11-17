@@ -57,7 +57,7 @@ All mechanics are in `scripts/docs_review.py` (logic in
 | `mark-fine PAGE SECTION --date D` | Records a section as reviewed and fine. |
 | `dismiss FINDINGS.json --index N --reason R --date D [--review-after D]` | Records one finding as dismissed. |
 | `dismiss-uncovered FACT --reason TEXT --date D` | Records a fact as deliberately not covered. |
-| `move KEY NEW_FACT` | Carries a dismissal over to a renamed fact's new ID. |
+| `move KEY NEW` | Carries an orphaned dismissal over to its anchor's new form: the new fact ID, the new canonical handle, or the reworded subject. |
 | `forget KEY` | Deletes a dismissal, e.g. one whose fact was removed. |
 
 State lives in `docs/facts/review-state.json`. Commit it, so the whole team
@@ -98,15 +98,21 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
 ## Dismissals
 
 - A dismissed finding stays dismissed when it is reworded: identity is the page,
-  section, category and anchor, never the prose.
-- It returns as `resurfaced` when its anchor fact's value changes.
+  section, category and anchor, never the prose. For a rule anchor (claims,
+  audience, style) its quoted `subject` is part of the identity too, so
+  dismissing one broken link doesn't hide a different one added later.
+- It returns as `resurfaced` when what it rests on changes: the anchor fact's
+  value, or the anchored symbol's signature or docstring as pyeye reports them
+  (a body edit doesn't count).
 - A "deliberately not covered" fact returns to the ledger when its value changes.
 - A heading rename resets that section: its "fine" verdict and its dismissals are
   pruned on the next state write (the command output lists them), so its
   findings come back for review rather than staying hidden.
-- `docs_facts check` fails on a dismissal whose fact no longer exists. The PR
-  that removes or renames a fact fixes it: `move KEY NEW_FACT` for a rename,
-  `forget KEY` for a removal. The failure message gives both commands with the key.
+- `docs_facts check` fails on a dismissal whose anchor is gone: its fact no
+  longer exists, its symbol no longer resolves, or its quoted subject no longer
+  occurs in its section. The PR that made the change fixes it: `move KEY NEW`
+  for a rename or a rewording, `forget KEY` otherwise. The failure message gives
+  both commands with the key.
 
 ## Honest Limits
 

@@ -33,6 +33,13 @@ not as a finding.
    handle it returns, never `path:line`). `validate` rejects a handle that
    doesn't resolve in the project, or isn't canonical. It's always a clear fix:
    the replacement states what the code does.
+
+   It must carry `evidence`: what pyeye reports for that handle, which
+   `validate` checks against pyeye. One or more of:
+   - `{"signature": "<inspect's signature, exactly>"}`;
+   - `{"docstring": "<an excerpt of inspect's docstring>"}`;
+   - `{"edge": "<edge>", "includes": ["<handle>", …]}`: handles that
+     `expand(handle, edge)` lists.
 4. **`honest_claims`** (design D12): claims the code or a record can't back,
    which a pattern rule can't catch. Anchor `{"kind": "claims_rule", "id": …}`:
    - `D12-absolute`: an absolute claim ("complete", "never misses", "all")
@@ -81,6 +88,7 @@ naming its anchor:
   "section": "configuration",
   "category": "audience",
   "anchor": {"kind": "audience_rule", "id": "human-explains"},
+  "subject": "Configuration keys",
   "problem": "The section mixes a tutorial with the full key reference.",
   "needs_decision": true,
   "question": "Keep the key reference in the README, or link docs/reference?",
@@ -103,6 +111,10 @@ When **no anchor** backs a recommendation, leave out `recommended` and
 Rules for the output:
 
 - `section` is the slug from the packet (`""` for the text before the first heading).
+- A finding on a rule anchor (claims, audience or style) quotes its `subject`:
+  the exact page text it is about (the link, the phrase, the claim), copied
+  verbatim from the section. `validate` rejects a subject that isn't in the
+  section. It identifies the finding, so a different link is a different finding.
 - `page` and `section` must be the packet's: `validate` rejects a page that isn't
   registered and a section the page doesn't have.
 - Never invent an anchor ID. A `fact` anchor must be a key of the packet's

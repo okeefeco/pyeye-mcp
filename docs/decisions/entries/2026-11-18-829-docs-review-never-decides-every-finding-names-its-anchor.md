@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "/docs-review never decides: every finding names its anchor and gives a way forward, and an unanchored assessment is labelled, not withheld (#829)"
 issues: [829, 818]
 anchors: ["pyeye.docs_facts.review.finding_problems", "pyeye.docs_facts.review.UNANCHORED", "pyeye.docs_facts.review.triage", "pyeye.docs_facts.review.dismissed_uncovered", "pyeye.docs_facts.review.orphaned", "pyeye.docs_facts.ledger.updated", ".claude/skills/docs-review/SKILL.md", "tests/test_docs_facts_review.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-829-code-contradictions-and-subject-keyed-dismissals.md"]
 superseded_by: []
 ---
 

@@ -48,6 +48,7 @@ def _ambiguous(**overrides: Any) -> dict[str, Any]:
         ],
         recommended=1,
         recommendation_anchor={"kind": "audience_rule", "id": "link-not-restate"},
+        subject="The cache TTL defaults to",
     )
     del finding["replacement"]
     finding.update(overrides)
@@ -489,6 +490,7 @@ class TestCli:
             section="features",
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
+            subject="Semantic Code Navigation",
         )
         path = _write(tmp_path, [finding])
         assert review.main(["validate", str(path)], root=_ROOT) == 0
@@ -502,6 +504,7 @@ class TestCli:
             section="features",
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
+            subject="Semantic Code Navigation",
         )
         path = _write(tmp_path, [finding])
         args = ["dismiss", str(path), "--index", "0", "--reason", "fine", "--date", "2026-11-18"]
@@ -555,9 +558,9 @@ class TestOrphanFixes:
         key = entry["key"]
         assert message == (
             "docs/facts/review-state.json: a /docs-review dismissal names fact "
-            "'env.PYEYE_CACHE_TTL', which no longer exists: it was removed or renamed in this "
+            "'env.PYEYE_CACHE_TTL', which no longer exists: it was removed or changed in this "
             "change. The dismissal is for the uncovered-fact ledger (deliberately not covered), "
-            "recorded 2026-11-18. If the fact was renamed, move it: `uv run python "
+            "recorded 2026-11-18. If it was renamed or reworded, move it: `uv run python "
             f"scripts/docs_review.py move {key} <new fact ID>`. Otherwise delete it: "
             f"`uv run python scripts/docs_review.py forget {key}`."
         )
@@ -607,8 +610,8 @@ class TestOrphanFixes:
         with pytest.raises(ValueError, match="no fact 'env.NOPE'"):
             review.move(state, old["key"], "env.NOPE", {})
         style = review.dismiss_finding(state, _ambiguous(), _FACTS, "deliberate", "2026-11-18")
-        with pytest.raises(ValueError, match="isn't anchored on a fact"):
-            review.move(state, style["key"], _TTL.id, _FACTS)
+        with pytest.raises(ValueError, match="needs the repo root"):
+            review.move(state, style["key"], "new words", _FACTS)
 
     def test_move_refuses_a_dismissal_whose_fact_still_exists(self) -> None:
         """Moving a live dismissal would re-point it at an unrelated fact."""
@@ -688,41 +691,103 @@ class TestLowFixes:
         assert state["confirmed_non_issues"] == [kept, uncovered, foreign]
 
 
-# --- code_contradiction: anchored on a canonical code symbol (#829-2) ----------
+# --- code_contradiction: anchored on a canonical code symbol (#829-2, C15) ---
 
 
-def _symbols(table: dict[str, str]) -> review.SymbolCheck:
-    return lambda handle: table.get(handle)
+class _FakeSymbols:
+    """A :class:`review.Symbols` over a fixed table, for tests."""
+
+    def __init__(
+        self,
+        canonical: dict[str, str],
+        surfaces: dict[str, dict[str, str]] | None = None,
+        edges: dict[tuple[str, str], list[str]] | None = None,
+    ) -> None:
+        self._canonical = canonical
+        self._surfaces = surfaces or {}
+        self._edges = edges or {}
+
+    def canonical(self, handle: str) -> str | None:
+        return self._canonical.get(handle)
+
+    def surface(self, handle: str) -> dict[str, str] | None:
+        return self._surfaces.get(handle)
+
+    def edge(self, handle: str, edge: str) -> list[str] | None:
+        return self._edges.get((handle, edge))
+
+
+_LOAD = "pkg._impl.load"
+_SIG = "load(path: str) -> bytes"
+_DOC = "Read the file. Raises FileNotFoundError when it is missing."
+
+
+def _syms(**kwargs: Any) -> _FakeSymbols:
+    return _FakeSymbols(
+        kwargs.get("canonical", {_LOAD: _LOAD}),
+        kwargs.get("surfaces", {_LOAD: {"signature": _SIG, "docstring": _DOC}}),
+        kwargs.get("edges", {(_LOAD, "callees"): ["builtins.open"]}),
+    )
 
 
 def _contradiction(**overrides: Any) -> dict[str, Any]:
     finding = _clear(
         category="code_contradiction",
-        anchor={"kind": "symbol", "id": "pkg._impl.load"},
+        anchor={"kind": "symbol", "id": _LOAD},
         problem="Says load() returns None on a missing file; it raises FileNotFoundError.",
         replacement="load() raises FileNotFoundError when the file is missing.",
+        evidence=[{"docstring": "Raises FileNotFoundError when it is missing."}],
     )
     finding.update(overrides)
     return finding
 
 
 class TestCodeContradiction:
-    def test_a_canonical_project_symbol_passes(self) -> None:
-        symbols = _symbols({"pkg._impl.load": "pkg._impl.load"})
-        assert review.finding_problems(_contradiction(), _FACTS, None, symbols) == []
+    def test_a_canonical_project_symbol_with_true_evidence_passes(self) -> None:
+        evidence = [
+            {"signature": _SIG},
+            {"docstring": "Raises   FileNotFoundError when it is missing."},
+            {"edge": "callees", "includes": ["builtins.open"]},
+        ]
+        finding = _contradiction(evidence=evidence)
+        assert review.finding_problems(finding, _FACTS, None, _syms()) == []
 
     def test_an_unresolved_symbol_is_rejected(self) -> None:
-        (problem,) = review.finding_problems(_contradiction(), _FACTS, None, _symbols({}))
-        assert (
-            problem == "anchor names symbol 'pkg._impl.load', which doesn't resolve in the project"
+        problems = review.finding_problems(_contradiction(), _FACTS, None, _syms(canonical={}))
+        assert "anchor names symbol 'pkg._impl.load', which doesn't resolve in the project" in (
+            problems
         )
 
     def test_a_re_export_alias_is_rejected_with_the_canonical_handle(self) -> None:
-        symbols = _symbols({"pkg.load": "pkg._impl.load"})
+        symbols = _syms(canonical={"pkg.load": _LOAD})
         finding = _contradiction(anchor={"kind": "symbol", "id": "pkg.load"})
-        assert review.finding_problems(finding, _FACTS, None, symbols) == [
-            "anchor must use the canonical handle 'pkg._impl.load', not 'pkg.load'"
-        ]
+        assert "anchor must use the canonical handle 'pkg._impl.load', not 'pkg.load'" in (
+            review.finding_problems(finding, _FACTS, None, symbols)
+        )
+
+    def test_evidence_is_required(self) -> None:
+        problems = review.finding_problems(_without(_contradiction(), "evidence"), _FACTS)
+        assert any(p.startswith("a code_contradiction must carry evidence") for p in problems)
+
+    @pytest.mark.parametrize(
+        ("evidence", "problem"),
+        [
+            ([{"signature": "load(path)"}], "evidence[0].signature isn't pyeye's"),
+            ([{"docstring": "Returns None"}], "evidence[0].docstring isn't in pkg._impl.load"),
+            (
+                [{"edge": "callees", "includes": ["os.remove"]}],
+                "doesn't list ['os.remove']",
+            ),
+            ([{"edge": "subclasses", "includes": ["x"]}], "pyeye can't expand 'subclasses'"),
+            ([{"edge": "callees", "includes": []}], "includes must list the handles"),
+            ([{"source": "def load"}], "evidence[0] must be one of"),
+        ],
+    )
+    def test_evidence_must_be_what_pyeye_reports(
+        self, evidence: list[dict[str, Any]], problem: str
+    ) -> None:
+        problems = review.finding_problems(_contradiction(evidence=evidence), _FACTS, None, _syms())
+        assert any(problem in p for p in problems), problems
 
     def test_it_is_always_a_clear_fix(self) -> None:
         finding = _without(_contradiction(), "replacement")
@@ -741,23 +806,142 @@ class TestCodeContradiction:
             review.finding_problems(finding, _FACTS)
         )
 
-    def test_project_symbols_uses_pyeyes_resolver(self) -> None:
-        check = review.project_symbols(_ROOT)
-        assert check("pyeye.resolver.resolve_handle") == "pyeye.resolver.resolve_handle"
-        assert check("pyeye.resolver.no_such_function") is None
-        assert check("os.path.join") is None  # external: not a project symbol
+    def test_project_symbols_uses_pyeye(self) -> None:
+        symbols = review.project_symbols(_ROOT)
+        handle = "pyeye.resolver.resolve_handle"
+        assert symbols.canonical(handle) == handle
+        assert symbols.canonical("pyeye.resolver.no_such_function") is None
+        assert symbols.canonical("os.path.join") is None  # external: not a project symbol
+        surface = symbols.surface(handle)
+        assert surface is not None
+        assert surface["signature"].startswith("resolve_handle(path: str")
+        assert "Never raises for a miss" in surface["docstring"]
+        assert "pyeye.resolver.Resolved" in (symbols.edge(handle, "callees") or [])
 
-    def test_validate_resolves_symbols(
-        self, tmp_path: Path, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    @pytest.mark.usefixtures("memory_state")
+    def test_validate_resolves_symbols_and_checks_evidence(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        handle = "pyeye.resolver.resolve_handle"
         good = _contradiction(
-            section="features", anchor={"kind": "symbol", "id": "pyeye.resolver.resolve_handle"}
-        )
-        bad = _contradiction(
-            section="features", anchor={"kind": "symbol", "id": "pyeye.resolver.nope"}
+            section="features",
+            anchor={"kind": "symbol", "id": handle},
+            evidence=[{"docstring": "Never raises for a miss."}],
         )
         assert review.main(["validate", str(_write(tmp_path, [good]))], root=_ROOT) == 0
         assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
+        bad = {**good, "anchor": {"kind": "symbol", "id": "pyeye.resolver.nope"}}
         assert review.main(["validate", str(_write(tmp_path, [bad]))], root=_ROOT) == 1
         assert "doesn't resolve in the project" in capsys.readouterr().out
-        assert memory_state["confirmed_non_issues"] == []
+        wrong = {**good, "evidence": [{"docstring": "Always raises."}]}
+        assert review.main(["validate", str(_write(tmp_path, [wrong]))], root=_ROOT) == 1
+        assert "isn't in pyeye.resolver.resolve_handle's docstring" in capsys.readouterr().out
+
+
+class TestSymbolDismissals:
+    """C15: pinned to the signature and docstring; an unresolved handle is an orphan."""
+
+    def test_a_body_edit_keeps_it_and_a_docstring_change_lapses_it(self) -> None:
+        state: dict[str, Any] = {}
+        review.dismiss_finding(state, _contradiction(), _FACTS, "fine", "2026-11-18", None, _syms())
+        assert review.triage([_contradiction()], state, _FACTS, None, _syms()) == []
+        changed = _syms(surfaces={_LOAD: {"signature": _SIG, "docstring": "Read it."}})
+        assert review.triage([_contradiction()], state, _FACTS, None, changed) == [
+            (_contradiction(), "resurfaced")
+        ]
+
+    def test_it_needs_pyeye_to_pin(self) -> None:
+        with pytest.raises(ValueError, match="needs pyeye"):
+            review.dismiss_finding({}, _contradiction(), _FACTS, "fine", "2026-11-18")
+
+    def test_an_unresolved_handle_is_an_orphan_and_moves_to_its_new_handle(self) -> None:
+        state: dict[str, Any] = {}
+        entry = review.dismiss_finding(
+            state, _contradiction(), _FACTS, "fine", "2026-11-18", None, _syms()
+        )
+        renamed = "pkg._impl.read"
+        after = _syms(
+            canonical={renamed: renamed},
+            surfaces={renamed: {"signature": _SIG, "docstring": _DOC}},
+        )
+        (message,) = review.orphaned(state, _FACTS, None, after)
+        assert "names symbol 'pkg._impl.load', which no longer resolves in the project" in message
+        assert f"move {entry['key']} <new canonical handle>" in message
+        with pytest.raises(ValueError, match="isn't the canonical handle"):
+            review.move(state, entry["key"], "pkg.read", _FACTS, None, after)
+        review.move(state, entry["key"], renamed, _FACTS, None, after)
+        assert review.orphaned(state, _FACTS, None, after) == []
+        moved = _contradiction(anchor={"kind": "symbol", "id": renamed})
+        assert review.triage([moved], state, _FACTS, None, after) == []
+
+    def test_a_live_symbol_dismissal_doesnt_move(self) -> None:
+        state: dict[str, Any] = {}
+        entry = review.dismiss_finding(
+            state, _contradiction(), _FACTS, "fine", "2026-11-18", None, _syms()
+        )
+        with pytest.raises(ValueError, match="still exists"):
+            review.move(state, entry["key"], _LOAD, _FACTS, None, _syms())
+
+
+class TestSubjects:
+    """C15: a rule anchor's subject is part of the key and must stay in its section."""
+
+    def _style(self, subject: str, **overrides: Any) -> dict[str, Any]:
+        finding = _clear(
+            page="page.md",
+            section="links",
+            category="style",
+            anchor={"kind": "style_rule", "id": "broken-link"},
+            subject=subject,
+            problem="The link target is missing.",
+            replacement="Link docs/testing/ instead.",
+        )
+        finding.update(overrides)
+        return finding
+
+    def test_a_rule_finding_must_quote_its_subject(self) -> None:
+        problems = review.finding_problems(_without(self._style("x"), "subject"), _FACTS)
+        assert "a finding on a rule anchor must quote its subject: the exact text it is about" in (
+            problems
+        )
+
+    def test_the_subject_must_occur_in_the_section(self) -> None:
+        good = _clear(
+            section="features",
+            category="style",
+            anchor={"kind": "style_rule", "id": "broken-link"},
+            subject="Semantic   Code\nNavigation",
+        )
+        assert review.finding_problems(good, _FACTS, _ROOT) == []
+        bad = {**good, "subject": "Not on the page"}
+        assert review.finding_problems(bad, _FACTS, _ROOT) == [
+            "subject 'Not on the page' doesn't occur verbatim in README.md#features"
+        ]
+
+    def test_a_different_subject_is_a_new_finding_not_a_hidden_one(self) -> None:
+        state: dict[str, Any] = {}
+        review.dismiss_finding(state, self._style("[a](gone.md)"), _FACTS, "fine", "2026-11-18")
+        assert review.triage([self._style("[a](gone.md)")], state, _FACTS) == []
+        other = self._style("[b](also-gone.md)")
+        assert review.triage([other], state, _FACTS) == [(other, "new")]
+
+    def test_a_vanished_subject_fails_check_and_moves_to_the_reworded_text(
+        self, tmp_path: Path
+    ) -> None:
+        page = tmp_path / "page.md"
+        page.write_text("# Links\nSee [a](gone.md).\n", encoding="utf-8")
+        state: dict[str, Any] = {}
+        entry = review.dismiss_finding(
+            state, self._style("[a](gone.md)"), _FACTS, "fine", "2026-11-18"
+        )
+        assert review.orphaned(state, _FACTS, tmp_path) == []
+        page.write_text("# Links\nSee [the docs](gone.md).\n", encoding="utf-8")
+        (message,) = review.orphaned(state, _FACTS, tmp_path)
+        assert "quotes '[a](gone.md)', which no longer occurs in page.md#links" in message
+        assert f'move {entry["key"]} "<the reworded subject>"' in message
+        with pytest.raises(ValueError, match="doesn't occur verbatim"):
+            review.move(state, entry["key"], "[c](x.md)", _FACTS, tmp_path)
+        review.move(state, entry["key"], "[the docs](gone.md)", _FACTS, tmp_path)
+        assert review.orphaned(state, _FACTS, tmp_path) == []
+        moved = self._style("[the docs](gone.md)")
+        assert review.triage([moved], state, _FACTS) == []

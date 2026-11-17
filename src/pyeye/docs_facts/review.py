@@ -25,10 +25,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from ..architecture_review import state as review_state
 from .facts import Bindable, Fact, View
@@ -79,9 +79,28 @@ RULE_IDS: dict[str, dict[str, str]] = {
 #: it resolves, in the project, to exactly that handle.
 ANCHOR_KINDS = ("fact", "symbol", *RULE_IDS)
 
-#: Resolves a handle to its canonical project handle, or ``None`` when it doesn't
-#: resolve to a project symbol. :func:`project_symbols` builds one with pyeye.
-SymbolCheck = Callable[[str], str | None]
+#: The anchor kinds whose findings name their ``subject``: the exact text of the
+#: page they are about. It is part of a dismissal's identity (C15), so dismissing
+#: one broken link doesn't hide a different one added to the section later.
+SUBJECT_KINDS = ("claims_rule", "audience_rule", "style_rule")
+
+
+class Symbols(Protocol):
+    """What /docs-review asks pyeye about a code symbol (C15).
+
+    :func:`project_symbols` answers with pyeye's own resolver, ``inspect`` and
+    ``expand``; tests pass a fake.
+    """
+
+    def canonical(self, handle: str) -> str | None:
+        """The canonical project handle *handle* resolves to, or ``None``."""
+
+    def surface(self, handle: str) -> dict[str, str] | None:
+        """``{signature, docstring}`` as pyeye ``inspect`` reports them, or ``None``."""
+
+    def edge(self, handle: str, edge: str) -> list[str] | None:
+        """The handles ``expand(handle, edge)`` lists, or ``None`` if it can't."""
+
 
 #: The anchor kind each category rests on.
 CATEGORY_ANCHOR = {
@@ -124,7 +143,7 @@ def _text(value: Any) -> bool:
 
 
 def _anchor_problems(
-    anchor: Any, where: str, facts: Facts | None, symbols: SymbolCheck | None = None
+    anchor: Any, where: str, facts: Facts | None, symbols: Symbols | None = None
 ) -> list[str]:
     if not isinstance(anchor, dict):
         return [f"{where} must be an object {{kind, id}}"]
@@ -140,7 +159,7 @@ def _anchor_problems(
     if kind == "symbol":
         if symbols is None:
             return []
-        canonical = symbols(str(anchor_id))
+        canonical = symbols.canonical(str(anchor_id))
         if canonical is None:
             return [f"{where} names symbol {anchor_id!r}, which doesn't resolve in the project"]
         if canonical != anchor_id:
@@ -153,8 +172,27 @@ def _anchor_problems(
     return []
 
 
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def section_text(root: Path, page: str, section_slug: str) -> str | None:
+    """The text of *page*'s section *section_slug*, or ``None`` if either is gone."""
+    path = root / page
+    if not path.is_file():
+        return None
+    for found in sections(path.read_text(encoding="utf-8")):
+        if found.slug == section_slug:
+            return found.text
+    return None
+
+
 def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
-    """The page must be registered and on disk, and the section must be one of its slugs."""
+    """Check that the page, section and subject exist.
+
+    The page must be registered and on disk, the section one of its slugs, and a
+    ``subject`` must occur in that section verbatim, whitespace aside (C15).
+    """
     from . import docs
 
     page, section = finding.get("page"), finding.get("section")
@@ -166,29 +204,111 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
     slugs = [s.slug for s in sections(path.read_text(encoding="utf-8"))]
     if section not in slugs:
         return [f"{page} has no section {section!r}; its sections: {slugs}"]
+    subject = finding.get("subject")
+    if _text(subject):
+        text = section_text(root, page, str(section)) or ""
+        if _flat(str(subject)) not in _flat(text):
+            return [f"subject {subject!r} doesn't occur verbatim in {page}#{section}"]
     return []
 
 
-def project_symbols(root: Path) -> SymbolCheck:
-    """A :data:`SymbolCheck` over the project at *root*, with pyeye's own resolver.
+_EVIDENCE_KEYS = ({"signature"}, {"docstring"}, {"edge", "includes"})
 
-    The analyzer is built on the first check, so commands that see no symbol
-    anchor never pay for it.
+
+def _evidence_problems(finding: Mapping[str, Any], symbols: Symbols | None) -> list[str]:
+    """A code_contradiction carries what the code does, checked against pyeye (C15)."""
+    evidence = finding.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return [
+            "a code_contradiction must carry evidence: what pyeye reports the code does "
+            "(a signature, a docstring excerpt, or an edge's handles)"
+        ]
+    handle = str((finding.get("anchor") or {}).get("id"))
+    problems = []
+    surface = symbols.surface(handle) if symbols is not None else None
+    for i, item in enumerate(evidence):
+        if not (isinstance(item, dict) and set(item) in _EVIDENCE_KEYS):
+            problems.append(
+                f"evidence[{i}] must be one of {{signature}}, {{docstring}} or {{edge, includes}}"
+            )
+            continue
+        if symbols is None:
+            continue
+        if "signature" in item:
+            actual = (surface or {}).get("signature")
+            if item["signature"] != actual:
+                problems.append(f"evidence[{i}].signature isn't pyeye's: {actual!r}")
+        elif "docstring" in item:
+            if not _text(item["docstring"]) or _flat(item["docstring"]) not in _flat(
+                (surface or {}).get("docstring", "")
+            ):
+                problems.append(f"evidence[{i}].docstring isn't in {handle}'s docstring")
+        else:
+            listed = symbols.edge(handle, str(item["edge"]))
+            includes = item["includes"]
+            if listed is None:
+                problems.append(f"evidence[{i}]: pyeye can't expand {item['edge']!r} on {handle}")
+            elif not (isinstance(includes, list) and includes):
+                problems.append(f"evidence[{i}].includes must list the handles shown")
+            else:
+                missing = [h for h in includes if h not in listed]
+                if missing:
+                    problems.append(
+                        f"evidence[{i}]: expand({handle}, {item['edge']}) doesn't list {missing}"
+                    )
+    return problems
+
+
+class _ProjectSymbols:
+    """:class:`Symbols` over one project, with pyeye's resolver, ``inspect`` and ``expand``.
+
+    The analyzer is built on the first question, so a run with no symbol anchor
+    never pays for it.
     """
-    analyzer: list[Any] = []
 
-    def check(handle: str) -> str | None:
-        from ..analyzers.jedi_analyzer import JediAnalyzer
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._analyzer: Any = None
+
+    def _jedi(self) -> Any:
+        if self._analyzer is None:
+            from ..analyzers.jedi_analyzer import JediAnalyzer
+
+            self._analyzer = JediAnalyzer(self._root.as_posix())
+        return self._analyzer
+
+    def canonical(self, handle: str) -> str | None:
         from ..resolver import Resolved, resolve_handle
 
-        if not analyzer:
-            analyzer.append(JediAnalyzer(root.as_posix()))
-        found = resolve_handle(handle, analyzer[0])
+        found = resolve_handle(handle, self._jedi())
         if isinstance(found, Resolved) and found.scope == "project":
             return found.handle
         return None
 
-    return check
+    def surface(self, handle: str) -> dict[str, str] | None:
+        import asyncio
+
+        from ..mcp.operations.inspect import inspect
+
+        node = asyncio.run(inspect(handle, self._jedi()))
+        if not node.get("found"):
+            return None
+        return {"signature": node.get("signature") or "", "docstring": node.get("docstring") or ""}
+
+    def edge(self, handle: str, edge: str) -> list[str] | None:
+        import asyncio
+
+        from ..mcp.operations.expand import expand
+
+        result = asyncio.run(expand(handle, edge, self._jedi()))
+        if not result.get("found") or "stubs" not in result:
+            return None
+        return [stub["handle"] for stub in result["stubs"]]
+
+
+def project_symbols(root: Path) -> Symbols:
+    """A :class:`Symbols` over the project at *root*, built lazily."""
+    return _ProjectSymbols(root)
 
 
 def _option_problems(options: Any) -> list[str]:
@@ -207,7 +327,7 @@ def finding_problems(
     finding: Mapping[str, Any],
     facts: Facts | None = None,
     root: Path | None = None,
-    symbols: SymbolCheck | None = None,
+    symbols: Symbols | None = None,
 ) -> list[str]:
     """Why *finding* can't be shown to a human; ``[]`` when it can.
 
@@ -223,7 +343,12 @@ def finding_problems(
       handle of a project symbol, checked by *symbols* when given; any other
       kind's ID must be in :data:`RULE_IDS`.
     - A ``code_contradiction`` (prose that says the code does what it doesn't)
-      is always a clear fix: its replacement states what the code does.
+      is always a clear fix: its replacement states what the code does. It
+      carries ``evidence`` of what pyeye reports for the handle, checked by
+      *symbols* when given (C15).
+    - A finding on a rule anchor (:data:`SUBJECT_KINDS`) carries its
+      ``subject``: the exact page text it is about. With *root*, it must occur
+      in the section verbatim, whitespace aside (C15).
     - **A clear fix:** ``replacement``, the proposed text, and none of the
       decision fields (options, question, assessment, recommendation).
     - **Genuine ambiguity:** ``needs_decision: true``, a ``question``, 2 or 3
@@ -249,8 +374,15 @@ def finding_problems(
         problems.append(f"category must be one of {list(CATEGORIES)}")
     anchor = finding.get("anchor")
     problems.extend(_anchor_problems(anchor, "anchor", facts, symbols))
-    if category == "code_contradiction" and finding.get("needs_decision") is True:
-        problems.append("a code_contradiction is a clear fix: state what the code does")
+    if category == "code_contradiction":
+        if finding.get("needs_decision") is True:
+            problems.append("a code_contradiction is a clear fix: state what the code does")
+        problems.extend(_evidence_problems(finding, symbols))
+    if isinstance(anchor, dict) and anchor.get("kind") in SUBJECT_KINDS:
+        if not _text(finding.get("subject")):
+            problems.append(
+                "a finding on a rule anchor must quote its subject: the exact text it is about"
+            )
     if category in CATEGORY_ANCHOR and isinstance(anchor, dict):
         expected = CATEGORY_ANCHOR[category]
         if anchor.get("kind") in ANCHOR_KINDS and anchor.get("kind") != expected:
@@ -430,10 +562,34 @@ def mark_reviewed(
 # ---------------------------------------------------------------------------
 
 
-def _structural_fact(kind: str, anchor_id: str, facts: Facts, category: str) -> str:
-    """The dismissed observation, pinned to the anchor fact's current value."""
-    pinned = _digest(fact_value(anchor_id, facts))[:16] if kind == "fact" else "-"
-    return f"{_FACT_PREFIX}{category}:{kind}:{anchor_id}:{pinned}"
+def _structural_fact(
+    kind: str,
+    anchor_id: str,
+    facts: Facts,
+    category: str,
+    *,
+    symbols: Symbols | None = None,
+    subject: str | None = None,
+) -> str:
+    """The dismissed observation: its identity, then the pin that makes it lapse.
+
+    - A fact anchor is pinned to the fact's value.
+    - A symbol anchor is pinned to its signature and docstring as pyeye
+      ``inspect`` reports them (C15): a body edit doesn't lapse it, a change to
+      either does.
+    - A rule anchor's subject is part of its identity (C15), so a different
+      subject is a different observation; it has no pin.
+    """
+    identity = f"{_FACT_PREFIX}{category}:{kind}:{anchor_id}"
+    if kind == "fact":
+        return f"{identity}:{_digest(fact_value(anchor_id, facts))[:16]}"
+    if kind == "symbol":
+        if symbols is None:
+            raise ValueError("a symbol-anchored dismissal needs pyeye (symbols) to pin it")
+        return f"{identity}:{_digest(symbols.surface(anchor_id))[:16]}"
+    if kind in SUBJECT_KINDS and subject is not None:
+        return f"{identity}:subject={_digest(_flat(subject))[:16]}:-"
+    return f"{identity}:-"
 
 
 def _check_date(value: str, what: str) -> None:
@@ -467,19 +623,31 @@ def dismiss_finding(
     reason: str,
     dismissed_on: str,
     review_after: str | None = None,
+    symbols: Symbols | None = None,
 ) -> dict[str, Any]:
     """Record a reviewed *finding* as dismissed; the human's call, never the tool's.
 
-    Keyed on the finding's page and section plus its category and anchor, pinned
-    to the anchor fact's value: a reworded finding stays dismissed, and a change
-    to the fact brings it back.
+    Keyed on the finding's page and section, category and anchor, and, for a
+    rule anchor, its subject (:func:`_structural_fact` has the pins): a
+    reworded finding stays dismissed, and a change to what it rests on brings it
+    back.
     """
     anchor = finding["anchor"]
     handles = [coverage_key(finding["page"], finding["section"])]
-    fact = _structural_fact(anchor["kind"], anchor["id"], facts, finding["category"])
+    subject = finding.get("subject")
+    fact = _structural_fact(
+        anchor["kind"],
+        anchor["id"],
+        facts,
+        finding["category"],
+        symbols=symbols,
+        subject=subject,
+    )
     entry = _entry(handles, fact, reason, dismissed_on, review_after)
     entry["category"] = finding["category"]
     entry["anchor"] = {"kind": anchor["kind"], "id": anchor["id"]}
+    if subject is not None:
+        entry["subject"] = subject
     _replace(state, entry)
     return entry
 
@@ -545,19 +713,54 @@ def dismissed_uncovered(state: Mapping[str, Any], facts: Facts) -> dict[str, dic
 _SCRIPT = "uv run python scripts/docs_review.py"
 
 
-def orphaned(state: Mapping[str, Any], facts: Facts) -> list[str]:
-    """Dismissals whose anchor fact no longer exists (C14); ``check`` fails on each.
+def _orphan_reason(
+    entry: Mapping[str, Any], facts: Facts, root: Path | None, symbols: Symbols | None
+) -> tuple[str, str] | None:
+    """Why *entry* is an orphan, and what ``move``'s argument would be; else ``None``."""
+    anchor = entry.get("anchor") or {}
+    kind, anchor_id = anchor.get("kind"), anchor.get("id")
+    if kind == "fact" and anchor_id not in facts:
+        return (f"names fact {anchor_id!r}, which no longer exists", "<new fact ID>")
+    if kind == "symbol" and symbols is not None and symbols.canonical(str(anchor_id)) is None:
+        return (
+            f"names symbol {anchor_id!r}, which no longer resolves in the project",
+            "<new canonical handle>",
+        )
+    subject = entry.get("subject")
+    if kind in SUBJECT_KINDS and root is not None and _text(subject) and entry.get("handles"):
+        page, _, slug_ = str(entry["handles"][0]).partition("#")
+        text = section_text(root, page, slug_)
+        if text is not None and _flat(str(subject)) not in _flat(text):
+            return (
+                f"quotes {subject!r}, which no longer occurs in {entry['handles'][0]}",
+                '"<the reworded subject>"',
+            )
+    return None
 
-    The message is for whoever removed or renamed the fact, who may never have
-    heard of ``/docs-review``: it names the fact, the file, what the dismissal
-    was for, and the command for each fix (move it to the new ID, or forget it).
+
+def orphaned(
+    state: Mapping[str, Any],
+    facts: Facts,
+    root: Path | None = None,
+    symbols: Symbols | None = None,
+) -> list[str]:
+    """Dismissals whose anchor is gone (C14, C15); ``check`` fails on each.
+
+    An anchor is gone when its fact no longer exists, its symbol no longer
+    resolves (with *symbols*), or its quoted subject no longer occurs in its
+    section (with *root*; a gone section is pruned instead, see :func:`prune`).
+    The message is for whoever made the change, who may never have heard of
+    ``/docs-review``: it names the anchor, the file, what the dismissal was for,
+    and the command for each fix (move it to the new anchor, or forget it).
     """
     problems = []
     for entry in state.get("confirmed_non_issues", []):
-        anchor = entry.get("anchor") or {}
-        fact_id = anchor.get("id")
-        if not (_ours(entry) and anchor.get("kind") == "fact" and fact_id not in facts):
+        if not _ours(entry):
             continue
+        reason = _orphan_reason(entry, facts, root, symbols)
+        if reason is None:
+            continue
+        what, new = reason
         key = entry.get("key")
         target = (
             "the uncovered-fact ledger (deliberately not covered)"
@@ -565,10 +768,10 @@ def orphaned(state: Mapping[str, Any], facts: Facts) -> list[str]:
             else f"a finding on {', '.join(entry.get('handles', []))}"
         )
         problems.append(
-            f"{STATE_PATH}: a /docs-review dismissal names fact {fact_id!r}, which no longer "
-            f"exists: it was removed or renamed in this change. The dismissal is for {target}, "
-            f"recorded {entry.get('date')}. If the fact was renamed, move it: `{_SCRIPT} move "
-            f"{key} <new fact ID>`. Otherwise delete it: `{_SCRIPT} forget {key}`."
+            f"{STATE_PATH}: a /docs-review dismissal {what}: it was removed or changed in this "
+            f"change. The dismissal is for {target}, recorded {entry.get('date')}. If it was "
+            f"renamed or reworded, move it: `{_SCRIPT} move {key} {new}`. Otherwise delete it: "
+            f"`{_SCRIPT} forget {key}`."
         )
     return problems
 
@@ -593,38 +796,70 @@ def forget(state: dict[str, Any], key: str) -> dict[str, Any]:
     return entry
 
 
-def move(state: dict[str, Any], key: str, new_fact_id: str, facts: Facts) -> dict[str, Any]:
-    """Carry the dismissal with *key* over to *new_fact_id*, for a renamed fact (C14).
+def move(
+    state: dict[str, Any],
+    key: str,
+    new: str,
+    facts: Facts,
+    root: Path | None = None,
+    symbols: Symbols | None = None,
+) -> dict[str, Any]:
+    """Carry an orphaned dismissal over to its anchor's new form (C14, C15).
 
-    Only an orphan moves: its old fact must be gone. The old value pin is kept,
-    so the moved dismissal holds only if the new fact has the value the
-    dismissed one had. A rename that also changed the value lapses, and the
-    finding or uncovered fact comes back for review.
+    *new* is the new fact ID, the new canonical handle, or the reworded subject,
+    by the dismissal's anchor kind. Only an orphan moves (:func:`orphaned`), so a
+    live dismissal can't be re-pointed at something unrelated. A fact or symbol
+    keeps its old pin: the moved dismissal holds only if the value, or the
+    signature and docstring, are unchanged; otherwise it lapses and the finding
+    comes back.
 
     Raises:
-        ValueError: If no dismissal has *key*, it isn't anchored on a fact, its
-            fact still exists, or *new_fact_id* doesn't exist.
+        ValueError: If no dismissal has *key*, it isn't an orphan, or *new*
+            doesn't exist, resolve or occur.
     """
     old = _find(state, key)
     anchor = old.get("anchor") or {}
-    if anchor.get("kind") != "fact":
-        raise ValueError(f"dismissal {key} isn't anchored on a fact, so it can't move")
-    if anchor.get("id") in facts:
+    kind = anchor.get("kind")
+    if kind not in ("fact", "symbol", *SUBJECT_KINDS):
+        raise ValueError(f"dismissal {key} has no anchor that can move")
+    if _orphan_reason(old, facts, root, symbols) is None:
+        if kind in SUBJECT_KINDS and root is None:
+            raise ValueError("moving a subject needs the repo root to read the section")
+        if kind == "symbol" and symbols is None:
+            raise ValueError("moving a symbol needs pyeye (symbols) to resolve it")
         raise ValueError(
-            f"dismissal {key}'s fact {anchor['id']!r} still exists: only a dismissal whose "
-            "fact was removed or renamed can move"
+            f"dismissal {key}'s anchor still exists: only a dismissal whose anchor was "
+            "removed, renamed or reworded can move"
         )
-    if new_fact_id not in facts:
-        raise ValueError(f"no fact {new_fact_id!r} to move the dismissal to")
-    forget(state, key)
     category = old.get("category", "uncovered_fact")
-    handles = [new_fact_id] if old.get("reason") == "not-covered" else list(old["handles"])
     pin = str(old["structural_fact"]).rsplit(":", 1)[1]
-    fact = f"{_FACT_PREFIX}{category}:fact:{new_fact_id}:{pin}"
+    new_anchor_id, subject = anchor.get("id"), old.get("subject")
+    if kind == "fact":
+        if new not in facts:
+            raise ValueError(f"no fact {new!r} to move the dismissal to")
+        new_anchor_id = new
+        fact = f"{_FACT_PREFIX}{category}:fact:{new}:{pin}"
+    elif kind == "symbol":
+        assert symbols is not None  # orphaned above needs it  # nosec B101
+        if symbols.canonical(new) != new:
+            raise ValueError(f"{new!r} isn't the canonical handle of a project symbol")
+        new_anchor_id = new
+        fact = f"{_FACT_PREFIX}{category}:symbol:{new}:{pin}"
+    else:
+        assert root is not None  # nosec B101
+        page, _, slug_ = str(old["handles"][0]).partition("#")
+        if _flat(new) not in _flat(section_text(root, page, slug_) or ""):
+            raise ValueError(f"{new!r} doesn't occur verbatim in {old['handles'][0]}")
+        subject = new
+        fact = _structural_fact(kind, str(new_anchor_id), facts, category, subject=new)
+    forget(state, key)
+    handles = [str(new_anchor_id)] if old.get("reason") == "not-covered" else list(old["handles"])
     entry = _entry(handles, fact, old["reason"], old["date"], old.get("review_after"))
     entry.update({k: v for k, v in old.items() if k in ("note",)})
     entry["category"] = category
-    entry["anchor"] = {"kind": "fact", "id": new_fact_id}
+    entry["anchor"] = {"kind": kind, "id": new_anchor_id}
+    if subject is not None:
+        entry["subject"] = subject
     _replace(state, entry)
     return entry
 
@@ -675,11 +910,13 @@ def triage(
     state: Mapping[str, Any],
     facts: Facts,
     today: str | None = None,
+    symbols: Symbols | None = None,
 ) -> list[tuple[dict[str, Any], str]]:
     """The findings to show, each with its status; dismissed ones are left out.
 
-    - ``new``: no dismissal matches it.
-    - ``resurfaced``: it was dismissed, but its anchor fact's value has changed.
+    - ``new``: no dismissal matches it (a different subject is a different finding).
+    - ``resurfaced``: it was dismissed, but what it rests on has changed: the
+      anchor fact's value, or the symbol's signature or docstring.
     - ``review-due``: its dismissal's ``review_after`` has been reached (*today*,
       caller-supplied; with no *today*, nothing comes due).
     """
@@ -688,7 +925,14 @@ def triage(
     for finding in findings:
         anchor = finding["anchor"]
         handles = [coverage_key(finding["page"], finding["section"])]
-        fact = _structural_fact(anchor["kind"], anchor["id"], facts, finding["category"])
+        fact = _structural_fact(
+            anchor["kind"],
+            anchor["id"],
+            facts,
+            finding["category"],
+            symbols=symbols,
+            subject=finding.get("subject"),
+        )
         probe = {"handles": handles, "structural_fact": fact}
         exact = [e for e in entries if e["handles"] == handles and e["structural_fact"] == fact]
         if exact:
@@ -915,9 +1159,11 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     p_dismiss.add_argument("--review-after")
     p_forget = sub.add_parser("forget", help="delete a dismissal (one whose fact is gone)")
     p_forget.add_argument("key")
-    p_move = sub.add_parser("move", help="carry a dismissal over to a renamed fact's new ID")
+    p_move = sub.add_parser(
+        "move", help="carry an orphaned dismissal over to its new fact, handle or subject"
+    )
     p_move.add_argument("key")
-    p_move.add_argument("new_fact")
+    p_move.add_argument("new", help="the new fact ID, canonical handle or reworded subject")
     p_unc = sub.add_parser("dismiss-uncovered", help="record a fact as deliberately not covered")
     p_unc.add_argument("fact")
     p_unc.add_argument("--reason", required=True, help="why it is deliberately not covered")
@@ -939,7 +1185,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             if problems:
                 print(json.dumps({"problems": problems}, indent=2))
                 return 1
-            shown = triage(findings, load(base), facts, args.today)
+            shown = triage(findings, load(base), facts, args.today, symbols)
             out = {"shown": [{"index": findings.index(f), "status": s} for f, s in shown]}
         elif args.command == "mark-fine":
             from . import docs
@@ -965,7 +1211,9 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             if found:
                 raise ValueError(f"finding {args.index} is invalid: {found}")
             state = load(base)
-            out = dismiss_finding(state, finding, facts, args.reason, args.date, args.review_after)
+            out = dismiss_finding(
+                state, finding, facts, args.reason, args.date, args.review_after, symbols
+            )
             out = _with_pruned(out, prune(state, base))
             save(base, state)
         elif args.command == "forget":
@@ -975,7 +1223,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             save(base, state)
         elif args.command == "move":
             state = load(base)
-            out = {"moved": move(state, args.key, args.new_fact, facts)}
+            out = {"moved": move(state, args.key, args.new, facts, base, symbols)}
             out = _with_pruned(out, prune(state, base))
             save(base, state)
         else:
