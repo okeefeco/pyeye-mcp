@@ -369,6 +369,57 @@
       "3.14"
     ],
     "project.requires_python": ">=3.11",
+    "resolver.bare_name.exact_module": {
+      "position": 2,
+      "summary": "a complete top-level module (the project's package, a namespace root or an external module) wins over same-named definitions"
+    },
+    "resolver.bare_name.members": {
+      "position": 4,
+      "summary": "only when nothing above matched, every method or class attribute with that name, decided the same way; dunder names never match"
+    },
+    "resolver.bare_name.name_index": {
+      "position": 3,
+      "summary": "every project definition with that name, canonicalised: one is the answer, several are ambiguous"
+    },
+    "resolver.bare_name.shadow": {
+      "position": 1,
+      "summary": "a top-level package or module under more than one project root is ambiguous"
+    },
+    "resolver.strategy.definition_placement": {
+      "position": 1,
+      "side": "project",
+      "summary": "the definition in the deepest project module along the path, following a re-export alias to its definition, with no fallback to shallower modules"
+    },
+    "resolver.strategy.external_definition": {
+      "position": 3,
+      "side": "external",
+      "summary": "a definition at exactly the requested path, found by goto"
+    },
+    "resolver.strategy.external_module": {
+      "position": 2,
+      "side": "external",
+      "summary": "a stdlib or site-packages module, through a Jedi import"
+    },
+    "resolver.strategy.guarded_inference": {
+      "position": 4,
+      "side": "external",
+      "summary": "an inferred definition, accepted only if its name equals the last component"
+    },
+    "resolver.strategy.namespace_package": {
+      "position": 2,
+      "side": "all",
+      "summary": "a PEP 420 namespace package: a directory with importable content and no init file"
+    },
+    "resolver.strategy.private_stdlib": {
+      "position": 1,
+      "side": "external",
+      "summary": "a stdlib definition in a private module, named by its public re-exporting module"
+    },
+    "resolver.strategy.project_module": {
+      "position": 1,
+      "side": "all",
+      "summary": "a project module, as a package or a single file"
+    },
     "review.axis.cross_cutting": {
       "description": "Cross-cutting access: logging, config, path handling.",
       "facets": [

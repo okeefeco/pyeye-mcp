@@ -8,30 +8,35 @@ a cache's size: the caps below trade memory for latency only.
 ## The caches
 
 **Analyzer cache.** `ProjectManager` keeps one `JediAnalyzer` per project root,
-LRU-bounded by `PYEYE_MAX_PROJECTS` (default 10).
+LRU-bounded by `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->).
 
 **Scoped cache.** Each analyzer's `ScopedCache` keeps scope file lists and
 lookup results, separately per scope (`main`, `all`, `namespace:<name>`, ...).
-Entries live `PYEYE_CACHE_TTL` seconds (default 300).
+Entries live `PYEYE_CACHE_TTL` seconds (default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->).
 
 **Parsed-file cache.** `pyeye.file_artifact_cache` keeps parsed ASTs and Jedi
 scripts process-wide, in one LRU of `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` entries
-(default 2000), with Jedi scripts further capped by
+(default <!-- fact:begin env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES.default -->2000<!-- fact:end -->), with Jedi scripts further capped by
 `PYEYE_SCRIPT_CACHE_MAX_ENTRIES`. Entries are re-checked by file mtime and size
-on every read. This is the main memory lever.
+on every read. Each cached Jedi script keeps alive every module it inferred, so
+the script cap, not the parso cap, is what bounds the memory of Jedi's parse
+trees.
 
 **parso's parse cache.** Bounded by an LRU of `PYEYE_PARSO_CACHE_MAX_ENTRIES`
 entries (`pyeye._parso_cache`, #713). Evicting an entry is harmless (see
 [Resolution and Determinism](resolution.md)).
 
-**Name index, TypeRef cache and re-export index.** The whole-project name index
-(`pyeye.analyzers.project_graph`), the TypeRef cache and the re-export index
-(`pyeye.canonicalization`) are process-wide and held per project. The name index
-is keyed on the project's effective layout, so a project with a different
-package configuration never reads another layout's entries (#618); the TypeRef
-cache is keyed on the project root alone (#620). The name index lives outside
-the parsed-file LRU, so an eviction can never make a definition disappear
-(#457).
+**Project graphs, TypeRef cache and re-export index.** The whole-project name
+and member indexes and each project's resolved class graph and reverse import
+graph (`pyeye.analyzers.project_graph`, #397, backing `subclasses` and
+`imported_by`), the TypeRef cache and the re-export index
+(`pyeye.canonicalization`) are process-wide and held per project. The indexes
+and graphs are keyed on the project's effective layout, so a project with a
+different package configuration never reads another layout's entries (#618).
+The TypeRef cache is keyed per annotation site and project root, not on the
+layout (#620), so a layout change has to clear it explicitly. The indexes and
+graphs live outside the parsed-file LRU and are rebuilt, never evicted, so an
+eviction can never make a definition disappear (#457).
 
 ## Invalidation
 
@@ -44,8 +49,8 @@ anything under ignored directories below the root (`.git`, `__pycache__`,
 batch (`PYEYE_WATCHER_DEBOUNCE`, default <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s) of every changed path (#617).
 
 For each batch, every changed file's parsed artifacts are dropped, then, for
-every project that reads from that root, its scoped cache, name index, TypeRef
-cache and re-export index. Inputs are dropped before the generations that guard
+every project that reads from that root, its scoped cache, name and member
+indexes, class and import graphs, TypeRef cache and re-export index. Inputs are dropped before the generations that guard
 the index builds move, so a build can't cache a stale result under a new
 generation (#817). Projects that don't read from the root keep their caches.
 
