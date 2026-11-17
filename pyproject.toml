@@ -33,13 +33,12 @@ dependencies = [
     "psutil>=6.0.0",  # System and process metrics
 ]
 
-# Dev/docs dependencies are PEP 735 dependency-groups, NOT extras (#414):
+# Dev dependencies are PEP 735 dependency-groups, NOT extras (#414):
 # they are uv-managed (driven by uv.lock) and NOT published in the package's
 # distribution metadata. `dev` is uv's default group, so `uv sync` (no
 # --group flags) installs main + dev — what CI, pre-commit, and contributors
-# need; local setup uses `uv sync --frozen`, CI `uv sync --locked`. `docs` is
-# opt-in via `--group docs`. There are intentionally no
-# [project.optional-dependencies] extras.
+# need; local setup uses `uv sync --frozen`, CI `uv sync --locked`. There are
+# intentionally no [project.optional-dependencies] extras.
 [dependency-groups]
 dev = [
     "pytest>=7.0.0",
@@ -66,12 +65,6 @@ dev = [
     "setuptools_scm[toml]>=8",  # _version.py generation (mirrors [build-system].requires)
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
-]
-docs = [
-    "sphinx",  # Sphinx documentation generator (version resolved/pinned via uv.lock)
-    "sphinx-rtd-theme",
-    "sphinx-autodoc-typehints",
-    "myst-parser",
 ]
 
 [project.scripts]

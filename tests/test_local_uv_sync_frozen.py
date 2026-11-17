@@ -34,12 +34,11 @@ _LOCAL_SETUP_FILES = sorted(
         _ROOT / "DOCUMENTATION.md",
         _ROOT / "docs" / "TROUBLESHOOTING.md",
         _ROOT / "docs" / "RELEASE.md",
-        *(_ROOT / "docs" / "source").glob("*.rst"),
         *(_ROOT / ".claude" / "instructions").glob("*.md"),
     ]
 )
 
-# `uv sync` plus the flag run that follows it, e.g. `uv sync --frozen --group docs`.
+# `uv sync` plus the flag run that follows it, e.g. `uv sync --frozen --group dev`.
 _UV_SYNC = re.compile(r"uv sync(?P<flags>(?:\s+--?[\w-]+(?:[ =](?!-)[\w.-]+)?)*)")
 
 
@@ -63,10 +62,10 @@ def _unpinned_syncs(text: str) -> list[int]:
         ("uv sync", True),
         ("   uv sync", True),
         ("run `uv sync` first", True),
-        ("uv sync --group docs", True),
+        ("uv sync --group dev", True),
         ("uv sync --frozen", False),
-        ("uv sync --frozen --group docs", False),
-        ("uv sync --group docs --frozen", False),
+        ("uv sync --frozen --group dev", False),
+        ("uv sync --group dev --frozen", False),
         ("CI pins `uv sync --locked`", False),
         ("NEVER use bare `uv sync` locally", False),
     ],
@@ -80,7 +79,6 @@ def test_local_setup_files_exist():
     """Guard against the scan silently covering nothing after a file move."""
     missing = [p.relative_to(_ROOT).as_posix() for p in _LOCAL_SETUP_FILES if not p.is_file()]
     assert not missing, f"local-setup files moved or deleted; update this test: {missing}"
-    assert any(p.suffix == ".rst" for p in _LOCAL_SETUP_FILES)
     assert any(p.parent.name == "instructions" for p in _LOCAL_SETUP_FILES)
 
 

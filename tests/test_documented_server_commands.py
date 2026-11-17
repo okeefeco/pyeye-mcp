@@ -25,7 +25,7 @@ _DOCS = sorted(
         _ROOT / "DOCUMENTATION.md",
         _ROOT / "CONTRIBUTING.md",
         *(_ROOT / "docs").glob("*.md"),
-        *(_ROOT / "docs" / "source").glob("*.rst"),
+        *(_ROOT / "docs" / "architecture").glob("*.md"),
         *(_ROOT / ".claude" / "instructions").glob("*.md"),
     ]
 )

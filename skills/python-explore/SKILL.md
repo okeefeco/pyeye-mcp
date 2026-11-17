@@ -224,7 +224,7 @@ editor's LSP — see below) is *not* faking; this is the cheat to avoid:
 Why the line falls here: pyeye answers structural facts from the AST, semantic questions
 with bounded Jedi inference, and leaves the reverse queries Jedi gets wrong to a
 deterministic backend. The contract behind that split, and how a name becomes a canonical
-handle, is in [Resolution and Determinism](https://github.com/okeefeco/pyeye-mcp/blob/main/docs/source/architecture/resolution.rst).
+handle, is in [Resolution and Determinism](https://github.com/okeefeco/pyeye-mcp/blob/main/docs/architecture/resolution.md).
 
 ### The reliable path: delegate to your LSP
 
