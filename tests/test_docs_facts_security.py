@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -203,8 +204,11 @@ class TestFacts:
                 PathValidator.validate_path(f"/tmp{component}x")
         targets = facts["security.path_checks.targets"].value  # type: ignore[attr-defined]
         assert targets == list(PathValidator.RESTRICTED_TARGETS)
-        # A relative path that climbs to /etc has no "/etc/" in its spelling, so only
-        # the target check (on its anchored forms) can stop it.
+
+    @pytest.mark.skipif(os.name == "nt", reason="the deny-list names POSIX system directories")
+    def test_a_climb_to_a_restricted_target_is_rejected(self) -> None:
+        """A relative path that climbs to /etc has no "/etc/" in its spelling, so only
+        the target check (on its anchored forms) can stop it."""
         with pytest.raises(ValidationError, match="restricted location"):
             PathValidator.validate_path("../" * 40 + "etc", anchor_root=ROOT)
 

@@ -90,7 +90,10 @@ they can't drift from it.
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 
-  This is a sanity check, **not a sandbox**:
+  The directories and patterns are POSIX system paths. On Windows a resolved
+  path starts with a drive letter, so the `^`-anchored patterns never match it,
+  and the system-directory rules only catch a path that spells one of these
+  names. This is a sanity check, **not a sandbox**:
   - any directory the server's user can read can be analysed if a client asks
     for it;
   - not every path input goes through the check yet
