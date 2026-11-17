@@ -62,8 +62,8 @@ SCOPE_FORMS: tuple[ScopeForm, ...] = (
     ScopeForm(
         "package",
         "package:<path>",
-        "that directory, if it exists; give an absolute path, because a relative one "
-        "is not resolved against the project yet (#842)",
+        "that directory, if it exists: an absolute path, or one relative to the project "
+        "(project_path)",
     ),
     ScopeForm(
         "all",
