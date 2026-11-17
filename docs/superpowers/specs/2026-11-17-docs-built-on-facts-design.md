@@ -225,7 +225,8 @@ Ordered so that nothing generation will produce gets hand-fixed:
   - **Every allow-list is keyed on the exact finding message,** one entry per occurrence, and only shrinks. This applies to the prose rules, D12 and #826. A per-page count would let a fix be traded for a new violation (found by #837's mutation tests).
   - **#417, the maintainer's option (c):**
     - #825 derives the "Static-surface ceiling" marker set from the ceiling facts (edges whose ceiling is `static_definitions` or `literal_subclassing`), not from a hand list of edge names.
-    - #827 makes every tool description state the ceiling meaning of each edge it exposes, taken from that edge's `EDGE_CEILINGS` fact, with a check that no exposed edge lacks one.
+    - #827 makes every tool description state the ceiling meaning of each edge it exposes, taken from that edge's `EDGE_CEILINGS` fact, with a check that no exposed edge lacks one. That text and its check land together in **one PR (827-2)**, because a check without the text would turn CI red: tool descriptions have no allowance (maintainer, 2026-11-18).
+    - The derivation in #825 yields the same two edges as before (`members`, `subclasses`), so it widens nothing and doesn't depend on 827-2.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
