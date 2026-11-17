@@ -479,3 +479,81 @@ class TestCli:
         assert review.main(["scope", "README.md"], root=_ROOT) == 0
         assert json.loads(capsys.readouterr().out)["pages"][0]["page"] == "README.md"
         assert review.main(["scope"], root=_ROOT) == 2
+
+
+class TestOrphanFixes:
+    """C14: whoever removes a fact gets a message they can act on without knowing /docs-review."""
+
+    def test_the_message_names_the_fact_the_file_and_both_fixes(self) -> None:
+        state: dict[str, Any] = {}
+        entry = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
+        (message,) = review.orphaned(state, {})
+        key = entry["key"]
+        assert message == (
+            "docs/facts/review-state.json: a /docs-review dismissal names fact "
+            "'env.PYEYE_CACHE_TTL', which no longer exists: it was removed or renamed in this "
+            "change. The dismissal is for the uncovered-fact ledger (deliberately not covered), "
+            "recorded 2026-11-18. If the fact was renamed, move it: `uv run python "
+            f"scripts/docs_review.py move {key} <new fact ID>`. Otherwise delete it: "
+            f"`uv run python scripts/docs_review.py forget {key}`."
+        )
+
+    def test_a_finding_dismissal_names_its_section(self) -> None:
+        state: dict[str, Any] = {}
+        review.dismiss_finding(state, _clear(), _FACTS, "fine", "2026-11-18")
+        (message,) = review.orphaned(state, {})
+        assert "The dismissal is for a finding on README.md#performance-settings" in message
+
+    def test_forget_deletes_only_that_dismissal(self) -> None:
+        state: dict[str, Any] = {}
+        gone = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
+        kept = review.dismiss_finding(state, _clear(), _FACTS, "fine", "2026-11-18")
+        assert review.forget(state, gone["key"])["key"] == gone["key"]
+        assert [e["key"] for e in state["confirmed_non_issues"]] == [kept["key"]]
+        with pytest.raises(ValueError, match="no /docs-review dismissal"):
+            review.forget(state, gone["key"])
+
+    def test_move_carries_an_uncovered_dismissal_to_the_new_id(self) -> None:
+        state: dict[str, Any] = {}
+        old = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
+        renamed = Fact("env.PYEYE_SCOPE_CACHE_TTL", {"default": 300}, "")
+        facts = {renamed.id: renamed}
+        assert review.orphaned(state, facts)
+        moved = review.move(state, old["key"], renamed.id, facts)
+        assert review.orphaned(state, facts) == []
+        assert review.dismissed_uncovered(state, facts) == {
+            renamed.id: {"reason": "internal", "date": "2026-11-18"}
+        }
+        assert moved["handles"] == [renamed.id]
+
+    def test_move_keeps_a_finding_dismissal_on_its_section(self) -> None:
+        state: dict[str, Any] = {}
+        old = review.dismiss_finding(state, _clear(), _FACTS, "fine", "2026-11-18")
+        renamed = Fact("env.PYEYE_SCOPE_CACHE_TTL", {"default": 300}, "")
+        facts = {renamed.id: renamed}
+        moved = review.move(state, old["key"], renamed.id, facts)
+        assert moved["handles"] == ["README.md#performance-settings"]
+        assert moved["category"] == "fact_drift"
+        finding = _clear(anchor={"kind": "fact", "id": renamed.id})
+        assert review.triage([finding], state, facts) == []
+
+    def test_move_refuses_a_missing_target_or_a_non_fact_anchor(self) -> None:
+        state: dict[str, Any] = {}
+        old = review.dismiss_uncovered(state, _TTL.id, _FACTS, "internal", "2026-11-18")
+        with pytest.raises(ValueError, match="no fact 'env.NOPE'"):
+            review.move(state, old["key"], "env.NOPE", _FACTS)
+        style = review.dismiss_finding(state, _ambiguous(), _FACTS, "deliberate", "2026-11-18")
+        with pytest.raises(ValueError, match="isn't anchored on a fact"):
+            review.move(state, style["key"], _TTL.id, _FACTS)
+
+    def test_the_commands_on_the_command_line(
+        self, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str], repo_facts: Any
+    ) -> None:
+        fact_id = next(i for i in repo_facts if i.startswith("env."))
+        other = next(i for i in repo_facts if i.startswith("env.") and i != fact_id)
+        entry = review.dismiss_uncovered(memory_state, fact_id, repo_facts, "x", "2026-11-18")
+        assert review.main(["move", entry["key"], other], root=_ROOT) == 0
+        moved = json.loads(capsys.readouterr().out)["moved"]
+        assert review.main(["forget", moved["key"]], root=_ROOT) == 0
+        assert memory_state["confirmed_non_issues"] == []
+        assert review.main(["forget", moved["key"]], root=_ROOT) == 2

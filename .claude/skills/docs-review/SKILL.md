@@ -56,6 +56,8 @@ All mechanics are in `scripts/docs_review.py` (logic in
 | `mark-fine PAGE SECTION --date D` | Records a section as reviewed and fine. |
 | `dismiss FINDINGS.json --index N --reason R --date D [--review-after D]` | Records one finding as dismissed. |
 | `dismiss-uncovered FACT --reason TEXT --date D` | Records a fact as deliberately not covered. |
+| `move KEY NEW_FACT` | Carries a dismissal over to a renamed fact's new ID. |
+| `forget KEY` | Deletes a dismissal, e.g. one whose fact was removed. |
 
 State lives in `docs/facts/review-state.json`. Commit it, so the whole team
 shares the verdicts. Dates are always supplied by the caller; nothing reads a clock.
@@ -98,7 +100,8 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
 - It returns as `resurfaced` when its anchor fact's value changes.
 - A "deliberately not covered" fact returns to the ledger when its value changes.
 - `docs_facts check` fails on a dismissal whose fact no longer exists. The PR
-  that removes or renames a fact removes the dismissal, or moves it to the new ID.
+  that removes or renames a fact fixes it: `move KEY NEW_FACT` for a rename,
+  `forget KEY` for a removal. The failure message gives both commands with the key.
 
 ## Honest Limits
 

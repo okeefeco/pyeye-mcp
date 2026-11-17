@@ -344,6 +344,7 @@ def dismiss_finding(
     handles = [coverage_key(finding["page"], finding["section"])]
     fact = _structural_fact(anchor["kind"], anchor["id"], facts, finding["category"])
     entry = _entry(handles, fact, reason, dismissed_on, review_after)
+    entry["category"] = finding["category"]
     entry["anchor"] = {"kind": anchor["kind"], "id": anchor["id"]}
     _replace(state, entry)
     return entry
@@ -367,6 +368,7 @@ def dismiss_uncovered(
         raise ValueError("a not-covered dismissal needs its reason")
     fact = _structural_fact("fact", fact_id, facts, "uncovered_fact")
     entry = _entry([fact_id], fact, "not-covered", dismissed_on, None)
+    entry["category"] = "uncovered_fact"
     entry["anchor"] = {"kind": "fact", "id": fact_id}
     entry["note"] = reason_text.strip()
     _replace(state, entry)
@@ -405,21 +407,83 @@ def dismissed_uncovered(state: Mapping[str, Any], facts: Facts) -> dict[str, dic
     return dict(sorted(held.items()))
 
 
+#: The command that fixes an orphaned dismissal, as the message gives it.
+_SCRIPT = "uv run python scripts/docs_review.py"
+
+
 def orphaned(state: Mapping[str, Any], facts: Facts) -> list[str]:
     """Dismissals whose anchor fact no longer exists (C14); ``check`` fails on each.
 
-    The PR that removes or renames a fact removes its dismissals, or moves them
-    to the new ID on purpose.
+    The message is for whoever removed or renamed the fact, who may never have
+    heard of ``/docs-review``: it names the fact, the file, what the dismissal
+    was for, and the command for each fix (move it to the new ID, or forget it).
     """
     problems = []
     for entry in state.get("confirmed_non_issues", []):
         anchor = entry.get("anchor") or {}
-        if _ours(entry) and anchor.get("kind") == "fact" and anchor.get("id") not in facts:
-            problems.append(
-                f"{STATE_PATH}: dismissal {entry.get('key')} names fact {anchor.get('id')!r}, "
-                "which no longer exists; remove it, or move it to the fact's new ID"
-            )
+        fact_id = anchor.get("id")
+        if not (_ours(entry) and anchor.get("kind") == "fact" and fact_id not in facts):
+            continue
+        key = entry.get("key")
+        target = (
+            "the uncovered-fact ledger (deliberately not covered)"
+            if entry.get("reason") == "not-covered"
+            else f"a finding on {', '.join(entry.get('handles', []))}"
+        )
+        problems.append(
+            f"{STATE_PATH}: a /docs-review dismissal names fact {fact_id!r}, which no longer "
+            f"exists: it was removed or renamed in this change. The dismissal is for {target}, "
+            f"recorded {entry.get('date')}. If the fact was renamed, move it: `{_SCRIPT} move "
+            f"{key} <new fact ID>`. Otherwise delete it: `{_SCRIPT} forget {key}`."
+        )
     return problems
+
+
+def _find(state: Mapping[str, Any], key: str) -> dict[str, Any]:
+    for entry in state.get("confirmed_non_issues", []):
+        if _ours(entry) and entry.get("key") == key:
+            return dict(entry)
+    raise ValueError(f"no /docs-review dismissal with key {key!r} in {STATE_PATH}")
+
+
+def forget(state: dict[str, Any], key: str) -> dict[str, Any]:
+    """Delete the dismissal with *key*, and return it.
+
+    Raises:
+        ValueError: If no /docs-review dismissal has that key.
+    """
+    entry = _find(state, key)
+    state["confirmed_non_issues"] = [
+        e for e in state["confirmed_non_issues"] if not (_ours(e) and e.get("key") == key)
+    ]
+    return entry
+
+
+def move(state: dict[str, Any], key: str, new_fact_id: str, facts: Facts) -> dict[str, Any]:
+    """Carry the dismissal with *key* over to *new_fact_id*, for a renamed fact (C14).
+
+    The moved dismissal is pinned to the new fact's current value, and keeps its
+    reason and date.
+
+    Raises:
+        ValueError: If no dismissal has *key*, it isn't anchored on a fact, or
+            *new_fact_id* doesn't exist.
+    """
+    old = _find(state, key)
+    if (old.get("anchor") or {}).get("kind") != "fact":
+        raise ValueError(f"dismissal {key} isn't anchored on a fact, so it can't move")
+    if new_fact_id not in facts:
+        raise ValueError(f"no fact {new_fact_id!r} to move the dismissal to")
+    forget(state, key)
+    category = old.get("category", "uncovered_fact")
+    handles = [new_fact_id] if old.get("reason") == "not-covered" else list(old["handles"])
+    fact = _structural_fact("fact", new_fact_id, facts, category)
+    entry = _entry(handles, fact, old["reason"], old["date"], old.get("review_after"))
+    entry.update({k: v for k, v in old.items() if k in ("note",)})
+    entry["category"] = category
+    entry["anchor"] = {"kind": "fact", "id": new_fact_id}
+    _replace(state, entry)
+    return entry
 
 
 #: A finding's status after the state is applied (as ``/duplication-review``'s).
@@ -644,6 +708,11 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     p_dismiss.add_argument("--reason", required=True, choices=list(DISMISSAL_REASONS))
     p_dismiss.add_argument("--date", required=True)
     p_dismiss.add_argument("--review-after")
+    p_forget = sub.add_parser("forget", help="delete a dismissal (one whose fact is gone)")
+    p_forget.add_argument("key")
+    p_move = sub.add_parser("move", help="carry a dismissal over to a renamed fact's new ID")
+    p_move.add_argument("key")
+    p_move.add_argument("new_fact")
     p_unc = sub.add_parser("dismiss-uncovered", help="record a fact as deliberately not covered")
     p_unc.add_argument("fact")
     p_unc.add_argument("--reason", required=True, help="why it is deliberately not covered")
@@ -690,6 +759,14 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
                 raise ValueError(f"finding {args.index} is invalid: {found}")
             state = load(base)
             out = dismiss_finding(state, finding, facts, args.reason, args.date, args.review_after)
+            save(base, state)
+        elif args.command == "forget":
+            state = load(base)
+            out = {"forgot": forget(state, args.key)}
+            save(base, state)
+        elif args.command == "move":
+            state = load(base)
+            out = {"moved": move(state, args.key, args.new_fact, facts)}
             save(base, state)
         else:
             state = load(base)

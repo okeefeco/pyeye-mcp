@@ -30,14 +30,14 @@ superseded_by: []
   - A dismissal is a `non_issue_key` over `page#section` plus the category and anchor, pinned to the anchor fact's value. Rewording keeps it dismissed, and a value change brings it back as `resurfaced`.
   - Finding identity never uses prose (#498).
 - **Deliberately-not-covered facts (C13)** are dismissed once, in the review state. `docs_facts generate` leaves them out of the ledger's uncovered entries and copies them into its read-only `dismissed` section. A dismissal lapses when its fact's value changes.
-- **Orphans fail (C14).** `docs_facts check` fails on a dismissal whose fact no longer exists. The PR that removes or renames the fact removes or moves it.
+- **Orphans fail (C14), with a message anyone can act on.** `docs_facts check` fails on a dismissal whose fact no longer exists. Whoever removed or renamed the fact may not know dismissals exist, so the message names the fact, `docs/facts/review-state.json` and what the dismissal was for, and gives both fixes as commands: `scripts/docs_review.py move KEY NEW_FACT` for a rename, `forget KEY` for a removal.
 - **Internal.** The skill lives in `.claude/skills/docs-review/`, and the script is `scripts/docs_review.py`. There is no MCP tool and no public surface, so there is no changelog fragment. Shipping it, with task scoring and the release hook, is #830.
 
 **Anchor:** `pyeye.docs_facts.review.finding_problems`; `pyeye.docs_facts.review.triage`; `pyeye.docs_facts.ledger.updated`; design D6–D8, C13, C14; #829, #818.
 **Applies-to:**
 
 - the review principle and shape: `pyeye.docs_facts.review.finding_problems`, `pyeye.docs_facts.review.UNANCHORED`, `.claude/skills/docs-review/SKILL.md`, `.claude/skills/docs-review/reviewer.md`;
-- state and dismissals: `pyeye.docs_facts.review.dismiss_finding`, `dismiss_uncovered`, `dismissed_uncovered`, `triage`, `mark_reviewed`, `needs_review`, `orphaned`;
+- state and dismissals: `pyeye.docs_facts.review.dismiss_finding`, `dismiss_uncovered`, `dismissed_uncovered`, `triage`, `mark_reviewed`, `needs_review`, `orphaned`, `forget`, `move`;
 - the ledger and check: `pyeye.docs_facts.ledger.updated`, `pyeye.docs_facts.cli.plan`.
 
 **Verify:** gold. `uv run pytest tests/test_docs_facts_review.py` passes:
@@ -49,7 +49,7 @@ superseded_by: []
 - dismissals that survive rewording and resurface on a value change;
 - `review-after` only with a supplied date;
 - ledger dismissal and lapse;
-- `check` failing on an orphan;
+- `check` failing on an orphan, with the exact message pinned, and `move` and `forget` fixing it;
 - scope by page, audience and changed fact;
 - every command-line path.
 
