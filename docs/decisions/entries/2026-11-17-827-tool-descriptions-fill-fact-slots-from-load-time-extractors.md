@@ -6,7 +6,7 @@ anchors: ["pyeye.docs_facts.describe.fill", "pyeye.docs_facts.describe.described
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-18-827-each-exposed-edge-states-its-own-ceiling.md"]
+amended_by: ["2026-11-18-851-load-time-facts-come-from-installed-code-only.md", "2026-11-18-827-each-exposed-edge-states-its-own-ceiling.md"]
 superseded_by: []
 ---
 

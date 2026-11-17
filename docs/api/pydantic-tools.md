@@ -80,49 +80,22 @@ Array<{
 
 ### Examples
 
-```python
-# Find all Pydantic models
-models = find_pydantic_models()
-# Returns: [
-#   {
-#     "name": "UserModel",
-#     "file": "/project/models/user.py",
-#     "line": 10,
-#     "base_class": "BaseModel",
-#     "fields": [
-#       {
-#         "name": "email",
-#         "type": "EmailStr",
-#         "required": true,
-#         "default": null,
-#         "alias": "email_address",
-#         "description": "User's email address"
-#       },
-#       {
-#         "name": "age",
-#         "type": "Optional[int]",
-#         "required": false,
-#         "default": null,
-#         "alias": "age",
-#         "description": ""
-#       }
-#     ],
-#     "validators": ["validate_email", "validate_age"],
-#     "config_class": true,
-#     "schema_extra": false
-#   },
-#   {
-#     "name": "ProductModel",
-#     "file": "/project/models/product.py",
-#     "line": 5,
-#     "base_class": "BaseModel",
-#     "fields": [...],
-#     "validators": [],
-#     "config_class": false,
-#     "schema_extra": true
-#   }
-# ]
+A real call against a small project (CI runs it; `tests/test_docs_examples.py`).
+`"…": "<omitted>"` marks keys left out:
 
+```json pyeye-example tool=find_pydantic_models
+{}
+```
+
+```json pyeye-output
+[{"name": "User", "type": "pydantic_model", "handle": "myapp.schemas.User",
+  "fields": [{"name": "name", "type": "str", "required": true, "…": "<omitted>"},
+             {"name": "email", "type": "str", "required": true, "…": "<omitted>"}],
+  "validators": ["email_has_at"], "base_classes": ["BaseModel"],
+  "…": "<omitted>"}]
+```
+
+```python
 # Filter models with validators
 models_with_validators = [m for m in find_pydantic_models() if m["validators"]]
 ```

@@ -43,12 +43,16 @@ class DocEntry:
         allow: Prose-rule ID -> the message of each finding this page may still
             have, one per occurrence (:mod:`.rules`). It only shrinks: ``check``
             fails on a finding not listed and on a listed one no longer found.
+        covers: Fact or view IDs the page's prose explains (C3, #826). A view
+            stands for its members. Facts shown in the page's marker blocks are
+            covered without being listed here.
     """
 
     path: str
     audience: Audience
     kind: Kind
     allow: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    covers: tuple[str, ...] = ()
 
     @property
     def is_pattern(self) -> bool:
@@ -80,7 +84,20 @@ _B: Audience = "both"
 
 DOCS: tuple[DocEntry, ...] = (
     # Repository root
-    DocEntry("README.md", _H, "prose"),
+    DocEntry(
+        "README.md",
+        _H,
+        "prose",
+        allow=_allow(
+            **{
+                "removed-name": (
+                    "names removed tool 'find_references' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'analyze_dependencies' beside 'removed'",
+                )
+            }
+        ),
+    ),
     DocEntry("CONTRIBUTING.md", _H, "prose"),
     DocEntry("DOCUMENTATION.md", _H, "prose"),
     DocEntry("SECURITY.md", _H, "prose"),
@@ -99,8 +116,39 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry(".claude/instructions/00-documentation-system.md", _B, "prose"),
     DocEntry(".claude/instructions/01-core-rules.md", _C, "prose"),
     DocEntry(".claude/instructions/02-session-startup.md", _C, "prose"),
-    DocEntry(".claude/instructions/03-mcp-dogfooding.md", _C, "prose"),
-    DocEntry(".claude/instructions/04-agent-triggers.md", _C, "prose"),
+    DocEntry(
+        ".claude/instructions/03-mcp-dogfooding.md",
+        _C,
+        "prose",
+        allow=_allow(
+            **{
+                "removed-name": (
+                    "names removed tool 'get_module_info' beside 'removed'",
+                    "names removed tool 'list_project_structure' beside 'removed'",
+                    "names removed tool 'analyze_dependencies' beside 'removed'",
+                    "names removed tool 'find_references' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'analyze_dependencies' beside 'removed'",
+                    "names removed tool 'find_references' beside 'removed'",
+                )
+            }
+        ),
+    ),
+    DocEntry(
+        ".claude/instructions/04-agent-triggers.md",
+        _C,
+        "prose",
+        allow=_allow(
+            **{
+                "removed-name": (
+                    "names removed tool 'find_references' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'get_module_info' beside 'removed'",
+                )
+            }
+        ),
+    ),
     DocEntry(".claude/instructions/05-workflow-issues.md", _C, "prose"),
     DocEntry(".claude/instructions/06-workflow-commits.md", _C, "prose"),
     DocEntry(".claude/instructions/07-validation.md", _C, "prose"),
@@ -108,10 +156,28 @@ DOCS: tuple[DocEntry, ...] = (
     DocEntry(".claude/instructions/09-task-management.md", _C, "prose"),
     DocEntry(".claude/instructions/10-cross-platform.md", _C, "prose"),
     DocEntry(".claude/instructions/11-pr-requirements.md", _C, "prose"),
+    DocEntry(".claude/skills/docs-review/SKILL.md", _C, "skill"),
+    DocEntry(".claude/skills/docs-review/reviewer.md", _C, "skill"),
     DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
     DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
     # Shipped skills
-    DocEntry("skills/python-explore/SKILL.md", _C, "skill"),
+    DocEntry(
+        "skills/python-explore/SKILL.md",
+        _C,
+        "skill",
+        allow=_allow(
+            **{
+                "removed-name": (
+                    "names removed tool 'analyze_dependencies' beside 'removed'",
+                    "names removed tool 'find_references' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'analyze_dependencies' beside 'removed'",
+                    "names removed tool 'find_references' beside 'removed'",
+                )
+            }
+        ),
+    ),
     DocEntry("skills/architecture-review/SKILL.md", _C, "skill"),
     DocEntry("skills/architecture-review/auditor.md", _C, "skill"),
     DocEntry("skills/duplication-review/SKILL.md", _C, "skill"),
@@ -135,7 +201,20 @@ DOCS: tuple[DocEntry, ...] = (
         ),
     ),
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
-    DocEntry("docs/CLAUDE_AGENTS.md", _H, "prose"),
+    DocEntry(
+        "docs/CLAUDE_AGENTS.md",
+        _H,
+        "prose",
+        allow=_allow(
+            **{
+                "removed-name": (
+                    "names removed tool 'find_references' beside 'removed'",
+                    "names removed tool 'get_call_hierarchy' beside 'removed'",
+                    "names removed tool 'get_module_info' beside 'removed'",
+                )
+            }
+        ),
+    ),
     DocEntry("docs/DOGFOODING_INTEGRATION.md", _H, "prose"),
     DocEntry("docs/DOGFOODING_SETUP.md", _H, "prose"),
     DocEntry("docs/LABELS.md", _B, "prose"),

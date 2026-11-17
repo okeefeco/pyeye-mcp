@@ -53,10 +53,11 @@ It counts a `### BREAKING CHANGES` heading under `[Unreleased]` and every
 git checkout -b release/v2.0.0 origin/main
 
 # Collect [Unreleased] and the changes/ fragments into "## [2.0.0] - <today>",
-# leave a fresh [Unreleased], and delete the fragments
+# leave a fresh [Unreleased], delete the fragments, and stamp the version into
+# the docs-facts ledgers in docs/facts/
 python scripts/changelog.py prepare 2.0.0
 
-git add -A CHANGELOG.md changes/
+git add -A CHANGELOG.md changes/ docs/facts/
 git commit -m "chore(release): v2.0.0"
 git push -u origin release/v2.0.0
 gh pr create --title "chore(release): v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
@@ -68,6 +69,11 @@ Headings come in a fixed order: BREAKING CHANGES, Added, Changed, Deprecated,
 Removed, Fixed, Security, then any other heading `[Unreleased]` had. Because it
 rewrites `CHANGELOG.md`, the release PR always touches it, which is what
 `tag-release.yml` triggers on.
+
+`prepare` also replaces every `"unreleased"` in `docs/facts/removed.json`
+(`removed_in`) and `docs/facts/uncovered.json` (`first_seen`) with the version, so
+each removed name and each newly uncovered fact records the release it shipped in
+(#826). A checkout without those files is left alone.
 
 `prepare` refuses to:
 
