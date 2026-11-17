@@ -136,7 +136,8 @@ class TestGenerateAndCheck:
         self, tiny_repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         assert cli.check(tiny_repo) == 1
-        assert "3 file(s) differ" in capsys.readouterr().out
+        # README, the reference page, the snapshot, the removed names and the ledger (#826)
+        assert "5 file(s) differ" in capsys.readouterr().out
 
         assert cli.generate(tiny_repo) == 0
         assert (tiny_repo / "README.md").read_text(encoding="utf-8") == (
