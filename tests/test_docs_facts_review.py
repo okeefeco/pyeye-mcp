@@ -151,7 +151,7 @@ class TestFindingProblems:
 
     def test_with_root_the_page_and_section_must_exist(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        ok = _clear(section="features", anchor={"kind": "fact", "id": _TTL.id})
+        ok = _clear(section=_README_SECTION, anchor={"kind": "fact", "id": _TTL.id})
         assert review.finding_problems(_hashed(ok, root), _FACTS, root) == []
         assert review.finding_problems(_clear(page="NOPE.md"), _FACTS, root) == [
             "page 'NOPE.md' isn't a registered doc"
@@ -393,6 +393,36 @@ def test_the_committed_state_has_no_orphans() -> None:
 _ROOT = Path(__file__).resolve().parents[1]
 
 
+def _readme_anchor() -> tuple[str, str]:
+    """A README section and a subject unique in it, read from the README as it is now.
+
+    The section's own heading line is unique in it, so no edit to README's prose
+    can break the tests that need a real registered page (the CLI tests).
+    """
+    text = (_ROOT / "README.md").read_text(encoding="utf-8")
+    section = next(s for s in review.sections(text) if s.slug)
+    return section.slug, section.text.splitlines()[0].strip()
+
+
+_README_SECTION, _README_SUBJECT = _readme_anchor()
+
+
+def _bound_skill_fact() -> tuple[str, str]:
+    """A registered skill page and an item fact one of its blocks shows, from the docs as they are."""
+    from pyeye.docs_facts import binding, docs
+    from pyeye.docs_facts.registry import build
+
+    facts = build(_ROOT)
+    for path, entry in docs.registered_files(_ROOT):
+        if entry.kind != "skill":
+            continue
+        blocks, _ = binding.parse((_ROOT / path).read_text(encoding="utf-8"))
+        for block in blocks:
+            if isinstance(facts.get(block.fact_id), Fact):
+                return path, block.fact_id
+    raise AssertionError("no skill page binds an item fact")
+
+
 @pytest.fixture(scope="module")
 def repo_facts() -> Any:
     from pyeye.docs_facts.registry import build
@@ -418,10 +448,11 @@ class TestScope:
         assert all({"section", "line", "needs_review", "facts"} <= set(s) for s in page["sections"])
 
     def test_a_skill_page_carries_its_bound_facts(self, repo_facts: Any) -> None:
-        out = review.scope(_ROOT, repo_facts, pages=["skills/duplication-review/SKILL.md"])
+        path, fact_id = _bound_skill_fact()
+        out = review.scope(_ROOT, repo_facts, pages=[path])
         (page,) = out["pages"]
-        assert "duplication.default.min_tokens" in page["facts"]
-        assert any("duplication.default.min_tokens" in s["facts"] for s in page["sections"])
+        assert fact_id in page["facts"]
+        assert any(fact_id in s["facts"] for s in page["sections"])
 
     def test_an_audience_selects_its_pages_and_never_reference_pages(self, repo_facts: Any) -> None:
         out = review.scope(_ROOT, repo_facts, audience="claude")
@@ -447,16 +478,17 @@ class TestScope:
             from pyeye.docs_facts.cli import _committed_snapshot
 
             snap = dict(_committed_snapshot(root))
-            snap["duplication.default.min_tokens"] = 25
+            snap[fact_id] = "a different value"
             return snap
 
+        path, fact_id = _bound_skill_fact()
         monkeypatch.setattr(changed, "base_snapshot", older)
         out = review.scope(_ROOT, repo_facts, base="any")
-        assert out["changed"] == ["duplication.default.min_tokens"]
+        assert out["changed"] == [fact_id]
         paths = [p["page"] for p in out["pages"]]
-        assert "skills/duplication-review/SKILL.md" in paths
-        page = next(p for p in out["pages"] if p["page"] == "skills/duplication-review/SKILL.md")
-        assert page["changed"] == ["duplication.default.min_tokens"]
+        assert path in paths
+        page = next(p for p in out["pages"] if p["page"] == path)
+        assert page["changed"] == [fact_id]
 
 
 @pytest.fixture
@@ -497,10 +529,10 @@ class TestCli:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         finding = _clear(
-            section="features",
+            section=_README_SECTION,
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
-            subject="Semantic Code Navigation",
+            subject=_README_SUBJECT,
         )
         path = _write(tmp_path, [finding])
         assert review.main(["validate", str(path)], root=_ROOT) == 0
@@ -511,10 +543,10 @@ class TestCli:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         finding = _clear(
-            section="features",
+            section=_README_SECTION,
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
-            subject="Semantic Code Navigation",
+            subject=_README_SUBJECT,
         )
         path = _write(tmp_path, [finding])
         args = ["dismiss", str(path), "--index", "0", "--reason", "fine", "--date", "2026-11-18"]
@@ -532,9 +564,9 @@ class TestCli:
         assert memory_state["confirmed_non_issues"] == []
 
     def test_mark_fine_records_the_section(self, memory_state: dict[str, Any]) -> None:
-        args = ["mark-fine", "README.md", "features", "--date", "2026-11-18"]
+        args = ["mark-fine", "README.md", _README_SECTION, "--date", "2026-11-18"]
         assert review.main(args, root=_ROOT) == 0
-        assert "README.md#features" in memory_state["coverage"]
+        assert f"README.md#{_README_SECTION}" in memory_state["coverage"]
         assert (
             review.main(["mark-fine", "README.md", "no-such", "--date", "2026-11-18"], root=_ROOT)
             == 2
@@ -873,7 +905,7 @@ class TestCodeContradiction:
     ) -> None:
         handle = "pyeye.resolver.resolve_handle"
         good = _contradiction(
-            section="features",
+            section=_README_SECTION,
             anchor={"kind": "symbol", "id": handle},
             evidence=[{"docstring": "Never raises for a miss."}],
         )
@@ -956,15 +988,15 @@ class TestSubjects:
 
     def test_the_subject_must_occur_in_the_section(self) -> None:
         good = _clear(
-            section="features",
+            section=_README_SECTION,
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
-            subject="Semantic   Code\nNavigation",
+            subject=_README_SUBJECT.replace(" ", "   \n", 1),
         )
         assert review.finding_problems(_hashed(good, _ROOT), _FACTS, _ROOT) == []
         bad = {**good, "subject": "Not on the page"}
         assert review.finding_problems(_hashed(bad, _ROOT), _FACTS, _ROOT) == [
-            "subject 'Not on the page' doesn't occur verbatim in README.md#features"
+            f"subject 'Not on the page' doesn't occur verbatim in README.md#{_README_SECTION}"
         ]
 
     def test_a_different_subject_is_a_new_finding_not_a_hidden_one(self) -> None:
@@ -1213,10 +1245,10 @@ class TestFeedback829_3:
         self, tmp_path: Path, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str]
     ) -> None:
         finding = _clear(
-            section="features",
+            section=_README_SECTION,
             category="style",
             anchor={"kind": "style_rule", "id": "broken-link"},
-            subject="Semantic Code Navigation",
+            subject=_README_SUBJECT,
             replacement="Link docs/testing/ instead.",
         )
         path = _write(tmp_path, [finding, {**finding, "problem": "again"}])
@@ -1225,12 +1257,25 @@ class TestFeedback829_3:
         assert memory_state["confirmed_non_issues"] == []
 
 
-def test_packets_list_the_facts_a_page_names_without_binding(repo_facts: Any) -> None:
-    """worker-4's caching.md case: env vars restated by hand are anchorable."""
-    out = review.scope(_ROOT, repo_facts, pages=["docs/architecture/caching.md"])
-    (page,) = out["pages"]
-    assert "env.PYEYE_CACHE_TTL" in page["mentioned"]
-    assert not set(page["mentioned"]) & set(page["facts"])
+def test_packets_list_the_facts_a_page_names_without_binding(tmp_path: Path) -> None:
+    """worker-4's caching.md case: an env var restated by hand is anchorable.
+
+    Built from its own page, not a live doc: a docs PR that binds the fact
+    (as #877 did for caching.md) must not break it.
+    """
+    ttl = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "`PYEYE_CACHE_TTL`")
+    debounce = Fact("env.PYEYE_WATCHER_DEBOUNCE", {"default": 0.5}, "`PYEYE_WATCHER_DEBOUNCE`")
+    facts: dict[str, Any] = {ttl.id: ttl, debounce.id: debounce}
+    (tmp_path / "page.md").write_text(
+        "# Caching\n"
+        "The debounce is <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE -->x<!-- fact:end -->.\n"
+        "Entries live `PYEYE_CACHE_TTL` seconds.\n",
+        encoding="utf-8",
+    )
+    entry = type("E", (), {"audience": "human", "kind": "prose", "covers": ()})()
+    page = review.packet(tmp_path, "page.md", entry, facts, {})
+    assert list(page["facts"]) == [debounce.id]
+    assert list(page["mentioned"]) == [ttl.id]
 
 
 def test_mentioned_facts_match_names_not_substrings() -> None:
