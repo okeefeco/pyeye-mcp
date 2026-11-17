@@ -13,7 +13,7 @@ from typing import Any
 from .async_utils import rglob_async
 from .config import ProjectConfig
 from .metrics import metrics
-from .path_utils import normalize_path
+from .path_utils import anchor, normalize_path
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,8 @@ SCOPE_FORMS: tuple[ScopeForm, ...] = (
     ScopeForm(
         "package",
         "package:<path>",
-        "that directory, if it exists; give an absolute path, because a relative one "
-        "is not resolved against the project yet (#842)",
+        "that directory, if it exists: an absolute path, or one relative to the project "
+        "(project_path)",
     ),
     ScopeForm(
         "all",
@@ -153,7 +153,9 @@ def resolve_scope_paths(
     - ``standalone``: standalone script directories.
     - ``namespace:<name>``: a namespace's package directories; a dotted
       ``namespace:a.b`` resolves under namespace ``a``.
-    - ``package:<path>``: that directory, if it exists.
+    - ``package:<path>``: that directory, if it exists. A relative path is
+      relative to ``layout.project_path``, never the server's cwd
+      (:func:`package_scope_path`, #842).
     - ``all``: main + packages + every namespace + standalone.
 
     Args:
@@ -187,7 +189,7 @@ def resolve_scope_paths(
                 logger.warning(f"{owner}Namespace not found: {s[len('namespace:'):]}")
             paths.update(found)
         elif s.startswith("package:"):
-            pkg_path = Path(s[len("package:") :])
+            pkg_path = package_scope_path(s, layout)
             if pkg_path.exists():
                 paths.add(pkg_path)
             elif warn:
@@ -195,6 +197,16 @@ def resolve_scope_paths(
         elif warn:
             logger.warning(f"{owner}Unknown scope specification: {s}")
     return paths
+
+
+def package_scope_path(scope: str, layout: ScopeLayout) -> Path:
+    """The directory a ``package:<path>`` scope names (#842).
+
+    A relative path is anchored on ``layout.project_path`` (the project the
+    caller passed), an absolute one is used as given. The one place this is
+    decided, so the search and the envelope's report can't disagree.
+    """
+    return anchor(scope[len("package:") :], layout.project_path)
 
 
 def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:

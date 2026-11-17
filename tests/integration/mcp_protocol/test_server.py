@@ -93,7 +93,7 @@ class TestConfigurePackages:
         mock_get_manager.return_value = mock_manager
 
         # Mock path validation to return resolved paths as strings
-        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
+        mock_validate_path.side_effect = lambda p, _base=None, **_kw: str(Path(p).resolve())
 
         result = await configure_packages(packages=["../lib1", "../lib2"], save=False)
 
@@ -125,7 +125,7 @@ class TestConfigurePackages:
         mock_get_manager.return_value = mock_manager
 
         # Mock path validation
-        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
+        mock_validate_path.side_effect = lambda p, _base=None, **_kw: str(Path(p).resolve())
 
         _ = await configure_packages(
             namespaces={"company": ["/repos/auth", "/repos/api"]}, save=False
@@ -153,7 +153,7 @@ class TestConfigurePackages:
         mock_get_manager.return_value = mock_manager
 
         # Mock path validation
-        mock_validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
+        mock_validate_path.side_effect = lambda p, _base=None, **_kw: str(Path(p).resolve())
 
         _ = await configure_packages(packages=["test"], save=True)
 
@@ -179,7 +179,9 @@ class TestConfigurePackages:
         mock_get_manager.return_value = mock_manager
 
         # Mock path validation to track calls
-        mock_validator.validate_path.side_effect = lambda p, _base=None: str(Path(p).resolve())
+        mock_validator.validate_path.side_effect = lambda p, _base=None, **_kw: str(
+            Path(p).resolve()
+        )
 
         await configure_packages(packages=["../lib1"])
 

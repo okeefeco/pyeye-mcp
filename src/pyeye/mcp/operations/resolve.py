@@ -69,7 +69,7 @@ from pyeye.mcp.operations.completeness import (
     check_cap,
 )
 from pyeye.mcp.operations.not_found import not_found_for
-from pyeye.path_utils import normalize_path
+from pyeye.path_utils import anchor, normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
 
@@ -579,10 +579,12 @@ async def _resolve_identifier(
     kind = form["kind"]
 
     if kind == "file_with_line":
-        return await _resolve_file_line(Path(form["path"]), form["line"], analyzer)
+        # A relative path is the project's, not the server cwd's (#843).
+        path = anchor(form["path"], analyzer.project_path)
+        return await _resolve_file_line(path, form["line"], analyzer)
 
     if kind == "file_only":
-        return await _resolve_file_only(Path(form["path"]), analyzer)
+        return await _resolve_file_only(anchor(form["path"], analyzer.project_path), analyzer)
 
     if kind == "dotted_name":
         return await _resolve_dotted_name(form["name"], analyzer)
@@ -603,7 +605,8 @@ async def resolve_at(
     pasted excerpt) rather than a name.  Same return shape as :func:`resolve`.
 
     Args:
-        file: Absolute or relative path to the source file.
+        file: Absolute path, or a path relative to the analyzer's project (never
+            to the server's working directory, #843).
         line: 1-indexed line number (e.g. line 1 is the first line of the file).
         column: 0-indexed column number (Jedi convention).  Column ``0`` is the
             start of the line and is fully valid — the implementation must NOT
@@ -619,7 +622,8 @@ async def resolve_at(
         echoing the arguments as given, with ``reason`` one of
         ``file_not_found``, ``no_symbol_at_position`` or ``unresolved``.
     """
-    result = await _resolve_at_position(Path(file), line, column, analyzer)
+    path = anchor(file, analyzer.project_path)
+    result = await _resolve_at_position(path, line, column, analyzer)
     if result["found"] is False:
         echo = {"file": file, "line": line, "column": column}
         # The helper's own detail (e.g. "is a directory", #775) wins over the
