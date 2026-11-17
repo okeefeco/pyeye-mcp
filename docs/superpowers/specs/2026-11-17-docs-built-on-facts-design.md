@@ -195,7 +195,32 @@ Ordered so that nothing generation will produce gets hand-fixed:
   - `changes/*.md` is one history entry; `changes/README.md` is prose.
   - `docs/COVERAGE.md` is **prose**, not history: it's a live guide, and its threshold is bound to `ci.coverage_threshold`.
   - `docs/METRICS_BASELINE.md` and `benchmarks/BASELINE_RESULTS.md` are history, but D12 still applies to them, so their projections and unsourced figures go.
-  - `TOKEN_SAVINGS_VERIFICATION.md`: see D12. It must give a reproducible record or be retired from the live tree (#830).
+  - `TOKEN_SAVINGS_VERIFICATION.md` is **deleted** (maintainer). Its 40–90% claim concerns a removed tool and a deleted test, and can't be reproduced. #830, or an earlier docs PR, removes it, its registry entry and any links to it.
+- **C10. Worker rulings (maintainer, 2026-11-17).**
+  - **#825, the honest-claims rule (D12):**
+    - Released `## [x.y.z]` CHANGELOG sections are exempt as a historical record, with a note at the top of the changelog. `[Unreleased]` and all fragments must comply.
+    - Code constants become extracted facts. An external fact passes on a line that links a primary source.
+    - Unenforced policy numbers (">90% new-code coverage") are **removed**, not bound. Enforcing diff coverage would be a separate issue.
+    - Prose-only scanning; URLs, badges, inline code, version strings and commands are skipped.
+    - A `record` kind, with `date`, `command` and `commit` in front matter. A line passes only by linking a registered record.
+    - A per-page shrink-only count of violating lines.
+    - The patterns are units, multipliers, %, "as of", "currently N", "N+ noun" and token-savings phrasing. Bare counts are left to review.
+  - **#825, what the prose rules scan:**
+    - registered docs;
+    - the live MCP tool descriptions;
+    - the **hint and note strings returned to the model in responses** (from `operations/*`), collected without a file list. Comments are not scanned.
+    - Operation docstrings keep a thin test by imported object. The #417 ceiling check is driven by facts (`EDGE_CEILINGS`).
+  - **#825:** `PYEYE_SCENARIO_DIR` is renamed to `SCENARIO_DIR`, because the prefix falsely suggests a pyeye setting.
+  - **#826:**
+    - A fourth `match` level, `code`: only a backticked mention fails. It's the default for edge names.
+    - `cli.*` defaults to `word`. Value facts are never added to `removed.json`.
+    - Each page has `covers: tuple[str, ...]` (views expand to their members). A fact in a marker block on a prose or skill page counts as covered. An unknown ID in `covers` fails `check`.
+  - **#828, shown output may be trimmed:**
+    - `"<absent>"` asserts that a key really is absent.
+    - Every object level that leaves out keys carries `"…": "<omitted>"`, and a shortened array ends with `"<omitted>"`. The checker fails an unmarked omission, so an example never passes itself off as the whole response (D12).
+- **C11. Two corrections from #837's mutation tests (maintainer, 2026-11-17).** They amend C1 and C10.
+  - **Comments are scanned.** The phrasing rules (absence-vs-zero, `edge_counts`) also scan the `COMMENT` tokens of the modules whose strings they scan. The original #395 miss was a `server.py` comment. This replaces C10's "comments are not scanned".
+  - **Fact rules apply to history pages.** The env-var and server-command rules apply to `history` pages too, such as `migration-guide.md`. A gone name passes there only on a line that says "removed" (C8). Released CHANGELOG sections stay exempt. This narrows C1: history exempts a page from the phrasing rules and from the plain removed-name scan, not from the fact rules.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder

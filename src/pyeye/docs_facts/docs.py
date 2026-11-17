@@ -40,6 +40,9 @@ class DocEntry:
         path: Repo-relative POSIX path, or a glob pattern for a churning tree.
         audience: Who reads it (D11).
         kind: How the checks treat it.
+        allow: Prose-rule ID -> the message of each finding this page may still
+            have, one per occurrence (:mod:`.rules`). It only shrinks: ``check``
+            fails on a finding not listed and on a listed one no longer found.
         covers: Fact or view IDs the page's prose explains (C3, #826). A view
             stands for its members. Facts shown in the page's marker blocks are
             covered without being listed here.
@@ -70,9 +73,9 @@ EXCLUDED_TREES: tuple[str, ...] = (
 REFERENCE_PAGES: tuple[str, ...] = tuple(PAGES)
 
 
-def _allow(**allowed: tuple[str, ...]) -> Mapping[str, tuple[str, ...]]:
-    """An immutable allow-list: prose-rule ID -> the findings still allowed (#837 shape)."""
-    return MappingProxyType(allowed)
+def _allow(**messages: tuple[str, ...]) -> Mapping[str, tuple[str, ...]]:
+    """An immutable allow-list: prose-rule ID -> the findings still allowed."""
+    return MappingProxyType(messages)
 
 
 _H: Audience = "human"
@@ -180,7 +183,21 @@ DOCS: tuple[DocEntry, ...] = (
     # docs/
     DocEntry("docs/api-redesign.md", _H, "history"),
     DocEntry("docs/migration-guide.md", _H, "history"),
-    DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
+    # A live guide (design C9). Its per-module table names the long-gone
+    # src/pyeye/server.py; #830 rewrites it.
+    DocEntry(
+        "docs/COVERAGE.md",
+        _H,
+        "prose",
+        _allow(
+            **{
+                "server-command": (
+                    "names src/pyeye/server.py, which doesn't exist (the module is "
+                    "src/pyeye/mcp/server.py; start it with `python -m pyeye.mcp`)",
+                )
+            }
+        ),
+    ),
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
     DocEntry(
         "docs/CLAUDE_AGENTS.md",

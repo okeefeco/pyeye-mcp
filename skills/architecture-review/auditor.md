@@ -53,6 +53,7 @@ At **minimum** sweep these seven axes; you may also **surface other axes you
 find**, but the seed axes use these exact keys (use the key verbatim in the
 `axis` field). Each maps to facts you can extract structurally + targeted reads.
 
+<!-- fact:begin review.axes.table -->
 | `axis` key | What it covers |
 |---|---|
 | `layering` | Layering / dependency direction: which layers/packages may import which. |
@@ -62,6 +63,7 @@ find**, but the seed axes use these exact keys (use the key verbatim in the
 | `validation_placement` | Validation placement: at the boundary vs in core vs scattered. |
 | `naming_api_shape` | Naming & API shape: naming patterns, return-type conventions, sync/async split. |
 | `cross_cutting` | Cross-cutting access: logging, config, path handling. |
+<!-- fact:end -->
 
 **Out of scope — NOT an axis: code duplication.** "The same code written in many
 places" is a content-similarity problem this auditor structurally cannot do; it
@@ -82,6 +84,7 @@ So two findings about the same handles on the same axis that observe different
 things **must** use different facets, and the same observation must use the same
 facet every run.
 
+<!-- fact:begin review.facets.table -->
 | `axis` key | allowed `facet` values |
 |---|---|
 | `layering` | `import_direction`, `layer_skip`, `import_cycle` |
@@ -91,6 +94,7 @@ facet every run.
 | `validation_placement` | `boundary_vs_core`, `duplicated_check`, `missing_check` |
 | `naming_api_shape` | `name_pattern`, `sync_async`, `return_shape` |
 | `cross_cutting` | `logging`, `config_access`, `path_handling` |
+<!-- fact:end -->
 
 If no listed facet fits, use `"other"`. A finding with facet `other` (or on an
 open axis you found) is never promoted to a confident grade, so prefer a listed

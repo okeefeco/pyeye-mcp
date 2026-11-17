@@ -10,7 +10,8 @@
 - ``check`` computes the same output in memory and fails if anything on disk
   differs: a stale or hand-edited block, page or snapshot. It also fails on a
   block naming an unknown fact (a removed fact, D4), a malformed marker, or a
-  registered file that doesn't exist, and on a live page naming a removed name
+  registered file that doesn't exist, on a prose-rule violation beyond a page's
+  allow-list (:mod:`.rules`), and on a live page naming a removed name
   (:mod:`.removed`). CI runs it.
 
 All three read only :data:`~.docs.DOCS`; none globs on its own.
@@ -88,6 +89,7 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
     for path, build_page in pages.PAGES.items():
         result.outputs[path] = build_page(facts)
     result.outputs[SNAPSHOT] = snapshot_text(facts)
+    result.problems.extend(rules.run(root, facts))
     old_snapshot = _committed_snapshot(root)
     result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
     result.outputs[ledger.UNCOVERED] = ledger.render(

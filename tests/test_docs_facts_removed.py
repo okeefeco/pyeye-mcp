@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs, ledger, pages, removed
+from pyeye.docs_facts import cli, docs, ledger, pages, removed, rules
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Fact, View, index
 from pyeye.docs_facts.removed import Removed
@@ -236,6 +236,9 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
     monkeypatch.setattr(pages, "PAGES", {})
     monkeypatch.setattr(cli.registry, "build", lambda _root: FACTS)
+    monkeypatch.setattr(
+        cli.rules, "RULES", ()
+    )  # #825's prose rules: tested in test_docs_facts_rules
     assert cli.generate(tmp_path) == 0
     return tmp_path
 
@@ -354,3 +357,30 @@ class TestLedgerInCheck:
             ("tool.live", "tool.other"), {"tool.added": "unreleased"}
         )
         assert cli.check(repo) == 0
+
+
+class TestRulesHook:
+    """#825's env-name and server-command rules read removed names from the record."""
+
+    def test_removed_names_are_the_env_and_command_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "docs/facts").mkdir(parents=True)
+        (tmp_path / removed.REMOVED).write_text(
+            removed.render(
+                [
+                    Removed("env.PYEYE_OLD", "word", "2.0.0"),
+                    Removed("cli.script.pyeye-old", "word", "2.0.0"),
+                    Removed("tool.old_tool", "word", "2.0.0"),
+                ]
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(rules, "_CHECKOUT", tmp_path)
+
+        assert rules._removed_names() == {"PYEYE_OLD", "pyeye-old"}
+
+    def test_the_checkout_is_the_repo_root(self) -> None:
+        assert (rules._CHECKOUT / removed.REMOVED).is_file()
+        # Today's record has no env var or command: none was ever removed.
+        assert rules._removed_names() == frozenset()

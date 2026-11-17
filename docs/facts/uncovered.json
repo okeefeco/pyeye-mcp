@@ -9,23 +9,14 @@
     "ceiling.static_imports",
     "cli.module.pyeye.mcp",
     "cli.script.pyeye-mcp",
-    "edge.callees",
     "edge.callers",
     "edge.decorated_by",
     "edge.decorates",
-    "edge.enclosing_scope",
-    "edge.imported_by",
-    "edge.imports",
-    "edge.members",
     "edge.overridden_by",
     "edge.overrides",
     "edge.passed_by",
-    "edge.re_exports",
     "edge.read_by",
     "edge.references",
-    "edge.subclasses",
-    "edge.submodules",
-    "edge.superclasses",
     "edge.written_by",
     "env.PYEYE_ANALYSIS_TIMEOUT",
     "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
@@ -169,5 +160,26 @@
     "tool.trace_model_inheritance.param.project_path",
     "tool.trace_model_inheritance.param.scope"
   ],
-  "new": []
+  "new": [
+    {
+      "fact_id": "edges.inspect_unmeasured",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.grade.ambiguous",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.grade.deterministic_single",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.grade.mechanical_fact",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.grade.no_signal",
+      "first_seen": "unreleased"
+    }
+  ]
 }
