@@ -54,7 +54,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import path_to_key
+from pyeye.path_utils import path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -530,6 +530,20 @@ def _anchor_on_definition(name: Any, handle: str) -> Any:
         return name
     for target in targets:
         if target.full_name == handle and target.module_path is not None:
+            return target
+    # A RELATIVE re-export (``from .thing import X`` in ``pkg/__init__.py``):
+    # Jedi names the binding ``pkg.X``, so it matched; its definition lives in
+    # another file under another full_name. Collapse to that definition, as
+    # for every other re-export (#857). A genuine definition's goto stays in
+    # its own file, so it is kept.
+    own_file = getattr(name, "module_path", None)
+    for target in targets:
+        if (
+            target.module_path is not None
+            and own_file is not None
+            and not paths_equal(target.module_path, own_file)
+            and target.full_name
+        ):
             return target
     return name
 
