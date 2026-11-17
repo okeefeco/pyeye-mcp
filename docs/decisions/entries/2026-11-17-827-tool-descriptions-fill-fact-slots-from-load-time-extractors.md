@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Tool descriptions fill <<fact:…>> slots from the load-time extractors; parameters are checked, not slotted (#827)"
 issues: [827, 818, 824]
 anchors: ["pyeye.docs_facts.describe.fill", "pyeye.docs_facts.describe.described", "pyeye.docs_facts.describe.hand_lists", "pyeye.docs_facts.describe.LOAD_TIME_EXTRACTORS", "pyeye.docs_facts.extractors.scopes.extract", "pyeye.scope_utils.SCOPE_FORMS", "pyeye.scope_utils.PLUGIN_FALLBACK_SCOPE", "pyeye.mcp.server.PLUGIN_PROJECT_PATH_NOTE", "tests/test_docs_facts_describe.py", "tests/test_docs_facts_scopes.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-851-load-time-facts-come-from-installed-code-only.md"]
 superseded_by: []
 ---
 

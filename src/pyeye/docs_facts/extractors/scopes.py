@@ -26,6 +26,11 @@ DEFAULT_ORDER = ("scope_defaults.methods.<tool name>", "scope_defaults.global")
 
 def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the live constants
     """Yield a fact per scope form and for the default policy, plus the views."""
+    return extract_code()
+
+
+def extract_code() -> Iterator[Bindable]:
+    """The scope facts, from the installed code alone; reads no file (#851)."""
     forms = [
         Fact(
             f"scope.option.{form.name}",

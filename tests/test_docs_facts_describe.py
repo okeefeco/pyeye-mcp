@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import importlib
+import inspect
 import re
+import subprocess  # nosec B404 - runs this interpreter with a fixed argument list
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -278,3 +282,44 @@ def test_load_time_facts_are_the_registry_facts() -> None:
     registry = build(_ROOT)
     for fact_id, item in describe.load_time_facts().items():
         assert registry[fact_id] == item, fact_id
+
+
+# --- #851: the load-time facts come from code, never from repo files ----------
+
+
+@pytest.mark.parametrize("extractor", describe.LOAD_TIME_EXTRACTORS)
+def test_load_time_extractors_take_no_root(extractor: str) -> None:
+    """``extract_code()`` has no root to read files from, by construction."""
+    module = importlib.import_module(f"pyeye.docs_facts.extractors.{extractor}")
+    assert list(inspect.signature(module.extract_code).parameters) == []
+
+
+def test_load_time_facts_need_no_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """From an empty directory, as in a wheel install with the server started anywhere."""
+    monkeypatch.chdir(tmp_path)
+    describe.load_time_facts.cache_clear()
+    try:
+        facts = describe.load_time_facts()
+    finally:
+        describe.load_time_facts.cache_clear()
+    assert "edges.implemented" in facts
+    assert "scopes.options" in facts
+
+
+def test_the_server_imports_outside_the_repo(tmp_path: Path) -> None:
+    """``import pyeye.mcp.server`` from an empty directory, isolated (``-I``) (#851).
+
+    The editable install still maps ``pyeye`` to ``src/``, but nothing relative
+    to the repo is reachable: this failed with FileNotFoundError for
+    ``tests/conformance/response_linter.py`` before #851. CI also imports a
+    built wheel this way (``type-check`` job).
+    """
+    result = subprocess.run(  # nosec B603 - this interpreter, fixed arguments
+        [sys.executable, "-I", "-c", "import pyeye.mcp.server"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
