@@ -218,6 +218,9 @@ Ordered so that nothing generation will produce gets hand-fixed:
   - **#828, shown output may be trimmed:**
     - `"<absent>"` asserts that a key really is absent.
     - Every object level that leaves out keys carries `"…": "<omitted>"`, and a shortened array ends with `"<omitted>"`. The checker fails an unmarked omission, so an example never passes itself off as the whole response (D12).
+- **C11. Two corrections from #837's mutation tests (maintainer, 2026-11-17).** They amend C1 and C10.
+  - **Comments are scanned.** The phrasing rules (absence-vs-zero, `edge_counts`) also scan the `COMMENT` tokens of the modules whose strings they scan. The original #395 miss was a `server.py` comment. This replaces C10's "comments are not scanned".
+  - **Fact rules apply to history pages.** The env-var and server-command rules apply to `history` pages too, such as `migration-guide.md`. A gone name passes there only on a line that says "removed" (C8). Released CHANGELOG sections stay exempt. This narrows C1: history exempts a page from the phrasing rules and from the plain removed-name scan, not from the fact rules.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
