@@ -26,7 +26,37 @@ not as a finding.
    prose no longer restates it.
 2. **`uncovered_fact`**: a fact in `changed` that the page should explain but
    doesn't. Anchor on the fact.
-3. **`honest_claims`** (design D12): claims the code or a record can't back,
+3. **`code_contradiction`**: prose that states what the code does or exposes
+   and gets it wrong. Prose must not state code facts at all: a statement of
+   what the code does comes from a bound fact or an executed example. So this is
+   a narrow fallback, for a behaviour claim that genuinely can't be either one
+   (e.g. "re-exports collapse to their definition"). Anchor
+   `{"kind": "symbol", "id": <canonical handle>}`: the code symbol that shows it.
+   Get the handle with pyeye (`resolve` the name; use the handle it returns,
+   never `path:line`). `validate` rejects a handle that doesn't resolve in the
+   project, or isn't canonical.
+
+   It's always a clear fix, and it says its `route`. By default, recommend
+   converting the claim:
+   - `"route": "fact"`: bind a fact instead. `extractor` names the registered
+     extractor that would produce it, or `"new: <what it would read>"` for one
+     that doesn't exist yet. The replacement says what to bind.
+   - `"route": "example"`: replace the claim with an executed example. Either
+     point at an existing one with `"example_at": {"page": …, "line": <its
+     opener line>}`, or make the replacement a fenced
+     `json pyeye-example tool=<tool>` block.
+   - `"route": "wording"`: only when neither can work. Give `route_reason`
+     (why not a fact, why not an example), and a replacement that states what
+     the code does.
+
+   It must carry `evidence`: what pyeye reports for that handle, which
+   `validate` checks against pyeye. One or more of:
+   - `{"signature": "<inspect's signature, exactly>"}`;
+   - `{"docstring": "<an excerpt of inspect's docstring>"}`: at least four whole
+     words, so the excerpt actually says something;
+   - `{"edge": "<edge>", "includes": ["<handle>", …]}`: handles that
+     `expand(handle, edge)` lists.
+4. **`honest_claims`** (design D12): claims the code or a record can't back,
    which a pattern rule can't catch. Anchor `{"kind": "claims_rule", "id": …}`:
    - `D12-absolute`: an absolute claim ("complete", "never misses", "all")
      without the scope the code actually guarantees;
@@ -34,21 +64,27 @@ not as a finding.
    - `D12-projection`: a projection or target stated as fact.
 
    Propose honest wording that states the real scope, or deletion.
-4. **`audience`** (D11): the page doesn't serve its audience. Anchor
+5. **`audience`** (D11): the page doesn't serve its audience. Anchor
    `{"kind": "audience_rule", "id": …}`:
    - `human-explains`: human docs explain, with no MUST/NEVER enforcement language;
    - `claude-directs`: Claude docs are concise and directive, with no tutorials;
    - `bridge-problem-fix`: bridge docs (`Audience: Both`) give the problem and an executable fix;
    - `right-audience`: the content belongs in another audience's docs;
    - `link-not-restate`: reference material is restated instead of linked.
-5. **`style`**: the sweep's nit categories. Anchor `{"kind": "style_rule", "id": …}`:
+6. **`style`**: the sweep's nit categories. Anchor `{"kind": "style_rule", "id": …}`:
    - `invalid-example`: a copyable example that doesn't work as written, such as JSON with comments;
    - `broken-link`: a link to a missing file or section;
    - `orphaned-text`: text under the wrong heading, or referring to something absent;
    - `missing-prerequisite`: a step that assumes an install or setup the page never gives;
    - `imprecise-limit`: a configurable default stated as a fixed limit ("max 10" for "default 10");
    - `dated-claim`: an external fact (`as of` a date, a third-party UI or key) that may be stale. Say it needs checking;
-   - `duplication`: content that repeats another page; propose linking it instead.
+   - `duplication`: content that repeats another page; propose linking it instead;
+   - `restated-example`: prose that describes an executed example's OUTPUT: the
+     fields, values or response shape the example already shows ("it returns
+     `found: true` and a `handle` of …"). The example is the fact, so this
+     restates it. Prose MAY name what the example demonstrates, as explanation or
+     the why ("this example shows a re-export collapsing to its definition"). The
+     fix deletes the restatement and keeps or adds the "demonstrates" sentence.
 
 ## Output: a JSON array of findings
 
@@ -74,6 +110,7 @@ naming its anchor:
   "section": "configuration",
   "category": "audience",
   "anchor": {"kind": "audience_rule", "id": "human-explains"},
+  "subject": "Configuration keys",
   "problem": "The section mixes a tutorial with the full key reference.",
   "needs_decision": true,
   "question": "Keep the key reference in the README, or link docs/reference?",
@@ -96,6 +133,11 @@ When **no anchor** backs a recommendation, leave out `recommended` and
 Rules for the output:
 
 - `section` is the slug from the packet (`""` for the text before the first heading).
+- A finding on a rule anchor (claims, audience or style) quotes its `subject`:
+  the exact page text it is about (the link, the phrase, the claim), copied
+  verbatim from the section. `validate` rejects a subject that isn't in the
+  section, and one that occurs there more than once: quote enough text to be
+  unique. It identifies the finding, so a different link is a different finding.
 - `page` and `section` must be the packet's: `validate` rejects a page that isn't
   registered and a section the page doesn't have.
 - Never invent an anchor ID. A `fact` anchor must be a key of the packet's
