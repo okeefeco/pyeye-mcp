@@ -4,22 +4,34 @@
 
 Fixtures provide reusable test setup and teardown logic, ensuring consistent test environments and reducing code duplication.
 
+This page shows general pytest fixture patterns. The snippets are patterns, not
+copies of this repository's fixtures; see
+[Where the Real Fixtures Live](#where-the-real-fixtures-live) for those.
+
+## Where the Real Fixtures Live
+
+- [`tests/conftest.py`](../../tests/conftest.py) holds the shared fixtures every
+  test can use: temporary and sample projects, mocks, and the autouse fixtures
+  that reset shared state between tests.
+- [`tests/fixtures/factories.py`](../../tests/fixtures/factories.py) holds the
+  factory classes that build projects, files and configurations on demand.
+- The sample projects are directories directly under
+  [`tests/fixtures/`](../../tests/fixtures/).
+
+Read those files for the current names before writing a new fixture; reuse one
+that exists instead of adding a near-copy.
+
 ## Fixture Organization
 
 ### Directory Structure
 
 ```text
 tests/
-├── conftest.py           # Root-level fixtures available to all tests
-├── unit/
-│   └── conftest.py      # Unit test specific fixtures
-├── integration/
-│   └── conftest.py      # Integration test fixtures
-├── fixtures/            # Shared fixture data and factories
-│   ├── __init__.py
-│   ├── factories.py     # Test data factories
-│   ├── projects/        # Sample project structures
-│   └── data/           # Static test data files
+├── conftest.py              # Shared fixtures available to all tests
+└── fixtures/
+    ├── __init__.py
+    ├── factories.py         # Test data factories
+    └── <sample_project>/    # One directory per sample project
 ```
 
 ## Core Fixtures
@@ -27,10 +39,7 @@ tests/
 ### Project Fixtures
 
 ```python
-# tests/conftest.py
 import pytest
-from pathlib import Path
-import tempfile
 
 @pytest.fixture
 def temp_project(tmp_path):
@@ -92,7 +101,6 @@ CONSTANT_{i}_{j} = "value_{i}_{j}"
 ### Configuration Fixtures
 
 ```python
-# tests/conftest.py
 @pytest.fixture
 def mock_config():
     """Create mock configuration."""
@@ -100,9 +108,7 @@ def mock_config():
         "packages": ["../lib1", "../lib2"],
         "namespaces": {
             "company": ["~/repos/auth", "~/repos/api"]
-        },
-        "cache_ttl": 300,
-        "max_projects": 10
+        }
     }
 
 @pytest.fixture
@@ -114,11 +120,13 @@ def config_file(tmp_path, mock_config):
     return config_path
 ```
 
+Cache TTL and project limits are environment variables, not config-file keys; see
+[the environment variable reference](../reference/env-vars.md).
+
 ### Mock Fixtures
 
 ```python
-# tests/conftest.py
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 
 @pytest.fixture
 def mock_analyzer():
@@ -126,9 +134,6 @@ def mock_analyzer():
     analyzer = Mock()
     analyzer.find_symbol = Mock(return_value=[
         {"name": "TestClass", "type": "class", "line": 10}
-    ])
-    analyzer.get_references = Mock(return_value=[
-        {"file": "test.py", "line": 20, "column": 5}
     ])
     return analyzer
 
@@ -142,111 +147,14 @@ def mock_project_manager():
     return manager
 ```
 
+The repository's real mock fixtures are in
+[`tests/conftest.py`](../../tests/conftest.py).
+
 ## Fixture Factories
 
-### Using Factory Boy
-
-```python
-# tests/fixtures/factories.py
-import factory
-from factory import Faker, SubFactory, LazyAttribute
-from pyeye.models import Project, Symbol, Module
-
-class ProjectFactory(factory.Factory):
-    """Factory for creating test projects."""
-
-    class Meta:
-        model = Project
-
-    name = Faker('word')
-    path = LazyAttribute(lambda o: f"/tmp/projects/{o.name}")
-    python_version = factory.Iterator(["3.10", "3.11", "3.12"])
-
-    @factory.post_generation
-    def modules(self, create, extracted, **kwargs):
-        """Add modules to project."""
-        if not create:
-            return
-
-        if extracted:
-            for module in extracted:
-                self.modules.append(module)
-
-class SymbolFactory(factory.Factory):
-    """Factory for creating test symbols."""
-
-    class Meta:
-        model = Symbol
-
-    name = Faker('word')
-    type = factory.Iterator(["class", "function", "variable"])
-    file = LazyAttribute(lambda o: f"src/{o.name.lower()}.py")
-    line = Faker('random_int', min=1, max=1000)
-    column = Faker('random_int', min=0, max=120)
-
-class ModuleFactory(factory.Factory):
-    """Factory for creating test modules."""
-
-    class Meta:
-        model = Module
-
-    name = Faker('word')
-    path = LazyAttribute(lambda o: f"src/{o.name}.py")
-    imports = factory.List([
-        "os", "sys", "pathlib", "typing"
-    ])
-    exports = factory.LazyFunction(
-        lambda: [SymbolFactory() for _ in range(5)]
-    )
-```
-
-### Custom Factory Functions
-
-```python
-# tests/fixtures/factories.py
-def create_test_file(path: Path, content: str = None) -> Path:
-    """Create a test file with optional content."""
-    if content is None:
-        content = '''
-def test_function():
-    """Test function."""
-    return "result"
-
-class TestClass:
-    """Test class."""
-
-    def method(self):
-        """Test method."""
-        return "method_result"
-'''
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-    return path
-
-def create_namespace_package(root: Path, namespace: str, packages: list) -> dict:
-    """Create a namespace package structure."""
-    namespace_parts = namespace.split('.')
-    created_paths = []
-
-    for package in packages:
-        pkg_path = root / package
-        current = pkg_path
-
-        for part in namespace_parts:
-            current = current / part
-            current.mkdir(parents=True, exist_ok=True)
-            init_file = current / "__init__.py"
-            if not init_file.exists():
-                init_file.write_text('__path__ = __import__("pkgutil").extend_path(__path__, __name__)')
-
-        created_paths.append(pkg_path)
-
-    return {
-        "namespace": namespace,
-        "paths": created_paths
-    }
-```
+Use a factory instead of a fixture when a test needs several variants of the same
+thing, or needs to build it with arguments chosen in the test body. The project's
+factories are in [`tests/fixtures/factories.py`](../../tests/fixtures/factories.py).
 
 ## Scope Management
 
@@ -289,12 +197,6 @@ def temp_cache():
 ## Parametrized Fixtures
 
 ```python
-# tests/conftest.py
-@pytest.fixture(params=["3.10", "3.11", "3.12"])
-def python_version(request):
-    """Parametrized Python version."""
-    return request.param
-
 @pytest.fixture(params=[
     {"type": "small", "modules": 5},
     {"type": "medium", "modules": 50},
@@ -305,17 +207,14 @@ def project_size(request):
     return request.param
 
 # Usage in test
-def test_with_different_versions(python_version):
-    """Test runs 3 times with different Python versions."""
-    assert python_version in ["3.10", "3.11", "3.12"]
+def test_with_different_sizes(project_size):
+    """Test runs once per parameter."""
+    assert project_size["type"] in ["small", "medium", "large"]
 ```
 
 ## Async Fixtures
 
 ```python
-# tests/conftest.py
-import asyncio
-
 @pytest.fixture
 async def async_client():
     """Async client fixture."""
@@ -344,7 +243,6 @@ async def test_with_async_fixtures(async_client, async_cache):
 ## Fixture Dependencies
 
 ```python
-# tests/conftest.py
 @pytest.fixture
 def base_config():
     """Base configuration."""
@@ -409,7 +307,6 @@ def managed_resource():
 ## Dynamic Fixtures
 
 ```python
-# tests/conftest.py
 def pytest_generate_tests(metafunc):
     """Dynamically generate test parameters."""
     if "test_data" in metafunc.fixturenames:
@@ -432,7 +329,6 @@ def dynamic_project(request):
 ### Static Data Files
 
 ```python
-# tests/fixtures/data/__init__.py
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent
@@ -452,7 +348,6 @@ def load_test_config(name: str) -> dict:
 ### Sample Projects
 
 ```python
-# tests/fixtures/projects/__init__.py
 from pathlib import Path
 import shutil
 
@@ -467,38 +362,9 @@ def copy_sample_project(name: str, dest: Path) -> Path:
 
 ## Performance Testing Fixtures
 
-```python
-# tests/performance/conftest.py
-import time
-
-@pytest.fixture
-def timer():
-    """Simple timer fixture."""
-    start = time.perf_counter()
-    yield
-    elapsed = time.perf_counter() - start
-    print(f"\nTest took {elapsed:.3f} seconds")
-
-@pytest.fixture
-def benchmark_data():
-    """Generate data for benchmarking."""
-    return {
-        "small": generate_data(100),
-        "medium": generate_data(1000),
-        "large": generate_data(10000)
-    }
-
-@pytest.fixture
-def performance_threshold():
-    """Performance threshold fixture."""
-    from tests.utils.performance import PerformanceThresholds
-    return PerformanceThresholds(
-        base=100.0,
-        linux_ci=150.0,
-        macos_ci=300.0,
-        windows_ci=300.0
-    )
-```
+Performance tests share their thresholds and assertion helper through
+[`tests/utils/performance.py`](../../tests/utils/performance.py) rather than
+through fixtures; see the [Performance Testing Guide](./PERFORMANCE.md).
 
 ## Best Practices
 
@@ -614,4 +480,3 @@ def test_order(second):
 - [Testing Strategy](./STRATEGY.md)
 - [Testing Conventions](./CONVENTIONS.md)
 - [pytest Fixtures Documentation](https://docs.pytest.org/en/stable/fixture.html)
-- [Factory Boy Documentation](https://factoryboy.readthedocs.io/)

@@ -191,21 +191,7 @@ _ENTRIES: tuple[DocEntry, ...] = (
     # docs/
     DocEntry("docs/api-redesign.md", _H, "history"),
     DocEntry("docs/migration-guide.md", _H, "history"),
-    # A live guide (design C9). Its per-module table names the long-gone
-    # src/pyeye/server.py; #830 rewrites it.
-    DocEntry(
-        "docs/COVERAGE.md",
-        _H,
-        "prose",
-        _allow(
-            **{
-                "server-command": (
-                    "names src/pyeye/server.py, which doesn't exist (the module is "
-                    "src/pyeye/mcp/server.py; start it with `python -m pyeye.mcp`)",
-                )
-            }
-        ),
-    ),
+    DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
     DocEntry(
         "docs/CLAUDE_AGENTS.md",

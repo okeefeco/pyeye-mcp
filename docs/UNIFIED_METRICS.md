@@ -38,8 +38,7 @@ The Unified Metrics System provides:
                     ┌────────────▼───────────┐
                     │  Unified Metrics       │
                     │  Persistent Storage    │
-                    │  (~/.pyeye/       │
-                    │   unified_metrics/)    │
+                    │  (metrics directory)   │
                     └────────────┬───────────┘
                                  │
                     ┌────────────▼───────────┐
@@ -51,8 +50,10 @@ The Unified Metrics System provides:
 
 ### Storage Structure
 
+The collector stores its data under <!-- fact:begin security.writes.metrics -->`~/.pyeye/metrics/`<!-- fact:end -->, the same directory the dogfooding tracker uses:
+
 ```text
-~/.pyeye/unified_metrics/
+<metrics directory>/
 ├── active_sessions.json      # Currently running sessions
 ├── completed_sessions.jsonl  # Historical session data
 └── aggregated_stats.json     # Pre-computed statistics
@@ -89,7 +90,7 @@ session_id = collector.start_session(
 )
 
 # Record operations (happens automatically via hooks)
-collector.record_mcp_operation("find_symbol", success=True, duration_ms=45.2)
+collector.record_mcp_operation("resolve", success=True, duration_ms=45.2)
 collector.record_grep_operation()
 
 # End session
@@ -125,7 +126,7 @@ python scripts/unified_metrics.py dashboard --format json
 
 ```text
 ============================================================
-  📊 METRICS REPORT - Last 7 days
+  📊 METRICS REPORT - Last <N> days
 ============================================================
 
 📋 Summary:
@@ -133,7 +134,7 @@ python scripts/unified_metrics.py dashboard --format json
   Active Sessions: 2
   MCP Operations: 247
   Grep Operations: 23
-  MCP Adoption Rate: 91.5%
+  MCP Adoption Rate: <rate>
 
 🔧 Most Used MCP Tools:
   1. resolve: 89 uses
@@ -174,23 +175,7 @@ The unified system works alongside the existing performance metrics:
 
 ### SessionMetrics
 
-```python
-@dataclass
-class SessionMetrics:
-    session_id: str
-    session_type: str  # "main", "subagent", "task"
-    parent_session: str | None
-    start_time: str
-    end_time: str | None
-    mcp_operations: dict[str, int]  # tool_name -> count
-    grep_operations: int
-    total_operations: int
-    errors: int
-    cache_hits: int
-    cache_misses: int
-    memory_peak_mb: float
-    metadata: dict[str, Any]
-```
+Each session is one `SessionMetrics` record (defined in [`src/pyeye/unified_metrics.py`](../src/pyeye/unified_metrics.py)): its identity, type and parent session, start and end times, per-tool MCP operation counts, grep and error counts, cache hits and misses, and free-form metadata.
 
 ### Key Metrics Tracked
 
@@ -205,7 +190,7 @@ class SessionMetrics:
 
 ### File Locking
 
-The system uses `fcntl` file locking to ensure thread-safe access:
+The system serialises writes with the `filelock` library (a `<file>.lock` sidecar per data file), which works on every platform including Windows:
 
 - Multiple MCP server instances can write concurrently
 - Readers block writers appropriately
@@ -216,7 +201,7 @@ The system uses `fcntl` file locking to ensure thread-safe access:
 - **JSON**: For frequently updated active sessions
 - **JSONL**: For append-only historical data
 - **Aggregation**: Pre-computed statistics reduce query time
-- **Cleanup**: Automatic removal of old data (future enhancement)
+- **Cleanup**: `python scripts/unified_metrics.py cleanup --days N` removes completed sessions older than N days; nothing runs it automatically.
 
 ### Memory Usage
 
@@ -225,14 +210,6 @@ The system uses `fcntl` file locking to ensure thread-safe access:
 - Thread-local storage for current session tracking
 
 ## Development and Testing
-
-### Test Coverage
-
-The system has comprehensive test coverage:
-
-- **unified_metrics.py**: 99% coverage (181 lines)
-- **metrics_hook.py**: 100% coverage (51 lines)
-- **CLI tool**: 100% functional coverage
 
 ### Testing Approach
 
@@ -245,17 +222,17 @@ The system has comprehensive test coverage:
 
 ```bash
 # Run unified metrics tests
-pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py -v
+uv run pytest tests/unit/utils/test_unified_metrics_core.py -v
 
 # With coverage
-pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py --cov=src/pyeye/unified_metrics --cov=src/pyeye/metrics_hook
+uv run pytest tests/unit/utils/test_unified_metrics_core.py --cov=src/pyeye/unified_metrics --cov=src/pyeye/metrics_hook
 ```
 
 ## Future Enhancements
 
 ### Planned Features
 
-1. **Data Cleanup**: Automatic archival of old session data
+1. **Scheduled Cleanup**: run `cleanup` automatically (today it runs only on demand)
 2. **Alerts**: Notifications for unusual patterns or performance degradation
 3. **Dashboard**: Web-based real-time visualization
 4. **Export Formats**: Prometheus metrics, CSV reports
@@ -275,7 +252,7 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 #### No sessions showing up
 
 - Verify MCP server is using the enhanced version with unified metrics
-- Check file permissions on `~/.pyeye/unified_metrics/`
+- Check file permissions on the metrics directory (see [Storage Structure](#storage-structure))
 
 #### Concurrent access errors
 
@@ -290,14 +267,17 @@ pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unifi
 ### Debug Commands
 
 ```bash
+# Locate the storage directory from the code, not a hand-written path
+METRICS_DIR="$(uv run python -c 'from pathlib import Path; from pyeye.constants import METRICS_DIR; print((Path.home() / METRICS_DIR).as_posix())')"
+
 # Check storage directory
-ls -la ~/.pyeye/unified_metrics/
+ls -la "$METRICS_DIR"
 
 # Validate JSON files
-python -m json.tool ~/.pyeye/unified_metrics/active_sessions.json
+python -m json.tool "$METRICS_DIR/active_sessions.json"
 
 # Check recent activity
-tail ~/.pyeye/unified_metrics/completed_sessions.jsonl
+tail "$METRICS_DIR/completed_sessions.jsonl"
 ```
 
 ### Log Analysis

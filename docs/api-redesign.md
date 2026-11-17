@@ -178,10 +178,14 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 | `kind` | `str` | One of: `class`, `function`, `method`, `module`, `variable`, `attribute`, `property`, `enum_member`. A class-body binding is `attribute`; a member of an `enum.Enum` subclass is `enum_member` (#695) |
 | `scope` | `str` | `"project"` or `"external"` |
 | `location` | `dict` | Pointer to the definition (see below) |
-| `docstring` | `str \| null` | First paragraph of docstring |
+| `docstring` | `str \| null` | The symbol's full docstring, raw, or null when it has none |
 | `edge_counts` | `dict` | Measured edge counts (see below) |
 
 ### Kind-dependent fields
+
+The rows below are the design record, not the full list. For the fields
+`inspect` returns today, see the executed `inspect` example under Worked
+Examples in [the python-explore skill](../skills/python-explore/SKILL.md#worked-examples).
 
 | Field | Kinds | Description |
 |-------|-------|-------------|
@@ -189,8 +193,7 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 | `superclasses` | class | List of canonical handles for base classes |
 | `parameters` | function, method | Typed parameter list — each entry's `type` is a recursive `TypeRef` tree (see below), not a string |
 | `return_type` | function, method | Recursive `TypeRef` tree for the return annotation (see below), not a string |
-| `attributes` | class | Public attributes with types — each `type` is a recursive `TypeRef` tree (see below) |
-| `re_exports` | non-module | Re-export aliases (see below) |
+| `re_exports` | non-module | Re-export aliases, deprecated (see [Re-exports](#re-exports)) |
 
 ### Location shape
 
@@ -330,6 +333,10 @@ For external handles:
 
 ## Re-exports
 
+> **Note:** `re_exports` on `inspect` is deprecated; use
+> `expand(handle, "re_exports")` (see [the edges reference](reference/edges.md)).
+> The rest of this section is kept as the design record.
+
 `re_exports` lists the public aliases for a symbol. If `Config` is defined
 in `mypackage._impl.config` and re-exported from `mypackage`, then:
 
@@ -352,8 +359,8 @@ public paths that route to this definition.
 ## Type fields are `TypeRef` trees, not strings
 
 Every type-bearing field on an `inspect` response — `parameters[].type`,
-`return_type`, and the `type` field on `attributes`, properties, and
-variables — is a recursive `TypeRef` tree, not a flat string. This
+`return_type`, and the `type` field on attribute, property and variable
+nodes — is a recursive `TypeRef` tree, not a flat string. This
 preserves navigability through compound types (generics, unions,
 parameterized forms) without forcing the agent to client-side-parse type
 expressions.
@@ -477,7 +484,7 @@ mode must not recur.)
 ### Known v1 limitations (graceful degradation)
 
 These constructs preserve `raw` but may omit `handle` and/or `args`. The
-response stays conformant; future passes will tighten coverage:
+response stays conformant:
 
 - **`Callable[[A, B], C]`** — uneven bracket structure
   (`[args_list, return_type]`) doesn't fit uniform recursion. The `raw`

@@ -17,30 +17,30 @@ The PyEye project follows a comprehensive testing strategy designed to ensure re
 
 ## Testing Pyramid
 
-We follow the testing pyramid approach with the following distribution:
+We aim for a pyramid: many fast unit tests, fewer integration tests, few end-to-end tests.
 
 ```text
-       /\        E2E Tests (10%)
+       /\        E2E Tests
       /  \       - Complete user workflows
      /    \      - Critical path validation
     /------\
-   /        \    Integration Tests (20%)
+   /        \    Integration Tests
   /          \   - Component interactions
  /            \  - API contracts
 /--------------\
-                 Unit Tests (70%)
+                 Unit Tests
                  - Individual functions
                  - Class methods
                  - Pure logic
 ```
 
-### Unit Tests (70%)
+### Unit Tests
 
 **Purpose**: Verify individual components in isolation
 
 **Characteristics**:
 
-- Fast execution (<100ms per test)
+- Fast execution
 - No external dependencies
 - Mock all I/O operations
 - Test edge cases and error conditions
@@ -56,7 +56,7 @@ def test_validate_path_with_valid_input():
     assert result is True
 ```
 
-### Integration Tests (20%)
+### Integration Tests
 
 **Purpose**: Verify component interactions and API contracts
 
@@ -79,7 +79,7 @@ async def test_jedi_analyzer_finds_symbols():
     assert len(symbols) > 0
 ```
 
-### End-to-End Tests (10%)
+### End-to-End Tests
 
 **Purpose**: Validate complete user workflows
 
@@ -109,33 +109,24 @@ async def test_complete_refactoring_workflow():
 ### Overall Coverage Goals
 
 - **Minimum**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (CI enforced)
-- **Target**: 90%
-- **Aspirational**: 95%
-
-### Per-Component Coverage
-
-| Component | Minimum | Target |
-|-----------|---------|---------|
-| Core modules | 90% | 95% |
-| Plugins | 85% | 90% |
-| Utilities | 95% | 100% |
-| Integration | 80% | 85% |
 
 ### Coverage Enforcement
 
+pytest fails when coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.
+
 ```bash
-# Run with coverage check
-pytest --cov=src/pyeye --cov-fail-under=85
+# Fails below the threshold
+uv run pytest
 
 # Generate detailed report
-pytest --cov=src/pyeye --cov-report=html
+uv run pytest --cov=src/pyeye --cov-report=html
 ```
 
 ## Performance Testing
 
 ### Performance Thresholds
 
-All performance-critical operations have defined thresholds:
+Performance tests compare timings against `PerformanceThresholds`, which give a separate limit for local runs and each CI platform. Shared ones live in `CommonThresholds` (`tests/utils/performance.py`):
 
 ```python
 from tests.utils.performance import PerformanceThresholds
@@ -156,15 +147,6 @@ Located in `tests/performance/benchmarks/`:
 - Cache operations
 - Concurrent request handling
 - Large project analysis
-
-### Load Testing
-
-Located in `tests/performance/load_tests/`:
-
-- Concurrent user simulation
-- Sustained load scenarios
-- Burst traffic handling
-- Memory usage under load
 
 ## Cross-Platform Testing
 
@@ -217,11 +199,8 @@ Use factories for consistent test data:
 ```python
 from tests.fixtures.factories import ProjectFactory
 
-def test_with_project():
-    project = ProjectFactory.create(
-        name="test_project",
-        modules=10
-    )
+def test_with_project(tmp_path):
+    project = ProjectFactory.create(tmp_path, name="test_project", modules=10)
 ```
 
 ### Cleanup
@@ -241,30 +220,15 @@ def temp_project(tmp_path):
 
 ### Test Stages
 
-1. **Pre-commit**: Linting, formatting, security
-2. **Unit Tests**: Fast feedback (< 2 minutes)
-3. **Integration Tests**: Component validation (< 5 minutes)
-4. **E2E Tests**: Full workflows (< 10 minutes)
-5. **Performance Tests**: Regression detection (main branch only)
-
-### Parallel Execution
-
-```yaml
-# CI configuration
-test:
-  strategy:
-    matrix:
-      test-type: [unit, integration, e2e]
-  steps:
-    - run: pytest tests/${{ matrix.test-type }} -n auto
-```
+1. **Pre-commit**: linting, formatting, security, docs facts
+2. **Tests**: the full suite with coverage, on each OS and Python in the CI matrix
 
 ## Quality Gates
 
 ### Pull Request Requirements
 
 - [ ] All tests pass
-- [ ] Coverage ≥ 85%
+- [ ] Coverage ≥ <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
 - [ ] No performance regressions
 - [ ] Cross-platform validation
 - [ ] Type checking passes
@@ -304,15 +268,9 @@ test:
 - **pytest**: Test framework
 - **pytest-asyncio**: Async test support
 - **pytest-cov**: Coverage reporting
-- **pytest-mock**: Enhanced mocking
+- **pytest-timeout**: per-test timeout, so a hang fails instead of stalling
 
-### Additional Tools
-
-- **hypothesis**: Property-based testing
-- **pytest-benchmark**: Performance benchmarking
-- **pytest-xdist**: Parallel execution
-- **factory-boy**: Test data factories
-- **faker**: Fake data generation
+Test data factories: `tests/fixtures/factories.py`.
 
 ## Continuous Improvement
 
@@ -324,30 +282,21 @@ test:
 - Test maintenance cost
 - Bug escape rate
 
-### Regular Reviews
-
-- Monthly: Review and update slow tests
-- Quarterly: Assess coverage gaps
-- Bi-annually: Review testing strategy
-
 ## Getting Started
 
 ### Running Tests
 
 ```bash
-# Run all tests
-make test-all
+# Run all tests (with coverage, via pyproject's addopts)
+uv run pytest
 
-# Run specific category
-make test-unit
-make test-integration
-make test-e2e
+# Run one directory
+uv run pytest tests/unit
+uv run pytest tests/integration
+uv run pytest tests/e2e
 
-# Run with coverage
-make test-coverage
-
-# Run in parallel
-make test-parallel
+# HTML coverage report
+uv run pytest --cov-report=html
 ```
 
 ### Writing Your First Test

@@ -34,10 +34,9 @@ HTML comments don't render, so on GitHub the page reads normally. Markers inside
 fences or inline code are plain text, which is how this page shows them.
 
 Every fact ID and its current value is listed in `docs/facts/facts.json`. Group IDs,
-which render a table or list over several facts (`tool.trace.params`, `tools.core`,
-`edges.implemented`, `edges.deferred`, `edges.table`, `ceilings.table`, `env.all`,
-`env.deprecated`, `cli.all`), aren't in the snapshot because they have no value of
-their own.
+which render a table or list over several facts (for example `edges.table`, `env.all`
+or `tool.<name>.params`), aren't in the snapshot because they have no value of their
+own.
 
 For a large table, link to the generated reference page instead of inlining it:
 [docs/reference/](../reference/README.md).

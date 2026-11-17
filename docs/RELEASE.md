@@ -49,18 +49,21 @@ It counts a `### BREAKING CHANGES` heading under `[Unreleased]` and every
 
 ### 2. Open the release PR
 
-```bash
-git checkout -b release/v2.0.0 origin/main
+`X.Y.Z` stands for the new version, which must be newer than the latest tag
+(`git tag -l 'v*' --sort=-v:refname | head -1`).
 
-# Collect [Unreleased] and the changes/ fragments into "## [2.0.0] - <today>",
+```bash
+git checkout -b release/vX.Y.Z origin/main
+
+# Collect [Unreleased] and the changes/ fragments into "## [X.Y.Z] - <today>",
 # leave a fresh [Unreleased], delete the fragments, and stamp the version into
 # the docs-facts ledgers in docs/facts/
-python scripts/changelog.py prepare 2.0.0
+python scripts/changelog.py prepare X.Y.Z
 
 git add -A CHANGELOG.md changes/ docs/facts/
-git commit -m "chore(release): v2.0.0"
-git push -u origin release/v2.0.0
-gh pr create --title "chore(release): v2.0.0" --body "Release v2.0.0. See CHANGELOG.md."
+git commit -m "chore(release): vX.Y.Z"
+git push -u origin release/vX.Y.Z
+gh pr create --title "chore(release): vX.Y.Z" --body "Release vX.Y.Z. See CHANGELOG.md."
 ```
 
 `prepare` builds the release section from the bullets already under
@@ -105,18 +108,13 @@ On the merge to `main`, `.github/workflows/tag-release.yml`:
 3. dispatches `release.yml` on the new tag.
 
 **Merge queue (#649).** `main` merges through GitHub's merge queue with the squash
-method. GitHub's merge-queue documentation doesn't say how the queued squash
-commit's message is built. Community reports say it follows the repository's
-default squash message setting, which here is "pull request title" (so the subject
-is `chore(release): vX.Y.Z (#N)`), and that the message can't be edited at merge
-time. Other reports say a queued squash takes the first commit's message instead.
-Either way the release subject holds: `tag-release.yml` only needs the subject to
-start with `chore(release): vX.Y.Z`, and that is both the release PR's title and
-the subject of the commit `changelog.py prepare` creates. Keep extra commits on a
-release PR after that one. Until a release has gone through the queue, check after merging that
-`git log -1 --format=%s origin/main` starts with `chore(release): vX.Y.Z`. If it
-doesn't, the failure is safe: `tag-release.yml` tags nothing and nothing is
-published. Fix the workflow or setting forward rather than tagging by hand.
+method. v2.1.0 (#821) was the first release through the queue; its squash subject
+was the PR title plus `(#N)`, which `tag-release.yml` accepts: it only needs the
+subject to start with `chore(release): vX.Y.Z`, and that is both the release PR's
+title and the subject of the commit you make after `changelog.py prepare`. Keep
+extra commits on a release PR after that one. If the subject doesn't start with
+`chore(release): vX.Y.Z`, nothing is tagged and nothing is published. Fix the
+workflow or setting forward rather than tagging by hand.
 
 `release.yml` then tests, builds, creates the GitHub Release, and publishes to
 TestPyPI and PyPI. The release body is the version's `CHANGELOG.md` section
@@ -134,12 +132,16 @@ tagged version does nothing.
 
 ### Manual tag (fallback)
 
+Only when `tag-release.yml` did not tag a merged release PR (check
+`git tag -l vX.Y.Z`); never alongside it, because a hand-pushed tag races the
+workflow.
+
 Pushing a tag by hand still runs `release.yml` directly, but the version must
 already have a `CHANGELOG.md` section:
 
 ```bash
-git tag -a v2.0.1 -m "Release v2.0.1"
-git push origin v2.0.1
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 ### CHANGELOG checks in CI
@@ -233,7 +235,6 @@ uv sync --frozen
 2. **No Manual Sync**: Version derived automatically
 3. **Cleaner History**: No version bump commits
 4. **Simpler CI/CD**: No complex workflows needed
-5. **Industry Standard**: Used by pytest, pip, pandas
 
 ## Migration Notes
 

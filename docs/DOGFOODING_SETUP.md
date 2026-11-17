@@ -69,8 +69,8 @@ mcp-start --issue 123
 mcp-end
 
 # Log specific events
-mcp-saved 10 "Found all references with MCP instead of grep"
-mcp-bug "MCP caught circular dependency that grep missed"
+mcp-saved 10 "Traced the call chain with MCP instead of grep"
+mcp-bug "MCP showed a re-export pointed at the wrong definition"
 
 # Generate reports
 mcp-report --days 7
@@ -134,7 +134,7 @@ uv run --frozen pre-commit install
 ls -la ~/.pyeye/metrics/
 
 # Test the metrics script directly
-python scripts/dogfooding_metrics.py --help
+uv run --frozen python scripts/dogfooding_metrics.py --help   # bare `python` needs the project's .venv activated
 ```
 
 ### Worktree Issues
@@ -171,17 +171,8 @@ uv run --frozen pre-commit install
 bash scripts/setup_aliases.sh
 
 # Test the metrics CLI directly
-python scripts/dogfooding_metrics.py --help
+uv run --frozen python scripts/dogfooding_metrics.py --help
 ```
-
-## 🎯 Expected Metrics
-
-After setup, you should see:
-
-**Week 1**: 30% MCP adoption rate
-**Week 2**: 50% MCP adoption, 5+ time-saving examples
-**Week 3**: 70% MCP adoption, identified feature gaps
-**Week 4**: 80% MCP adoption, measurable productivity gains
 
 ## 📊 Checking Your Progress
 
