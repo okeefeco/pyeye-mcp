@@ -22,7 +22,12 @@ superseded_by: []
 - **`code_contradiction` findings.**
   - They rest on a `symbol` anchor: the code symbol by its canonical pyeye handle, never `path:line`, so they're stable under unrelated edits.
   - `validate` checks with pyeye's own resolver that the handle resolves to a project symbol and is canonical. A re-export alias is refused, naming the canonical handle.
-  - The finding is always a clear fix: its replacement states what the code does.
+  - Prose must not state code facts (C15 as revised, #860): a statement of what the code does comes from a bound fact or an executed example. So `code_contradiction` is a narrow fallback for behaviour claims that can be neither. The finding is always a clear fix and says its `route`, in preference order:
+    - `fact`, naming the `extractor` that would produce the fact;
+    - `example`, an executed example;
+    - `wording`, only with a `route_reason` saying why neither of the other two works.
+
+    `reviewer.md` makes conversion the default.
   - It must carry `evidence` of what pyeye reports for the handle: the `inspect` signature (exactly), a docstring excerpt, or an edge's handles from `expand`. `validate` checks each item against pyeye. The finding is the reviewer's reading of code, so the reading must be checkable.
 - **Symbol dismissals are pinned to the signature and docstring as `inspect` reports them.** Edits to the body, or elsewhere in the file, keep the dismissal; a change to either lapses it, and the finding returns as `resurfaced`. A handle that no longer resolves is an orphan.
 - **Rule-anchored findings quote their `subject`**: the exact page text they are about. `validate` rejects a subject that doesn't occur verbatim (whitespace aside) in the section. The subject is part of the dismissal's identity, so a different subject is a `new` finding. When a dismissed subject no longer occurs in its section, `check` fails it as an orphan. A gone section is still pruned, which fails safe.
@@ -39,6 +44,6 @@ superseded_by: []
 
 **Verify:** gold. `uv run pytest tests/test_docs_facts_review.py` passes:
 
-- `TestCodeContradiction`: canonical handles; evidence required and checked against pyeye, as signature, docstring and edge; always a clear fix; `project_symbols` over the real repo.
+- `TestCodeContradiction`: canonical handles; the route required (fact with its extractor, example, or wording with its reason); evidence required and checked against pyeye, as signature, docstring and edge; always a clear fix; `project_symbols` over the real repo.
 - `TestSymbolDismissals`: a body edit holds and a docstring change resurfaces; an unresolved handle is an orphan, and `move` fixes it.
 - `TestSubjects`: the subject is required and must occur in the section; a different subject is new; a vanished subject fails `check`, and `move` to the reworded text fixes it.

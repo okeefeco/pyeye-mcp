@@ -737,6 +737,9 @@ def _contradiction(**overrides: Any) -> dict[str, Any]:
         problem="Says load() returns None on a missing file; it raises FileNotFoundError.",
         replacement="load() raises FileNotFoundError when the file is missing.",
         evidence=[{"docstring": "Raises FileNotFoundError when it is missing."}],
+        route="wording",
+        route_reason="An error path is behaviour no extractor reads, and the example "
+        "fixture has no missing file.",
     )
     finding.update(overrides)
     return finding
@@ -798,7 +801,34 @@ class TestCodeContradiction:
             assessment=f"{review.UNANCHORED}: x",
         )
         problems = review.finding_problems(finding, _FACTS)
-        assert "a code_contradiction is a clear fix: state what the code does" in problems
+        assert "a code_contradiction is a clear fix: route it to a fact, an example or wording" in (
+            problems
+        )
+
+    @pytest.mark.parametrize(
+        ("overrides", "problem"),
+        [
+            ({"route": None}, "must say its route, one of ['fact', 'example', 'wording']"),
+            ({"route": "guess"}, "must say its route"),
+            ({"route": "fact"}, "a fact route must name the extractor"),
+            ({"route": "wording", "route_reason": " "}, "a wording route must say why neither"),
+        ],
+    )
+    def test_it_must_say_its_route(self, overrides: dict[str, Any], problem: str) -> None:
+        problems = review.finding_problems(_contradiction(**overrides), _FACTS)
+        assert any(problem in p for p in problems), problems
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"route": "fact", "extractor": "a new `defaults` extractor over the analyzers"},
+            {"route": "example"},
+        ],
+    )
+    def test_a_fact_or_example_route_needs_no_reason(self, overrides: dict[str, Any]) -> None:
+        finding = _without(_contradiction(), "route_reason")
+        finding.update(overrides)
+        assert review.finding_problems(finding, _FACTS, None, _syms()) == []
 
     def test_it_rests_on_a_symbol(self) -> None:
         finding = _contradiction(anchor={"kind": "fact", "id": _TTL.id})

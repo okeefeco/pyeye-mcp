@@ -212,6 +212,27 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
     return []
 
 
+#: How a code_contradiction is fixed, in preference order (C15 as revised): prose
+#: must not state code facts, so the claim becomes a bound fact (from an
+#: extractor) or an executed example, and only when neither can work, wording.
+ROUTES = ("fact", "example", "wording")
+
+
+def _route_problems(finding: Mapping[str, Any]) -> list[str]:
+    """The route a code_contradiction takes, and why when it falls back to wording."""
+    route = finding.get("route")
+    if route not in ROUTES:
+        return [
+            f"a code_contradiction must say its route, one of {list(ROUTES)}: a fact or an "
+            "executed example first, wording only when neither can work"
+        ]
+    if route == "fact" and not _text(finding.get("extractor")):
+        return ["a fact route must name the extractor that would produce the fact"]
+    if route == "wording" and not _text(finding.get("route_reason")):
+        return ["a wording route must say why neither a fact nor an executed example can work"]
+    return []
+
+
 _EVIDENCE_KEYS = ({"signature"}, {"docstring"}, {"edge", "includes"})
 
 
@@ -343,9 +364,12 @@ def finding_problems(
       handle of a project symbol, checked by *symbols* when given; any other
       kind's ID must be in :data:`RULE_IDS`.
     - A ``code_contradiction`` (prose that says the code does what it doesn't)
-      is always a clear fix: its replacement states what the code does. It
-      carries ``evidence`` of what pyeye reports for the handle, checked by
-      *symbols* when given (C15).
+      is always a clear fix. Prose must not state code facts (C15, revised), so
+      it says its ``route``, in :data:`ROUTES` order: ``fact`` (with the
+      ``extractor`` that would produce it), ``example`` (an executed example),
+      or, only when neither can work, ``wording`` (with its ``route_reason``).
+      It carries ``evidence`` of what pyeye reports for the handle, checked by
+      *symbols* when given.
     - A finding on a rule anchor (:data:`SUBJECT_KINDS`) carries its
       ``subject``: the exact page text it is about. With *root*, it must occur
       in the section verbatim, whitespace aside (C15).
@@ -376,7 +400,10 @@ def finding_problems(
     problems.extend(_anchor_problems(anchor, "anchor", facts, symbols))
     if category == "code_contradiction":
         if finding.get("needs_decision") is True:
-            problems.append("a code_contradiction is a clear fix: state what the code does")
+            problems.append(
+                "a code_contradiction is a clear fix: route it to a fact, an example or wording"
+            )
+        problems.extend(_route_problems(finding))
         problems.extend(_evidence_problems(finding, symbols))
     if isinstance(anchor, dict) and anchor.get("kind") in SUBJECT_KINDS:
         if not _text(finding.get("subject")):

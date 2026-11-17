@@ -26,13 +26,26 @@ not as a finding.
    prose no longer restates it.
 2. **`uncovered_fact`**: a fact in `changed` that the page should explain but
    doesn't. Anchor on the fact.
-3. **`code_contradiction`**: prose that says the code does something it doesn't
-   (a behaviour, a return, an error, a default the code holds but no fact
-   extracts). Anchor `{"kind": "symbol", "id": <canonical handle>}`: the code
-   symbol that shows it. Get the handle with pyeye (`resolve` the name; use the
-   handle it returns, never `path:line`). `validate` rejects a handle that
-   doesn't resolve in the project, or isn't canonical. It's always a clear fix:
-   the replacement states what the code does.
+3. **`code_contradiction`**: prose that states what the code does or exposes
+   and gets it wrong. Prose must not state code facts at all: a statement of
+   what the code does comes from a bound fact or an executed example. So this is
+   a narrow fallback, for a behaviour claim that genuinely can't be either one
+   (e.g. "re-exports collapse to their definition"). Anchor
+   `{"kind": "symbol", "id": <canonical handle>}`: the code symbol that shows it.
+   Get the handle with pyeye (`resolve` the name; use the handle it returns,
+   never `path:line`). `validate` rejects a handle that doesn't resolve in the
+   project, or isn't canonical.
+
+   It's always a clear fix, and it says its `route`. By default, recommend
+   converting the claim:
+   - `"route": "fact"`: bind a fact instead. Name the `extractor` that would
+     produce it (an existing one, or the new one it needs). The replacement
+     says what to bind.
+   - `"route": "example"`: replace the claim with an executed example. The
+     replacement gives the example.
+   - `"route": "wording"`: only when neither can work. Give `route_reason`
+     (why not a fact, why not an example), and a replacement that states what
+     the code does.
 
    It must carry `evidence`: what pyeye reports for that handle, which
    `validate` checks against pyeye. One or more of:
