@@ -11,7 +11,10 @@ see :data:`CATEGORIES`.
 
 * ``prepare X.Y.Z``: collect the fragments and any bullets already under
   ``[Unreleased]`` into ``[X.Y.Z] - <today>`` for a release PR, checking the
-  bump level against the result, then delete the fragments.
+  bump level against the result, then delete the fragments. It also stamps
+  ``X.Y.Z`` over every ``"unreleased"`` release in the docs-facts ledgers
+  (:data:`FACT_LEDGERS`, #826), so a removal or a newly uncovered fact records
+  the release it shipped in.
 * ``notes X.Y.Z``: print one version's section (the GitHub Release body).
 * ``latest``: print the newest released version.
 * ``pending-release``: print the version ``tag-release.yml`` should tag after a
@@ -37,6 +40,11 @@ from pathlib import Path
 CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
 UNRELEASED = "Unreleased"
 FRAGMENTS_DIRNAME = "changes"
+
+#: The docs-facts ledgers whose ``removed_in`` / ``first_seen`` say ``"unreleased"``
+#: until a release is prepared (#826). A checkout without them is skipped.
+FACT_LEDGERS = ("docs/facts/removed.json", "docs/facts/uncovered.json")
+_UNRELEASED_FIELD = re.compile(r'("(?:removed_in|first_seen)": )"unreleased"')
 
 #: Fragment category -> CHANGELOG heading, in the order a release section lists
 #: them (Keep a Changelog, with breaking changes first as in 1.0.0 and 2.0.0).
@@ -351,6 +359,29 @@ def prepare(
     return "".join(lines[:start]) + new + "".join(lines[end:])
 
 
+def stamp_unreleased(text: str, version: str) -> str:
+    """Replace each ``"unreleased"`` ``removed_in`` / ``first_seen`` value with *version*.
+
+    Only those JSON values change, so a note that says "unreleased" is left alone.
+    """
+    return _UNRELEASED_FIELD.sub(rf'\1"{version}"', text)
+
+
+def stamp_fact_ledgers(repo: Path, version: str) -> list[str]:
+    """Stamp *version* into each docs-facts ledger that exists; return those changed."""
+    changed = []
+    for rel in FACT_LEDGERS:
+        ledger = repo / rel
+        if not ledger.is_file():
+            continue
+        text = ledger.read_text(encoding="utf-8")
+        new = stamp_unreleased(text, version)
+        if new != text:
+            ledger.write_text(new, encoding="utf-8", newline="\n")
+            changed.append(rel)
+    return changed
+
+
 def notes(text: str, version: str) -> str:
     """Return the body of the ``[version]`` section, for use as release notes."""
     for s in parse(text):
@@ -486,10 +517,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             for fragment in fragments:
                 fragment.path.unlink()
+            stamped = stamp_fact_ledgers(repo, args.version)
             print(
                 f"Released [Unreleased] and {len(fragments)} fragment(s) as "
                 f"[{args.version}] - {today} in {path.name}."
             )
+            if stamped:
+                print(f"Stamped {args.version} into {', '.join(stamped)}.")
             print(
                 f"Next: commit and open a PR, both titled '{release_title(args.version)}'. "
                 "Merging it tags and publishes."

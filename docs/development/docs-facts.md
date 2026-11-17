@@ -45,8 +45,9 @@ For a large table, link to the generated reference page instead of inlining it:
 ## Commands
 
 ```bash
-uv run python scripts/docs_facts.py generate   # rewrite blocks, reference pages and the snapshot
+uv run python scripts/docs_facts.py generate   # rewrite blocks, reference pages, snapshot and ledgers
 uv run python scripts/docs_facts.py check      # fail if anything differs from the code
+uv run python scripts/docs_facts.py changed --base origin/main   # facts this branch changed
 ```
 
 Pre-commit runs `generate`. If it changes a file, the commit fails like a formatter
@@ -59,8 +60,10 @@ would: stage the result and commit again. CI runs `check` in the `pre-commit` jo
 - a block names an unknown fact ID (the fact was removed or renamed);
 - a marker is malformed (an unclosed block, a nested one, or an inline block that
   spans lines);
-- a reference page or the snapshot is stale;
-- a file in the doc registry doesn't exist.
+- a reference page, the snapshot, `removed.json` or `uncovered.json` is stale;
+- a file in the doc registry doesn't exist;
+- a live page names a removed name (see below), or a registry entry's `covers`
+  names an unknown fact.
 
 ## The doc registry
 
@@ -79,6 +82,55 @@ fails if a Markdown file isn't registered, so **a new `.md` file needs an entry 
 same PR**. The only trees outside the registry are the historical records
 (`docs/superpowers/`, `docs/decisions/`, `docs/audits/`) and test fixtures
 (`tests/fixtures/`).
+
+## Removed names
+
+A fact that disappears from the code can't fail a block once nothing binds it, but
+prose can still name it. So `generate` records every removal in
+`docs/facts/removed.json`: when a tool, parameter, env var, entry point or edge leaves
+the snapshot, it's appended with `"removed_in": "unreleased"`, and
+`scripts/changelog.py prepare` writes the release over it. Entries are never deleted.
+The file also holds the names removed before the registry existed (the v1 tools).
+
+Each entry's `match` says how prose is scanned for it, and it's the only field to edit
+by hand:
+
+| `match` | Fails on | Default for |
+|---|---|---|
+| `word` | any mention | tools, env vars, entry points |
+| `heading` | only an API heading (`## name`), for a name that lives on as an internal method | set by hand |
+| `code` | only a mention in inline code (`` `callers` ``) | edges, whose names are common words |
+| `none` | nothing: recorded, not scanned | parameters (runnable examples catch those, #828) |
+
+On a `prose` or `skill` page, a line that names a removed name passes only if it also
+says "removed", and each such mention must also be in the page's allow-list in the
+registry, `allow={"removed-name": (...)}`, by its exact message (for example
+`names removed tool '<name>' beside 'removed'`). The list only shrinks: a new
+mention fails until it's added on purpose in the diff, and an allowance whose mention
+is gone fails until it's deleted. Messages carry no line numbers, so editing elsewhere
+on the page doesn't disturb them, and one allowance covers exactly one mention. From the next major release after an
+entry's `removed_in` (the newest release in `CHANGELOG.md`), even a marked line fails:
+only `history` pages may name it then. `history` and `reference` pages aren't scanned.
+
+## Uncovered facts
+
+A fact is covered when a `prose` or `skill` page explains it: the page shows it in a
+marker block, or its registry entry lists it in `covers` (a group ID stands for its
+members). A link to `docs/reference/` doesn't count, since those pages list every fact.
+
+`generate` writes every uncovered fact to `docs/facts/uncovered.json`. The `baseline`
+section holds the facts that were uncovered when the ledger was created; it's triaged
+once (#831) and only shrinks. Facts uncovered after that are listed under `new` with
+`first_seen`, the release they first appeared in. The ledger never fails a check: a new
+entry shows up in the PR diff, for the reviewer and for `/docs-review`. An entry leaves
+when its fact is covered or no longer exists.
+
+## Changed facts
+
+`changed --base <rev>` diffs the snapshot against the one at `<rev>` and lists the facts
+added, changed and removed, with the pages that bind each one. CI writes it to the
+`pre-commit` job's summary on pull requests. It never fails: it's the scope of a
+change-triggered `/docs-review`.
 
 ## Adding a fact
 
