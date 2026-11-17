@@ -471,7 +471,7 @@
       "syntax": "namespace:<name>"
     },
     "scope.option.package": {
-      "meaning": "that directory, if it exists; give an absolute path, because a relative one is not resolved against the project yet (#842)",
+      "meaning": "that directory, if it exists: an absolute path, or one relative to the project (project_path)",
       "syntax": "package:<path>"
     },
     "scope.option.packages": {

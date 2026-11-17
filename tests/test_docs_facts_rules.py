@@ -185,11 +185,37 @@ class TestEdgeCountsRule:
 # ---------------------------------------------------------------------------
 
 
+CEILING_FACTS = {
+    "edge.members": Fact("edge.members", {"ceiling": "static_definitions"}, ""),
+    "edge.subclasses": Fact("edge.subclasses", {"ceiling": "literal_subclassing"}, ""),
+    "edge.callees": Fact("edge.callees", {"ceiling": "static_calls"}, ""),
+}
+
+
 class TestCeilingRule:
+    def test_the_static_set_comes_from_the_ceiling_facts(self, facts: dict) -> None:
+        """C12: no edge names in rules.py; the edges whose ceiling is static."""
+        assert rules.static_edges(CEILING_FACTS) == ("members", "subclasses")
+        assert rules.static_edges(facts) == ("members", "subclasses")
+
+    def test_a_new_static_edge_is_covered_without_a_code_change(self) -> None:
+        facts = {
+            **CEILING_FACTS,
+            "edge.attributes": Fact("edge.attributes", {"ceiling": "static_definitions"}, ""),
+        }
+        text = "  - ``attributes``  — the class's attributes.\n"
+
+        assert rules.missing_ceiling(_page(text, kind=None), facts)
+
+    def test_an_edge_with_another_ceiling_needs_no_marker(self) -> None:
+        text = "  - ``callees``  — what it calls.\n"
+
+        assert rules.missing_ceiling(_page(text, kind=None), CEILING_FACTS) == []
+
     def test_a_page_binding_the_edge_list_needs_the_marker(self) -> None:
         page = _page("Edges:\n<!-- fact:begin edges.implemented -->\nx\n<!-- fact:end -->\n")
 
-        assert [f.line for f in rules.missing_ceiling(page, {})] == [2]
+        assert [f.line for f in rules.missing_ceiling(page, CEILING_FACTS)] == [2]
 
     def test_the_marker_satisfies_it(self) -> None:
         page = _page(
@@ -197,12 +223,12 @@ class TestCeilingRule:
             "<!-- fact:begin edges.implemented -->\nx\n<!-- fact:end -->\n"
         )
 
-        assert rules.missing_ceiling(page, {}) == []
+        assert rules.missing_ceiling(page, CEILING_FACTS) == []
 
     def test_a_description_naming_a_static_edge_needs_the_marker(self) -> None:
         page = _page('Follows "members".', kind=None)
 
-        assert rules.missing_ceiling(page, {})
+        assert rules.missing_ceiling(page, CEILING_FACTS)
 
     def test_each_static_edge_entry_needs_its_own_marker(self) -> None:
         """#417: expand's members AND subclasses entries each carry the caveat."""
@@ -213,7 +239,7 @@ class TestCeilingRule:
             "  - ``subclasses``  — direct subclasses only.\n"
         )
 
-        found = rules.missing_ceiling(_page(text, kind=None), {})
+        found = rules.missing_ceiling(_page(text, kind=None), CEILING_FACTS)
 
         assert [(f.line, "subclasses" in f.message) for f in found] == [(4, True)]
 
@@ -225,7 +251,7 @@ class TestCeilingRule:
         assert all(rules.CEILING_MARKER in entries[e][1] for e in ("members", "subclasses"))
 
     def test_a_description_naming_no_static_edge_is_left_alone(self) -> None:
-        assert rules.missing_ceiling(_page("Resolves a name.", kind=None), {}) == []
+        assert rules.missing_ceiling(_page("Resolves a name.", kind=None), CEILING_FACTS) == []
 
     def test_operation_docstrings_carry_the_marker(self) -> None:
         """#417 cites these internal contracts; checked by object, not by file."""

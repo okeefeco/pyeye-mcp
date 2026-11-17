@@ -41,7 +41,7 @@ A root shared by several projects has one watcher. The watcher records `.py`
 files and directories that are created, modified, deleted or moved, skips
 anything under ignored directories below the root (`.git`, `__pycache__`,
 `.venv`, `build`, `dist`, `node_modules` and the like), and delivers a debounced
-batch (`PYEYE_WATCHER_DEBOUNCE`, default 0.5 s) of every changed path (#617).
+batch (`PYEYE_WATCHER_DEBOUNCE`, default <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s) of every changed path (#617).
 
 For each batch, every changed file's parsed artifacts are dropped, then, for
 every project that reads from that root, its scoped cache, name index, TypeRef

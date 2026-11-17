@@ -1,4 +1,4 @@
-"""Sphinx is retired; Markdown under ``docs/`` is the only docs tree (#823, #818 D1).
+"""Sphinx is retired; Markdown under ``docs/`` is the only docs tree (#823, #818 D1, amended by #861).
 
 The ``.rst`` tree drifted unseen because the doc checks scanned only Markdown.
 These tests keep a second docs tree, and the tooling that built it, from coming
@@ -30,13 +30,18 @@ def test_no_rst_docs():
     assert not rst, f"docs are Markdown only (#823): {rst}"
 
 
-def test_no_docs_dependency_group():
-    """The ``docs`` dependency group, and every Sphinx package, are gone."""
+def test_no_sphinx_dependency():
+    """No Sphinx package survives, and the ``docs`` group is only the MkDocs site.
+
+    #861 amends D1: the Markdown is published again, with MkDocs. The ``docs``
+    group came back for that site, holding MkDocs and its theme, never Sphinx.
+    """
     pyproject = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     groups = pyproject.get("dependency-groups", {})
-    assert "docs" not in groups
     requirements = [req for group in groups.values() for req in group if isinstance(req, str)]
     assert not [req for req in requirements if re.match(r"(?i)sphinx|myst", req)]
+    site = [req for req in groups.get("docs", []) if isinstance(req, str)]
+    assert all(re.match(r"mkdocs", req) for req in site), site
 
 
 def test_no_sphinx_in_lock_or_dependabot():

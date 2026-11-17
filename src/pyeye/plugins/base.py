@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..path_utils import normalize_path, relative_within
-from ..scope_utils import ScopeLayout, resolve_scope_paths
+from ..scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
 
 logger = logging.getLogger(__name__)
 
@@ -277,10 +277,13 @@ class AnalyzerPlugin(ABC):
               whose paths were all searched, then each ``package:<path>`` scope
               given that exists.
             - ``unsearched_scopes``: the configured scopes with any path not
-              searched, so an agent can widen the search (e.g. ``scope="all"``).
+              searched, so an agent can widen the search (e.g. ``scope="all"``),
+              then each ``package:<path>`` scope given whose directory doesn't
+              exist, spelled as given (#842). A relative path is relative to the
+              project (:func:`~pyeye.scope_utils.package_scope_path`).
 
-            A ``namespace:`` that isn't configured, a missing ``package:`` path and
-            an unknown scope search nothing, so they appear in neither list.
+            A ``namespace:`` that isn't configured and an unknown scope search
+            nothing, so they appear in neither list.
         """
         covered = _normalized(self._scope_paths(scope, warn=False))
         searched: list[str] = []
@@ -290,8 +293,15 @@ class AnalyzerPlugin(ABC):
             whole = all(any(p == c or c in p.parents for c in covered) for p in paths)
             (searched if whole else unsearched).append(name)
         for s in [scope] if isinstance(scope, str) else scope:
-            if s.startswith("package:") and Path(s[8:]).exists() and s not in searched:
+            exists = (
+                s.startswith("package:") and package_scope_path(s, self.scope_layout()).exists()
+            )
+            if exists and s not in searched:
                 searched.append(s)
+            # A missing package: path searched nothing; say so instead of only
+            # logging it, so [] can't read as a measured empty (#842).
+            elif s.startswith("package:") and not exists and s not in unsearched:
+                unsearched.append(s)
         return searched, unsearched
 
     async def _get_scope_roots(self, scope: Scope) -> list[Path]:

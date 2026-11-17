@@ -282,7 +282,9 @@ none.  A ``project_path`` that doesn't exist is an MCP tool error.
 
 ``envelope`` (default false): when true, the result is wrapped as
 ``{scope, searched, unsearched_scopes, results}``, so a caller can see which
-scopes were searched and which configured scopes were not (#594)."""
+scopes were searched (#594).  ``unsearched_scopes`` lists the configured scopes
+that were not, then any ``package:<path>`` given whose directory doesn't exist
+(#842); a relative ``package:`` path is relative to ``project_path``."""
 
 
 class _PluginContext(NamedTuple):

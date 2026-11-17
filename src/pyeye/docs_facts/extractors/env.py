@@ -226,3 +226,7 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     yield view("env.all", facts, table(headers, [_row(f) for f in facts]))
     deprecated = [f for f in facts if f.value["status"] == "deprecated"]
     yield view("env.deprecated", deprecated, table(headers, [_row(f) for f in deprecated]))
+    # A default, inline in prose ("default <block>0.5</block> s"): D12 wants a
+    # documented default bound to the code, not restated.
+    for fact in facts:
+        yield view(f"{fact.id}.default", [fact], literal(fact.value["default"]))

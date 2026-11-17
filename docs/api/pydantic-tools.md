@@ -6,7 +6,7 @@ Specialized tools for analyzing Pydantic models, validators, and schemas. These 
 
 Every tool on this page also takes these two optional parameters, even where a tool's own "Parameters" section doesn't list them:
 
-- `scope`: where to search: `"main"`, `"all"`, `"packages"` (the configured packages only, not the main project or the namespaces), `"standalone"`, `"namespace:<name>"`, `"package:<path>"`, a scope alias, or a list of these. Every tool resolves a scope the same way. When it's omitted, the tool's `scope_defaults` entry applies, then `scope_defaults.global`, then `"main"`.
+- `scope`: where to search: `"main"`, `"all"`, `"packages"` (the configured packages only, not the main project or the namespaces), `"standalone"`, `"namespace:<name>"`, `"package:<path>"` (a directory: absolute, or relative to `project_path`), a scope alias, or a list of these. Every tool resolves a scope the same way. When it's omitted, the tool's `scope_defaults` entry applies, then `scope_defaults.global`, then `"main"`.
 - `envelope` (default `false`): when `true`, the tool returns one object instead of its bare result:
 
   ```json
@@ -19,8 +19,8 @@ Every tool on this page also takes these two optional parameters, even where a t
   ```
 
   - `scope`: the scope as requested or defaulted (an alias appears as written).
-  - `searched`: the configured scopes (`main`, `packages`, `standalone`, each `namespace:<name>`) whose paths were all searched, then any `package:<path>` given.
-  - `unsearched_scopes`: the configured scopes the search didn't cover. When this is non-empty, the results may be incomplete; retry with `scope="all"`.
+  - `searched`: the configured scopes (`main`, `packages`, `standalone`, each `namespace:<name>`) whose paths were all searched, then any `package:<path>` given that exists.
+  - `unsearched_scopes`: the configured scopes the search didn't cover, then any `package:<path>` given whose directory doesn't exist, as you spelled it (#842). When this is non-empty, the results may be incomplete; retry with `scope="all"`, or fix the path.
   - `results`: exactly what the tool returns without `envelope`. An empty list means the tool searched and found nothing.
 
   The default bare result is unchanged. AI agents should always pass `envelope=true` (#594).

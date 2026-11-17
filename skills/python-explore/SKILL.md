@@ -368,9 +368,10 @@ the scan found none. Omitted, they answer about the project the server started i
 
 - **`results`** is the tool's normal answer (`[]` means searched and found none).
 - **`searched`** lists the configured scopes that were fully searched.
-- **`unsearched_scopes`** lists configured scopes the search did **not** cover. If it is
-  non-empty, don't call the result complete: retry with `scope="all"`, or say which
-  scopes you didn't search.
+- **`unsearched_scopes`** lists configured scopes the search did **not** cover, and any
+  `package:<path>` you gave whose directory doesn't exist (a relative path is relative to
+  `project_path`). If it is non-empty, don't call the result complete: retry with
+  `scope="all"` or a corrected path, or say which scopes you didn't search.
 
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.

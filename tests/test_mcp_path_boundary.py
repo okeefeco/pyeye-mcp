@@ -153,7 +153,9 @@ def test_the_tool_layer_echoes_validated_paths_as_posix(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         validation.PathValidator,
         "validate_path",
-        classmethod(lambda _cls, _p, _base_path=None: PureWindowsPath("C:\\proj\\pkg\\mod.py")),
+        classmethod(
+            lambda _cls, _p, _base_path=None, **_kw: PureWindowsPath("C:\\proj\\pkg\\mod.py")
+        ),
     )
     seen = {}
 
