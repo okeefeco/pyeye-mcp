@@ -240,6 +240,16 @@ Ordered so that nothing generation will produce gets hand-fixed:
 - **C14. Two C13 clarifications (maintainer, 2026-11-18).**
   - **Orphaned dismissals fail.** `check` fails on a dismissal in `review-state.json` whose fact ID no longer exists, matching D4's unknown-ID rule. The PR that removes or renames the fact deletes the dismissal or moves it to the new ID. A rename is a removal plus an addition: the new ID enters the uncovered ledger unless the dismissal is deliberately carried over.
   - **Options only under ambiguity.** A finding with one clear fix (e.g. fact drift) carries a single proposed replacement text with its anchor, and no options, as D8 says. Options are mandatory only on `needs_decision` findings.
+- **C15. Prose that contradicts the code, and non-fact dismissals (maintainer, 2026-11-18).**
+  - **A `code_contradiction` category:**
+    - For prose that contradicts the code where no fact exists, e.g. `SECURITY.md`'s "the only subprocess is ripgrep".
+    - Its anchor is a code symbol, by its canonical pyeye handle, never `path:line`. `validate` checks that the handle resolves.
+    - The finding must carry **evidence**: what the code actually does, from pyeye for that handle (e.g. the `inspect` signature, docstring or edge facts). `validate` rejects one without it.
+    - The fix is a replacement text, or options under `needs_decision`.
+  - **Facts instead, where something really is a fact:** add an extractor (e.g. the subprocesses pyeye starts, the dist name), so `fact_drift` and CI cover it.
+  - **Symbol dismissals** are pinned to the symbol's signature and docstring as `inspect` reports them. A change to either brings the finding back; body edits and edits elsewhere in the file don't. A handle that no longer resolves is an orphan (C14).
+  - **Non-fact dismissals** (style, claims, audience rules) key on a required `subject`: the exact text quoted from the page, checked to occur in the section. A different link or phrase is a different finding. When the subject no longer occurs, `check` fails the dismissal as an orphan (C14).
+  - **#830 sequencing:** `SECURITY.md` is fixed by hand now. The rest goes through `/docs-review` once `code_contradiction` lands in #829-2.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
