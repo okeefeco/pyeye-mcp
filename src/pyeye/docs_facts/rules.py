@@ -35,6 +35,7 @@ from ..async_utils import filtered_rglob
 from ..path_utils import relative_within
 from . import (
     binding,
+    claims,
     docs as doc_registry,
 )
 from .docs import DocEntry, Kind, registered_files
@@ -138,10 +139,23 @@ def paragraphs(text: str) -> Iterator[tuple[int, str]]:
 
 @dataclass(frozen=True)
 class Finding:
-    """One violation: the 1-based line it starts on and what's wrong."""
+    """One violation: the 1-based line it starts on and what's wrong.
+
+    Attributes:
+        line: The 1-based line.
+        message: What's wrong, as reported.
+        key: What an allowance names, when shorter than *message* (the claim
+            without its line excerpt); defaults to *message*.
+    """
 
     line: int
     message: str
+    key: str = ""
+
+    @property
+    def allow_key(self) -> str:
+        """The text a page's allow-list entry must match."""
+        return self.key or self.message
 
 
 @dataclass(frozen=True)
@@ -156,6 +170,8 @@ class Page:
         kind: The page's registry kind, or ``None`` for a code surface.
         line: The source line the text starts on (a string literal's), so a
             finding's line is reported in the file, not in the string.
+        root: The repository root, for resolving links (registered pages only).
+        records: Repo-relative paths of the registered ``record`` pages.
     """
 
     name: str
@@ -163,6 +179,8 @@ class Page:
     prose: str
     kind: Kind | None
     line: int = 1
+    root: Path | None = None
+    records: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -440,6 +458,19 @@ def server_command_claims(text: str, facts: Facts) -> list[Finding]:
 # The rule table
 # ---------------------------------------------------------------------------
 
+#: Every page that holds hand-written claims: history too (D12 applies to every
+#: registered page). A ``record`` is the backing, and a reference page is facts.
+_CLAIMS: frozenset[Kind] = frozenset({"prose", "skill", "history"})
+
+
+def honest_claims(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
+    """Each number or volatile status no fact, record or source backs (D12)."""
+    return [
+        Finding(c.line, c.message, c.key)
+        for c in claims.claims(page.prose, page.name, page.root, page.records)
+    ]
+
+
 RULES: tuple[Rule, ...] = (
     Rule(STATIC_CEILING, _LIVE, True, missing_ceiling),
     Rule(
@@ -456,6 +487,7 @@ RULES: tuple[Rule, ...] = (
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
         strings=True,
     ),
+    Rule(HONEST_CLAIMS, _CLAIMS, False, honest_claims),
     Rule(
         ENV_NAME,
         _LIVE_AND_HISTORY,
@@ -608,12 +640,14 @@ def code_strings() -> Iterator[Page]:
 
 def pages(root: Path, docs: tuple[DocEntry, ...] | None = None) -> Iterator[tuple[Page, DocEntry]]:
     """Every registered doc as a :class:`Page`, with its entry."""
-    for path, entry in registered_files(root, docs):
+    found = list(registered_files(root, docs))
+    records = claims.record_paths({path: entry.kind for path, entry in found})
+    for path, entry in found:
         text = (root / path).read_text(encoding="utf-8")
         prose = prose_text(text)
         if path == CHANGELOG:
             prose = released_blanked(prose)
-        yield Page(path, text, prose, entry.kind), entry
+        yield Page(path, text, prose, entry.kind, root=root, records=records), entry
 
 
 def _unallowed(page: Page, rule: Rule, facts: Facts) -> list[str]:
@@ -645,31 +679,37 @@ def run(
     entries = doc_registry.DOCS if docs is None else docs
     problems = allow_problems(entries)
     for page, entry in pages(root, entries):
-        for rule in rules:
-            if page.kind not in rule.kinds:
-                continue
-            findings = rule.scan(page, facts)
-            verdict = ratchet(entry, rule.id, [f.message for f in findings])
-            if verdict is None:
-                continue
-            problems.append(f"{page.name}: {verdict}")
-            allowed = Counter(entry.allow.get(rule.id, ()))
-            for finding in findings:
-                if allowed[finding.message]:
-                    allowed[finding.message] -= 1
-                else:
-                    problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
+        problems.extend(_page_problems(page, entry, rules, facts))
     if descriptions is None and any(r.descriptions for r in rules):
         descriptions = _tool_descriptions()
-    for name, text in sorted((descriptions or {}).items()):
-        page = Page(f"tool:{name}", text, text, None)
-        for rule in rules:
-            if rule.descriptions:
-                problems.extend(_unallowed(page, rule, facts))
+    tool_pages = [Page(f"tool:{n}", t, t, None) for n, t in sorted((descriptions or {}).items())]
+    problems.extend(_code_problems(tool_pages, [r for r in rules if r.descriptions], facts))
     if strings is None and any(r.strings for r in rules):
         strings = code_strings()
-    for page in strings or ():
-        for rule in rules:
-            if rule.strings:
-                problems.extend(_unallowed(page, rule, facts))
+    problems.extend(_code_problems(strings or (), [r for r in rules if r.strings], facts))
     return problems
+
+
+def _page_problems(page: Page, entry: DocEntry, rules: Iterable[Rule], facts: Facts) -> list[str]:
+    """A registered page's problems: each rule's findings beyond its allow-list."""
+    problems = claims.record_problems(page.name, page.text) if page.kind == "record" else []
+    for rule in rules:
+        if page.kind not in rule.kinds:
+            continue
+        findings = rule.scan(page, facts)
+        verdict = ratchet(entry, rule.id, [f.allow_key for f in findings])
+        if verdict is None:
+            continue
+        problems.append(f"{page.name}: {verdict}")
+        allowed = Counter(entry.allow.get(rule.id, ()))
+        for finding in findings:
+            if allowed[finding.allow_key]:
+                allowed[finding.allow_key] -= 1
+            else:
+                problems.append(f"{page.name}:{finding.line}: {rule.id}: {finding.message}")
+    return problems
+
+
+def _code_problems(surfaces: Iterable[Page], rules: list[Rule], facts: Facts) -> list[str]:
+    """Every finding on a code surface: they have no allow-list."""
+    return [p for page in surfaces for rule in rules for p in _unallowed(page, rule, facts)]

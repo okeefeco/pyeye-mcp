@@ -170,7 +170,6 @@ you changed `pyproject.toml` without re-locking — run `uv lock` and commit the
 3. **Write tests**:
    - All new features must have tests
    - Bug fixes should include regression tests
-   - Aim for >90% coverage on new code
 
 4. **Commit your changes**:
 
