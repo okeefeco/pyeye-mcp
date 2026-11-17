@@ -1241,3 +1241,44 @@ def test_mentioned_facts_match_names_not_substrings() -> None:
     assert review.mentioned_facts("Set PYEYE_CACHE_TTL_X.", facts, []) == []
     assert review.mentioned_facts("Call `trace` here.", facts, []) == [tool.id]
     assert review.mentioned_facts("Call `trace` here.", facts, [tool.id]) == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"default": 300}, "300"),
+        (0.5, "0.5"),
+        ("main", "main"),
+        (True, None),
+        (None, None),
+        (7, None),  # one digit: too common to spot as a restatement
+        ("ab", None),
+        (["a", "b"], None),
+    ],
+)
+def test_restatable_values(value: Any, expected: str | None) -> None:
+    """Only a distinctive scalar value counts as hand-written when it appears in prose."""
+    assert review._restatable(value) == expected
+
+
+def test_a_string_fact_value_restated_in_a_replacement_is_rejected() -> None:
+    fallback = Fact("scope.default.plugin", "main", "`main`")
+    finding = _clear(
+        anchor={"kind": "fact", "id": fallback.id},
+        replacement="Plugins fall back to main.",
+    )
+    assert review.proposal_problems(finding, {fallback.id: fallback}) == [
+        "replacement restates the value 'main' of fact scope.default.plugin: show it through "
+        "a fact block for scope.default.plugin instead"
+    ]
+
+
+def test_batch_problems_skips_a_finding_too_malformed_to_key() -> None:
+    """Its own shape problems explain it; the batch check doesn't crash on it."""
+    good = _clear()
+    assert review.batch_problems([{"page": "README.md"}, good, {**good}]) == {
+        "2": [
+            "repeats finding 1: one finding per page, section, category, anchor and (for a "
+            "rule anchor) subject; merge them"
+        ]
+    }
