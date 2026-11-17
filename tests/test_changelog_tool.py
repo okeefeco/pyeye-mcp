@@ -536,9 +536,9 @@ class TestFactLedgerStamp:
 
         assert '"removed_in": "1.0.1"' in (facts / "removed.json").read_text(encoding="utf-8")
         assert '"first_seen": "1.0.1"' in (facts / "uncovered.json").read_text(encoding="utf-8")
-        assert "Stamped 1.0.1 into docs/facts/removed.json, docs/facts/uncovered.json" in (
-            capsys.readouterr().out
-        )
+        out = capsys.readouterr().out
+        assert "Stamped 1.0.1 into docs/facts/removed.json." in out
+        assert "Stamped 1.0.1 into docs/facts/uncovered.json." in out
         assert cl.main(["--changelog", str(path), "check", "--no-tags"]) == 0
 
     def test_prepare_without_ledgers_is_a_clean_no_op(self, tmp_path, capsys):

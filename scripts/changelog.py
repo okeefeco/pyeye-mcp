@@ -522,8 +522,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"Released [Unreleased] and {len(fragments)} fragment(s) as "
                 f"[{args.version}] - {today} in {path.name}."
             )
-            if stamped:
-                print(f"Stamped {args.version} into {', '.join(stamped)}.")
+            print(*(f"Stamped {args.version} into {f}." for f in stamped), sep="\n")
             print(
                 f"Next: commit and open a PR, both titled '{release_title(args.version)}'. "
                 "Merging it tags and publishes."

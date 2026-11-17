@@ -85,7 +85,8 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
         if unknown:
             result.problems.append(f"{path}: `covers` names unknown fact IDs {unknown}")
         covered |= ledger.expand(entry.covers, facts)
-        result.problems.extend(_removed_name_problems(path, entry, text, entries, live, major))
+        found = removed.mentions(path, text, entries, live, major)
+        result.problems.extend(_removed_name_problems(path, entry, found))
     for path, build_page in pages.PAGES.items():
         result.outputs[path] = build_page(facts)
     result.outputs[SNAPSHOT] = snapshot_text(facts)
@@ -107,15 +108,9 @@ def _committed_snapshot(root: Path) -> dict[str, object]:
 
 
 def _removed_name_problems(
-    path: str,
-    entry: docs.DocEntry,
-    text: str,
-    entries: list[removed.Removed],
-    live: set[str],
-    major: int | None,
+    path: str, entry: docs.DocEntry, found: list[removed.Mention]
 ) -> list[str]:
     """The removed-name rule for one live page (C8): failures, then its ratchet."""
-    found = removed.mentions(path, text, entries, live, major)
     problems = [removed.problem(m) for m in found if m.fails]
     allowed = [removed.allowance(m) for m in found if not m.fails]
     over = rules.ratchet(entry, removed.RULE_ID, allowed)
