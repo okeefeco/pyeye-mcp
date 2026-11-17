@@ -11,8 +11,10 @@ under `docs/decisions/entries/`; this page states the rules and points there.
 ### 1. Structural facts that are literally in the source: AST is the ground truth
 
 Who subclasses `X`, who imports this module, what a relative import names, what
-a package or class contains. These are read from the Python AST and are never
-re-derived through Jedi, which would add only non-determinism.
+a package or class contains. These are answered from what is written in the
+source, not from Jedi's type inference, which would add only non-determinism.
+Where an edge needs Jedi, it says so and the fallback is measured (the
+`subclasses` bullet below).
 
 - `imported_by` is a pure-AST reverse scan (#436).
 - Relative-import resolution has one AST seam, where there used to be two
@@ -54,30 +56,43 @@ nodes, `resolve` and `resolve_at`, typeref forward refs, and the external
 targets of the `imports` edge. Each tool echoes the handle the resolver returns.
 
 **Canonical means definition site.** `pkg.Thing` re-exported from `pkg._impl`
-resolves to `pkg._impl.Thing`, and every tool reports that handle.
+resolves to `pkg._impl.Thing`, and every tool reports that handle. The one
+exception is the standard library's private-module pattern: a public stdlib
+class defined in a private module keeps its public name
+(`collections.abc.Mapping`, not `_collections_abc.Mapping`), because that is
+the name user code imports (#544).
 
-The strategy chain; the first step that applies wins:
+The strategy is a table in `pyeye.resolver` that the resolver runs in order;
+the first step that answers wins:
 
-1. **Project module**: a module file in the project.
-2. **PEP 420 namespace package**: a configured namespace with no file.
-3. **External module**: an installed or stdlib module that Jedi infers under
-   exactly this name.
-4. **Project definition**: placed in the deepest project module along the
-   path, matched by Jedi `full_name`, following re-export aliases
-   (`package.Thing` → `package._impl.Thing`, #431/#429).
-5. **External definition**, in two parts:
-   1. the definition Jedi's `goto` lands on, accepted only when it sits at
-      **exactly** the requested path. This places `typing.TYPE_CHECKING`, whose
-      value infers to `bool`. A target at a different path is refused, so
-      `collections.abc.Mapping` never becomes `typing.Mapping` (#506, #544).
-   2. guarded inference: an inferred definition whose name equals the leaf
-      (`pathlib.Path` → `pathlib._local.Path` on 3.13).
+<!-- fact:begin resolver.strategy -->
+Every path:
 
-Steps 3 and 5 run only outside the project, and step 4 only inside it, so
-external inference can never answer for a project path (#506). Scope comes from
-one rule, `scope_for`: everything the user configured (the project, its
-packages and namespaces) is `project`; site-packages and the stdlib are
-`external`.
+1. `project_module`: a project module, as a package or a single file
+2. `namespace_package`: a PEP 420 namespace package: a directory with importable content and no init file
+
+Then, inside the project:
+
+1. `definition_placement`: the definition in the deepest project module along the path, following a re-export alias to its definition, with no fallback to shallower modules
+
+Then, outside the project:
+
+1. `private_stdlib`: a stdlib definition in a private module, named by its public re-exporting module
+2. `external_module`: a stdlib or site-packages module, through a Jedi import
+3. `external_definition`: a definition at exactly the requested path, found by goto
+4. `guarded_inference`: an inferred definition, accepted only if its name equals the last component
+<!-- fact:end -->
+
+The path's top-level package picks the side, so external inference can never
+answer for a project path, and a project path that the deepest module doesn't
+define is not-found rather than retried somewhere shallower (#506). Inference
+runs last because it can land on a different object: `typing.TYPE_CHECKING`
+infers to `bool`, which is why a definition must sit at exactly the requested
+path, and why a guessed answer is refused rather than returned.
+
+Scope comes from one rule, `pyeye.resolver.scope_for`, shared by the resolver
+and every edge stub: code inside the configured project boundary is `project`,
+and everything else is `external`.
 
 What is never a binding: the target of an attribute assignment (`self.x = …`,
 `obj.attr = …`). Jedi gives it the same `full_name` as a local of the method, or
@@ -88,24 +103,26 @@ and never listed as a member (#567). Instance attributes are not modelled yet
 ## Bare names
 
 A bare (dot-free) name goes through `pyeye.resolver.resolve_name`, which returns
-`Resolved`, `Ambiguous` (with candidates) or `NotFound`. The first rule that
-applies wins:
+`Resolved`, `Ambiguous` (with candidates) or `NotFound`. Its policy is a table
+too, and the first rule that answers wins:
 
-1. **Shadow**: a top-level package of that name under more than one project
-   root stays ambiguous (#423).
-2. **An exact top-level module wins**: `resolve("functools")` is stdlib
-   `functools` even if the project defines something named `functools` (#602,
-   #623). The project's symbol is reached by its dotted handle.
-3. **The name index**: every project module, top-level definition or nested
-   class with that name, each canonicalised through `resolve_handle`. One left
-   is the answer; several are ambiguous (#457).
-4. **Members, as a fallback**: only if rules 1–3 find nothing, every method or
-   class-body attribute with that name, decided the same way. A top-level name
-   therefore hides same-named methods. Dunder names (`__eq__`) are never members
-   here, because every class defines them (#508).
+<!-- fact:begin resolver.bare_name -->
+1. `shadow`: a top-level package or module under more than one project root is ambiguous
+2. `exact_module`: a complete top-level module (the project's package, a namespace root or an external module) wins over same-named definitions
+3. `name_index`: every project definition with that name, canonicalised: one is the answer, several are ambiguous
+4. `members`: only when nothing above matched, every method or class attribute with that name, decided the same way; dunder names never match
+<!-- fact:end -->
 
-Methods and attributes are never in the name index itself. Rule 4 reads a
-separate member index, built in the same pass and invalidated with it.
+Why this order:
+
+- Picking one of two same-named top-level packages would hide the collision,
+  so a shadow is always reported (#423).
+- `resolve("functools")` should be stdlib `functools` even if the project
+  defines something named `functools` (#602, #623); the project's symbol is
+  reached by its dotted handle.
+- Members are a fallback because methods and attributes are never in the name
+  index: a top-level name therefore hides same-named methods, and every class
+  defines the dunder names, so they would only ever be ambiguous (#508).
 
 ## The environment the resolver sees
 
@@ -126,9 +143,11 @@ Correctness must not depend on cache size or on Jedi internals:
 
 A miss is never dressed up as an answer:
 
-- Every primitive returns one not-found shape,
+- Every primitive except `trace` returns one not-found shape,
   `{found: false, <lookup echo>, reason, detail}`, with `reason` drawn from a
-  closed per-operation set and `detail` naming the next step (#626).
+  closed per-operation set and `detail` naming the next step (#626). `trace`
+  has no top-level miss: it lists roots it couldn't resolve in
+  `unresolved_roots`.
 - The resolver never guesses. A path it can't place is not-found, and it never
   hands back Jedi's raw `full_name`, which no other tool would accept.
 - Absence is not zero. An omitted field means "not measured"; `[]` means
@@ -136,9 +155,9 @@ A miss is never dressed up as an answer:
   always-present fields (#488) rather than dropping them, and `imports` /
   `imported_by` list what they couldn't resolve or name (#494, #668).
 - A file the server's interpreter can't parse is never silently skipped: a
-  source whose own file fails reports `unparseable` (#703), and the reverse
-  scans `subclasses` / `imported_by` list such files in `unparseable_files`
-  (#729).
+  source whose own file fails reports `unparseable` (#703), and the scans
+  `subclasses`, `imported_by` and `re_exports` list such files in
+  `unparseable_files` (#729).
 
 ## Where the details live
 

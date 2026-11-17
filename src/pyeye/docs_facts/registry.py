@@ -12,7 +12,18 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .extractors import ci, cli, duplication, edges, env, mcp_surface, review, scopes, security
+from .extractors import (
+    ci,
+    cli,
+    duplication,
+    edges,
+    env,
+    mcp_surface,
+    resolver,
+    review,
+    scopes,
+    security,
+)
 from .facts import Bindable, index
 
 
@@ -41,6 +52,7 @@ EXTRACTORS: tuple[Extractor, ...] = (
     Extractor("duplication", duplication.PREFIXES, duplication.extract),
     Extractor("scopes", scopes.PREFIXES, scopes.extract),
     Extractor("security", security.PREFIXES, security.extract),
+    Extractor("resolver", resolver.PREFIXES, resolver.extract),
 )
 
 

@@ -35,54 +35,53 @@ anything else propagates (#622, #637).
    standalone paths (`_apply_plugin_paths`, shared with `configure_packages`,
    #618).
 3. **Registration.** `register_plugin_tools` registers every `register_tools()`
-   entry under its key. Two plugins declaring the same name is a `ValueError`,
-   not a silent shadow (#555).
-4. **Re-detection.** After `configure_packages`, plugins whose framework the new
-   layout brings in are activated and their tools registered. This is add-only:
-   nothing already registered is removed or renamed, and no
-   `tools/list_changed` is sent (#770).
+   entry under its key. Two plugins registered together that declare the same
+   name raise `ValueError` rather than silently shadowing each other (#555). The
+   built-in names are pinned by `tests/test_plugin_tool_names_conformance.py`,
+   which is what stops a re-detected plugin's tool being skipped because its
+   name is already taken.
+4. **Re-detection.** When `configure_packages` reconfigures the project the
+   server started in, plugins whose framework the new layout brings in are
+   activated and their tools registered; the result names them (see
+   [`configure_packages`](../reference/tools.md#configure_packages)). Other
+   projects aren't re-detected. This is add-only: nothing already registered is
+   removed or renamed, and no `tools/list_changed` is sent (#659, #770).
 
 ## What every plugin tool gets
 
-Each tool is wrapped (`_plugin_tool`) so that all plugin tools behave alike:
+Each tool is wrapped (`_plugin_tool`) so that all plugin tools behave alike: a
+plugin implements only the search, and the wrapper adds the parameters every
+plugin tool shares. Every plugin tool takes `scope`, `envelope` and
+`project_path`; their types and defaults are in
+[MCP tools](../reference/tools.md#plugin-tools), and the scope forms in
+[the plugin tools guide](../api/README.md). Results carry canonical handles,
+scope and absolute locations (#627), with paths in the caller's spelling (#717).
 
-- **`scope`**: required on every plugin tool function. When the caller omits
-  it, the default comes from the project's `scope_defaults`, and
-  `scope_aliases` are expanded either way (#559).
-- **`envelope: bool = False`**: when true, the tool returns
-  `{scope, searched, unsearched_scopes, results}` instead of the bare result
-  (#594).
-- **`project_path`**: selects the project to analyse. A plugin tool runs
-  against that project even if its framework wasn't detected there, so `[]` is
-  a measured empty, never a refusal (#665).
-- Results carry canonical handles, scope and absolute locations (#627), with
-  paths in the caller's spelling (#717).
+A plugin's tools are registered only once its framework is detected in the
+project the server started in. After that, `project_path` can point a tool at
+any project, and an empty result there is a measured empty, not a refusal
+(#665).
 
-A plugin tool function must not declare `envelope` or `project_path` itself;
-registration raises `TypeError` if it does.
+A plugin tool function must declare `scope` itself and must not declare
+`envelope` or `project_path`; the wrapper supplies those, and registration
+raises `TypeError` if a function declares them.
 
 ## Built-in plugins
 
-The tool names below are the `register_tools()` keys.
+Each plugin's `detect()` is a text heuristic over the project's imports and
+dependency files: it looks for the framework being imported or required, so a
+project that uses the framework is found without running any of its code. The
+exact files each one checks are in its `detect()`, linked below.
 
-**Pydantic** (`pyeye.plugins.pydantic`). Detects `import pydantic` /
-`from pydantic import` in any project file, or `pydantic` in
-`requirements.txt`, `pyproject.toml` or `Pipfile`. Tools:
-`find_pydantic_models`, `get_model_schema`, `find_validators`,
-`find_field_validators`, `find_model_config`, `trace_model_inheritance`,
-`find_computed_fields`.
+- **Pydantic** ([`pyeye.plugins.pydantic`](../../src/pyeye/plugins/pydantic.py)):
+  <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->
+- **Django** ([`pyeye.plugins.django`](../../src/pyeye/plugins/django.py)):
+  <!-- fact:begin tools.plugin.django -->`find_django_migrations`, `find_django_models`, `find_django_templates`, `find_django_urls`, `find_django_views`<!-- fact:end -->
+- **Flask** ([`pyeye.plugins.flask`](../../src/pyeye/plugins/flask.py)):
+  <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_error_handlers`, `find_flask_blueprints`, `find_flask_config`, `find_flask_extensions`, `find_flask_routes`, `find_flask_templates`, `find_flask_views`<!-- fact:end -->
 
-**Django** (`pyeye.plugins.django`). Detects `manage.py` at the root, `django`
-in `requirements.txt`, `requirements/base.txt` or `Pipfile`, or a Django import
-in a top-level `.py` file. Tools: `find_django_models`, `find_django_views`,
-`find_django_urls`, `find_django_templates`, `find_django_migrations`.
-
-**Flask** (`pyeye.plugins.flask`). Detects a Flask import in `app.py`,
-`application.py`, `wsgi.py` or `run.py`, `flask` in a requirements file or
-`pyproject.toml`, or a Flask import in any project file. Tools:
-`find_flask_routes`, `find_flask_blueprints`, `find_flask_views`,
-`find_flask_templates`, `find_flask_extensions`, `find_flask_config`,
-`find_error_handlers`, `find_cli_commands`.
+Each tool's parameters are in [MCP tools](../reference/tools.md#plugin-tools),
+and what it finds is shown by an example in [docs/api](../api/README.md).
 
 ## Adding a plugin
 
@@ -91,8 +90,8 @@ Plugins are built in: there is no dynamic loading. To add one:
 1. Subclass `AnalyzerPlugin` in `src/pyeye/plugins/`, implementing `name()`,
    `detect()` and `register_tools()`. Give each tool function a `scope`
    parameter.
-2. Name tools after the framework (`find_<framework>_<thing>`) so they can't
-   collide with another plugin's.
+2. Prefer names that carry the framework (`find_<framework>_<thing>`). A name
+   another plugin already declares fails registration with `ValueError`.
 3. Add the class to `_PLUGIN_CLASSES` in `pyeye.mcp.server`.
-4. Add tests: positive and negative detection, the declared tool names, and each
-   tool against a fixture project.
+4. Add tests: positive and negative detection, each tool against a fixture
+   project, and the new names in `tests/test_plugin_tool_names_conformance.py`.
