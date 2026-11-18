@@ -101,15 +101,7 @@ Monitoring data is stored in `~/.claude/mcp_monitoring/`:
 
 ## 📈 Integration with Dogfooding Metrics
 
-This system complements the existing dogfooding metrics:
-
-```python
-# Sync MCP monitoring data with dogfooding session
-uv run --frozen python scripts/dogfooding_metrics.py sync
-
-# Combined report
-uv run --frozen python scripts/dogfooding_metrics.py report --include-hooks
-```
+This system is where MCP calls are counted. The dogfooding CLI (`scripts/dogfooding_metrics.py`) tracks sessions, grep use and logged notes, but it runs outside the MCP server's process, so it can't see MCP calls (#879). Use `mcp-report` and `mcp-logs` for those.
 
 ## 🛠️ Manual Installation
 
