@@ -40,7 +40,7 @@ Everyone participating in this project is expected to be respectful and construc
 
 ### Reporting Bugs
 
-Before creating bug reports, please check [existing issues](https://github.com/okeefeco/pyeye-mcp/issues) as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible using the issue template.
+Before creating bug reports, please check [existing issues](https://github.com/okeefeco/pyeye-mcp/issues) as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible.
 
 **Great Bug Reports** tend to have:
 
@@ -98,7 +98,7 @@ Please follow these steps for your contribution:
 
 #### Prerequisites
 
-- Python 3.11 or higher
+- Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->
 - [uv](https://github.com/astral-sh/uv) package manager
 - Git
 
@@ -117,7 +117,9 @@ Please follow these steps for your contribution:
    uv sync --frozen
    ```
 
-3. Install pre-commit hooks:
+3. Install pre-commit and its hooks. pre-commit isn't in the project's
+   dependencies, so install it once for your user (for example with
+   `uv tool install pre-commit` or `pipx install pre-commit`), then:
 
    ```bash
    pre-commit install
@@ -135,13 +137,12 @@ Please follow these steps for your contribution:
 
 #### Dependency lockfile policy
 
-`uv.lock` is **authoritative**: every environment — pre-commit hooks, CI, local
-dev, and release — builds from the *exact* locked dependency set, and no command
-silently re-resolves. Resolution happens in exactly one place: a deliberate
+`uv.lock` is **authoritative**: pre-commit hooks, CI, local dev and release
+install the *exact* locked dependency set, and no command silently re-resolves. Resolution happens in exactly one place: a deliberate
 `uv lock` / `uv add`, committed and reviewed.
 
 - **Hooks** pin `uv run --frozen` (use the lock as-is; never block, never rewrite it).
-- **Local setup** uses `uv sync --frozen` (install exactly what `uv.lock` says; never re-resolve, so it works offline and behind a PyPI mirror). Run `uv lock --check` if you want the drift check locally — CI enforces it either way.
+- **Local setup** uses `uv sync --frozen` (install exactly what `uv.lock` says; never re-resolve). Run `uv lock --check` if you want the drift check locally — CI enforces it either way.
 - **CI** pins `uv sync --locked` (assert `uv.lock` equals `pyproject.toml` and fail on drift). A per-step flag, not a `UV_LOCKED` env var — `UV_LOCKED` is mutually exclusive with the hooks' `--frozen`, and CI's `pre-commit` job runs those hooks.
 - **Changing dependencies** is the only sanctioned re-resolution: edit `pyproject.toml`, run `uv lock` (or `uv add`), and commit the updated `uv.lock` in the same change.
 
@@ -207,14 +208,9 @@ Tests are the main way tools are checked: they call them in-process with
 
 ### Code Style
 
-This project uses several tools to maintain code quality:
-
-- **black** - Code formatting
-- **ruff** - Linting
-- **mypy** - Type checking
-- **pre-commit** - Git hooks for automatic checks
-
-Pre-commit hooks will automatically format your code and catch common issues. To run manually:
+Pre-commit hooks format your code and run the linters, type checker and
+security checks; [`.pre-commit-config.yaml`](.pre-commit-config.yaml) lists
+them. To run them all manually:
 
 ```bash
 pre-commit run --all-files
@@ -230,28 +226,18 @@ pre-commit run --all-files
 
 ## Project Structure
 
-```text
-src/pyeye/
-├── server.py              # Main MCP server implementation
-├── project_manager.py     # Multi-project management
-├── namespace_resolver.py  # Distributed package handling
-├── config.py             # Configuration system
-├── cache.py              # Caching and file watching
-├── analyzers/            # Code analysis engines
-│   └── jedi_analyzer.py # Jedi integration
-└── plugins/              # Framework plugins
-    ├── base.py          # Plugin base class
-    ├── django.py        # Django support
-    ├── pydantic.py      # Pydantic models
-    └── flask.py         # Flask support
-```
+The code lives in `src/pyeye/`. The [architecture pages](docs/architecture/)
+describe how its parts fit together: [resolution](docs/architecture/resolution.md),
+[caching](docs/architecture/caching.md) and the
+[plugin system](docs/architecture/plugin-system.md). To see the current layout,
+[connect pyeye](README.md#installation) to your MCP client, open its own
+checkout, and `outline` the `pyeye` package.
 
 ## Community
 
 ### Getting Help
 
-- **GitHub Issues** - For bug reports and feature requests
-- **GitHub Discussions** - For questions and general discussion
+- **GitHub Issues** - For bug reports, feature requests and questions
 - **Documentation** - Read the [docs site](https://okeefeco.github.io/pyeye-mcp/), built from the [docs](docs/) folder
 
 ### Communication Guidelines
@@ -268,7 +254,6 @@ We value all contributions! Contributors are recognized in several ways:
 
 - Your name in the commit history
 - Mention in release notes for significant contributions
-- The satisfaction of improving a tool used by developers worldwide
 
 ## License
 
