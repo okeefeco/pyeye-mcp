@@ -50,7 +50,7 @@ edge can't reintroduce the #445 pattern without a test failing.
 ## One canonical handle resolver
 
 Every exact-path lookup goes through one resolver,
-`pyeye.resolver.resolve_handle(path) -> Resolved | NotFound` (#623). That covers
+`pyeye.resolver.resolve_handle(path, analyzer) -> Resolved | NotFound` (#623). That covers
 `inspect`, the `outline` root, the `expand` source, `trace` roots and interior
 nodes, `resolve` and `resolve_at`, typeref forward refs, and the external
 targets of the `imports` edge. Each tool echoes the handle the resolver returns.

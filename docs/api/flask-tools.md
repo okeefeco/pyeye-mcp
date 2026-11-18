@@ -12,8 +12,10 @@ The tools: <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_erro
 
 ## find_flask_routes
 
-The route inventory: each decorated route with its URL path and methods. Use it
-to see what an application serves, or to spot two handlers on one path.
+The route inventory: each decorated route with its methods and its own path,
+as the decorator writes it. A blueprint's `url_prefix` isn't added, so two
+routes with the same path in different blueprints are different URLs (composing
+the prefix is #952).
 
 ```json pyeye-example tool=find_flask_routes
 {}
@@ -86,8 +88,11 @@ than given a guessed handle.
 
 ## find_flask_config
 
-The application's configuration files. A file isn't a symbol, so its record has
-no `handle`.
+The application's configuration files, and each access to `app.config` or
+`current_app.config` (also through an attribute, such as `self.app.config`).
+Configuration files are looked for at most one directory below each searched
+root, so a config module nested deeper isn't listed. A file isn't a symbol, so
+its record has no `handle`.
 
 ```json pyeye-example tool=find_flask_config
 {}
