@@ -66,11 +66,12 @@ The spec asks implementations to track which annotation shapes hit the
 degraded path so that future passes (proper ``Callable`` shape, etc.) can be
 prioritised empirically. v1 maintains a module-level ``degraded_counts``
 dict (category -> int), bumped at each degraded-path site, plus a
-``logger.debug("typeref_degraded:<category>")`` for live debugging. Operators
-read the snapshot via :func:`get_and_reset_degraded_counts`. Debug-level
+``logger.debug("typeref_degraded:<category>")`` for live debugging. Debug-level
 logs are silenced in production by default, so the counter is the
-authoritative source of empirical category data; wiring into
-:mod:`pyeye.metrics` is left as a follow-up.
+authoritative source of empirical category data. :mod:`pyeye.metrics` reports
+it (``get_performance_metrics``: the ``typeref_degraded`` section, and the
+``pyeye_typeref_degraded_total`` Prometheus counter) through
+:func:`degraded_counts_snapshot`, which never resets it (#331).
 """
 
 from __future__ import annotations
@@ -184,8 +185,9 @@ def invalidate_all() -> None:
 #
 # Per-process counter of degraded-path categories (e.g. ``"Callable"``,
 # ``"Literal"``, ``"Annotated"``, AST node-type names). Incremented at every
-# degraded-path site alongside the ``logger.debug`` line. Operators / future
-# passes call :func:`get_and_reset_degraded_counts` to snapshot and reset.
+# degraded-path site alongside the ``logger.debug`` line. The metrics report
+# reads it with :func:`degraded_counts_snapshot`; tests reset it with
+# :func:`get_and_reset_degraded_counts`.
 # Using a module-level dict (rather than fixed module-level integers) keeps
 # the category set open-ended without needing to enumerate kinds upfront.
 degraded_counts: dict[str, int] = {}
@@ -194,6 +196,15 @@ degraded_counts: dict[str, int] = {}
 def _bump_degraded(kind: str) -> None:
     """Increment the degraded-path counter for *kind*."""
     degraded_counts[kind] = degraded_counts.get(kind, 0) + 1
+
+
+def degraded_counts_snapshot() -> dict[str, int]:
+    """Return a copy of the degraded-path counts, without resetting them.
+
+    This is what the performance metrics report, so reading a report never
+    consumes the counts (#331).
+    """
+    return dict(degraded_counts)
 
 
 def get_and_reset_degraded_counts() -> dict[str, int]:
