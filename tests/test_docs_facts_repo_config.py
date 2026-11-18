@@ -123,6 +123,20 @@ class TestConfigNames:
 
         assert ProjectConfig(project.as_posix()).config["packages"] == ["first"]
 
+    def test_the_loader_reads_the_global_config_files_constant(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fact is the loader's list, not a copy of it: change one and the other follows."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "only-this.json").write_text('{"packages": ["from-constant"]}', encoding="utf-8")
+        monkeypatch.setattr(config_module.Path, "home", lambda: home)
+        monkeypatch.setattr(config_module, "GLOBAL_CONFIG_FILES", ("only-this.json",))
+        project = tmp_path / "project"
+        project.mkdir()
+
+        assert ProjectConfig(project.as_posix()).config["packages"] == ["from-constant"]
+
 
 class TestUvSyncFlags:
     def test_the_flags_every_sync_shares(self) -> None:
