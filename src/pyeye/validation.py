@@ -37,6 +37,7 @@ class PathValidator:
     #: Checked against every form of the target (:meth:`check_forms`).
     RESTRICTED_TARGETS: tuple[str, ...] = (
         r"^/etc/",
+        r"^/private/etc/",  # macOS: /etc resolves here (#856 review)
         r"^/root/",
         r"^/proc/",
         r"^/sys/",
@@ -96,8 +97,12 @@ class PathValidator:
         path_str = Path(path).as_posix()
         cls._check_spelling(path_str)
         try:
-            lexical = absolute_path(anchor(Path(path_str), root))
-            resolved = normalize_path(lexical)
+            given = Path(path_str)
+            lexical = absolute_path(anchor(given, root))
+            # Resolve the RAW join, not the lexical form: "l_tmp/../etc" with
+            # l_tmp -> /tmp is /etc on disk, though it collapses lexically to
+            # "<root>/etc" (#856 review). The OS follows the symlink first.
+            resolved = normalize_path(given if given.is_absolute() else Path(root) / given)
         except (ValueError, RuntimeError, OSError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
         cls._check_targets(list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()])))

@@ -217,3 +217,157 @@ class TestSymlinkedRoot:
         ).structured_content
 
         assert payload["handle"] == "pkg.mod.f"
+
+
+class TestReviewNamespaceSubPart:
+    """#901 review 1: ``namespace:ns./etc`` joined an absolute sub-part onto the base."""
+
+    @pytest.fixture
+    def ns_project(self, project: Path) -> Path:
+        repo = project.parent / "ns-repo"
+        (repo / "ns").mkdir(parents=True)
+        (project / ".pyeye.json").write_text(
+            json.dumps({"namespaces": {"ns": [repo.as_posix()]}}), encoding="utf-8"
+        )
+        return project
+
+    @pytest.mark.parametrize("scope", ["namespace:ns./etc", "namespace:ns.a/b", "namespace:ns..x"])
+    def test_a_non_identifier_sub_part_is_refused(self, ns_project: Path, scope: str) -> None:
+        from pyeye.exceptions import ValidationError
+        from pyeye.scope_utils import ScopeLayout, resolve_scope_paths
+
+        layout = ScopeLayout.from_parts(
+            ns_project, namespace_paths={"ns": [ns_project.parent / "ns-repo"]}
+        )
+
+        with pytest.raises(ValidationError, match="sub-namespace must be a dotted Python name"):
+            resolve_scope_paths(scope, layout)
+
+    def test_end_to_end_the_tool_refuses_it(self, ns_project: Path) -> None:
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        with pytest.raises(ToolError, match="sub-namespace"):
+            asyncio.run(
+                _plugin_server(ns_project).call_tool(
+                    "find_pydantic_models",
+                    {"scope": "namespace:ns./etc", "project_path": ns_project.as_posix()},
+                )
+            )
+
+    def test_through_a_scope_alias_too(self, ns_project: Path) -> None:
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        config = json.loads((ns_project / ".pyeye.json").read_text(encoding="utf-8"))
+        config["scope_aliases"] = {"sneaky": "namespace:ns./etc"}
+        (ns_project / ".pyeye.json").write_text(json.dumps(config), encoding="utf-8")
+
+        with pytest.raises(ToolError, match="sub-namespace"):
+            asyncio.run(
+                _plugin_server(ns_project).call_tool(
+                    "find_pydantic_models",
+                    {"scope": "sneaky", "project_path": ns_project.as_posix()},
+                )
+            )
+
+    def test_every_scope_path_is_checked_whatever_produced_it(self, project: Path) -> None:
+        """A layout that already holds a restricted directory (however it got there) is refused."""
+        from pyeye.exceptions import ValidationError
+        from pyeye.scope_utils import ScopeLayout, resolve_scope_paths
+
+        layout = ScopeLayout.from_parts(project, additional_paths=[Path("/etc")])
+
+        with pytest.raises(ValidationError, match="Invalid scope 'packages'"):
+            resolve_scope_paths("packages", layout)
+
+    def test_control_a_real_sub_namespace_passes(self, ns_project: Path) -> None:
+        from pyeye.scope_utils import ScopeLayout, resolve_scope_paths
+
+        (ns_project.parent / "ns-repo" / "ns" / "sub").mkdir()
+        layout = ScopeLayout.from_parts(
+            ns_project, namespace_paths={"ns": [ns_project.parent / "ns-repo"]}
+        )
+
+        assert resolve_scope_paths("namespace:ns.sub", layout) == {
+            ns_project.parent / "ns-repo" / "ns" / "sub"
+        }
+
+
+class TestReviewMacOSDirectory:
+    """#901 review 2: on macOS a directory resolving to /private/etc itself passed."""
+
+    @pytest.mark.parametrize("form", ["/private/etc", "/private/etc/", "/private/etc/hosts"])
+    def test_the_macos_resolved_form_is_refused(self, form: str) -> None:
+        from pyeye.exceptions import ValidationError
+        from pyeye.validation import PathValidator
+
+        with pytest.raises(ValidationError, match="restricted location"):
+            PathValidator._check_targets([form])
+
+    @pytest.mark.parametrize(
+        "form", ["/home/u/repos/etc", "/home/u/repos/root", "/srv/private/etc-tools"]
+    )
+    def test_an_ordinary_directory_named_like_one_passes(self, form: str) -> None:
+        from pyeye.validation import PathValidator
+
+        PathValidator._check_targets([form])
+
+    def test_a_symlink_to_etc_resolving_as_on_macos_is_refused(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulate macOS: the resolver turns /etc into /private/etc."""
+        from pyeye import validation
+        from pyeye.exceptions import ValidationError
+
+        real = validation.normalize_path
+
+        def macos(path: Any) -> Path:
+            resolved = real(path)
+            text = resolved.as_posix()
+            return (
+                Path("/private" + text) if text == "/etc" or text.startswith("/etc/") else resolved
+            )
+
+        monkeypatch.setattr(validation, "normalize_path", macos)
+
+        with pytest.raises(ValidationError, match="restricted location"):
+            validation.PathValidator.validate_final("lnk", project)  # the directory itself
+
+
+class TestReviewConfigurePackagesFinalForm:
+    """#901 review 3: entries were checked before ~ expansion and the config's normalisation."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"packages": ["~root"]},
+            {"standalone_dirs": ["~root"]},
+            {"namespaces": {"ns": ["~root"]}},
+            {"packages": ["l_tmp/../etc"]},
+        ],
+        ids=["tilde-package", "tilde-standalone", "tilde-namespace", "symlink-then-dotdot"],
+    )
+    def test_refused_and_nothing_is_written(self, project: Path, args: dict[str, Any]) -> None:
+        if "~root" in json.dumps(args) and Path("~root").expanduser() == Path("~root"):
+            pytest.skip("no 'root' user to expand ~root here")
+        # As in the review: l_tmp -> /tmp, so l_tmp/../etc is /etc on disk.
+        (project / "l_tmp").symlink_to("/tmp", target_is_directory=True)
+        before = (project / ".pyeye.json").exists()
+
+        _assert_refused(
+            "configure_packages", {**args, "save": True, "project_path": project.as_posix()}
+        )
+
+        assert (project / ".pyeye.json").exists() is before
+
+    def test_symlink_then_dot_dot_resolves_through_the_symlink(self, tmp_path: Path) -> None:
+        """``l_tmp/../etc``: the OS follows l_tmp first, so the final form is NOT <root>/etc."""
+        from pyeye.exceptions import ValidationError
+        from pyeye.validation import PathValidator
+
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / "l_root").symlink_to("/", target_is_directory=True)
+        (root / "l_root").resolve()  # sanity: a working link
+
+        with pytest.raises(ValidationError, match="restricted location"):
+            PathValidator.validate_final("l_root/../etc", root)

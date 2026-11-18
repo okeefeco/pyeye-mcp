@@ -198,6 +198,14 @@ def resolve_scope_paths(
                 logger.warning(f"{owner}Package path does not exist: {pkg_path.as_posix()}")
         elif warn:
             logger.warning(f"{owner}Unknown scope specification: {s}")
+    # Every directory a scope names is checked in its final form, whichever
+    # form produced it (main, packages, namespaces, aliases, package:), so no
+    # scope spelling can skip the check (#856 review).
+    for path in paths:
+        try:
+            PathValidator.validate_final(path, layout.project_path)
+        except ValidationError as error:
+            raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
     return paths
 
 
@@ -227,6 +235,15 @@ def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:
     for ns_path in layout.namespace_paths.get(namespace, ()):
         paths.update(namespace_directory_structure(ns_path))
     parts = namespace.split(".")
+    # A sub-namespace is a dotted Python name: every part an identifier. Anything
+    # else ("ns./etc") would join onto the base as a path, and an absolute part
+    # replaces the base entirely (#856 review).
+    if not all(part.isidentifier() for part in parts[1:]):
+        raise ValidationError(
+            f"Invalid scope 'namespace:{namespace}': a sub-namespace must be a dotted "
+            "Python name",
+            parameter="scope",
+        )
     for i in range(len(parts)):
         parent_ns = ".".join(parts[: i + 1])
         sub_parts = parts[i + 1 :]

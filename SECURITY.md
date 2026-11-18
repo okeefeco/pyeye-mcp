@@ -103,7 +103,7 @@ they can't drift from it.
   <!-- fact:begin security.path_checks -->
   - anywhere in the path: null bytes, suspicious triple dots;
   - naming one of these directories: `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`;
-  - a target matching one of these patterns: `^/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
+  - a target matching one of these patterns: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 

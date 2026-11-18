@@ -50,6 +50,7 @@ except ImportError:
         return "default_session"
 
 
+from ..exceptions import ValidationError
 from ..plugins import handles as plugin_handles
 from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
@@ -58,7 +59,7 @@ from ..plugins.pydantic import PydanticPlugin
 from ..project_manager import get_project_manager
 from ..scope_utils import SmartScopeResolver
 from ..settings import settings
-from ..validation import validate_mcp_inputs
+from ..validation import PathValidator, validate_mcp_inputs
 from . import meta
 from .jedi_worker import on_jedi_worker
 from .operations.expand import expand as _expand_impl
@@ -668,6 +669,35 @@ def filter_fields(
         return [{k: item[k] for k in fields if k in item} for item in data]
 
 
+def _check_new_config_paths(
+    config: ProjectConfig,
+    packages: list[str] | None,
+    namespaces: dict[str, list[str]] | None,
+    standalone_dirs: list[str] | None,
+) -> None:
+    """Refuse a new config entry whose final form fails the path check (#856).
+
+    Checked as the config will read it (:meth:`ProjectConfig._normalise_config_path`:
+    ``~`` expanded, anchored on the project), on the project path the tool uses.
+
+    Raises:
+        ValidationError: Naming the first refused entry; nothing has been changed.
+    """
+    entries = [("packages", p) for p in packages or []]
+    entries += [
+        (f"namespaces[{ns!r}]", p) for ns, ps in (namespaces or {}).items() for p in ps or []
+    ]
+    entries += [("standalone_dirs", p) for p in standalone_dirs or []]
+    for where, entry in entries:
+        final = config._normalise_config_path(entry)
+        try:
+            PathValidator.validate_final(final, config.project_path)
+        except ValidationError as error:
+            raise ValidationError(
+                f"Invalid path {entry!r} in {where}: {error}", parameter=where.split("[")[0]
+            ) from error
+
+
 @mcp.tool()
 @tool_errors
 @validate_mcp_inputs
@@ -712,6 +742,11 @@ def configure_packages(
     root = normalize_path(project_path)
     project_config = ProjectConfig(root.as_posix())
     config = project_config
+
+    # Each new entry is checked in the form the config will use it (~ expanded,
+    # anchored on the project, as normalised), BEFORE anything is changed or
+    # saved: a refused entry is an error and nothing is written (#856 review).
+    _check_new_config_paths(config, packages, namespaces, standalone_dirs)
 
     # Update configuration
     if packages:

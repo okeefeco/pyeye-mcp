@@ -555,6 +555,7 @@
     ],
     "security.path_checks.targets": [
       "^/etc/",
+      "^/private/etc/",
       "^/root/",
       "^/proc/",
       "^/sys/",

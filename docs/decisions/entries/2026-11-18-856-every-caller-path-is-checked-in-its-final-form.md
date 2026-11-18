@@ -39,6 +39,12 @@ superseded_by: []
   - `resolve`'s file forms, in `_resolve_identifier`.
   - `scope_utils.package_scope_path`, so the search and the #842 envelope share it.
   - `ProjectConfig.get_namespaces` and `get_standalone_paths`.
+- **Hardening from the independent bypass review of #901:**
+  - **Scopes:** a sub-namespace must be a dotted Python name, because `namespace:ns./etc` joined an absolute part onto the base. Every directory any scope produces (main, packages, namespaces, aliases, `package:`) goes through `validate_final` in `resolve_scope_paths`, so no scope spelling can skip it.
+  - **macOS:** `^/private/etc/` (the resolved form of `/etc`) is an anchored pattern, so the directory itself is refused too. The unanchored `/etc/` and `/root/` patterns get no directory form, so a project dir that merely ends in `etc` or `root` still passes.
+  - **Resolved form:** the resolved form is the RAW join resolved (`root/l_tmp/../etc` follows `l_tmp` first, as the OS does), not the lexically collapsed path.
+  - **`configure_packages`:** each new entry is checked as the config will read it (`~` expanded, anchored, normalised), on the tool's normalised project path. A refused entry is an error, and nothing is changed or saved.
+  - **Not fixed here:** whether a scan root that CONTAINS a restricted directory (`package:/`, `project_path="/"`) must be refused is a design question with the designer. TOCTOU symlink swaps are out of scope.
 - **Scope:** it is still "a sanity check, not a sandbox", and the deny-list stays POSIX-only (#867).
 
 **Anchor:** maintainer rulings of 2026-11-18 (via the designer); `pyeye.validation.PathValidator.validate_final` / `check_forms` / `_check_targets`; `pyeye.validation.validate_mcp_inputs`; `pyeye.mcp.operations.resolve._resolve_identifier`; `pyeye.scope_utils.package_scope_path`; `pyeye.config.ProjectConfig.get_namespaces` / `get_standalone_paths`; `SECURITY.md`; `tests/test_final_form_path_checks.py`; #856, #852, #842, #568, #898.
