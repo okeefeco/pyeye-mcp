@@ -567,7 +567,12 @@ class TestCli:
         )
         path = _write(tmp_path, [finding])
         assert review.main(["validate", str(path)], root=_ROOT) == 0
-        assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
+        assert json.loads(capsys.readouterr().out) == {
+            "ok": True,
+            "accepted": 1,
+            "rejected": 0,
+            "shown": [{"index": 0, "status": "new"}],
+        }
 
     @pytest.mark.usefixtures("memory_state")
     def test_dismiss_then_validate_suppresses_it(
@@ -584,7 +589,12 @@ class TestCli:
         assert review.main(args, root=_ROOT) == 0
         capsys.readouterr()
         assert review.main(["validate", str(path)], root=_ROOT) == 0
-        assert json.loads(capsys.readouterr().out) == {"shown": []}
+        assert json.loads(capsys.readouterr().out) == {
+            "ok": True,
+            "accepted": 1,
+            "rejected": 0,
+            "shown": [],
+        }
 
     def test_dismissing_an_invalid_finding_is_refused(
         self, tmp_path: Path, memory_state: dict[str, Any]
@@ -775,7 +785,9 @@ class _FakeSymbols:
         canonical: dict[str, str],
         surfaces: dict[str, dict[str, str]] | None = None,
         edges: dict[tuple[str, str], list[str]] | None = None,
+        literals: frozenset[str] = frozenset(),
     ) -> None:
+        self._literals = literals
         self._canonical = canonical
         self._surfaces = surfaces or {}
         self._edges = edges or {}
@@ -789,6 +801,9 @@ class _FakeSymbols:
     def edge(self, handle: str, edge: str) -> list[str] | None:
         return self._edges.get((handle, edge))
 
+    def has_literal(self, text: str) -> bool:
+        return text in self._literals
+
 
 _LOAD = "pkg._impl.load"
 _SIG = "load(path: str) -> bytes"
@@ -800,6 +815,7 @@ def _syms(**kwargs: Any) -> _FakeSymbols:
         kwargs.get("canonical", {_LOAD: _LOAD}),
         kwargs.get("surfaces", {_LOAD: {"signature": _SIG, "docstring": _DOC}}),
         kwargs.get("edges", {(_LOAD, "callees"): ["builtins.open"]}),
+        kwargs.get("literals", frozenset({"Package path does not exist: {}"})),
     )
 
 
@@ -886,7 +902,11 @@ class TestCodeContradiction:
     @pytest.mark.parametrize(
         ("overrides", "problem"),
         [
-            ({"route": None}, "must say its route, one of ['fact', 'example', 'wording']"),
+            (
+                {"route": None},
+                "must say its route, one of ['fact', 'example', 'link', 'delete', 'code_bug', "
+                "'wording']",
+            ),
             ({"route": "guess"}, "must say its route"),
             ({"route": "fact"}, "a fact route names its extractor"),
             ({"route": "wording", "route_reason": " "}, "a wording route must say why neither"),
@@ -914,7 +934,7 @@ class TestCodeContradiction:
 
     def test_it_rests_on_a_symbol(self) -> None:
         finding = _contradiction(anchor={"kind": "fact", "id": _TTL.id})
-        assert "a code_contradiction finding rests on a symbol anchor" in (
+        assert "a code_contradiction finding rests on a symbol or literal anchor" in (
             review.finding_problems(finding, _FACTS)
         )
 
@@ -941,7 +961,12 @@ class TestCodeContradiction:
             evidence=[{"docstring": "Never raises for a miss."}],
         )
         assert review.main(["validate", str(_write(tmp_path, [good]))], root=_ROOT) == 0
-        assert json.loads(capsys.readouterr().out) == {"shown": [{"index": 0, "status": "new"}]}
+        assert json.loads(capsys.readouterr().out) == {
+            "ok": True,
+            "accepted": 1,
+            "rejected": 0,
+            "shown": [{"index": 0, "status": "new"}],
+        }
         bad = {**good, "anchor": {"kind": "symbol", "id": "pyeye.resolver.nope"}}
         assert review.main(["validate", str(_write(tmp_path, [bad]))], root=_ROOT) == 1
         assert "doesn't resolve in the project" in capsys.readouterr().out
@@ -1384,3 +1409,247 @@ def test_the_shared_registry_cant_leak_between_tests() -> None:
     assert "leaked" not in second[victim].value
     assert len(second) == len(_repo_facts_once())
     assert second is not first
+
+
+class TestC17:
+    """#829-4: the maintainer's C17 rulings and the run feedback."""
+
+    def test_a_page_level_finding_uses_star(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text("# A\nx\n# B\ny\n", encoding="utf-8")
+        finding = _clear(
+            section=review.PAGE,
+            category="style",
+            anchor={"kind": "style_rule", "id": "orphaned-text"},
+            subject="# B",
+            replacement="Delete the fictitious suite; link docs/testing/ instead.",
+        )
+        assert review.finding_problems(_hashed(finding, tmp_path), _FACTS, tmp_path) == []
+        assert review.section_text(tmp_path, "README.md", "*") == "# A\nx\n# B\ny\n"
+
+    def test_a_fact_finding_cant_be_page_level(self) -> None:
+        problems = review.finding_problems(_clear(section="*"), _FACTS)
+        assert (
+            "a fact_drift finding is a clear fix in one section; '*' is for page-wide defects"
+            in (problems)
+        )
+
+    def test_a_page_level_dismissal_survives_prune_while_the_page_exists(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "page.md").write_text("# A\n", encoding="utf-8")
+        state: dict[str, Any] = {}
+        finding = _clear(
+            page="page.md",
+            section="*",
+            category="style",
+            anchor={"kind": "style_rule", "id": "orphaned-text"},
+            subject="# A",
+        )
+        review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18")
+        assert review.prune(state, tmp_path) == []
+        (tmp_path / "page.md").unlink()
+        assert review.prune(state, tmp_path) == ["page.md#*"]
+
+    def _literal(self, text: str, **overrides: Any) -> dict[str, Any]:
+        finding = _contradiction(anchor={"kind": "literal", "id": text}, route="wording")
+        finding.pop("evidence")
+        finding.update(overrides)
+        return finding
+
+    def test_a_literal_anchor_must_be_a_whole_literal_in_src(self) -> None:
+        good = self._literal("Package path does not exist: {}")
+        assert review.finding_problems(good, _FACTS, None, _syms()) == []
+        partial = self._literal("Package path does not")
+        (problem,) = review.finding_problems(partial, _FACTS, None, _syms())
+        assert "isn't a whole string literal in src/" in problem
+
+    def test_src_literals_parses_strings_and_f_string_parts(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "m.py").write_text(
+            '# "a comment string"\nx = "plain"\ny = f"Missing {name}: try again"\n',
+            encoding="utf-8",
+        )
+        found = review.src_literals(tmp_path)
+        assert {"plain", "Missing ", ": try again"} <= found
+        assert "a comment string" not in found
+
+    def test_a_literal_that_left_src_is_an_orphan_and_moves(self) -> None:
+        state: dict[str, Any] = {}
+        finding = self._literal("Package path does not exist: {}")
+        entry = review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18", None, _syms())
+        after = _syms(literals=frozenset({"Package path is missing: {}"}))
+        (message,) = review.orphaned(state, _FACTS, None, after)
+        assert "which is no longer a literal in src/" in message
+        review.move(state, entry["key"], "Package path is missing: {}", _FACTS, None, after)
+        assert review.orphaned(state, _FACTS, None, after) == []
+
+    @pytest.mark.parametrize(
+        ("overrides", "problem"),
+        [
+            ({"route": "link"}, "a link route names its `link`"),
+            ({"route": "code_bug"}, "blocked_by: '#N'"),
+            ({"route": "code_bug", "blocked_by": "851"}, "blocked_by: '#N'"),
+        ],
+    )
+    def test_link_and_code_bug_routes_need_their_target(
+        self, overrides: dict[str, Any], problem: str
+    ) -> None:
+        problems = review.finding_problems(_contradiction(**overrides), _FACTS)
+        assert any(problem in p for p in problems), problems
+
+    def test_link_delete_and_code_bug_routes_pass(self, tmp_path: Path) -> None:
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests" / "perf.py").write_text("", encoding="utf-8")
+        for overrides in (
+            {"route": "link", "link": "tests/perf.py"},
+            {"route": "delete"},
+            {"route": "code_bug", "blocked_by": "#851"},
+        ):
+            finding = _without(_contradiction(**overrides), "route_reason")
+            assert review._route_problems(finding, tmp_path) == [], overrides
+        missing = _contradiction(route="link", link="tests/gone.py")
+        assert review._route_problems(missing, tmp_path) == [
+            "link target 'tests/gone.py' doesn't exist in the repo"
+        ]
+
+    def test_a_closed_blocking_issue_lifts_the_dismissal(self) -> None:
+        state: dict[str, Any] = {}
+        finding = _contradiction(route="code_bug", blocked_by="#851")
+        entry = review.dismiss_finding(
+            state, finding, _FACTS, "deliberate", "2026-11-18", None, _syms()
+        )
+        assert entry["blocked_by"] == "#851"
+        assert review.lift_blocked(state, lambda _n: None) == []  # offline: left alone
+        assert review.lift_blocked(state, lambda _n: False) == []  # still open
+        assert [e["key"] for e in review.lift_blocked(state, lambda n: n == 851)] == [entry["key"]]
+        assert state["confirmed_non_issues"] == []
+
+    def test_a_contradictory_directive_needs_a_decision(self) -> None:
+        clear = _clear(
+            category="audience",
+            anchor={"kind": "audience_rule", "id": "contradictory-directive"},
+            subject="always run X",
+        )
+        assert "a contradictory-directive finding needs a decision: which directive wins" in (
+            review.finding_problems(clear, _FACTS)
+        )
+        decided = _ambiguous(
+            anchor={"kind": "audience_rule", "id": "contradictory-directive"},
+            recommendation_anchor={"kind": "audience_rule", "id": "link-not-restate"},
+        )
+        assert review.finding_problems(decided, _FACTS) == []
+
+    def test_new_rule_ids(self) -> None:
+        assert {"D12-volatile", "D12-number"} <= set(review.RULE_IDS["claims_rule"])
+        assert "duplicated-prose" in review.RULE_IDS["style_rule"]
+        assert "duplication" not in review.RULE_IDS["style_rule"]
+
+    def test_packets_list_bound_views(self, tmp_path: Path) -> None:
+        ttl = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "`PYEYE_CACHE_TTL`")
+        facts: dict[str, Any] = {ttl.id: ttl, "env.PYEYE_CACHE_TTL.default": view("x", [ttl], "")}
+        (tmp_path / "p.md").write_text(
+            "# P\n<!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->\n",
+            encoding="utf-8",
+        )
+        entry = type("E", (), {"audience": "human", "kind": "prose", "covers": ()})()
+        assert review.packet(tmp_path, "p.md", entry, facts, {})["views"] == [
+            "env.PYEYE_CACHE_TTL.default"
+        ]
+
+    def test_validate_stdout_is_json_only(
+        self, tmp_path: Path, memory_state: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import logging
+
+        logging.getLogger("pyeye").warning("a log line that must not reach stdout")
+        finding = _contradiction(
+            section=_README_SECTION,
+            anchor={"kind": "symbol", "id": "pyeye.resolver.resolve_handle"},
+            evidence=[{"docstring": "Never raises for a miss."}],
+            route="wording",
+        )
+        assert review.main(["validate", str(_write(tmp_path, [finding]))], root=_ROOT) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["ok"] is True and out["accepted"] == 1
+        assert memory_state["confirmed_non_issues"] == []
+
+
+def test_the_reviewer_prompt_lists_exactly_the_registered_extractors() -> None:
+    """The fact route's extractor list in reviewer.md can't drift from the registry."""
+    from pyeye.docs_facts.registry import EXTRACTORS
+
+    prompt = (_ROOT / ".claude/skills/docs-review/reviewer.md").read_text(encoding="utf-8")
+    listed = re.search(r"extractor that would produce it \(([^)]*)\)", " ".join(prompt.split()))
+    assert listed is not None
+    assert re.findall(r"`(\w+)`", listed.group(1)) == [e.name for e in EXTRACTORS]
+
+
+class TestC17Coverage:
+    """The paths the C17 tests above don't reach: real literals, gh, move's refusals, the CLI."""
+
+    def test_project_symbols_has_literal_and_skips_unparseable_files(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "ok.py").write_text('MSG = "Package path does not exist"\n')
+        (tmp_path / "src" / "broken.py").write_text("def broken(:\n")
+        symbols = review.project_symbols(tmp_path)
+        assert symbols.has_literal("Package path does not exist")
+        assert not symbols.has_literal("Package path")
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout", "expected"),
+        [(0, "CLOSED\n", True), (0, "OPEN\n", False), (1, "", None)],
+    )
+    def test_gh_issue_closed_reads_gh(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: bool | None
+    ) -> None:
+        import subprocess  # nosec B404 - only the fake below runs
+
+        seen: list[list[str]] = []
+
+        def fake(args: list[str], **_kwargs: Any) -> Any:
+            seen.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+        monkeypatch.setattr(subprocess, "run", fake)
+        assert review.gh_issue_closed(851) is expected
+        assert seen == [["gh", "issue", "view", "851", "--json", "state", "-q", ".state"]]
+
+    def test_gh_issue_closed_is_unknown_without_gh(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess  # nosec B404 - only the fake below runs
+
+        def missing(*_args: Any, **_kwargs: Any) -> Any:
+            raise FileNotFoundError("gh")
+
+        monkeypatch.setattr(subprocess, "run", missing)
+        assert review.gh_issue_closed(851) is None
+
+    def test_move_needs_pyeye_for_a_symbol_or_literal(self) -> None:
+        state: dict[str, Any] = {}
+        finding = TestC17()._literal("Package path does not exist: {}")
+        entry = review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18", None, _syms())
+        with pytest.raises(ValueError, match="moving a literal needs pyeye"):
+            review.move(state, entry["key"], "x", _FACTS, None, None)
+
+    def test_move_refuses_a_new_string_that_isnt_a_literal(self) -> None:
+        state: dict[str, Any] = {}
+        finding = TestC17()._literal("Package path does not exist: {}")
+        entry = review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18", None, _syms())
+        gone = _syms(literals=frozenset({"Something else"}))
+        with pytest.raises(ValueError, match="isn't a whole string literal in src/"):
+            review.move(state, entry["key"], "Not one either", _FACTS, None, gone)
+
+    def test_lift_blocked_on_the_command_line(
+        self,
+        memory_state: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        finding = _contradiction(route="code_bug", blocked_by="#851")
+        entry = review.dismiss_finding(
+            memory_state, finding, _FACTS, "deliberate", "2026-11-18", None, _syms()
+        )
+        monkeypatch.setattr(review, "gh_issue_closed", lambda number: number == 851)
+        assert review.main(["lift-blocked"], root=_ROOT) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["lifted"] == [{"key": entry["key"], "blocked_by": "#851"}]
+        assert memory_state["confirmed_non_issues"] == []
