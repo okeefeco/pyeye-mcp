@@ -87,8 +87,8 @@ Please follow these steps for your contribution:
 4. **Add tests** - If you've added code, add tests
 5. **Ensure tests pass** - Run the full test suite
 6. **Update documentation** - If you've changed APIs, update the relevant documentation
-7. **Add a changelog fragment** - For a user-facing change, add `changes/<issue>.<category>.md` with one or more `-` bullets (for example `changes/619.fixed.md`) instead of editing `CHANGELOG.md`. See [`changes/README.md`](changes/README.md) for the categories. Fragments are collected into `CHANGELOG.md` when a release is prepared.
-8. **Record a design decision, if you made one** - A contract-significant decision gets its own file in `docs/decisions/entries/` (see [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) for the format). `python scripts/decisions.py index` lists existing decisions and `python scripts/decisions.py check` validates them.
+7. **Add a changelog fragment** - For a user-facing change, add a fragment instead of editing `CHANGELOG.md`: [`changes/README.md`](changes/README.md) explains how.
+8. **Record a design decision, if you made one** - A contract-significant decision gets its own entry: [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) explains the format and the tooling.
 9. **Submit the pull request** - Link it to your assigned issue using "Fixes #issue-number"
 10. **Address review feedback** - Maintainers will review your PR and may request changes
 
@@ -141,9 +141,9 @@ Please follow these steps for your contribution:
 install the *exact* locked dependency set, and no command silently re-resolves. Resolution happens in exactly one place: a deliberate
 `uv lock` / `uv add`, committed and reviewed.
 
-- **Hooks** pin `uv run --frozen` (use the lock as-is; never block, never rewrite it).
+- **Hooks** pin `uv run` <!-- fact:begin precommit.uv_run_flags -->`--frozen`<!-- fact:end --> (use the lock as-is; never block, never rewrite it).
 - **Local setup** uses `uv sync --frozen` (install exactly what `uv.lock` says; never re-resolve). Run `uv lock --check` if you want the drift check locally — CI enforces it either way.
-- **CI** pins `uv sync --locked` (assert `uv.lock` equals `pyproject.toml` and fail on drift). A per-step flag, not a `UV_LOCKED` env var — `UV_LOCKED` is mutually exclusive with the hooks' `--frozen`, and CI's `pre-commit` job runs those hooks.
+- **CI** pins `uv sync` <!-- fact:begin ci.uv_sync_flags -->`--locked`<!-- fact:end --> (assert `uv.lock` equals `pyproject.toml` and fail on drift). A per-step flag, not a `UV_LOCKED` env var — `UV_LOCKED` is mutually exclusive with the hooks' `--frozen`, and CI's `pre-commit` job runs those hooks.
 - **Changing dependencies** is the only sanctioned re-resolution: edit `pyproject.toml`, run `uv lock` (or `uv add`), and commit the updated `uv.lock` in the same change.
 
 If CI fails with *"the lockfile needs to be updated, but `--locked` was provided,"*
