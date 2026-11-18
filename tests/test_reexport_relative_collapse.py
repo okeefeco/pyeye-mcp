@@ -267,3 +267,118 @@ def test_an_unparseable_package_still_resolves(tmp_path: Path) -> None:
     result = resolve_handle("pkg.T", analyzer)
 
     assert isinstance(result, Resolved), result
+
+
+#: (files, handle, expected handle, kind, anchor "file:line"). Every case but the
+#: last three asserts the answer main gave before #857 (#871 re-review): the rule
+#: is "as before, except where that was wrong".
+BINDING_CASES = {
+    "property_getter_not_setter": (
+        {
+            "e/__init__.py": (
+                "class P:\n    @property\n    def x(self) -> int:\n        return 1\n\n"
+                "    @x.setter\n    def x(self, value: int) -> None:\n        pass\n"
+            )
+        },
+        "e.P.x",
+        "e.P.x",
+        "method",
+        "__init__.py:3",
+    ),
+    "conditional_def_first_branch": (
+        {
+            "pkg/__init__.py": "",
+            "pkg/cond.py": (
+                "import sys\n\nif sys.version_info >= (3, 8):\n    def cf() -> int:\n"
+                "        return 1\nelse:\n    def cf() -> int:\n        return 2\n"
+            ),
+        },
+        "pkg.cond.cf",
+        "pkg.cond.cf",
+        "function",
+        "cond.py:4",
+    ),
+    "overload_first": (
+        {
+            "pkg/__init__.py": (
+                "from typing import overload\n\n\nclass Thing:\n    @overload\n"
+                "    def ov(self, a: int) -> int: ...\n\n    @overload\n"
+                "    def ov(self, a: str) -> str: ...\n\n    def ov(self, a):\n        return a\n"
+            )
+        },
+        "pkg.Thing.ov",
+        "pkg.Thing.ov",
+        "method",
+        "__init__.py:6",
+    ),
+    "type_checking_branch": (
+        {
+            "pkg/__init__.py": (
+                "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
+                "    from .thing import TCThing\nelse:\n    TCThing = object\n"
+            ),
+            "pkg/thing.py": "class TCThing:\n    pass\n",
+        },
+        "pkg.TCThing",
+        "pkg.TCThing",
+        "class",
+        "__init__.py:4",
+    ),
+    "try_except_fallback": (
+        {
+            "pkg/__init__.py": (
+                "try:\n    from .thing import Maybe\nexcept ImportError:\n    Maybe = None\n"
+            ),
+            "pkg/thing.py": "class Maybe:\n    pass\n",
+        },
+        "pkg.Maybe",
+        "pkg.Maybe",
+        "class",
+        "__init__.py:2",
+    ),
+    "del_is_not_a_binding": (
+        {"e/__init__.py": "from .src import B\n\ndel B\n", "e/src.py": "class B:\n    pass\n"},
+        "e.B",
+        "e.B",
+        "class",
+        "__init__.py:1",
+    ),
+    # Fixed by #857: these three differed on main.
+    "shadow_class_last_wins": (
+        {
+            "q/__init__.py": "from .src import A\n\n\nclass A:\n    local = 1\n",
+            "q/src.py": "class A:\n    remote = 1\n",
+        },
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:4",
+    ),
+    "shadow_assignment_last_wins": (
+        {"q/__init__.py": "from .src import D\nD = 5\n", "q/src.py": "D = 1\n"},
+        "q.D",
+        "q.D",
+        "variable",
+        "__init__.py:2",
+    ),
+    "reimport_after_definition_collapses": (
+        {
+            "e/__init__.py": "class A:\n    pass\n\n\nfrom .src import A\n",
+            "e/src.py": "class A:\n    remote = 1\n",
+        },
+        "e.A",
+        "e.src.A",
+        "class",
+        "src.py:1",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BINDING_CASES))
+def test_several_bindings_of_one_name(tmp_path: Path, case: str) -> None:
+    files, path, handle, kind, where = BINDING_CASES[case]
+
+    result = _resolved(path, _tree(tmp_path, files))
+
+    assert (result.handle, result.kind) == (handle, kind)
+    assert f"{Path(result.anchor.module_path).name}:{result.anchor.line}" == where

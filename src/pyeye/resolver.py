@@ -694,21 +694,51 @@ def _goto_definition(name: Any) -> Any | None:
     return None
 
 
-def _import_lines(mod_file: Path) -> frozenset[int] | None:
-    """The lines of *mod_file* that hold an ``import`` / ``from … import`` statement.
+@dataclass(frozen=True)
+class _BindingLines:
+    """What a module's AST says about the lines its bindings sit on (#857)."""
+
+    imports: frozenset[int]  #: lines of an ``import`` / ``from … import``
+    deletes: frozenset[int]  #: lines of a ``del`` (never a binding)
+    branched: frozenset[int]  #: lines inside an if / try / loop / with / match
+
+
+#: Statements whose body may or may not run: a binding inside one is conditional.
+_BRANCHING = (
+    ast.If,
+    ast.Try,
+    ast.TryStar,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.With,
+    ast.AsyncWith,
+    ast.Match,
+)
+
+
+def _binding_lines(mod_file: Path) -> _BindingLines | None:
+    """Import, ``del`` and conditional lines of *mod_file*, from its AST.
 
     ``None`` when the server's Python can't parse the file (#703): Jedi's parser
-    tolerates it, so resolution must too, just without telling imports apart.
+    tolerates it, so resolution must too, just without telling bindings apart.
     """
     try:
         tree = file_artifact_cache.get_ast(mod_file)
     except (SyntaxError, ValueError):
         return None
-    lines: set[int] = set()
+    imports: set[int] = set()
+    deletes: set[int] = set()
+    branched: set[int] = set()
     for node in ast.walk(tree):
+        span = range(getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1)
         if isinstance(node, ast.Import | ast.ImportFrom):
-            lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
-    return frozenset(lines)
+            imports.update(span)
+        elif isinstance(node, ast.Delete):
+            deletes.update(span)
+        elif isinstance(node, _BRANCHING):
+            branched.update(span)
+    return _BindingLines(frozenset(imports), frozenset(deletes), frozenset(branched))
 
 
 def _cross_file_target(name: Any) -> Any | None:
@@ -732,37 +762,39 @@ def _cross_file_target(name: Any) -> Any | None:
 def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     """Anchor *handle* among every binding in its module that names it (#857).
 
-    - **Only imports bind it**, and they lead to ONE definition elsewhere (a
-      relative re-export, possibly repeated): collapse to that definition, as
-      for every other re-export.
-    - **Imports leading to different definitions** (``if …: from .a import T
-      else: from .b import T``): no collapse. The handle stays the re-export
-      path rather than confidently naming one branch.
-    - **A real definition binds it** (``from .src import A`` then ``class A``):
-      the LAST binding wins, as at runtime, anchored on itself, so the handle
-      and its members agree.
-    - **The file doesn't parse** with the server's Python: the first binding,
-      uncollapsed, as before.
+    The rule is "answer as before #857, except where that answer was wrong":
 
-    A single binding needs no AST: its goto leading to another file makes it an
-    import, so it collapses.
+    - **One binding**: if its goto leads to a definition in another file it can
+      only be an import, so it collapses (a relative re-export). No AST needed.
+    - **Only imports**, all leading to ONE definition elsewhere (possibly
+      repeated): collapse to it. Imports of different definitions (an if/else
+      re-export) stay uncollapsed, never a confident branch.
+    - **An import and a real definition, all unconditional** (``from .src import
+      A`` then ``class A``): the LAST binding wins, as at runtime. If the last is
+      the import (``class A`` then ``from .src import A``), it collapses.
+    - **Everything else keeps the first binding**, as before: no import among
+      them (a property and its setter, overloads, an if/else ``def``), bindings
+      split across branches (``TYPE_CHECKING``, ``try/except ImportError``), a
+      ``del`` among them (it binds nothing), or a module that won't parse.
     """
+    first = matches[0]
     if len(matches) == 1:
-        # One binding: if its goto leads to a definition in another file it can
-        # only be an import, so collapse; no AST needed on this common path.
-        return _cross_file_target(matches[0]) or _anchor_on_definition(matches[0], handle)
-    imports = _import_lines(mod_file)
-    if imports is None:
-        # Unparseable here: no way to tell an import from a definition, so keep
-        # the first binding, as before #857.
-        return _anchor_on_definition(matches[0], handle)
-    if all((m.line or 0) in imports for m in matches):
+        return _cross_file_target(first) or _anchor_on_definition(first, handle)
+    lines = _binding_lines(mod_file)
+    if lines is None or any((m.line or 0) in lines.deletes for m in matches):
+        return _anchor_on_definition(first, handle)
+    is_import = [(m.line or 0) in lines.imports for m in matches]
+    if all(is_import):
         targets = [_cross_file_target(m) for m in matches]
         found = {(t.module_path, t.line, t.column) for t in targets if t is not None}
         if len(found) == 1 and all(t is not None for t in targets):
             return next(t for t in targets if t is not None)
-        return _anchor_on_definition(matches[0], handle)
+        return _anchor_on_definition(first, handle)
+    if not any(is_import) or any((m.line or 0) in lines.branched for m in matches):
+        return _anchor_on_definition(first, handle)
     last = max(matches, key=lambda m: (m.line or 0, m.column or 0))
+    if (last.line or 0) in lines.imports:
+        return _cross_file_target(last) or _anchor_on_definition(last, handle)
     return _anchor_on_definition(last, handle)
 
 
