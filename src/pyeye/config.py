@@ -532,8 +532,26 @@ class ProjectConfig:
         # (or against the server's CWD), and "app/../repo" defeated the
         # file<->module mapper.
         return {
-            ns: [self._normalise_config_path(p) for p in paths] for ns, paths in namespaces.items()
+            ns: [
+                normalised
+                for p in paths
+                if self._passes_path_check(normalised := self._normalise_config_path(p), ns)
+            ]
+            for ns, paths in namespaces.items()
         }
+
+    def _passes_path_check(self, entry: str, what: str) -> bool:
+        """Whether a config path *entry* passes the input check in its final form (#856).
+
+        A refused entry is skipped with a warning, as package paths already are,
+        never an error: a bad ``.pyeye.json`` must not break every call.
+        """
+        try:
+            PathValidator.validate_final(entry, self.project_path)
+        except ValidationError as error:
+            logger.warning(f"Skipping config path {entry} ({what}): {error}")
+            return False
+        return True
 
     def _normalise_config_path(self, entry: str) -> str:
         """Return *entry* as an absolute, normalised POSIX path.
@@ -579,6 +597,8 @@ class ProjectConfig:
             resolved_path = Path(dir_path).expanduser()
             if not resolved_path.is_absolute():
                 resolved_path = self.project_path / resolved_path
+            if not self._passes_path_check(resolved_path.as_posix(), "standalone.dirs"):
+                continue
             if resolved_path.exists():
                 paths.append(resolved_path)
             else:

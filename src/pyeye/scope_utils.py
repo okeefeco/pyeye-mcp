@@ -12,8 +12,10 @@ from typing import Any
 
 from .async_utils import rglob_async
 from .config import ProjectConfig
+from .exceptions import ValidationError
 from .metrics import metrics
 from .path_utils import anchor, normalize_path
+from .validation import PathValidator
 
 logger = logging.getLogger(__name__)
 
@@ -205,8 +207,18 @@ def package_scope_path(scope: str, layout: ScopeLayout) -> Path:
     A relative path is anchored on ``layout.project_path`` (the project the
     caller passed), an absolute one is used as given. The one place this is
     decided, so the search and the envelope's report can't disagree.
+
+    Raises:
+        ValidationError: If the path, in that final form, lands in a restricted
+            location (#856). A path that merely doesn't exist is not an error: the
+            envelope lists it in ``unsearched_scopes`` (#842).
     """
-    return anchor(scope[len("package:") :], layout.project_path)
+    raw = scope[len("package:") :]
+    try:
+        PathValidator.validate_final(raw, layout.project_path)
+    except ValidationError as error:
+        raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
+    return anchor(raw, layout.project_path)
 
 
 def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:
