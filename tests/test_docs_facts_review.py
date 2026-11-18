@@ -8,6 +8,7 @@ never decides.
 from __future__ import annotations
 
 import copy
+import functools
 import json
 import re
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 import pytest
 
 from pyeye.architecture_review import state as review_state
-from pyeye.docs_facts import review
+from pyeye.docs_facts import registry, review
 from pyeye.docs_facts.facts import Fact, view
 
 _TTL = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "")
@@ -423,11 +424,41 @@ def _bound_skill_fact() -> tuple[str, str]:
     raise AssertionError("no skill page binds an item fact")
 
 
-@pytest.fixture(scope="module")
-def repo_facts() -> Any:
-    from pyeye.docs_facts.registry import build
+#: The real registry build, captured before the autouse fixture patches it.
+_REAL_BUILD = registry.build
 
-    return build(_ROOT)
+
+@functools.cache
+def _repo_facts_once() -> Any:
+    """The repo's fact registry, built once per test session (#892).
+
+    Building it costs seconds (it reads every extractor), and a slow Windows
+    runner made this file the second slowest in the suite by rebuilding it for
+    every command-line test. Nothing here gets this object itself: callers
+    receive a deep copy, so no test can change what another sees.
+    """
+    return _REAL_BUILD(_ROOT)
+
+
+@pytest.fixture(autouse=True)
+def _shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve ``registry.build(<repo root>)`` from the session build, as a fresh deep copy.
+
+    ``review.main`` and ``cli.plan`` import ``build`` at call time, so patching
+    the module attribute reaches them. Any other root builds for real.
+    """
+
+    def build(root: Path, *args: Any, **kwargs: Any) -> Any:
+        if not args and not kwargs and Path(root).resolve() == _ROOT:
+            return copy.deepcopy(_repo_facts_once())
+        return _REAL_BUILD(root, *args, **kwargs)
+
+    monkeypatch.setattr(registry, "build", build)
+
+
+@pytest.fixture
+def repo_facts() -> Any:
+    return copy.deepcopy(_repo_facts_once())
 
 
 class TestScope:
@@ -1341,3 +1372,15 @@ def test_batch_problems_skips_a_finding_too_malformed_to_key() -> None:
             "rule anchor) subject; merge them"
         ]
     }
+
+
+def test_the_shared_registry_cant_leak_between_tests() -> None:
+    """Each build gets its own copy: mutating one leaves the next untouched (#892)."""
+    first = registry.build(_ROOT)
+    victim = next(i for i, f in first.items() if isinstance(f, Fact) and isinstance(f.value, dict))
+    first[victim].value["leaked"] = True  # the Fact is frozen; its value dict isn't
+    del first[next(iter(first))]
+    second = registry.build(_ROOT)
+    assert "leaked" not in second[victim].value
+    assert len(second) == len(_repo_facts_once())
+    assert second is not first

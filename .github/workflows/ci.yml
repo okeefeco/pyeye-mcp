@@ -135,7 +135,11 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15  # Prevent runaway tests
+    # #892: hosted Windows runners vary about 2x in CPU speed. On the slow ones the
+    # 3.11 leg took 13-14 minutes and one run hit a 15-minute wall at 100% of the
+    # tests, dequeuing a healthy PR. 25 minutes leaves the slow mode real headroom; a
+    # hang is still caught much sooner by pytest-timeout (300 s per test).
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -201,7 +205,11 @@ jobs:
     # Runs on main branch - full matrix for comprehensive testing
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15  # Prevent runaway tests
+    # #892: hosted Windows runners vary about 2x in CPU speed. On the slow ones the
+    # 3.11 leg took 13-14 minutes and one run hit a 15-minute wall at 100% of the
+    # tests, dequeuing a healthy PR. 25 minutes leaves the slow mode real headroom; a
+    # hang is still caught much sooner by pytest-timeout (300 s per test).
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
