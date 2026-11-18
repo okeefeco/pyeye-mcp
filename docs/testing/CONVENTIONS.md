@@ -6,24 +6,18 @@
 
 ```text
 tests/
-├── unit/              # Isolated unit tests
-│   ├── core/         # Core module tests
-│   ├── plugins/      # Plugin tests
-│   ├── utils/        # Utility tests
-│   └── analyzers/    # Analyzer tests
-├── integration/       # Component interaction tests
-│   ├── mcp_protocol/ # MCP protocol tests
-│   ├── jedi_integration/ # Jedi integration
-│   └── cache_system/ # Cache integration
-├── e2e/              # End-to-end tests
-│   └── scenarios/    # User scenarios
-├── performance/       # Performance tests
-│   ├── benchmarks/   # Performance benchmarks
-│   └── load_tests/   # Load testing
-└── fixtures/         # Shared test data
-    ├── projects/     # Sample projects
-    └── data/        # Test data files
+├── unit/          # Isolated unit tests
+├── integration/   # Component interaction tests
+├── e2e/           # End-to-end tests
+├── performance/   # Performance benchmarks
+├── conformance/   # Response-shape conformance tests
+├── fixtures/      # Shared sample projects and factories
+├── utils/         # Shared test helpers (e.g. performance.py)
+├── conftest.py    # Shared fixtures
+└── test_*.py      # Cross-cutting tests sit directly under tests/
 ```
+
+Only the top level is shown; list the subdirectories with `ls tests/<tier>/`.
 
 ## Naming Conventions
 
@@ -86,17 +80,16 @@ def temp_cache_dir(tmp_path):
 ### Arrange-Act-Assert Pattern
 
 ```python
-def test_symbol_search():
+def test_split_qualified_name():
     # Arrange
-    analyzer = JediAnalyzer()
-    test_code = "class TestClass: pass"
+    name = "pkg.module.TestClass"
 
     # Act
-    result = analyzer.find_symbol("TestClass", test_code)
+    module, _, attr = name.rpartition(".")
 
     # Assert
-    assert len(result) == 1
-    assert result[0]["name"] == "TestClass"
+    assert module == "pkg.module"
+    assert attr == "TestClass"
 ```
 
 ### Given-When-Then Pattern (BDD)
@@ -305,10 +298,12 @@ def test_end_to_end_workflow():
 def test_slow_operation():
     """Slow test that should be skipped in quick runs."""
 
-@pytest.mark.flaky(reruns=3)
+@pytest.mark.flaky
 def test_flaky_network_operation():
     """Test that may fail due to network issues."""
 ```
+
+`flaky` only labels the test: nothing reruns it.
 
 ### Platform-Specific Markers
 
@@ -378,19 +373,6 @@ def test_edge_case():
 ```
 
 ## Performance Test Patterns
-
-### Benchmark Tests
-
-```python
-def test_search_performance(benchmark):
-    """Benchmark symbol search performance."""
-    project = create_large_project(modules=100)
-
-    result = benchmark(search_symbols, project, "TestClass")
-
-    assert len(result) > 0
-    assert benchmark.stats["mean"] < 0.1  # 100ms mean
-```
 
 ### Timing Assertions
 

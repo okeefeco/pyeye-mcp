@@ -238,11 +238,10 @@ results = await find_pydantic_models(scope="namespace:company.models")
 
 If you need to rollback to 0.1.x:
 
-1. **Restore previous version**:
-
-   ```bash
-   pip install "pyeye-mcp<0.2"
-   ```
+1. **Restore previous version**: 0.1.x was never published to PyPI as
+   `pyeye-mcp` (it was `python-code-intelligence-mcp`, module `pycodemcp`).
+   To run it, check out the repository's `v0.1.0` tag and install from that
+   checkout.
 
 2. **Remove new configuration keys**:
    - Remove `scope_defaults`

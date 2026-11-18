@@ -52,6 +52,7 @@ Related to development workflow and code quality.
 - `tech-debt` - Technical debt
 - `ci/cd` - CI/CD pipeline
 - `dependencies` - Dependency updates
+- `python:uv` - Dependabot's ecosystem label for uv dependency PRs
 
 ### 📊 Status
 

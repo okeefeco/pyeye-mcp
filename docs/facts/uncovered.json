@@ -117,8 +117,6 @@
     "tool.resolve_at.param.line",
     "tool.resolve_at.param.project_path",
     "tool.trace.param.follow",
-    "tool.trace.param.max_depth",
-    "tool.trace.param.max_nodes",
     "tool.trace.param.project_path",
     "tool.trace.param.start",
     "tool.trace.param.stop_when",

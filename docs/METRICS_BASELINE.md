@@ -35,11 +35,11 @@ Based on analysis of recent development patterns:
 
 From previous PRs without dogfooding:
 
-- PR #77: Cache bug could have been prevented with find_references
-- PR #121: Path issues across 8 files
+- PR #77: a cache bug that broke existing tests
+- PR #121: Flask plugin test coverage, where cross-platform path issues surfaced (see issue #110)
 - PR #122: Test coverage gaps
 
-## Next Steps
+## Planned Next Steps (2025-08-22)
 
 1. Continue tracking all development sessions
 2. Weekly review of metrics every Friday
@@ -52,4 +52,3 @@ When you discover a pattern or time-saver:
 
 1. Log it: `python scripts/dogfooding_metrics.py saved <minutes> "<reason>"`
 2. Describe it in the issue or PR where you found it
-3. Add to weekly metrics review

@@ -63,7 +63,7 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 2. Check for conflicting packages:
 
    ```bash
-   uv run pip list | grep -E "jedi|fastmcp|mcp"
+   uv pip list | grep -E "jedi|parso|mcp|watchdog"
    ```
 
 ### Platform-Specific Issues
@@ -144,11 +144,10 @@ sudo dnf install python3-devel
 
 **Solution**:
 
-1. Check configuration locations (in order of precedence):
-   - `.pyeye.json` in project root
-   - `pyproject.toml` with `[tool.pyeye]` section
-   - Environment variables (`PYEYE_*`)
-   - `~/.config/pyeye/config.json` (global)
+1. Check the configuration locations and their precedence in the README's
+   [Configuration Methods](../README.md#configuration-methods). Environment
+   variables carry no configuration; they only tune performance and logging
+   (see [Performance Settings](../README.md#performance-settings)).
 
 2. Validate JSON syntax:
 
@@ -173,8 +172,8 @@ sudo dnf install python3-devel
    }
    ```
 
-2. Use absolute paths or paths relative to config file
-3. Expand home directory: `~/` → `/home/username/`
+2. Use absolute paths, `~/` paths, or paths relative to the project directory
+   (pyeye expands `~` and resolves relative entries against the project root).
 
 ### Environment Variable Issues
 
@@ -211,7 +210,7 @@ sudo dnf install python3-devel
    )
    ```
 
-2. Check project limit (default: 10 cached projects)
+2. Check the project limit, `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->)
 3. Verify paths are accessible
 
 ### Namespace Package Configuration
@@ -234,7 +233,8 @@ sudo dnf install python3-devel
    }
    ```
 
-2. Ensure `__init__.py` files exist in namespace directories
+2. Make sure the shared namespace directory (`mycompany/`) in each repo has no
+   `__init__.py` (PEP 420); the subpackages under it (`mycompany/auth/`) may.
 3. Test resolution with `resolve("mycompany")`, then `expand(<handle>, edge="submodules")` to list the subpackages contributed by each repo
 
 ---
@@ -257,20 +257,21 @@ sudo dnf install python3-devel
 
 **Solution**:
 
-1. Reduce cached projects (default: 10):
+1. Reduce cached projects, `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->):
 
    ```bash
    export PYEYE_MAX_PROJECTS=5
    ```
 
-2. Clear cache periodically:
+2. Cached results expire after `PYEYE_CACHE_TTL` seconds (default
+   <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->). Restart the MCP client to start the
+   server with empty caches.
 
-   ```python
-   # Cache auto-expires after 5 minutes
-   # Or restart server to clear all cache
-   ```
+3. Lower the per-file cache caps, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES`,
+   `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` and `PYEYE_PARSO_CACHE_MAX_ENTRIES`; see
+   [Environment variables](reference/env-vars.md).
 
-3. Monitor memory usage:
+4. Monitor memory usage:
 
    ```bash
    ps aux | grep pyeye
@@ -285,7 +286,7 @@ sudo dnf install python3-devel
 1. File watchers auto-update on changes (using watchdog)
 2. Force cache refresh by modifying a file
 3. Restart the MCP client to start the server with empty caches, or lower
-   `PYEYE_CACHE_TTL` (seconds, default 300).
+   `PYEYE_CACHE_TTL` (seconds, default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->).
 
 ### File Watcher Performance
 
@@ -307,7 +308,7 @@ sudo dnf install python3-devel
 
 ### "Project not found" Errors
 
-**Problem**: `Error: Project path '/path/to/project' not found`
+**Problem**: `Project not found: /path/to/project`
 
 **Solution**:
 
@@ -316,20 +317,10 @@ sudo dnf install python3-devel
 3. Use absolute paths in configuration
 4. Ensure Python files exist in the project
 
-### "Analysis timeout" Errors
-
-**Problem**: `TimeoutError: Analysis took longer than 30 seconds`
-
-**Solution**:
-
-1. Increase timeout as shown above
-2. Reduce project size with exclusions
-3. Check for infinite loops in code being analyzed
-4. Verify Jedi is properly installed: `python -c "import jedi; print(jedi.__version__)"`
-
 ### Import Resolution Failures
 
-**Problem**: `Cannot resolve import 'module_name'`
+**Problem**: an import doesn't resolve (for example, it appears under
+`unresolved_imports` in `trace(..., follow=["imports"])`).
 
 **Solution**:
 
@@ -377,7 +368,6 @@ sudo dnf install python3-devel
 
 2. Run server with appropriate user
 3. Avoid analyzing system directories
-4. Use read-only analysis mode (default)
 
 ---
 
@@ -468,7 +458,7 @@ resolve("TestClass", project_path="/path/to/project")
 3. Check for:
    - Circular imports
    - Syntax errors
-   - Extremely large files (>10MB)
+   - Very large files, such as generated code
    - Binary files mistaken for Python
 
 ---
@@ -528,38 +518,35 @@ logs a warning when they are set (#581).
 
 **Answer**:
 
-1. Use exclusion patterns to skip non-essential code
-2. Increase timeouts and memory limits
+1. Configure only the packages and namespaces you need
+2. Lower `PYEYE_MAX_PROJECTS` or the `PYEYE_*_CACHE_MAX_ENTRIES` caps if memory
+   is tight ([Environment variables](reference/env-vars.md))
 3. Split into multiple smaller projects
-4. Use project-specific analysis instead of whole codebase
-5. Enable caching (default) for faster subsequent operations
+4. Pass a narrower `scope` to plugin tools
 
 ### Memory usage expectations
 
-**Answer**: Typical memory usage:
-
-- Small project (<1000 files): 100-200MB
-- Medium project (1000-5000 files): 200-500MB
-- Large project (5000+ files): 500MB-1GB
-- With 10 cached projects: Multiply by cache size
+**Answer**: Memory grows with the number of cached projects
+(`PYEYE_MAX_PROJECTS`) and with the cache entry caps
+(`PYEYE_*_CACHE_MAX_ENTRIES`). Measure your own usage with `ps`, as
+[High Memory Usage](#high-memory-usage) shows.
 
 ### Supported Python versions
 
 **Answer**:
 
 - **Server requires**: Python 3.11+
-- **Analyzed code**: Python 2.7+ (Jedi supports legacy code)
+- **Analyzed code**: the Python 3 versions Jedi's parser (parso) has grammars
+  for; Python 2-only syntax isn't supported
 
 ### Framework detection logic
 
-**Answer**: Detection order:
-
-1. Check for framework-specific files (`manage.py`, `app.py`)
-2. Parse imports in Python files
-3. Check requirements files (`requirements.txt`, `pyproject.toml`)
-4. Check installed packages in environment
-
-Detection is automatic and happens when project loads.
+**Answer**: Each plugin looks for framework-specific files (`manage.py`, Flask
+entry points such as `app.py`), framework imports in Python files, and
+requirement files (`requirements.txt`, `Pipfile`, and for Flask and Pydantic
+`pyproject.toml`), in the project root and every configured package and
+namespace path. Detection runs at server startup and again after
+`configure_packages` changes the layout.
 
 ---
 
@@ -567,13 +554,11 @@ Detection is automatic and happens when project loads.
 
 ### Optimal Cache Settings
 
-**Default settings** (usually optimal):
-
-```bash
-PYEYE_CACHE_TTL=300          # 5 minutes
-PYEYE_MAX_PROJECTS=10
-PYEYE_WATCHER_DEBOUNCE=0.5   # seconds
-```
+**Default settings**: `PYEYE_CACHE_TTL` is
+<!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end --> seconds, `PYEYE_MAX_PROJECTS` is
+<!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end --> and `PYEYE_WATCHER_DEBOUNCE` is
+<!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> seconds; see
+[Environment variables](reference/env-vars.md) for every setting.
 
 Set these on the MCP client's server entry, not with a shell `export`; see the
 README's [Performance Settings](../README.md#performance-settings).
@@ -595,12 +580,10 @@ export PYEYE_WATCHER_DEBOUNCE=0.2   # Faster updates
 
 ### Debounce Settings
 
-Control how quickly the server responds to file changes:
+Control how quickly the server responds to file changes. The default is
+<!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> seconds.
 
 ```bash
-# Default: 0.5 seconds
-export PYEYE_WATCHER_DEBOUNCE=0.5
-
 # For slower systems or network drives
 export PYEYE_WATCHER_DEBOUNCE=3.0
 
@@ -626,14 +609,12 @@ PYEYE_MAX_PROJECTS=20
 
 ### Optimization Checklist
 
-1. ✅ Exclude unnecessary directories (node_modules, venv, etc.)
-2. ✅ Set appropriate timeouts for your codebase size
-3. ✅ Tune cache TTL based on development patterns
-4. ✅ Adjust worker count for your CPU
-5. ✅ Configure debounce for your file system speed
-6. ✅ Limit cached projects based on available RAM
-7. ✅ Use namespace packages for related projects
-8. ✅ Enable debug logging only when troubleshooting
+1. ✅ Configure only the packages and namespaces you need
+2. ✅ Tune cache TTL based on development patterns
+3. ✅ Configure debounce for your file system speed
+4. ✅ Limit cached projects based on available RAM
+5. ✅ Use namespace packages for related projects
+6. ✅ Enable debug logging only when troubleshooting
 
 ---
 
@@ -672,7 +653,7 @@ print("=" * 50)
 print(f"Python version: {sys.version}")
 
 # Check required packages
-packages = ["jedi", "mcp", "watchdog", "pydantic"]
+packages = ["jedi", "parso", "mcp", "watchdog", "aiofiles", "filelock", "psutil"]
 for pkg in packages:
     try:
         module = __import__(pkg)
@@ -725,7 +706,3 @@ except Exception as e:
 print("\n" + "=" * 50)
 print("Include this output when reporting issues")
 ```
-
----
-
-Last updated: August 2025
