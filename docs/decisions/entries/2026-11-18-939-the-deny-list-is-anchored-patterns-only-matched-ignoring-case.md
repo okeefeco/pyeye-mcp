@@ -20,6 +20,7 @@ superseded_by: []
 - **Still caught:** since #856 every caller path is checked in its anchored final form, both lexical and resolved, and that is enough to catch every route to a system directory.
   - A climb (`../…/etc`), a relative path from `project_path="/"`, and a symlink into `/etc` all land on an anchored pattern.
   - `check_forms` now anchors a relative path given without a root on the cwd, where the OS would resolve it. Before, such a path was checked "as written only", and with only anchored patterns left it would never match.
+- **Symlink then `..` (bypass review of #949):** `check_forms` resolved the LEXICAL form, collapsing `..` before following symlinks. So `project_path="proj/l_tmp/../etc/…"` (with `l_tmp` -> `/tmp`) was checked as `<cwd>/proj/etc/…` and passed, and the tool, which resolves the caller's spelling through the OS, then read `/etc`. The removed substring check only masked the deeper forms; `proj/l_tmp/../etc` itself already passed before. `check_forms` now resolves the RAW join, as `_final_forms` has since the #856 review. So every caller that hands its spelling on downstream (`project_path`, `file`/`path`, the list parameters, through `validate_path`) is checked where the OS will put it. Fragment `939.security.md`.
 - **Case is ignored** in the anchored match, so a case-insensitive macOS volume can't reach `/etc` as `/ETC`. The cost, refusing a Linux directory literally named `/ETC`, is negligible.
 - **Audited every caller** of `validate_path` / `check_forms` / `validate_final` / `validate_scan_root`. Each gets an anchored final form:
   - `validate_mcp_inputs`: `project_path` is anchored on the cwd, and `file`/`path`/list items on the call's `project_path`;
@@ -39,6 +40,7 @@ superseded_by: []
 **Verify:** gold. `uv run pytest tests/test_anchored_deny_list.py` passes on POSIX. It checks:
 
 - projects under `dev`, `Dev`, `srv/etc/lib`, `home/u/root` and `work/SYS`, with their own `etc/` and `sys/` packages, work through `resolve`, `resolve_at`, `outline`, `configure_packages` and a plugin `package:` scope;
-- a climb, `etc/passwd` from `project_path="/"`, a symlink into `/etc`, `/ETC/passwd`, the simulated macOS `/private/etc` forms, and a root-less relative path from `/` are all refused.
+- a climb, `etc/passwd` from `project_path="/"`, a symlink into `/etc`, `/ETC/passwd`, the simulated macOS `/private/etc` forms, and a root-less relative path from `/` are all refused;
+- a symlink then `..` (`l_tmp/../etc`, `l_tmp/../proc/self`) is refused as a relative or absolute `project_path`, a `resolve` file form, a `resolve_at` file and each `configure_packages` list.
 
 29 of its 33 tests fail on main before this change; the 4 that pass are refusals main already made.

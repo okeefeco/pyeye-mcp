@@ -177,3 +177,75 @@ class TestEveryRouteToASystemDirIsStillRefused:
         monkeypatch.chdir("/")
         with pytest.raises(ValidationError, match=REFUSED):
             PathValidator.validate_path("etc/passwd")
+
+
+class TestSymlinkThenDotDot:
+    """#949 review: ``l_tmp/../etc`` with ``l_tmp`` -> ``/tmp`` is ``/etc`` on disk.
+
+    The OS follows the symlink before ``..``; collapsing ``..`` lexically first
+    gave ``<proj>/etc``, which passed, and the tool then read ``/etc``. The
+    removed substring check used to mask it for deeper paths (``…/etc/x``);
+    ``proj/l_tmp/../etc`` itself already passed before #939.
+    """
+
+    @pytest.fixture
+    def proj(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        proj = _project(tmp_path / "proj")
+        (proj / "l_tmp").symlink_to("/tmp", target_is_directory=True)
+        monkeypatch.chdir(tmp_path)  # the reviewer's set-up: cwd at proj's parent
+        return proj
+
+    @pytest.mark.usefixtures("proj")
+    @pytest.mark.parametrize("tail", ["etc", "proc/self"])
+    def test_a_relative_project_path(self, tail: str) -> None:
+        for tool, args in [
+            ("resolve", {"identifier": "sitecustomize"}),
+            ("outline", {"handle": "sitecustomize"}),
+        ]:
+            _refused(tool, {**args, "project_path": f"proj/l_tmp/../{tail}"})
+
+    def test_an_absolute_project_path(self, proj: Path) -> None:
+        _refused("resolve", {"identifier": "x", "project_path": f"{proj.as_posix()}/l_tmp/../etc"})
+
+    @pytest.mark.parametrize("file", ["l_tmp/../etc/hostname", "l_tmp/../etc/hostname:1"])
+    def test_a_resolve_file_form(self, proj: Path, file: str) -> None:
+        _refused("resolve", {"identifier": file, "project_path": proj.as_posix()})
+
+    def test_a_resolve_at_file(self, proj: Path) -> None:
+        _refused(
+            "resolve_at",
+            {
+                "file": "l_tmp/../etc/hostname",
+                "line": 1,
+                "column": 0,
+                "project_path": proj.as_posix(),
+            },
+        )
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"packages": ["l_tmp/../etc"]},
+            {"standalone_dirs": ["l_tmp/../etc"]},
+            {"namespaces": {"ns": ["l_tmp/../etc"]}},
+        ],
+        ids=["packages", "standalone", "namespace"],
+    )
+    def test_configure_packages_lists(self, proj: Path, args: dict[str, Any]) -> None:
+        _refused("configure_packages", {**args, "save": False, "project_path": proj.as_posix()})
+
+    def test_check_forms_resolves_the_raw_join(self, proj: Path) -> None:
+        from pyeye.path_utils import normalize_path
+        from pyeye.validation import PathValidator
+
+        resolved, forms = PathValidator.check_forms(Path("l_tmp/../etc"), proj)
+
+        assert resolved == normalize_path("/etc")
+        assert normalize_path("/etc").as_posix() in forms
+
+    def test_control_a_symlink_without_dot_dot_still_works(self, proj: Path) -> None:
+        """``l_tmp/x`` really is /tmp/x: allowed, as before."""
+        _call(
+            "resolve_at",
+            {"file": "pkg/mod.py", "line": 1, "column": 4, "project_path": proj.as_posix()},
+        )
