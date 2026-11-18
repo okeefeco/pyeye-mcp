@@ -858,19 +858,60 @@ class Literal(BaseModel):
         assert found == expected
         assert {"Call", "Annotated", "Qualified", "Literal"} <= set(found)
 
-    @pytest.mark.asyncio
-    async def test_an_unreadable_config_keeps_todays_answer(self, temp_project):
-        """Until #870's Q1 is decided, an expression the AST can't read gives ``{}``."""
-        (temp_project / "models.py").write_text(
-            "from pydantic import BaseModel\n"
+    # Each model_config expression that can't be fully read (#870, maintainer's
+    # ruling on Q1): the config is omitted, never reported as {} or a partial dict.
+    _UNREAD = {
+        "call": "make_config()",
+        "name": "BASE_CONFIG",
+        "subscript": "CONFIGS['strict']",
+        "call_splat": "ConfigDict(**BASE, frozen=True)",
+        "call_positional": "ConfigDict(BASE)",
+        "dict_splat": "{**BASE, 'frozen': True}",
+        "dict_name_key": "{KEY: True}",
+        "dict_int_key": "{1: True}",
+    }
+
+    @staticmethod
+    def _module(expr: str) -> str:
+        return (
+            "from pydantic import BaseModel, ConfigDict\n"
             "class M(BaseModel):\n"
-            "    model_config = make_config()\n"
+            f"    model_config = {expr}\n"
             "    name: str\n"
         )
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("form", sorted(_UNREAD))
+    async def test_an_unread_config_omits_settings(self, temp_project, form):
+        (temp_project / "models.py").write_text(self._module(self._UNREAD[form]))
+
         configs = await PydanticPlugin(temp_project).find_model_config()
 
-        assert [c["settings"] for c in configs] == [{}]
+        assert len(configs) == 1
+        assert "settings" not in configs[0], configs[0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("form", sorted(_UNREAD))
+    async def test_an_unread_config_omits_the_models_config(self, temp_project, form):
+        (temp_project / "models.py").write_text(self._module(self._UNREAD[form]))
+        plugin = PydanticPlugin(temp_project)
+
+        models = [m for m in await plugin.find_models() if m["name"] == "M"]
+        schema = await plugin.get_model_schema("M")
+
+        assert len(models) == 1 and "config" not in models[0], models
+        assert schema is not None and "config" not in schema, schema
+
+    @pytest.mark.asyncio
+    async def test_a_model_without_any_config_has_an_empty_one(self, temp_project):
+        """No model_config at all is measured: ``{}``, not absent."""
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    name: str\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        assert [m["config"] for m in models if m["name"] == "M"] == [{}]
 
 
 class TestSchemaComputedFields:
