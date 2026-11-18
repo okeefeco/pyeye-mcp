@@ -11,10 +11,6 @@ look up. The examples below run against a small project with one model, `User`.
 
 The tools: <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->.
 
-Two fields of `trace_model_inheritance`'s result are known to come back empty
-when they shouldn't (#870): `mro` and `fields_inherited`. The examples leave
-them out.
-
 A model's configuration (`config` on a model or schema, `settings` from
 `find_model_config`) is reported only when its `model_config` can be read in
 full from source: a dict literal or a `ConfigDict(...)` /
@@ -105,7 +101,9 @@ The computed fields: values a model derives rather than accepts.
 
 ## trace_model_inheritance
 
-One model's parents and children, and which fields it defines itself.
+One model's parents and children, which fields it defines itself, and which it
+inherits. This example shows a model whose only base is pydantic's `BaseModel`,
+which declares no fields of its own.
 
 ```json pyeye-example tool=trace_model_inheritance
 {"model_name": "User"}
@@ -114,5 +112,7 @@ One model's parents and children, and which fields it defines itself.
 ```json pyeye-output
 {"found": true, "model": "User", "parents": ["BaseModel"], "children": [],
  "fields_own": [{"name": "name", "…": "<omitted>"}, {"name": "email", "…": "<omitted>"}],
+ "fields_inherited": [],
+ "mro": ["myapp.schemas.User", "pydantic.main.BaseModel", "builtins.object"],
  "handle": "myapp.schemas.User", "…": "<omitted>"}
 ```
