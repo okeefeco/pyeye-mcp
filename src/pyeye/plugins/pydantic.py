@@ -11,6 +11,83 @@ from ..async_utils import filtered_rglob
 from ..project_layout import module_name_for_file
 from .base import AnalyzerPlugin, Scope
 
+#: The implicit last base of every class (#870's static C3 ``mro``).
+_OBJECT = "builtins.object"
+
+
+def _compiled_values(anchor: Any) -> list[Any]:
+    """The Jedi compiled values behind *anchor*, if it is (or names) a compiled class.
+
+    Uses Jedi internals (``Name._name.infer()`` and ``CompiledValue``);
+    ``tests/unit/plugins/test_pydantic_plugin.py::TestCompiledBases`` pins them,
+    so a Jedi upgrade that moves them fails loudly rather than silently.
+    """
+    from jedi.inference.compiled.value import CompiledValue  # type: ignore[import-untyped,unused-ignore]
+
+    if isinstance(anchor, CompiledValue):
+        return [anchor]
+    inner = getattr(anchor, "_name", None)
+    if inner is None or not hasattr(inner, "infer"):
+        return []
+    values = list(inner.infer())
+    if values and all(isinstance(v, CompiledValue) and v.api_type == "class" for v in values):
+        return values
+    return []
+
+
+def _compiled_bases(anchor: Any) -> list[tuple[str, Any]] | None:
+    """A compiled class's direct bases as ``(handle, value)`` pairs, or ``None`` if not compiled.
+
+    Read from the server interpreter's runtime class through Jedi's compiled
+    introspection (``py__bases__``), because a compiled class has no source to
+    read (#870). The handle is the base's module plus its qualified name, so
+    ``object`` is ``builtins.object``.
+    """
+    values = _compiled_values(anchor)
+    if not values:
+        return None
+    pairs: list[tuple[str, Any]] = []
+    for lazy in values[0].py__bases__():
+        # A lazy wrapper in some Jedi paths, the value itself in others.
+        for base in lazy.infer() if hasattr(lazy, "infer") else [lazy]:
+            module = base.get_root_context().py__name__()
+            qualified = ".".join(base.get_qualified_names() or (base.py__name__(),))
+            pairs.append((f"{module}.{qualified}", base))
+    return pairs
+
+
+def _c3(start: str, bases: dict[str, list[str]]) -> list[str] | None:
+    """The C3 linearisation of *start* over *bases*, or ``None`` if it's inconsistent."""
+    memo: dict[str, list[str] | None] = {}
+
+    def linearise(cls: str) -> list[str] | None:
+        if cls in memo:
+            return memo[cls]
+        memo[cls] = None  # a cycle stays None
+        heads = [linearise(b) for b in bases.get(cls, [])]
+        if any(h is None for h in heads):
+            return None
+        sequences = [list(h) for h in heads if h] + [list(bases.get(cls, []))]
+        result = [cls]
+        while any(sequences):
+            candidate = next(
+                (
+                    seq[0]
+                    for seq in sequences
+                    if seq and not any(seq[0] in other[1:] for other in sequences)
+                ),
+                None,
+            )
+            if candidate is None:
+                return None  # no consistent order: Python would raise TypeError
+            result.append(candidate)
+            sequences = [seq[1:] if seq and seq[0] == candidate else seq for seq in sequences]
+        memo[cls] = result
+        return result
+
+    return linearise(start)
+
+
 if TYPE_CHECKING:
     from ..analyzers.jedi_analyzer import JediAnalyzer
 
@@ -384,6 +461,14 @@ class PydanticPlugin(AnalyzerPlugin):
         ``children`` are the model's direct subclasses by definition site (#664),
         so two models with the same name each list only their own children.
 
+        ``mro`` (deprecated, removed in v3.0, #749) is the static C3 order and
+        ``fields_inherited`` the fields the model inherits, each with the
+        ``defined_in`` handle of the class that declares it. Both come from the
+        statically resolved bases, project or installed (#870). Each is OMITTED
+        when it can't be computed: a base that doesn't resolve to a class, or no
+        consistent order; ``fields_inherited`` also when an ancestor has an
+        un-annotated public class attribute, which pydantic v1 would make a field.
+
         Args:
             model_name: The model to trace: the model's class name, or its canonical handle (a dotted name,
                 as ``find_pydantic_models`` returns it) to pick one when several
@@ -418,7 +503,6 @@ class PydanticPlugin(AnalyzerPlugin):
             "model": model_name,
             "parents": [],
             "children": [],
-            "mro": [],  # Method Resolution Order
         }
 
         if target is not None:
@@ -426,12 +510,20 @@ class PydanticPlugin(AnalyzerPlugin):
             # Where the model is defined, so the result can carry a handle (#627).
             hierarchy["file"] = target["file"]
             hierarchy["line"] = target["line"]
-            hierarchy["fields_inherited"] = []
             hierarchy["fields_own"] = target["fields"]
 
         if target is not None:
             analyzer = self._analyzer()
             module = module_name_for_file(analyzer, Path(target["file"]))
+            # mro and fields_inherited (#870, the maintainer's Q3 ruling): from the
+            # statically resolved bases, project or installed; each is OMITTED
+            # when it can't be computed, never [] or partial.
+            mro = self._mro(analyzer, f"{module}.{target['name']}") if module else None
+            if mro is not None:
+                hierarchy["mro"] = [handle for handle, _ in mro]  # deprecated (#749)
+                inherited = await self._inherited_fields(mro, target["fields"])
+                if inherited is not None:
+                    hierarchy["fields_inherited"] = inherited
             if module is not None:
                 children = await self._direct_subclasses(
                     analyzer, f"{module}.{target['name']}", scope
@@ -443,6 +535,137 @@ class PydanticPlugin(AnalyzerPlugin):
         _ = models  # kept for the callers' signature; children come from the graph
 
         return hierarchy
+
+    @staticmethod
+    def _mro(analyzer: "JediAnalyzer", handle: str) -> list[tuple[str, Any]] | None:
+        """*handle*'s static C3 method resolution order, as ``(handle, anchor)`` pairs.
+
+        Each declared base is resolved by the ``superclasses`` edge's own walk
+        (:func:`~pyeye.mcp.operations.edges.superclass_bases`, #624), wherever
+        it lives: the project, an installed package, or the stdlib (#870's Q3
+        ruling, no hard-coded terminals). A class with no bases ends in
+        ``builtins.object``. ``None`` (omit, never partial) when a base doesn't
+        resolve to a class (a dynamic base, a missing package), a file in the
+        walk can't be parsed, or the bases have no consistent C3 order.
+        """
+        # Imported here, as the docs-facts extractor does: pyeye.mcp's package
+        # __init__ imports the server, which imports the plugins.
+        from ..mcp.operations.edges import UnparseableSource, superclass_bases
+
+        found = resolver.resolve_handle(handle, analyzer)
+        if not isinstance(found, resolver.Resolved):
+            return None
+        anchors: dict[str, Any] = {found.handle: found.anchor}
+        bases: dict[str, list[str]] = {}
+        todo = [found.handle]
+        while todo:
+            current = todo.pop()
+            if current in bases:
+                continue
+            if current == _OBJECT:
+                bases[current] = []
+                continue
+            compiled = _compiled_bases(anchors[current])
+            if compiled is not None:
+                # A compiled class (no source file, e.g. ``_typing.Generic``):
+                # its bases come from Jedi's introspection of the server
+                # interpreter's runtime class. No user code runs (#870).
+                for base, value in compiled:
+                    anchors.setdefault(base, value)
+                    todo.append(base)
+                bases[current] = [base for base, _ in compiled] or [_OBJECT]
+                continue
+            try:
+                declared = superclass_bases(anchors[current], analyzer)
+            except UnparseableSource:
+                return None
+            if declared is None:
+                return None
+            names: list[str] = []
+            for _text, pair in declared:
+                if pair is None or getattr(pair[1], "type", None) != "class":
+                    return None  # unresolved, or resolved to a non-class (a factory call)
+                base = str(pair[0])
+                anchors.setdefault(base, pair[1])
+                names.append(base)
+                todo.append(base)
+            bases[current] = names or [_OBJECT]
+        order = _c3(found.handle, bases)
+        return None if order is None else [(h, anchors.get(h)) for h in order]
+
+    async def _inherited_fields(
+        self, mro: list[tuple[str, Any]], own: list[dict[str, Any]]
+    ) -> list[dict[str, Any]] | None:
+        """Fields the model inherits, in MRO order, each with its ``defined_in`` handle.
+
+        Read from each ancestor's own class body by the one field rule
+        (:meth:`_is_model_field`), installed bases included, so ``BaseModel``
+        contributes none and ``RootModel`` contributes ``root``. A name the model
+        or a nearer ancestor declares isn't inherited from further up. ``None``
+        when an ancestor's body can't be read, or holds a public un-annotated
+        class-level assignment: pydantic v1 makes that a field and v2 doesn't, so
+        the list can't be known (#870).
+        """
+        seen = {f["name"] for f in own}
+        inherited: list[dict[str, Any]] = []
+        for handle, anchor in mro[1:]:
+            if handle == _OBJECT or _compiled_bases(anchor) is not None:
+                continue  # a compiled class can't declare pydantic fields
+            node = await self._class_node(anchor)
+            if node is None or self._has_unannotated_public_assignment(node):
+                return None
+            for field in self._extract_fields(node):
+                if field["name"] not in seen:
+                    seen.add(field["name"])
+                    inherited.append({**field, "defined_in": handle})
+        return inherited
+
+    async def _class_node(self, anchor: Any) -> ast.ClassDef | None:
+        """The ``ClassDef`` a Jedi class name points at, from its own (cached) file."""
+        module_path = getattr(anchor, "module_path", None)
+        line = getattr(anchor, "line", None)
+        if module_path is None or line is None:
+            return None
+        path = Path(module_path)
+        content = await self._read_source(path)
+        tree = self._parse_source(path, content) if content is not None else None
+        if tree is None:
+            return None
+        return next(
+            (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line), None
+        )
+
+    @staticmethod
+    def _has_unannotated_public_assignment(node: ast.ClassDef) -> bool:
+        """A class-body ``x = ...`` that pydantic v1 would make a field (#870)."""
+        return any(
+            isinstance(item, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and not t.id.startswith("_") and t.id != "model_config"
+                for t in item.targets
+            )
+            for item in node.body
+        )
+
+    @staticmethod
+    def _is_model_field(item: ast.stmt) -> bool:
+        """Pydantic's field rule for one class-body statement (#870).
+
+        A ``name: T [= value]`` with a plain name, except a ``ClassVar``
+        annotation, a private or dunder name (``_x``), and ``model_config``.
+        """
+        if not (isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)):
+            return False
+        name = item.target.id
+        if name.startswith("_") or name == "model_config":
+            return False
+        annotation = item.annotation
+        if isinstance(annotation, ast.Subscript):
+            annotation = annotation.value
+        outer = (
+            annotation.id if isinstance(annotation, ast.Name) else getattr(annotation, "attr", None)
+        )
+        return outer != "ClassVar"
 
     async def find_computed_fields(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all computed fields (properties, computed_field decorator).
@@ -514,7 +737,8 @@ class PydanticPlugin(AnalyzerPlugin):
         fields = []
 
         for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+            if self._is_model_field(item) and isinstance(item, ast.AnnAssign):
+                assert isinstance(item.target, ast.Name)  # noqa: S101 - narrowed by the rule
                 field_info = {
                     "name": item.target.id,
                     "type": (
