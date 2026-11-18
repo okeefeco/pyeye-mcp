@@ -84,7 +84,8 @@ same PR**. The only trees outside the registry are the historical records
 
 ## Executed examples
 
-A tool example in `docs/api/`, `docs/reference/` or a skill can be **executed**
+A tool example in `docs/api/`, `docs/reference/`, a skill, or any prose page for
+humans (audience `human` or `both`, outside `.claude/`) can be **executed**
 instead of trusted (#828). Tag the fenced block, and give the call's arguments as a
 JSON object. Leave out `project_path`; the runner supplies it:
 
@@ -119,7 +120,9 @@ primitive's response with the conformance linter, and matches a shown output on
 A reader must never take a trimmed example for the whole response, so every trim is
 marked. `check` also fails on a malformed tag (anything mentioning `pyeye-` that
 doesn't fit), an output block with no example straight before it, a body that isn't
-JSON, and an example outside the three allowed places. Untagged blocks are prose.
+JSON, and an example anywhere else: a `history` page (it records the past, which may
+no longer run), Claude-only prose, or a page under `.claude/` other than a skill.
+Untagged blocks are prose.
 
 ## Removed names
 
