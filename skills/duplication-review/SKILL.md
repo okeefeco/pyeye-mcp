@@ -16,17 +16,19 @@ the other.
   code" depends on a tunable threshold and filters. The tool states both with
   every run; say them when you report, and read both regions before you
   recommend anything.
-- **Exact match after normalisation.** Local names, literal values, docstrings,
+- **Exact match after normalisation.** Names, literal values, docstrings,
   comments and imports are ignored, so a copy with renamed variables still
-  matches. Code that does the same thing written differently is **not** found,
+  matches, and so can code of the same shape that calls different functions:
+  read both regions. Code that does the same thing written differently is **not** found,
   and neither is a near-copy with lines inserted (an `await` added to an async
   twin breaks the match).
 - **Pointers only.** The output never contains source text: only file paths,
   line ranges, `file::qualname` locations and token counts. Read the regions
   yourself (targeted reads) when you need to judge one.
-- **Expect boilerplate.** Measured on django and pydantic (#495), about two in
-  three to three in four of the top families were real copies worth
-  consolidating, and almost none were unrelated code. The rest are idioms the
+- **Expect boilerplate.** Measured on django and pydantic (#495, recorded in
+  [the decision entry](../../docs/decisions/entries/2026-11-17-495-duplication-review-is-a-judgment-tool-keyed-on-family-locations.md)),
+  about two in three to three in four of the top families were real copies
+  worth consolidating, and almost none were unrelated code. The rest are idioms the
   detector can't tell from copies: backend-specific variants of one method,
   registration lists, families of one-line wrappers. Dismiss those (below).
 - **Not convention divergence.** "Your code does X seven different ways" is
@@ -87,7 +89,8 @@ records a family as a confirmed non-issue. Use the same scope, `--root`,
 Families are ranked by their longest clone. A family groups copies that connect:
 all the copies between two classes are one family, a copy inside one class
 stays with its methods, and a copy between a function and a class method is not
-folded into the class. Two definitions with the same name in one file (an
+folded into the class, unless that method also has a copy in another class: then
+the function's copy joins that classes' family. Two definitions with the same name in one file (an
 `if`/`else` twin) are one location with two line ranges. Each family shows its sites (`a.py:10-30 (Cls.method)
 <-> b.py:40-60 (Other.method)`) and a status:
 
@@ -133,7 +136,7 @@ A dismissal is keyed on the family's sorted member locations plus the fact
   member removed.
 - **Re-surfaces:** a new member joins, a member is renamed or moved, or a new
   copy bridges two dismissed families. Only the
-  new or changed members are shown.
+  new sites are shown (a bridging copy can add a site with no new member).
 - **Expiry:** none by default. With `--review-after`, it re-surfaces as
   `review-due` once the `--today` you pass reaches that date.
 

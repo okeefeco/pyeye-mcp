@@ -19,7 +19,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
       "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
       "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
-      "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by walked
+      "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by/re_exports walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -59,10 +59,10 @@ would silently omit edges it could not resolve.
 file with no module name has no handle, so it can't be a node; it is listed per
 target node instead of being dropped.
 
-``unparseable_files`` (#729) does the same for the reverse scans ``subclasses``
-and ``imported_by``: a file in scope that the server's interpreter couldn't parse
-may hold a subclass or importer, so it is listed per node (the union across both
-edges), present only when one of them was traced.
+``unparseable_files`` (#729) does the same for the scans ``subclasses``,
+``imported_by`` and ``re_exports``: a file in scope that the server's interpreter
+couldn't parse may hold a subclass, importer or re-export, so it is listed per
+node (the union across those edges), present only when one of them was traced.
 
 ``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
 ``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or

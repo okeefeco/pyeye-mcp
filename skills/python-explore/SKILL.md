@@ -21,7 +21,7 @@ your question; only go wider when you need to.
    across a call chain, import closure, or member tree.
 
 **Canonical handles are the currency.** A handle is Python's own dotted notation —
-`a.b.c.Name` — anchored at the *definition site*, stable across edits, and the same
+`a.b.c.Name` — anchored at the *definition site*, stable across edits that don't rename or move the symbol or its module, and the same
 no matter which import alias you arrived through. Everything downstream takes a handle.
 pyeye returns **pointers and structured facts, never source** — when you need the actual
 code, `Read` the `file:line` it points you at.
@@ -75,14 +75,15 @@ Notes that matter:
 - **Ambiguity:** a bare name can match several symbols. `resolve` then returns
   `{found: true, ambiguous: true, candidates: [...]}`, each candidate carrying
   `handle`/`kind`/`scope`/`location`. Pick the right one, or re-resolve with the full
-  dotted handle. At most 50 candidates come back by default (`max_candidates`); when
+  dotted handle. A capped number of candidates come back by default (`max_candidates`); when
   more matched, the result also says `truncated: true`, `truncation_reasons:
   ["max_candidates"]` and `total`. Resolve a dotted handle, or pass
   `max_candidates=None`, to see them all.
-- **Capped lists:** `expand` returns at most 200 stubs by default (`max_stubs`). When
+- **Capped lists:** `expand` returns a capped number of stubs by default (`max_stubs`). When
   the edge has more, the result says `truncated: true`, `truncation_reasons:
   ["max_stubs"]` and `total` (the edge's full size); pass `max_stubs=None` for all.
-  When nothing was cut, none of the three is present.
+  When nothing was cut, none of the three is present. The defaults are in the
+  [tool reference](../../docs/reference/tools.md).
 - **A bare name that is a top-level module resolves to that module.** `resolve("functools")`
   is stdlib `functools` and `resolve("inspect")` is stdlib `inspect`, even when the project
   also defines something with that name. To reach the project's symbol or submodule, use
@@ -157,7 +158,7 @@ own `imports`, and `imports` reports a re-exported name at its definition site,
 not the module it was imported from.
 
 **Pointer-only stubs.** `subclasses` and `imported_by` stubs are *pointers*
-(handle + location + kind) and intentionally omit `signature` — even though a
+(handle, kind, scope and line span) and intentionally omit `signature` — even though a
 subclass stub's kind is `class`. Drill with `inspect(<handle>)` when you need a
 subclass's constructor signature or docstring.
 
@@ -201,8 +202,7 @@ This is the most important rule in this skill.
 
 **"Who calls this?" and "what references this?" cannot be answered by pyeye** — delegate
 them to your LSP (below). The
-edges `callers`, `references`, `read_by`, `written_by`, `passed_by`, `overrides`,
-`overridden_by`, `decorated_by`, and `decorates` are **deferred** — they need an indexed
+edges <!-- fact:begin edges.deferred -->`callers`, `decorated_by`, `decorates`, `overridden_by`, `overrides`, `passed_by`, `read_by`, `references`, `written_by`<!-- fact:end --> are **deferred** — they need an indexed
 reference backend (Pyright) that isn't wired up yet ([#333](https://github.com/okeefeco/pyeye-mcp/issues/333)).
 When you ask for one, pyeye **refuses** (reports it as unsupported) rather than returning
 a wrong or empty answer. Likewise, `inspect`'s `edge_counts` simply **omits** `callers`
@@ -447,8 +447,7 @@ every one against a small `myapp` project (`tests/test_docs_examples.py`).
  "…": "<omitted>"}
 ```
 
-`edge_counts` holds only what `inspect` measures: `subclasses` and `callers` are
-absent (not counted), never `0`. `DevSettings` does subclass `Settings`;
+This shows absence versus zero: an edge `inspect` doesn't count is absent, not `0`. `DevSettings` does subclass `Settings`;
 `expand(..., "subclasses")` finds it.
 
 **Ambiguous name** — let `resolve` disambiguate, don't guess:
@@ -506,6 +505,8 @@ Check the root's `truncation_reasons` first: it lists every reason any node was
 cut for (absent when nothing was). `max_depth` / `max_nodes` are budget cuts, so
 raise the limit, and the node's count says how much is missing. `external` /
 `survey_leaf` are boundaries by design, so outline that node instead.
+`unparseable` means the node's file doesn't parse under the server's Python, so
+read the file.
 
 **Cold start: "what's in this package / project?"** — orient top-down, drill on
 demand. `outline` on a *package* surveys its child modules/subpackages (depth-1
@@ -584,9 +585,9 @@ expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project tha
 **"Who calls `Cache.evict`?"** — pyeye defers it; delegate to the LSP:
 
 ```text
-resolve("myapp.cache.Cache.evict")   -> location: { file: "myapp/cache.py", line_start: 25, column_start: 8 }
+resolve("myapp.cache.Cache.evict")   -> location: { file: "/work/myapp/myapp/cache.py", line_start: 25, column_start: 8 }
 # then hand that position to your LSP tool:
-LSP.incomingCalls("myapp/cache.py", line=25, character=9)  -> real callers, with call sites
+LSP.incomingCalls("/work/myapp/myapp/cache.py", line=25, character=9)  -> real callers, with call sites
 ```
 
 > pyeye doesn't index callers (deferred to #333), so I delegated: `resolve` gave the
@@ -629,9 +630,9 @@ hub" shows one low-instability module with high fan-in; a cycle is the
 anti-pattern. Map a few key modules with `expand(…, "imports")` to see which
 shape you have before refactoring.
 
-> Same static-surface ceiling as everywhere else: dynamic imports
-> (`importlib.import_module()`, plugin loaders, conditional imports) are invisible
-> here — an absent edge means "not imported in source," not "never loaded."
+> Same static-surface ceiling as everywhere else: `imports` covers
+> <!-- fact:begin ceiling.static_imports -->import statements written in source; importlib / \_\_import\_\_ with a computed name is not included<!-- fact:end -->, so an absent edge
+> means "not imported in source," not "never loaded."
 
 ## Stating Your Mental Model
 

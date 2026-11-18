@@ -19,22 +19,19 @@ JSON breaks it.
   existing conformance tests / fitness functions. These are the *only*
   first-strength external anchors you may cite for a recommendation.
 - **prior cross-run state** (optional) — previously observed findings and
-  confirmed non-issues. Do **not** re-surface a finding that matches an
-  unexpired confirmed non-issue.
+  confirmed non-issues. Do **not** re-surface a finding that matches a
+  confirmed non-issue.
 
 ## Method — structural model first, targeted reads only
 
 Build a **structural model** of the scope with pyeye primitives *before* reading
 any source:
 
-- `resolve` a name/path to a canonical handle; `outline` a module/class for its
-  skeleton; `inspect` a handle for kind / signature / docstring / `edge_counts`;
-  `expand` one edge to immediate neighbours. Edges you will use:
-  **`members`**, **`imports`**, **`imported_by`**, **`subclasses`**,
-  `superclasses`, `enclosing_scope`. Use `trace` for multi-hop closure.
-- **Pass DOTTED handles**, never file-path handles, to `outline` (a file-path
-  handle returns junk). Read async-ness from `inspect` (signature), **not**
-  `outline`.
+- Use `resolve`, `outline`, `inspect`, `expand` and `trace` as the
+  `python-explore` skill describes; the edges you'll lean on are the structural
+  ones (members, imports, importers, subclasses).
+- **Pass DOTTED handles**, never file paths, to `outline`: `resolve` a path
+  first. Read async-ness from `inspect` (signature), **not** `outline`.
 - Tool mechanics live in the **`python-explore` skill** — follow it; do not
   reinvent the primitives here. In particular honour its **honest-limits rule**:
   pyeye has **no reverse-reference / caller data** (deferred to #333). Do **not**
@@ -79,7 +76,9 @@ each cluster with its prevalence (how many sites do which), and detect deviation
 Every finding on a seed axis names **one facet** from that axis's closed list
 below (use the key verbatim in the `facet` field). The facet, the axis and the
 handle set are the finding's **identity**: the reproduction gate, cross-run
-merging and dismissed non-issues all key on them, never on your `claim` wording.
+merging and dismissed non-issues all key on them, not on your `claim` wording.
+(A finding with facet `other`, or on an open axis, has no facet to key on, so
+its identity falls back to its exact claim.)
 So two findings about the same handles on the same axis that observe different
 things **must** use different facets, and the same observation must use the same
 facet every run.
@@ -98,7 +97,7 @@ facet every run.
 
 If no listed facet fits, use `"other"`. A finding with facet `other` (or on an
 open axis you found) is never promoted to a confident grade, so prefer a listed
-facet whenever one honestly fits. The list is provisional and will grow.
+facet whenever one honestly fits. The list is provisional.
 
 ## The four grades (use exactly one of these strings in `grade`)
 
@@ -146,11 +145,13 @@ divergence matter?", not for grades that should fall out of extraction.
    `inspect`/`outline`/`expand` showed) or a targeted `Read` span. If pyeye and
    a `Read` of the source **disagree** about a structural fact, **SAY SO** in the
    finding (flag a possible extractor bug) rather than silently picking one — a
-   downstream guard depends on you surfacing this honestly. Concretely: pyeye's
-   `imports` edge has been seen to **silently drop a real import** (#494), so do
-   not treat any single edge as exhaustive — **corroborate any
-   layering-critical import fact with a targeted `Read` of the actual import
-   statements**, and report the divergence if they don't match.
+   downstream guard depends on you surfacing this honestly. Concretely: every
+   edge is complete only up to its ceiling, and an `imports` target pyeye
+   can't pin down is listed in `unresolved_imports` (#494) rather than in the
+   stubs, so do not treat any single edge as exhaustive. **Read
+   `unresolved_imports`, and corroborate any layering-critical import fact with
+   a targeted `Read` of the actual import statements**; report the divergence if
+   they don't match.
 
 ## Finding schema
 
@@ -190,4 +191,4 @@ Output is **ONLY the JSON array of findings.** No prose preamble, no trailing
 commentary, no markdown fences, no explanation of your process. The orchestrator
 parses your entire output as JSON. If you found nothing on an axis, emit a
 `no_signal` finding for it rather than omitting it silently. If you found
-nothing at all, output `[]`.
+nothing at all, emit one `no_signal` finding per seed axis.
