@@ -192,10 +192,7 @@ class TestFacts:
             assert described in rejected
             with pytest.raises(ValidationError, match=described):
                 PathValidator.validate_path(f"a{sequence}b")
-        components = facts["security.path_checks.components"].value  # type: ignore[attr-defined]
-        for component in components:
-            with pytest.raises(ValidationError, match="suspicious component"):
-                PathValidator.validate_path(f"/tmp{component}x")
+        assert "security.path_checks.components" not in facts  # retired with the check (#939)
         targets = facts["security.path_checks.targets"].value  # type: ignore[attr-defined]
         assert targets == list(PathValidator.RESTRICTED_TARGETS)
 

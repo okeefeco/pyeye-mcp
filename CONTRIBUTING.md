@@ -40,7 +40,7 @@ Everyone participating in this project is expected to be respectful and construc
 
 ### Reporting Bugs
 
-Before creating bug reports, please check [existing issues](https://github.com/okeefeco/pyeye-mcp/issues) as you might find that you don't need to create one. When you are creating a bug report, please include as many details as possible.
+Before creating bug reports, please check [existing issues](https://github.com/okeefeco/pyeye-mcp/issues) as you might find that you don't need to create one. Then open a new issue with the **Bug report** form, which asks for what we need to reproduce the bug: your pyeye version, the tool call and what it returned. Please include as many details as possible.
 
 **Great Bug Reports** tend to have:
 
@@ -54,7 +54,7 @@ Before creating bug reports, please check [existing issues](https://github.com/o
 
 ### Suggesting Enhancements
 
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion, please include:
+Enhancement suggestions are tracked as GitHub issues: open one with the **Feature request** form. Please include:
 
 - **Use case** - Explain why this enhancement would be useful
 - **Proposed solution** - Describe how you envision it working

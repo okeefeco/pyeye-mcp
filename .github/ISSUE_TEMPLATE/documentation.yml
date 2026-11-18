@@ -1,0 +1,34 @@
+name: Documentation
+description: A doc page is wrong, missing something or unclear.
+labels: ["documentation"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The file path or URL of the page.
+      placeholder: docs/api/README.md
+    validations:
+      required: true
+  - type: dropdown
+    id: problem
+    attributes:
+      label: Problem
+      options:
+        - Incorrect or outdated
+        - Missing
+        - Unclear
+        - Broken link or example
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What's wrong, and where on the page.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested wording

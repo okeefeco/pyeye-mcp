@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "find_django_views: a class view's base must be imported from Django; views packages and async views count (#941)"
 issues: [941, 942, 873]
 anchors: ["pyeye.plugins.django.DjangoPlugin.find_views", "pyeye.plugins.django._is_django_view_base", "pyeye.plugins.django._django_bindings", "pyeye.plugins.django._in_views_package", "tests/unit/plugins/test_django_views.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-942-find-django-views-follows-project-subclasses.md"]
 superseded_by: []
 ---
 
