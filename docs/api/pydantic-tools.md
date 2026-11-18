@@ -14,17 +14,54 @@ The tools: <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `fin
 Each model's fields follow its own pydantic API: models built on
 `pydantic.v1` (the v1 API that pydantic 2 ships) use v1 rules, and models
 built on `pydantic.BaseModel` use the rules of the installed major version.
-Under v1, a public attribute without an annotation (`x = 1`) is a field. Its
-record has no `type`: `type` is absent when the field has no annotation. When
-the rules can't be known (the version can't be read, or a v1 value can't be
-classified), `fields` is left out rather than shown partial (#913, #935).
+Under v1, a public attribute without an annotation (`x = 1`) is a field, as v1
+itself decides. Its record has no `type`: `type` is absent when the field has no
+annotation. v1 makes no field of an un-annotated attribute whose value is a
+lambda, a call that defines a descriptor or private attribute (such as
+`property(...)` or `PrivateAttr(...)`), or a name for a class or a function, so
+pyeye doesn't list those either. When the rules can't be known (the version
+can't be read, or a v1 value can't be classified), `fields` is left out rather
+than shown partial (#913, #935).
+
+For example, this v1 model has two fields, `name` and the un-annotated
+`retries`. `make_name = default_name` (a function), `label = lambda …` and the
+`shout` property are not fields:
+
+```python
+class Account(BaseModel):  # from pydantic.v1
+    name: str
+    retries = 3
+    make_name = default_name
+    label = lambda self: self.name
+
+    @property
+    def shout(self) -> str: ...
+
+    class Config:
+        extra = "forbid"
+        frozen = True
+```
+
+```json pyeye-example tool=find_pydantic_models fixture=docs_examples_pydantic_v1
+{}
+```
+
+```json pyeye-output
+[{"name": "Account", "handle": "legacy.models.Account",
+  "fields": [{"name": "name", "type": "str", "required": true, "…": "<omitted>"},
+             {"name": "retries", "type": "<absent>", "required": false, "default": "3",
+              "…": "<omitted>"}],
+  "config": {"extra": "'forbid'", "frozen": "True"}, "…": "<omitted>"}]
+```
 
 A model's configuration (`config` on a model or schema, `settings` from
 `find_model_config`) is reported only when its `model_config` can be read in
 full from source: a dict literal or a `ConfigDict(...)` /
 `SettingsConfigDict(...)` call whose entries all have plain keys. When it can't
 (a function call, a name, a `**` splat), the key is left out rather than shown
-empty or partial (#870). A model with no configuration at all has `{}`.
+empty or partial (#870). A model with no configuration at all has `{}`. A v1
+model's nested `class Config:` is read too, its settings reported the same way,
+as `config` in the example above and `settings` from `find_model_config`.
 
 ## find_pydantic_models
 
