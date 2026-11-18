@@ -49,6 +49,7 @@ class PathValidator:
         r"^/boot/",  # #909
         r"^/run/secrets/",  # container secrets (#909)
         r"^/var/run/secrets/",  # Kubernetes service-account tokens (#909)
+        r"^/private/var/run/secrets/",  # ...as /var/run resolves on macOS (#909 review)
         r"^/var/root/",  # macOS root's home (#909)
         r"^/private/var/root/",  # ...as it resolves on macOS (#909)
     )
@@ -307,12 +308,18 @@ def _credential_pattern() -> re.Pattern[str]:
     """Every user home followed by a credential store, as one pattern (#909).
 
     Built once per process: :data:`PathValidator.USER_HOMES` plus the server's
-    own home, whose ``$HOME`` can't move for a running process.
+    own home, as spelled and resolved, whose ``$HOME`` can't move for a running
+    process.
     """
     homes = list(PathValidator.USER_HOMES)
-    # No resolvable home: the fixed roots still apply.
-    with contextlib.suppress(RuntimeError, KeyError):
-        homes.append("^" + re.escape(Path.home().as_posix().rstrip("/")) + "/")
+    # The home both as spelled ($HOME) and resolved: with a symlinked home
+    # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
+    # the resolved check see, names neither the spelling nor a fixed root
+    # (#909 review). No resolvable home: the fixed roots still apply.
+    with contextlib.suppress(RuntimeError, KeyError, OSError):
+        home = Path.home()
+        for spelling in dict.fromkeys([home.as_posix(), normalize_path(home).as_posix()]):
+            homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
     stores = "|".join(re.escape(name) for name in PathValidator.CREDENTIAL_PATHS)
     return re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
 

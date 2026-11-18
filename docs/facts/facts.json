@@ -670,6 +670,7 @@
       "/",
       "/private",
       "/private/var",
+      "/private/var/run",
       "/run",
       "/var",
       "/var/run"
@@ -709,6 +710,7 @@
       "^/boot/",
       "^/run/secrets/",
       "^/var/run/secrets/",
+      "^/private/var/run/secrets/",
       "^/var/root/",
       "^/private/var/root/"
     ],

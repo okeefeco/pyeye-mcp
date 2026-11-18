@@ -28,6 +28,11 @@ superseded_by: []
   - **Later homes:** a home created after the server started is covered, and nothing can go stale.
   - **Limit:** a `$HOME` outside those roots (e.g. `/var/lib/jenkins`) is covered only for the server's own user. The coordinator approved this design over enumerating homes.
 - **The walk prune follows** (`restricted_dir`): it also skips credential stores, and it now ignores case like the target check (#939).
+- **Bypass review of #956:**
+  - **HIGH:** a symlinked home (NFS/autofs `/home/u` -> `/data/u`). The server's home was added only as `$HOME` spells it. The resolved forms, which the resolved check and every walk see, then named no home: links into the real home's `.ssh` passed, and a walk from `$HOME` didn't prune it. The home is now matched both as spelled and as resolved.
+  - **LOW:** `^/private/var/run/secrets/` is added, because macOS resolves `/var/run` there. `/private/var/run` becomes an ancestor.
+  - **LOW:** walks pruned store DIRECTORIES only, so a project FILE linked into a store (`x.py` -> `~/.netrc`) was still read. `pruned_walk` now judges each symlinked entry, file or directory, by its target and drops one that lands in a restricted location (`_entry_target`).
+  - **Docs:** SECURITY.md states the symlinked-home handling, and that homes outside `/home/*`, `/Users/*` and `/root` (`/home/groups/u`, `/srv/users/bob`, `/export/home/u`) are covered only for the server's own user.
 - **`DANGEROUS_NAMES` stays warn-only.**
 - **Docs facts:** `security.path_checks` lists the credential stores and the home patterns. A new `security.path_checks.ancestors` fact replaces SECURITY.md's hand-written ancestor list, which this change made stale.
 - **Scope:** Windows stays out of scope (#867).
@@ -37,6 +42,7 @@ superseded_by: []
 
 - the lists: `pyeye.validation.PathValidator.RESTRICTED_TARGETS`, `pyeye.validation.PathValidator.CREDENTIAL_PATHS`, `pyeye.validation.PathValidator.USER_HOMES`;
 - the checks: `pyeye.validation.PathValidator._check_targets`, `pyeye.validation.credential_path`, `pyeye.validation._credential_pattern`, `pyeye.validation.restricted_dir`;
+- the walk: `pyeye.async_utils.pruned_walk`, `pyeye.async_utils._entry_target`;
 - the facts: `pyeye.docs_facts.extractors.security._path_checks`.
 
 **Verify:** gold. `uv run pytest tests/test_extended_deny_list.py` passes on POSIX. It checks:
@@ -50,4 +56,6 @@ superseded_by: []
 - a home created later is covered;
 - a `$HOME` outside the roots is covered for its own user only;
 - a symlink into a store is refused;
-- walking a home skips its stores.
+- walking a home skips its stores;
+- a symlinked home: links into the real home's `.ssh` are refused through `validate_final`, `resolve_at`, `project_path` and `get_analyzer`, and a walk from either name prunes the stores;
+- a project file linked into a store, or to `/etc/hosts`, is skipped by a scan, while an ordinary symlinked file is kept.

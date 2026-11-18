@@ -53,7 +53,16 @@ def _refused(path: str, root: str = "/tmp") -> None:
 
 
 class TestSystemDirs:
-    @pytest.mark.parametrize("path", [*SYSTEM, "/private/var/root/x", "/BOOT", "/run/secrets"])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            *SYSTEM,
+            "/private/var/root/x",
+            "/private/var/run/secrets/k8s/token",
+            "/BOOT",
+            "/run/secrets",
+        ],
+    )
     def test_refused(self, path: str) -> None:
         _refused(path)
 
@@ -63,7 +72,9 @@ class TestSystemDirs:
     def test_neighbours_pass(self, path: str) -> None:
         PathValidator.validate_final(path, "/tmp")
 
-    @pytest.mark.parametrize("root", ["/run", "/var", "/var/run", "/private/var"])
+    @pytest.mark.parametrize(
+        "root", ["/run", "/var", "/var/run", "/private/var", "/private/var/run"]
+    )
     def test_their_ancestors_are_refused_as_scan_roots(self, root: str) -> None:
         with pytest.raises(ValidationError, match="ancestor of a restricted location"):
             PathValidator.validate_scan_root(root, "/tmp")
@@ -211,3 +222,125 @@ class TestReviewFollowUps:
             assert manager.analyzers == {}
         finally:
             manager.cleanup_all()
+
+
+class TestReviewSymlinkedHome:
+    """#956 review: ``$HOME`` is a symlink (NFS/autofs ``/home/u`` -> ``/data/u``).
+
+    The home was added only as spelled, so the RESOLVED forms (which the
+    resolved check and every walk see) named no home: symlinks into the real
+    home's ``.ssh`` passed, and a walk from ``$HOME`` didn't prune it.
+    """
+
+    @pytest.fixture
+    def homes(self, tmp_path: Path, home_at: Callable[[Path], None]) -> tuple[Path, Path]:
+        real = tmp_path / "data" / "u"
+        (real / ".ssh").mkdir(parents=True)
+        (real / ".ssh" / "k.py").write_text("KEY = 1\n", encoding="utf-8")
+        (real / ".aws").mkdir()
+        (real / ".aws" / "x.py").write_text("", encoding="utf-8")
+        (real / "proj").mkdir()
+        (real / "proj" / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+        link = tmp_path / "homelink"
+        link.symlink_to(real, target_is_directory=True)
+        home_at(link)
+        return link, real
+
+    def test_validate_final(self, homes: tuple[Path, Path], tmp_path: Path) -> None:
+        link, real = homes
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "keys").symlink_to(real / ".ssh", target_is_directory=True)
+        for path, root in [
+            ("keys/k.py", proj),
+            ((real / ".ssh" / "k.py").as_posix(), proj),
+            ((link / ".ssh" / "k.py").as_posix(), proj),
+        ]:
+            _refused(str(path), root=str(root))
+
+    def test_resolve_at_and_project_path(self, homes: tuple[Path, Path]) -> None:
+        import asyncio
+
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        from pyeye.mcp.server import mcp
+
+        _link, real = homes
+        for tool, args in [
+            (
+                "resolve_at",
+                {
+                    "file": (real / ".ssh" / "k.py").as_posix(),
+                    "line": 1,
+                    "column": 0,
+                    "project_path": (real / "proj").as_posix(),
+                },
+            ),
+            ("resolve", {"identifier": "k", "project_path": (real / ".ssh").as_posix()}),
+        ]:
+            with pytest.raises(ToolError, match=REFUSED):
+                asyncio.run(mcp.call_tool(tool, args))
+
+    def test_get_analyzer(self, homes: tuple[Path, Path]) -> None:
+        from pyeye.project_manager import ProjectManager
+
+        _link, real = homes
+        manager = ProjectManager(max_projects=2)
+        try:
+            with pytest.raises(ValidationError, match=REFUSED):
+                manager.get_analyzer((real / ".ssh").as_posix())
+        finally:
+            manager.cleanup_all()
+
+    @pytest.mark.parametrize("start", ["link", "real"])
+    def test_a_walk_from_either_name_prunes_the_stores(
+        self, homes: tuple[Path, Path], start: str
+    ) -> None:
+        from pyeye.async_utils import filtered_rglob
+
+        link, real = homes
+        root = link if start == "link" else real
+
+        found = {p.parent.name for p in filtered_rglob("*.py", root)}
+
+        assert found == {"proj"}
+
+
+class TestReviewSymlinkedFiles:
+    """#956 review: a project FILE symlinked into a store was read during a scan."""
+
+    def test_a_scan_skips_files_linked_into_a_store(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        from pyeye.async_utils import filtered_rglob, pruned_rglob
+
+        home = tmp_path / "u"
+        (home / ".aws").mkdir(parents=True)
+        (home / ".aws" / "credentials").write_text("[default]\n", encoding="utf-8")
+        (home / ".netrc").write_text("machine x\n", encoding="utf-8")
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "ok.py").write_text("", encoding="utf-8")
+        (proj / "netrc.py").symlink_to(home / ".netrc")
+        (proj / "creds.py").symlink_to(home / ".aws" / "credentials")
+        (proj / "aws").symlink_to(home / ".aws", target_is_directory=True)
+        home_at(home)
+
+        for walk in (filtered_rglob, pruned_rglob):
+            assert {p.name for p in walk("*", proj)} == {"ok.py"}, walk.__name__
+
+    def test_a_file_linked_to_etc_is_skipped_too(self, tmp_path: Path) -> None:
+        from pyeye.async_utils import filtered_rglob
+
+        (tmp_path / "ok.py").write_text("", encoding="utf-8")
+        (tmp_path / "hosts.py").symlink_to("/etc/hosts")
+
+        assert {p.name for p in filtered_rglob("*.py", tmp_path)} == {"ok.py"}
+
+    def test_control_an_ordinary_symlinked_file_is_kept(self, tmp_path: Path) -> None:
+        from pyeye.async_utils import filtered_rglob
+
+        (tmp_path / "real.py").write_text("", encoding="utf-8")
+        (tmp_path / "alias.py").symlink_to(tmp_path / "real.py")
+
+        assert {p.name for p in filtered_rglob("*.py", tmp_path)} == {"real.py", "alias.py"}
