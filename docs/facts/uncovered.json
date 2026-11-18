@@ -112,6 +112,10 @@
   "dismissed": {},
   "new": [
     {
+      "fact_id": "env.PYEYE_METRICS_DIR",
+      "first_seen": "unreleased"
+    },
+    {
       "fact_id": "precommit.hook.black",
       "first_seen": "unreleased"
     },
