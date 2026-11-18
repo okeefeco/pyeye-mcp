@@ -135,33 +135,25 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
       needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15  # Prevent runaway tests
+    timeout-minutes: 30  # measurement: let every leg finish
     strategy:
       fail-fast: false
       matrix:
+        # MEASUREMENT ONLY (#892, never merge): Windows 3.11 and 3.13, with and
+        # without coverage, three repeats each, all on one commit.
         include:
-          # Linux - every supported version (cheapest runner)
-          - os: ubuntu-latest
-            python-version: '3.11'
-          - os: ubuntu-latest
-            python-version: '3.12'
-          - os: ubuntu-latest
-            python-version: '3.13'
-          - os: ubuntu-latest
-            python-version: '3.14'
-          # Windows - oldest and newest (3.13 kept while it is a required check)
-          - os: windows-latest
-            python-version: '3.11'
-          - os: windows-latest
-            python-version: '3.13'
-          - os: windows-latest
-            python-version: '3.14'
-          # macOS - newest only (biggest savings; 3.13 kept while required).
-          # 3.14 also exercises watchdog, which has no macOS cp314 wheel.
-          - os: macos-latest
-            python-version: '3.13'
-          - os: macos-latest
-            python-version: '3.14'
+          - {os: windows-latest, python-version: '3.11', cov: 'on', rep: 1}
+          - {os: windows-latest, python-version: '3.11', cov: 'on', rep: 2}
+          - {os: windows-latest, python-version: '3.11', cov: 'on', rep: 3}
+          - {os: windows-latest, python-version: '3.11', cov: 'off', rep: 1}
+          - {os: windows-latest, python-version: '3.11', cov: 'off', rep: 2}
+          - {os: windows-latest, python-version: '3.11', cov: 'off', rep: 3}
+          - {os: windows-latest, python-version: '3.13', cov: 'on', rep: 1}
+          - {os: windows-latest, python-version: '3.13', cov: 'on', rep: 2}
+          - {os: windows-latest, python-version: '3.13', cov: 'on', rep: 3}
+          - {os: windows-latest, python-version: '3.13', cov: 'off', rep: 1}
+          - {os: windows-latest, python-version: '3.13', cov: 'off', rep: 2}
+          - {os: windows-latest, python-version: '3.13', cov: 'off', rep: 3}
 
     steps:
       - uses: actions/checkout@v7
@@ -186,7 +178,13 @@ jobs:
         # Off on Windows, where symlinks need privileges, as on test-main.
         env:
           PYEYE_EXHAUSTIVE_PATHS: ${{ github.event_name == 'merge_group' && matrix.os != 'windows-latest' && '1' || '' }}
-        run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+        shell: bash
+        run: |
+          if [ "${{ matrix.cov }}" = "on" ]; then
+            uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+          else
+            uv run pytest --no-cov
+          fi
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
