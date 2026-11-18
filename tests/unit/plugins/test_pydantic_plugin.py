@@ -965,3 +965,420 @@ class Other(BaseModel):
         schema = await PydanticPlugin(temp_project).get_model_schema("M")
 
         assert schema is not None and schema["computed_fields"] == []
+
+
+class TestFieldRule:
+    """One pydantic field rule for own and inherited fields (#870, Q3 ruling (a))."""
+
+    @pytest.mark.asyncio
+    async def test_own_fields_exclude_classvar_private_and_model_config(self, temp_project):
+        (temp_project / "models.py").write_text(
+            "from typing import ClassVar\n"
+            "from pydantic import BaseModel, ConfigDict\n"
+            "class M(BaseModel):\n"
+            "    model_config: ConfigDict = ConfigDict(frozen=True)\n"
+            "    counter: ClassVar[int] = 0\n"
+            "    _secret: str = 'x'\n"
+            "    name: str\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        own = next(m for m in models if m["name"] == "M")["fields"]
+        # model_config, the ClassVar and the private attribute used to be listed.
+        assert [f["name"] for f in own] == ["name"]
+
+
+class TestInheritanceMroAndFields:
+    """``mro`` and ``fields_inherited`` from statically resolved bases (#870, Q3 ruling)."""
+
+    _SOURCE = """
+from pydantic import BaseModel, RootModel
+
+class Base(BaseModel):
+    a: int
+    b: str = "x"
+
+class Child(Base):
+    b: str = "y"
+    c: float
+
+class R(RootModel[int]):
+    pass
+"""
+
+    @staticmethod
+    async def _trace(temp_project, name: str) -> dict:
+        """inheritance_for on *name*, built from its own class record.
+
+        Built directly rather than from find_models, which doesn't find every
+        model shape (a RootModel[...] subclass, a dynamic base) on its own.
+        """
+        import ast
+
+        plugin = PydanticPlugin(temp_project)
+        path = temp_project / "models.py"
+        line = next(
+            n.lineno
+            for n in ast.walk(ast.parse(path.read_text()))
+            if isinstance(n, ast.ClassDef) and n.name == name
+        )
+        target = await plugin._model_record(path, line)
+        assert target is not None
+        return await plugin.inheritance_for(name, target, [target])
+
+    @pytest.mark.asyncio
+    async def test_mro_is_the_static_c3_order_through_installed_pydantic(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        result = await self._trace(temp_project, "Child")
+
+        assert result["mro"] == [
+            "models.Child",
+            "models.Base",
+            "pydantic.main.BaseModel",
+            "builtins.object",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_inherited_fields_skip_overrides_and_say_where_they_live(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        result = await self._trace(temp_project, "Child")
+
+        # b is redeclared by Child, so only a is inherited; BaseModel adds none.
+        assert result["fields_inherited"] == [
+            {"name": "a", "type": "int", "required": True, "line": 5, "defined_in": "models.Base"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_root_model_inherits_root(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        result = await self._trace(temp_project, "R")
+
+        assert result["mro"][:2] == ["models.R", "pydantic.root_model.RootModel"]
+        assert result["mro"][-1] == "builtins.object"
+        assert [(f["name"], f["defined_in"]) for f in result["fields_inherited"]] == [
+            ("root", "pydantic.root_model.RootModel")
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # A dynamic base: it resolves to a function, not a class.
+            "from pydantic import BaseModel\n"
+            "def make_base():\n    return BaseModel\n"
+            "class M(make_base()):\n    x: int\n",
+            # A base from a package that isn't installed.
+            "from pydantic import BaseModel\n"
+            "from not_installed_pkg import Mixin\n"
+            "class M(BaseModel, Mixin):\n    x: int\n",
+        ],
+        ids=["dynamic_base", "missing_package"],
+    )
+    async def test_an_unresolved_base_omits_both(self, temp_project, source):
+        (temp_project / "models.py").write_text(source)
+
+        result = await self._trace(temp_project, "M")
+
+        assert "mro" not in result and "fields_inherited" not in result, result
+
+    @pytest.mark.asyncio
+    async def test_an_inconsistent_order_omits_both(self, temp_project):
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\n"
+            "class A(BaseModel):\n    a: int\n"
+            "class B(BaseModel):\n    b: int\n"
+            "class C(A, B):\n    pass\n"
+            "class D(B, A):\n    pass\n"
+            "class E(C, D):\n    pass\n"
+        )
+
+        result = await self._trace(temp_project, "E")
+
+        assert "mro" not in result and "fields_inherited" not in result, result
+
+    @pytest.mark.asyncio
+    async def test_under_v2_an_unannotated_assignment_is_not_inherited(self, temp_project):
+        """The model's lineage decides the rules (#913): v2 doesn't make ``a = 1`` a field."""
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\n"
+            "class Base(BaseModel):\n    a = 1\n    b: int\n"
+            "class Child(Base):\n    c: int\n"
+        )
+
+        result = await self._trace(temp_project, "Child")
+
+        assert result["mro"][:2] == ["models.Child", "models.Base"]
+        assert [(f["name"], f["defined_in"]) for f in result["fields_inherited"]] == [
+            ("b", "models.Base")
+        ]
+
+
+class TestInheritanceV1Shape:
+    """A pydantic-v1-shaped hierarchy, simulated by a fixture package (#870)."""
+
+    @pytest.mark.asyncio
+    async def test_mro_and_fields_through_a_v1_shaped_base(self, temp_project):
+        pkg = temp_project / "fakepyd"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "utils.py").write_text("class Representation:\n    __slots__ = ()\n")
+        (pkg / "main.py").write_text(
+            "from typing import ClassVar\n"
+            "from fakepyd.utils import Representation\n"
+            "class ModelMetaclass(type):\n    pass\n"
+            "class BaseModel(Representation, metaclass=ModelMetaclass):\n"
+            "    __fields__: ClassVar[dict] = {}\n"
+            "    Config: ClassVar[type]\n"
+        )
+        (temp_project / "models.py").write_text(
+            "from fakepyd.main import BaseModel\n"
+            "class Base(BaseModel):\n    a: int\n"
+            "class Child(Base):\n    c: int\n"
+        )
+        plugin = PydanticPlugin(temp_project)
+        target = {
+            "name": "Child",
+            "file": (temp_project / "models.py").as_posix(),
+            "line": 4,
+            "base_classes": ["Base"],
+            "fields": [{"name": "c", "type": "int", "required": True, "line": 5}],
+        }
+
+        result = await plugin.inheritance_for("Child", target, [target])
+
+        assert result["mro"] == [
+            "models.Child",
+            "models.Base",
+            "fakepyd.main.BaseModel",
+            "fakepyd.utils.Representation",
+            "builtins.object",
+        ]
+        assert result["fields_inherited"] == [
+            {"name": "a", "type": "int", "required": True, "line": 3, "defined_in": "models.Base"}
+        ]
+
+
+class TestInheritanceCost:
+    """The base walk runs per model, in trace_model_inheritance only; keep it bounded."""
+
+    @pytest.mark.asyncio
+    async def test_a_warm_trace_is_bounded(self):
+        import time
+
+        from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
+
+        fixture = Path(__file__).parents[2] / "fixtures" / "docs_examples"
+        plugin = PydanticPlugin(fixture)
+        models = await plugin.find_models()
+        target = next(m for m in models if m["name"] == "User")
+        await plugin.inheritance_for("User", target, models)  # cold: Jedi infers pydantic
+
+        start = time.perf_counter()
+        result = await plugin.inheritance_for("User", target, models)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        assert result["mro"][-1] == "builtins.object"
+        threshold = PerformanceThresholds(
+            base=1000.0, linux_ci=2000.0, macos_ci=4000.0, windows_ci=4000.0
+        )
+        assert_performance_threshold(elapsed_ms, threshold, "warm trace_model_inheritance")
+
+
+class TestCompiledBases:
+    """A compiled base's bases come from Jedi's compiled introspection (#870).
+
+    Pins the Jedi internals that ``_compiled_bases`` relies on, so a Jedi
+    upgrade that renames them fails here, loudly, instead of silently dropping
+    every RootModel subclass's ``mro``.
+    """
+
+    def test_the_jedi_internals_are_where_we_use_them(self):
+        from jedi.inference.compiled.value import CompiledValue
+
+        for attr in ("py__bases__", "get_qualified_names", "py__name__", "get_root_context"):
+            assert hasattr(CompiledValue, attr), attr
+
+    @pytest.mark.asyncio
+    async def test_generic_ends_in_object_on_this_pythons_path(self, temp_project):
+        """``Generic`` is compiled (``_typing``) on 3.12+ and Python source on 3.11.
+
+        Either way the walk must end in ``builtins.object``: through Jedi's
+        compiled introspection when ``_typing`` defines it, else through
+        ``typing.py``'s own class statement. Which path runs is read from the
+        interpreter, not from the version number.
+        """
+        import importlib
+
+        from pyeye.plugins.pydantic import _compiled_bases
+
+        compiled = hasattr(importlib.import_module("_typing"), "Generic")
+        (temp_project / "m.py").write_text("from typing import Generic\nclass C(Generic): ...\n")
+        plugin = PydanticPlugin(temp_project)
+
+        mro = plugin._mro(plugin._analyzer(), "m.C")
+
+        assert mro is not None
+        generic = "_typing.Generic" if compiled else "typing.Generic"
+        assert [handle for handle, _ in mro] == ["m.C", generic, "builtins.object"]
+        bases = _compiled_bases(mro[1][1])
+        if compiled:
+            assert bases is not None and [h for h, _ in bases] == ["builtins.object"]
+        else:
+            assert bases is None  # a source class: its class statement gave the bases
+
+    @pytest.mark.asyncio
+    async def test_a_source_class_is_not_treated_as_compiled(self, temp_project):
+        from pyeye.plugins.pydantic import _compiled_bases
+
+        (temp_project / "m.py").write_text("class A: ...\n")
+        plugin = PydanticPlugin(temp_project)
+        from pyeye import resolver
+
+        found = resolver.resolve_handle("m.A", plugin._analyzer())
+        assert isinstance(found, resolver.Resolved)
+        assert _compiled_bases(found.anchor) is None
+
+
+_V1_MODELS = """
+from pydantic.v1 import BaseModel, BaseSettings, Field
+
+def helper():
+    return 1
+
+class Kind:
+    pass
+
+class Old(BaseModel):
+    count = 1
+    label: str
+    tags = Field(default_factory=list)
+    kind = Kind
+    fn = helper
+    double = lambda self: 2
+    cached = property(lambda self: 3)
+    _private = 4
+
+class OldChild(Old):
+    extra = 2.5
+
+class OldSettings(BaseSettings):
+    debug = False
+"""
+
+
+class TestPydanticV1Roots:
+    """pydantic.v1 models are found, under a v2 install (#935)."""
+
+    @pytest.mark.asyncio
+    async def test_v1_models_are_found(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        assert sorted(m["name"] for m in models) == ["Old", "OldChild", "OldSettings"]
+
+    @pytest.mark.asyncio
+    async def test_a_mixed_project_finds_both_apis(self, temp_project):
+        (temp_project / "old.py").write_text(
+            "from pydantic.v1 import BaseModel\nclass A(BaseModel):\n    x = 1\n"
+        )
+        (temp_project / "new.py").write_text(
+            "from pydantic import BaseModel\nclass B(BaseModel):\n    y: int\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        assert sorted(m["name"] for m in models) == ["A", "B"]
+
+
+class TestV1FieldRules:
+    """fields_own follows the model's own API (#913)."""
+
+    @staticmethod
+    async def _fields(temp_project, name):
+        models = await PydanticPlugin(temp_project).find_models()
+        return next(m for m in models if m["name"] == name)
+
+    @pytest.mark.asyncio
+    async def test_a_v1_model_counts_unannotated_fields_without_a_type(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+
+        record = await self._fields(temp_project, "Old")
+
+        by_name = {f["name"]: f for f in record["fields"]}
+        # kind (a class), fn (a function), the lambda, the property and _private aren't fields.
+        assert sorted(by_name) == ["count", "label", "tags"]
+        # No annotation: type is absent, never a guess (#870's Q1 ruling).
+        assert "type" not in by_name["count"]
+        assert by_name["count"]["default"] == "1" and by_name["count"]["required"] is False
+        assert by_name["label"]["type"] == "str"
+        assert by_name["tags"].get("has_field_config") is True
+
+    @pytest.mark.asyncio
+    async def test_a_v1_child_inherits_unannotated_fields(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+        plugin = PydanticPlugin(temp_project)
+        models = await plugin.find_models()
+        target = next(m for m in models if m["name"] == "OldChild")
+
+        result = await plugin.inheritance_for("OldChild", target, models)
+
+        assert [f["name"] for f in result["fields_own"]] == ["extra"]
+        assert [(f["name"], f["defined_in"]) for f in result["fields_inherited"]] == [
+            ("count", "models.Old"),
+            ("label", "models.Old"),
+            ("tags", "models.Old"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_unclassifiable_v1_value_omits_the_fields(self, temp_project):
+        """A value whose target can't be resolved might be a type (ignored) or not."""
+        (temp_project / "models.py").write_text(
+            "from pydantic.v1 import BaseModel\n"
+            "from not_installed_pkg import SOMETHING\n"
+            "class M(BaseModel):\n    x = SOMETHING\n    y: int\n"
+        )
+        plugin = PydanticPlugin(temp_project)
+
+        record = await self._fields(temp_project, "M")
+        schema = await plugin.get_model_schema("M")
+
+        assert "fields" not in record, record
+        assert schema is not None
+        assert not {"fields", "required", "optional"} & set(schema), schema
+
+    @pytest.mark.asyncio
+    async def test_a_v2_model_ignores_unannotated_assignments(self, temp_project):
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    a = 1\n    b: int\n"
+        )
+
+        record = await self._fields(temp_project, "M")
+
+        assert [f["name"] for f in record["fields"]] == ["b"]
+
+
+class TestPydanticV1Installed:
+    """pydantic 1.x installed on its own: its version.py says so (#913, #935)."""
+
+    @pytest.mark.asyncio
+    async def test_v1_rules_follow_the_installed_version(self, temp_project):
+        pkg = temp_project / "pydantic"
+        pkg.mkdir()
+        (pkg / "version.py").write_text("VERSION = '1.10.2'\n")
+        (pkg / "main.py").write_text("class BaseModel:\n    pass\n")
+        (pkg / "__init__.py").write_text(
+            "from .main import BaseModel\nfrom .version import VERSION\n"
+        )
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    a = 1\n    b: int\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        record = next(m for m in models if m["name"] == "M")
+        assert sorted(f["name"] for f in record["fields"]) == ["a", "b"]
