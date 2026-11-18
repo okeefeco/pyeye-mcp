@@ -42,10 +42,20 @@ _LOCAL_SETUP_FILES = sorted(
 _UV_SYNC = re.compile(r"uv sync(?P<flags>(?:\s+--?[\w-]+(?:[ =](?!-)[\w.-]+)?)*)")
 
 
+# A fact block's markers (#824), and the seam between two adjacent code spans:
+# `uv sync` <fact ci.uv_sync_flags> renders as `uv sync` `--locked` (#830).
+_FACT_MARKER = re.compile(r"<!-- fact:(?:begin \S+|end) -->")
+
+
+def _rendered(line: str) -> str:
+    """*line* as it reads: fact markers dropped, adjacent code spans joined."""
+    return _FACT_MARKER.sub("", line).replace("` `", " ")
+
+
 def _unpinned_syncs(text: str) -> list[int]:
     """Return 1-based line numbers of `uv sync` uses lacking --frozen/--locked."""
     offenders = []
-    for lineno, line in enumerate(text.splitlines(), 1):
+    for lineno, line in enumerate(map(_rendered, text.splitlines()), 1):
         for match in _UV_SYNC.finditer(line):
             flags = match.group("flags").split()
             if "--frozen" in flags or "--locked" in flags:
@@ -67,6 +77,11 @@ def _unpinned_syncs(text: str) -> list[int]:
         ("uv sync --frozen --group dev", False),
         ("uv sync --group dev --frozen", False),
         ("CI pins `uv sync --locked`", False),
+        (
+            "CI pins `uv sync` <!-- fact:begin ci.uv_sync_flags -->`--locked`<!-- fact:end -->",
+            False,
+        ),
+        ("CI pins `uv sync` <!-- fact:begin ci.uv_sync_flags -->`--group`<!-- fact:end -->", True),
         ("NEVER use bare `uv sync` locally", False),
     ],
 )
