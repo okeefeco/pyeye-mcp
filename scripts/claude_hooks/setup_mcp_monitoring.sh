@@ -36,7 +36,12 @@ echo ""
 
 # Step 2: Make Python scripts executable
 echo "2️⃣  Making Python scripts executable..."
-chmod +x "$SCRIPT_DIR"/*.py
+# Only the scripts (a #! first line); a module such as pyeye_tool_names.py keeps its mode
+for script in "$SCRIPT_DIR"/*.py; do
+    if [[ "$(head -c 2 "$script")" == "#!" ]]; then
+        chmod +x "$script"
+    fi
+done
 echo -e "${GREEN}✓${NC} Scripts made executable"
 echo ""
 
@@ -45,28 +50,17 @@ echo "3️⃣  Installing hooks configuration..."
 CLAUDE_SETTINGS_DIR="$HOME/.claude"
 mkdir -p "$CLAUDE_SETTINGS_DIR"
 
-# Check if settings.json already exists
+# Merge pyeye's hooks into the settings (#981): the user's other settings and
+# hooks are kept, and pyeye's own entries are replaced, so a re-run is safe.
 if [[ -f "$CLAUDE_SETTINGS_DIR/settings.json" ]]; then
-    echo -e "${YELLOW}⚠️  Existing settings.json found${NC}"
-    echo "   Backing up to: settings.json.backup-$(date +%Y%m%d-%H%M%S)"
-    cp "$CLAUDE_SETTINGS_DIR/settings.json" "$CLAUDE_SETTINGS_DIR/settings.json.backup-$(date +%Y%m%d-%H%M%S)"
-
-    # Extract existing settings (non-hooks)
-    if command -v jq &> /dev/null; then
-        # If jq is available, merge properly
-        EXISTING_SETTINGS=$(jq 'del(.hooks)' "$CLAUDE_SETTINGS_DIR/settings.json" 2>/dev/null || echo '{}')
-        HOOKS_CONFIG=$(sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" "$SCRIPT_DIR/hooks.json")
-        echo "$EXISTING_SETTINGS" | jq --argjson hooks "$HOOKS_CONFIG" '. + $hooks' > "$CLAUDE_SETTINGS_DIR/settings.json"
-    else
-        # Manual merge - just replace for now
-        echo -e "${YELLOW}⚠️  jq not found - replacing settings.json (backup created)${NC}"
-        sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" \
-            "$SCRIPT_DIR/hooks.json" > "$CLAUDE_SETTINGS_DIR/settings.json"
-    fi
-else
-    # No existing settings, just copy our hooks
-    sed "s|~/GitHub/pyeye-mcp|$REPO_ROOT|g" \
-        "$SCRIPT_DIR/hooks.json" > "$CLAUDE_SETTINGS_DIR/settings.json"
+    BACKUP="$CLAUDE_SETTINGS_DIR/settings.json.backup-$(date +%Y%m%d-%H%M%S)"
+    echo "   Existing settings.json found; backing up to: $(basename "$BACKUP")"
+    cp "$CLAUDE_SETTINGS_DIR/settings.json" "$BACKUP"
+fi
+if ! python3 "$SCRIPT_DIR/merge_hooks.py" \
+        "$CLAUDE_SETTINGS_DIR/settings.json" "$SCRIPT_DIR/hooks.json" "$REPO_ROOT"; then
+    echo -e "${RED}Error: could not merge hooks into $CLAUDE_SETTINGS_DIR/settings.json; it was left unchanged.${NC}"
+    exit 1
 fi
 
 echo -e "${GREEN}✓${NC} Installed: $CLAUDE_SETTINGS_DIR/settings.json"
