@@ -1116,6 +1116,21 @@ class R(RootModel[int]):
             ("b", "models.Base")
         ]
 
+    def test_the_description_states_when_fields_inherited_is_omitted(self):
+        """The tool description gives #913's omission rule, not #870's (#972).
+
+        The test above shows a v2 model whose ancestor has ``a = 1`` still gets
+        ``fields_inherited``, so the description must not say an un-annotated
+        ancestor attribute omits it.
+        """
+        description = " ".join((PydanticPlugin.trace_model_inheritance.__doc__ or "").split())
+
+        assert "un-annotated public class attribute" not in description
+        assert (
+            "``fields_inherited`` also when an ancestor's class body can't be read, "
+            "or its fields can't be known under the model's own pydantic API"
+        ) in description
+
 
 class TestInheritanceV1Shape:
     """A pydantic-v1-shaped hierarchy, simulated by a fixture package (#870)."""
