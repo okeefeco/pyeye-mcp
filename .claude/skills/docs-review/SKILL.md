@@ -71,9 +71,16 @@ shares the verdicts. Dates are always supplied by the caller; nothing reads a cl
 2. **Dispatch the reviewer**, one fresh subagent per page, with
    [`reviewer.md`](reviewer.md) and that page's packet. It reads the page with
    targeted reads and returns a JSON array of findings, nothing else.
-3. **Validate.** Write the findings to a scratch file and run `validate`. A
-   finding with problems goes back to the reviewer with the problems quoted;
-   never fix it up yourself.
+3. **Validate.** You run it, never the reviewer. Write the findings to a
+   scratch file and run `validate`. A finding with problems goes back to the
+   reviewer with the problems quoted; never fix it up yourself.
+   - "page … changed since scope": the page changed under the review. Re-run
+     `scope` for that page and send the reviewer its fresh packet.
+   - A repeated finding (same page, section, category, anchor and, for a rule
+     anchor, subject) is rejected: there is one finding per identity, the same
+     identity dismissals use.
+   - Proposed wording is checked against the rules too: an unbacked claim, or
+     a hand-written value of the anchor fact, is rejected.
 4. **Present** each shown finding to the human verbatim, with its status:
    - `new`: not seen before;
    - `resurfaced`: dismissed before, but its anchor fact's value changed;

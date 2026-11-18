@@ -19,13 +19,15 @@ dismissals. The ratchet uses none of those: every exact-match clone counts.
   plus attribute names such as `.infer` or `.full_name`.
 - Local variable names, literal values, docstrings, comments and imports are
   dropped. A copy whose variables were renamed still matches.
-- Any run of at least 35 identical tokens that appears in two places is
-  reported as a clone region, with both line ranges.
-- A token window that appears more than 50 times is paired with its next
+- Any run of at least <!-- fact:begin duplication.default.min_tokens -->`35`<!-- fact:end -->
+  identical tokens (by default; `--min-tokens` changes it) that appears in two
+  places is reported as a clone region, with both line ranges.
+- A token window that appears more than
+  <!-- fact:begin duplication.default.max_occurrences -->`50`<!-- fact:end --> times is paired with its next
   occurrence only (#495), so the pair loop stays linear on repeated data such as
   large literal tables. All-pairs on one emoji table in `rich` ran out of memory.
-  Every copy is still reported, so a 51-way copy fails the ratchet like a 2-way
-  one. On this repository the cap changes nothing.
+  Every copy is still reported, so a copy past the cap fails the ratchet like a
+  2-way one.
 - A target file that can't be parsed fails the ratchet (it would hide its
   copies). Directories are walked with `filtered_rglob` (#517, #810), like
   every project scan: virtual environments and nested checkouts are skipped.
@@ -42,7 +44,7 @@ pylint's similarity checker compares normalised *lines*. On these files it
 found 1 block at a 4-line minimum and none at 6, because the copies that
 drifted (the Jedi synthetic-import inference in `inspect`, `resolve` and
 `canonicalization`, for example) rename their locals. The AST check finds all
-three of those copies, needs no new dependency and runs in under a second.
+three of those copies and needs no new dependency.
 
 ## It is a blocking ratchet
 
@@ -99,6 +101,7 @@ Passing both files reports it (a 51-token clone region).
 - **It's crude.** It finds copied *code*, not copied *behaviour*. Two
   implementations of the same idea written differently aren't found. The #614
   cross-tool invariant tests cover that.
-- Short copies under 35 tokens (a few lines) aren't reported by default.
+- Short copies under <!-- fact:begin duplication.default.min_tokens -->`35`<!-- fact:end -->
+  tokens (a few lines) aren't reported by default.
   Lowering `--min-tokens` finds more of them, along with more incidental
   matches.

@@ -14,7 +14,7 @@ PyEye includes comprehensive connection diagnostics that track:
 2. **Signal handling** - SIGTERM, SIGPIPE, SIGHUP to detect disconnects
 3. **Error patterns** - consecutive errors, rapid error rates
 4. **Heartbeat monitoring** - periodic logs to identify silent periods
-5. **Activity tracking** - all tool calls are logged with timestamps
+5. **Activity tracking** - each analysis tool call (core and plugin tools) is logged with a timestamp
 
 ## Enabling Diagnostics
 
@@ -26,7 +26,15 @@ Set the `PYEYE_LOG_FILE` environment variable to capture all logs to a persisten
 export PYEYE_LOG_FILE="$HOME/.pyeye/connection.log"
 ```
 
-Configure this in your Claude Code MCP settings (`~/.config/claude/claude_desktop_config.json`):
+For Claude Code, pass the variables when adding the server, as the README shows:
+
+```bash
+claude mcp add pyeye -s user -e PYEYE_LOG_FILE=$HOME/.pyeye/connection.log -e PYEYE_LOG_LEVEL=INFO -- pyeye-mcp
+```
+
+For Claude Desktop, put the same `env` block in its `claude_desktop_config.json`
+(location as given in the README's
+[Configure with Claude Desktop](../README.md#configure-with-claude-desktop)):
 
 ```json
 {
@@ -51,7 +59,8 @@ To access the `get_connection_diagnostics` tool, enable performance metrics:
 export PYEYE_ENABLE_PERFORMANCE_METRICS=true
 ```
 
-Or in Claude Code config:
+Or, for Claude Code, add `-e PYEYE_ENABLE_PERFORMANCE_METRICS=true` to the
+`claude mcp add` command above. In the Claude Desktop config:
 
 ```json
 {
@@ -74,22 +83,22 @@ Or in Claude Code config:
 ### Connection Lifecycle
 
 ```log
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: ============================================================
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: MCP CONNECTION STARTED
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: Start time: 2026-04-01T10:15:23.456789
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: Python: 3.12.0
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: PID: 12345
-2026-04-01 10:15:23 [PID 12345] pyeye INFO: ============================================================
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: ============================================================
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: MCP CONNECTION STARTED
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: Start time: 2026-04-01T10:15:23.456789
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: Python: 3.12.0
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: PID: 12345
+2026-04-01 10:15:23 [PID 12345] pyeye.mcp.connection_diagnostics INFO: ============================================================
 ```
 
 ### Tool Call Activity
 
 ```log
-2026-04-01 10:15:30 [PID 12345] pyeye.mcp.connection_diagnostics INFO: [CONNECTION] tool_call: find_symbol
-2026-04-01 10:15:32 [PID 12345] pyeye.mcp.connection_diagnostics INFO: [CONNECTION] tool_call: get_type_info
+2026-04-01 10:15:30 [PID 12345] pyeye.mcp.connection_diagnostics INFO: [CONNECTION] tool_call: resolve
+2026-04-01 10:15:32 [PID 12345] pyeye.mcp.connection_diagnostics INFO: [CONNECTION] tool_call: inspect
 ```
 
-### Heartbeat (every 30 seconds)
+### Heartbeat
 
 ```log
 2026-04-01 10:16:00 [PID 12345] pyeye.mcp.connection_diagnostics INFO: [CONNECTION] heartbeat: idle_for=5.2s
@@ -98,8 +107,8 @@ Or in Claude Code config:
 ### Error Tracking
 
 ```log
-2026-04-01 10:16:15 [PID 12345] pyeye.metrics_hook ERROR: [ERROR_TRACKER] Tool 'find_symbol' raised FileNotFoundError: ...
-2026-04-01 10:16:16 [PID 12345] pyeye.metrics_hook WARNING: [ERROR_TRACKER] 3 consecutive errors detected - connection may be unstable
+2026-04-01 10:16:15 [PID 12345] pyeye.mcp.error_tracker ERROR: [ERROR_TRACKER] Tool 'resolve' raised FileNotFoundError: ...
+2026-04-01 10:16:16 [PID 12345] pyeye.mcp.error_tracker WARNING: [ERROR_TRACKER] 3 consecutive errors detected - connection may be unstable
 ```
 
 ### Signal Detection
@@ -116,14 +125,14 @@ Or in Claude Code config:
 ### Shutdown Diagnostics
 
 ```log
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: ============================================================
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: SHUTDOWN DIAGNOSTICS
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: ============================================================
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: Connection uptime: 276.5 seconds
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: Total connection events: 42
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: Final idle time: 5.2 seconds
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: Total errors: 3
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.server INFO: Error types: {'FileNotFoundError': 2, 'ValueError': 1}
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: ============================================================
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: SHUTDOWN DIAGNOSTICS
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: ============================================================
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: Connection uptime: 276.5 seconds
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: Total connection events: 42
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: Final idle time: 5.2 seconds
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: Total errors: 3
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.__main__ INFO: Error types: {'FileNotFoundError': 2, 'ValueError': 1}
 ```
 
 ## Using the Diagnostic Tool (Live Query)
@@ -186,7 +195,7 @@ grep "consecutive errors" ~/.pyeye/connection.log
 
 ```bash
 # Find long idle periods (>5 minutes)
-grep "heartbeat" ~/.pyeye/connection.log | awk -F'idle_for=' '{print $2}' | grep -E "^[3-9][0-9]{2}\."
+grep "heartbeat" ~/.pyeye/connection.log | awk -F'idle_for=' '{ if ($2+0 > 300) print }'
 ```
 
 ### Filtering by Session
@@ -259,7 +268,9 @@ grep "\[PID 12345\]" ~/.pyeye/connection.log
 
 ## Advanced: Adjusting Heartbeat Interval
 
-The default heartbeat interval is 30 seconds. To change it, modify `src/pyeye/mcp/server.py`:
+To change the heartbeat interval, edit the
+`start_heartbeat_monitor(interval_seconds=30)` call in `main()` in
+`src/pyeye/mcp/__main__.py`:
 
 ```python
 # Start heartbeat monitor (logs every 60 seconds instead of 30)

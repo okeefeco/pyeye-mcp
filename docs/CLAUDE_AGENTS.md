@@ -12,11 +12,7 @@ Agents appear in Claude Code's `/agents` command and run in a separate context f
 
 Git commit workflow with pre-commit validation: checks status/diff, screens for secrets, runs the pre-commit hooks, writes a conventional-commit message, and handles hook fixes. Invoke when the user says "commit". See `.claude/instructions/06-workflow-commits.md`.
 
-### general-purpose
-
-Catch-all for complex, multi-step research and search tasks that span many files. Use when you need a conclusion synthesised from a broad sweep rather than a single lookup.
-
-> Other entries in `/agents` (e.g. `statusline-setup`) are Claude Code built-ins, not defined in this repository.
+> Other entries in `/agents` (e.g. `general-purpose`, `statusline-setup`) are Claude Code built-ins, not defined in this repository.
 
 ### Retired agents
 
@@ -53,7 +49,7 @@ Catch-all for complex, multi-step research and search tasks that span many files
    - **Editing** → `Read` then `Edit`/`MultiEdit`.
 2. **Define the agent** in `.claude/agents/<name>.md` with the frontmatter above,
    granting only the tools it needs.
-3. **Test it** via `/agents` or a direct `Task(subagent_type="<name>", …)` call,
+3. **Test it** via `/agents` or a direct `Agent` tool call with `subagent_type: "<name>"`,
    and document it in this file.
 
 ## Benefits

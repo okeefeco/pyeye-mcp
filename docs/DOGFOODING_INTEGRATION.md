@@ -4,7 +4,7 @@ This document describes the integration between MCP performance metrics and dogf
 
 ## Problem Statement
 
-The original dogfooding metrics system was reporting 0% MCP adoption despite heavy MCP tool usage during development. This was because:
+The original dogfooding metrics system reported no MCP adoption at all despite heavy MCP tool usage during development. This was because:
 
 1. MCP tool calls from Claude were not being captured
 2. No integration existed between the MCP server's performance metrics and the dogfooding tracker
@@ -33,7 +33,7 @@ Shell Commands → grep_tracker.sh → dogfooding_metrics.py → Session Storage
 
 - All MCP tools are decorated with `@metrics.measure()` in `server.py`
 - `DogfoodingIntegration.export_mcp_metrics_for_session()` extracts tool usage data
-- Real-time sync via `python scripts/dogfooding_metrics.py sync`
+- `sync` reads the pyeye metrics collector of the process that runs it, so run from the CLI it records no MCP calls: the MCP server's metrics stay inside the server process. MCP tool usage is tracked by the Claude Code hooks instead (see [`scripts/claude_hooks/README.md`](../scripts/claude_hooks/README.md)).
 
 ### Grep Usage Detection
 
@@ -60,7 +60,7 @@ integration = get_integration()
 metrics = integration.export_mcp_metrics_for_session()
 
 # Log individual tool calls
-integration.log_mcp_call("find_symbol", {"name": "TestClass"})
+integration.log_mcp_call("resolve", {"identifier": "TestClass"})
 
 # Update active session with latest metrics
 success = integration.update_session_with_mcp_stats()
@@ -138,11 +138,13 @@ python scripts/dogfooding_metrics.py end
   "stats": {
     "mcp_queries_count": 15,
     "grep_count": 2,
-    "mcp_ratio": 0.88,  // 15/(15+2) = 88% MCP adoption
+    "mcp_ratio": 0.88,
     "duration_minutes": 12.5
   }
 }
 ```
+
+`mcp_ratio` is the MCP query count over all searches: 15 / (15 + 2).
 
 ### MCP Tool Usage Log
 
@@ -153,7 +155,7 @@ python scripts/dogfooding_metrics.py end
 
 ## Testing
 
-The integration includes comprehensive tests in `tests/test_dogfooding_integration.py`:
+The integration's tests are in `tests/test_dogfooding_integration.py`:
 
 ```bash
 # Run integration tests
@@ -183,22 +185,14 @@ Check:
 
 ### Performance Impact
 
-The integration is designed to be lightweight:
-
-- Metrics export: < 1ms overhead
-- Log file writes: Async, non-blocking
+- Log file writes: one synchronous append to `mcp_calls.jsonl` per call
 - Session updates: Only on explicit `sync` calls
 
-## Future Improvements
+## Hook-Based MCP Tracking
 
-1. **Real-time Integration**: Hook directly into MCP server request handlers
-2. **Claude Hook Integration**: Use Claude Code hooks for automatic syncing
-3. **Web Dashboard**: Real-time metrics visualization
-4. **Team Analytics**: Aggregate metrics across multiple developers
-5. **Pattern Recognition**: AI-driven insights on MCP usage patterns
+Tracking MCP calls through Claude Code hooks is described in [`scripts/claude_hooks/README.md`](../scripts/claude_hooks/README.md).
 
 ## Related Issues
 
 - #170: Fix MCP usage tracking in dogfooding metrics
 - #135: Original dogfooding metrics implementation
-- Future: Real-time MCP metrics dashboard

@@ -10,8 +10,8 @@ a cache's size: the caps below trade memory for latency only.
 **Analyzer cache.** `ProjectManager` keeps one `JediAnalyzer` per project root,
 LRU-bounded by `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->).
 
-**Scoped cache.** Each analyzer's `ScopedCache` keeps scope file lists and
-lookup results, separately per scope (`main`, `all`, `namespace:<name>`, ...).
+**Scoped cache.** Each analyzer's `ScopedCache` keeps the list of files each
+scope covers, separately per scope (`main`, `all`, `namespace:<name>`, ...).
 Entries live `PYEYE_CACHE_TTL` seconds (default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->).
 
 **Parsed-file cache.** `pyeye.file_artifact_cache` keeps parsed ASTs and Jedi

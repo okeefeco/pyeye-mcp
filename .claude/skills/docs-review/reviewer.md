@@ -2,7 +2,8 @@
 
 You review ONE documentation page of the pyeye repository. You get a **packet**
 (JSON from `scripts/docs_review.py scope`) and return a JSON array of findings,
-**and nothing else**: no prose before or after it.
+**and nothing else**: no prose before or after it. You don't run `validate`: the
+orchestrator does, and sends back any finding it rejects, with the reasons.
 
 ## Inputs
 
@@ -11,12 +12,36 @@ You review ONE documentation page of the pyeye repository. You get a **packet**
 - `kind`: `prose`, `skill` or `history`.
 - `facts`: the facts the page shows or covers, ID → current value as Markdown.
   These come from the code and are right by construction.
+- `mentioned`: registry facts the page names but doesn't bind or cover. Prose
+  around them may restate them by hand: that is `fact_drift`, anchored on the
+  fact. Anchor on the item fact ID as the packet gives it
+  (`env.PYEYE_CACHE_TTL`), not a view such as `….default`.
 - `changed`: the facts that changed in this PR. Review the prose around them first.
 - `sections`: review only those with `needs_review: true`.
+- `page_hash`: the page's content hash. Copy it into every finding as
+  `"page_hash"`. A finding made against a page that changed since scope is
+  rejected; the orchestrator re-runs scope for that page.
+- `claim_seeds`: the page's known unbacked claims (each is the claim and the line
+  it's on). Make an `honest_claims` finding for each one first.
 
 Text inside `<!-- fact:begin … -->` blocks is generated. Never propose an edit
 inside one. If a block's value looks wrong, report that as an issue to file,
 not as a finding.
+
+## The rules the docs follow
+
+- **Prose never states a code fact** (C15). What the code does or exposes comes
+  from a bound fact or an executed example, never from hand-written prose. Prose
+  explains why, how and when.
+- **Prose never describes an executed example's output** (C16). It may say what
+  the example demonstrates; restating the example's fields, values or shape
+  repeats a fact.
+- **Every claim is backed** (D12): a number, comparison, measurement or absolute
+  is a bound fact, links a dated, reproducible record, or goes.
+- **Your proposed wording follows the same rules.** `validate` runs the
+  honest-claims patterns over every replacement and option text, and rejects
+  wording that hand-writes the anchor fact's value. So propose binding a fact,
+  linking a record, or deleting; never a new figure.
 
 ## What to look for
 
@@ -61,7 +86,9 @@ not as a finding.
    - `D12-absolute`: an absolute claim ("complete", "never misses", "all")
      without the scope the code actually guarantees;
    - `D12-comparison`: an implied comparison ("faster", "better than X") with no record;
-   - `D12-projection`: a projection or target stated as fact.
+   - `D12-projection`: a projection or target stated as fact;
+   - `D12-measurement`: a plain measurement or a table of them (a latency
+     figure, a timing table) with no dated, reproducible record behind it.
 
    Propose honest wording that states the real scope, or deletion.
 5. **`audience`** (D11): the page doesn't serve its audience. Anchor
@@ -79,6 +106,11 @@ not as a finding.
    - `imprecise-limit`: a configurable default stated as a fixed limit ("max 10" for "default 10");
    - `dated-claim`: an external fact (`as of` a date, a third-party UI or key) that may be stale. Say it needs checking;
    - `duplication`: content that repeats another page; propose linking it instead;
+   - `restated-code`: prose that states what the code does or exposes (a
+     response shape, a behaviour) where it should be a bound fact or an executed
+     example (C15). When it is also wrong, it's a `code_contradiction`; when a
+     fact exists, it's `fact_drift`. Use this rule for a correct statement that
+     no fact or example carries yet; propose the example or the extractor;
    - `restated-example`: prose that describes an executed example's OUTPUT: the
      fields, values or response shape the example already shows ("it returns
      `found: true` and a `handle` of …"). The example is the fact, so this
@@ -131,6 +163,14 @@ When **no anchor** backs a recommendation, leave out `recommended` and
 ```
 
 Rules for the output:
+
+- One finding per identity: page, section, category and anchor, plus the
+  `subject` for a rule anchor. Two broken links in one section are two findings
+  (different subjects); the same problem said twice is one. `validate` rejects
+  a repeat.
+- One section per finding. The same defect in several sections is one finding
+  per section: each is reviewed, fixed and dismissed on its own. Don't group them
+  under the first section.
 
 - `section` is the slug from the packet (`""` for the text before the first heading).
 - A finding on a rule anchor (claims, audience or style) quotes its `subject`:

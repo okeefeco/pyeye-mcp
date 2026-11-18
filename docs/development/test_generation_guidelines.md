@@ -37,8 +37,9 @@ from pyeye.module import Class  # E402 error
 
 ```python
 # ✅ CORRECT
-from pyeye.module import Class
 import importlib
+
+from pyeye.module import Class
 
 cli_module = importlib.import_module('cli')
 ```
@@ -56,10 +57,14 @@ assert elapsed < 0.2
 
 ```python
 # ✅ CORRECT
-from tests.utils.performance import assert_performance_threshold, CommonThresholds
+import time
 
+from tests.utils.performance import CommonThresholds, assert_performance_threshold
+
+start = time.perf_counter()
+...  # the operation
 elapsed_ms = (time.perf_counter() - start) * 1000
-assert_performance_threshold(elapsed_ms, CommonThresholds.SYMBOL_SEARCH_P95, "Search")
+assert_performance_threshold(elapsed_ms, CommonThresholds.GOTO_DEFINITION_P95, "Goto definition")
 ```
 
 ### 4. Cross-Platform Paths
@@ -107,7 +112,7 @@ Before generating ANY test:
 - [ ] Plan imports (all at top, only what used)
 - [ ] Identify performance requirements
 - [ ] Choose real objects over mocking when possible
-- [ ] Use descriptive test names (3+ words)
+- [ ] Use descriptive test names
 
 ## Test Behavior, Not Implementation
 
@@ -154,22 +159,6 @@ assert "T" in session_id  # Has timestamp
 - Never use fixed time thresholds
 - Use PerformanceThresholds with platform-specific values
 
-## Validation Script Usage
-
-Run before committing:
-
-```bash
-python scripts/validate_test_code.py tests/
-```
-
-Catches:
-
-- Import order violations
-- Unused fixtures
-- Naive timing assertions
-- Poor naming
-- Common indentation issues
-
 ## Key Principles
 
 1. **Test the behavior users care about**, not implementation details
@@ -182,7 +171,7 @@ Catches:
 
 Good tests have:
 
-- 100% CI pass rate across platforms
+- CI passes on every platform
 - Clear failure messages
 - No flaky behavior
 - Fast execution

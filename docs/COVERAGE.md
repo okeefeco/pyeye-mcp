@@ -2,56 +2,25 @@
 
 ## 📊 Current Status
 
-**Current Coverage**: 79% (as of January 2025)
-**CI Threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
-**Target**: 85% (Phase 2)
+**CI Threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (pytest enforces it through pyproject's `addopts`)
+
+The codecov badge shows live coverage.
 
 [![codecov](https://codecov.io/gh/okeefeco/pyeye-mcp/graph/badge.svg?token=XE5T93O8EC)](https://codecov.io/gh/okeefeco/pyeye-mcp)
 
-## 🎯 Progressive Coverage Milestones
+## 🎯 Coverage Milestones
 
-### Phase 1: 75% ✅ Achieved
+The threshold was raised in stages to its current <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.
 
-- **Status**: Complete
-- **CI Threshold**: Set and enforced
-- **Achievement Date**: Project inception
+## 🔍 Finding Low-Coverage Files
 
-### Phase 2: 85% 🎯 In Progress
-
-- **Status**: Active target
-- **Current**: 79%
-- **Gap**: 6%
-- **Strategy**: Focus on low-coverage files
-
-### Phase 3: 90% 🚀 Future
-
-- **Status**: Planned
-- **Trigger**: When project reaches wide adoption
-- **Focus**: Edge cases and error paths
-
-## 📈 Coverage Improvement Opportunities
-
-### Priority Files (Biggest Impact)
-
-| File | Current Coverage | Lines to Cover | Impact on Total |
-|------|-----------------|----------------|-----------------|
-| `src/pyeye/plugins/flask.py` | 56% | ~119 lines | +3-4% |
-| `src/pyeye/path_utils.py` | 0% | ~11 lines | +1% |
-| `src/pyeye/async_utils.py` | 50% | ~17 lines | +1% |
-| `src/pyeye/config.py` | 75% | ~35 lines | +1% |
-| `src/pyeye/server.py` | 77% | ~76 lines | +2% |
-
-### Quick Wins
-
-Files with low coverage but easy to test:
-
-- `path_utils.py`: Simple utility functions
-- `async_utils.py`: Async wrappers
-- `plugins/base.py`: Plugin interface
+Run `uv run pytest --cov-report=term-missing` and sort by the Miss column, or open the [Codecov dashboard](https://codecov.io/gh/okeefeco/pyeye-mcp).
 
 ## 🛠️ How to Improve Coverage
 
 ### Running Coverage Locally
+
+pytest fails when coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.
 
 ```bash
 # Basic coverage report
@@ -65,10 +34,10 @@ uv run pytest --cov=src/pyeye --cov-report=html
 # Open htmlcov/index.html
 
 # Check specific module
-uv run pytest --cov=src/pyeye/plugins/flask tests/plugins/test_flask.py
+uv run pytest --cov=pyeye.plugins.flask --cov-fail-under=0 tests/unit/plugins/test_flask_plugin.py
 
-# Ensure minimum threshold
-uv run pytest --cov=src/pyeye --cov-fail-under=75
+# Fails below the threshold; pyproject's addopts enforces it
+uv run pytest
 ```
 
 ### Writing Effective Tests
@@ -127,7 +96,7 @@ async def test_async_operation():
    - User-facing APIs
    - Error handling
 
-2. **Don't Chase 100%**
+2. **Don't Chase Full Coverage**
    - Some code is hard to test (OS-specific, network)
    - Use `# pragma: no cover` sparingly with justification
 
@@ -150,49 +119,19 @@ async def test_async_operation():
 Before submitting a PR:
 
 - [ ] Run `pytest --cov=src/pyeye --cov-report=term`
-- [ ] Coverage is ≥ baseline (currently 79%)
-- [ ] New code has >90% coverage
-- [ ] Modified files with <75% coverage have been improved
+- [ ] Coverage is at or above <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (pytest fails below it)
+- [ ] Modified files' coverage didn't drop
 - [ ] No untested error paths in new code
 
-## 🎉 When We Reach 85%
+## ⬆️ Raising the Threshold
 
-1. **Update CI Threshold**
-
-   ```yaml
-   # .github/workflows/ci.yml
-   --cov-fail-under=85  # Update from 75
-   ```
-
-2. **Celebrate!**
-   - Team announcement
-   - Update README badges
-   - Plan Phase 3 approach
-
-3. **Maintain Momentum**
-   - Keep ratchet mechanism
-   - Continue improving low-coverage files
-   - Set sights on 90%
-
-## 📝 Tracking Progress
-
-### Coverage History
-
-- **January 2025**: 79% - Initial tracking, set 85% target
-- (Updates will be added as milestones are reached)
-
-### Files Improved
-
-Track files that have been significantly improved:
-
-- (List will be maintained as improvements are made)
+Change `--cov-fail-under` in pyproject's `addopts` and in `ci.yml` in one PR; `docs_facts.py generate` updates every page that binds `ci.coverage_threshold`.
 
 ## 🤝 Contributing to Coverage
 
-1. **Pick a Low-Coverage File**: See priority list above
+1. **Pick a Low-Coverage File**: See [Finding Low-Coverage Files](#-finding-low-coverage-files)
 2. **Write Comprehensive Tests**: Follow patterns in this guide
 3. **Submit PR**: Reference this tracking in PR description
-4. **Update This Doc**: Add your contribution to history
 
 ## Resources
 

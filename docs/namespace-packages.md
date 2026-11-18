@@ -44,13 +44,22 @@ Both repositories contribute to the `company` namespace package.
 
 ### Scopes
 
-Scopes control which code the analyzer searches through:
+Scopes control which code the plugin tools search through. A scope is one of
+these forms:
 
-- **`main`**: Only the main project directory
-- **`all`**: Everything (main + packages + namespaces)
-- **`packages`**: Additional configured packages only
-- **`namespace:name`**: Specific namespace (e.g., `namespace:company`)
-- **Custom aliases**: User-defined scope combinations
+<!-- fact:begin scopes.table -->
+| Scope | Searches |
+|---|---|
+| `main` | the main project |
+| `packages` | the configured packages only |
+| `standalone` | the standalone script directories: those in the config's standalone.dirs, for scripts that aren't in any package |
+| `namespace:<name>` | one namespace's package directories; namespace:a.b resolves under namespace a |
+| `package:<path>` | that directory, if it exists: an absolute path, or one relative to the project (project\_path) |
+| `all` | the main project, every configured package and namespace, and the standalone directories |
+<!-- fact:end -->
+
+You can also define custom aliases, named combinations of these forms, under
+`scope_aliases`, and pass a list of scopes to search several at once.
 
 ## Configuration
 
@@ -122,12 +131,9 @@ my-services = ["main", "namespace:company"]
 The framework plugin tools (Pydantic, Django and Flask, e.g.
 `find_pydantic_models`, `find_django_views`, `find_flask_routes`) take an
 optional `scope` argument. When a call doesn't pass one, the scope comes from
-the project configuration, in this order:
-
-1. `scope_defaults.methods.<tool name>`: the MCP tool name, such as
-   `find_pydantic_models`
-2. `scope_defaults.global`
-3. `"main"`, since framework code usually lives in the main project
+<!-- fact:begin scope.default.plugin -->`scope_defaults.methods.<tool name>`, else `scope_defaults.global`, else `main`<!-- fact:end -->. The `<tool name>` is the MCP tool name, such as
+`find_pydantic_models`, and the final fallback reflects that framework code
+usually lives in the main project.
 
 An explicit `scope` argument always wins, and `scope_aliases` are expanded in
 both cases.
@@ -165,24 +171,21 @@ Notes:
 ### Basic Scopes
 
 ```python
-# Search only main project
-symbols = await analyzer.find_symbol("MyClass", scope="main")
+# Search only the main project
+models = await find_pydantic_models(scope="main")
 
 # Search everything
-subclasses = await analyzer.find_subclasses("MyClass", scope="all")
+models = await find_django_models(scope="all")
 
-# Search specific namespace
-models = await analyzer.find_models(scope="namespace:company")
+# Search one namespace
+models = await find_pydantic_models(scope="namespace:company")
 ```
 
 ### Combined Scopes
 
 ```python
 # Search multiple scopes
-results = await analyzer.find_subclasses(
-    "BasePlugin",
-    scope=["main", "namespace:plugins", "packages"]
-)
+routes = await find_flask_routes(scope=["main", "namespace:plugins", "packages"])
 ```
 
 ### Using Aliases
@@ -198,36 +201,15 @@ results = await analyzer.find_subclasses(
 
 ```python
 # Use the alias
-routes = await analyzer.find_routes(scope="backend")
+routes = await find_flask_routes(scope="backend")
 ```
 
 ## Performance Optimization
 
 ### Caching Strategy
 
-The server implements multiple caching layers:
-
-1. **Scoped Cache**: Separate caches per scope
-2. **Result Cache**: 5-minute TTL for analysis results
-3. **File Watch Cache**: Automatic invalidation on file changes
-
-### Lazy Loading
-
-Namespace packages are loaded on-demand:
-
-```python
-# Only loads the auth namespace when needed
-auth_models = await analyzer.find_models(scope="namespace:company.auth")
-```
-
-### Parallel Search
-
-The server searches multiple paths concurrently:
-
-```python
-# Searches all namespace paths in parallel
-results = await analyzer.find_symbol("User", scope="all")
-```
+See [Caching](architecture/caching.md) for the cache layers and their settings,
+including the result TTL (`PYEYE_CACHE_TTL`).
 
 ### Performance Tips
 
@@ -339,50 +321,20 @@ results = await analyzer.find_symbol("User", scope="all")
 
 ### Debugging Scope Resolution
 
-Use the debug tools to understand scope resolution:
-
-> **Deprecated:** `ScopeDebugger` is unused by pyeye and will be removed in v3.0 (#628);
-> constructing it emits a `DeprecationWarning`.
+Call any plugin tool with `envelope=true` and read `searched` and
+`unsearched_scopes` to see which configured scopes the call covered:
 
 ```python
-from pyeye.scope_utils import ScopeDebugger
-
-debugger = ScopeDebugger(analyzer._resolve_scope_to_paths)
-
-# See what a scope resolves to
-explanation = await debugger.explain_scope("namespace:company")
-print(explanation)
-
-# Debug a search
-debug_info = await debugger.debug_file_search(
-    "*.py",
-    scope="my-services",
-    search_time_ms=150,
-    files_found=42
-)
+result = await find_pydantic_models(scope="namespace:company", envelope=True)
 ```
+
+See the [tools reference](reference/tools.md) for the `envelope` parameter.
 
 ### Validating Scopes
 
-> **Deprecated:** `ScopeValidator` is unused by pyeye and will be removed in v3.0 (#628);
-> constructing it emits a `DeprecationWarning`.
-
-```python
-from pyeye.scope_utils import ScopeValidator
-
-validator = ScopeValidator(namespace_paths, additional_paths, scope_aliases)
-
-# List available scopes
-available = validator.list_available_scopes()
-print(available)
-
-# Validate a scope
-if not validator.validate_scope("namespace:unknown"):
-    print("Invalid scope!")
-
-# Get suggestions
-suggestions = validator.suggest_scope("name")  # Returns ["namespace:..."]
-```
+An unknown `namespace:<name>` scope logs `Namespace not found: <name>`. To see
+every configured scope, call a plugin tool with `envelope=true` and read
+`searched` / `unsearched_scopes`, as above.
 
 ### Common Issues
 
@@ -406,7 +358,6 @@ Ensure paths exist and contain Python files.
 
 - Use more specific scopes
 - Configure smart defaults
-- Enable parallel search (automatic in v0.2+)
 - Check cache configuration
 
 #### 3. Missing dependencies
@@ -435,7 +386,7 @@ you started from:
 # canonical handle, not whatever string you happened to type.
 start = (await resolve("mymodule"))["handle"]
 
-# max_depth defaults to 3 — raise it or you will only see short cycles.
+# Raise max_depth or you will only see short cycles.
 sub = await trace(start=start, follow=["imports"], max_depth=6)
 cycles = [e for e in sub["edges"] if e["to"] == start]
 ```
@@ -448,8 +399,9 @@ start never literally reappears there.)
 **Two limits, stated because the tool this replaced was removed for claiming
 complete cycle detection it did not have:**
 
-- **Bounded by two caps**: `max_depth` (default `3`) and `max_nodes` (default
-  `50`). A cycle longer than the depth you pass, or one reached only after the
+- **Bounded by two caps**, `max_depth` and `max_nodes` (defaults
+  <!-- fact:begin tool.trace.param.max_depth -->`max_depth`: 3<!-- fact:end -->,
+  <!-- fact:begin tool.trace.param.max_nodes -->`max_nodes`: 50<!-- fact:end -->). A cycle longer than the depth you pass, or one reached only after the
   node budget runs out, is simply not traversed — an empty `cycles` list means
   "no cycle within the caps", never "no cycles". Check `sub["truncated"]` and
   `sub["truncation_reasons"]` (`["max_depth"?, "max_nodes"?]`); if either fired,
@@ -466,7 +418,9 @@ complete cycle detection it did not have:**
 3. **Configure smart defaults** - Set defaults that match your workflow
 4. **Use namespaces for logical grouping** - Group related packages together
 5. **Monitor performance** - Check metrics regularly to optimize configuration
-6. **Document your configuration** - Add comments explaining namespace structure
+6. **Document your configuration** - explain the namespace structure in
+   comments in `[tool.pyeye]` (pyproject.toml) or in your README; `.pyeye.json`
+   is plain JSON and can't hold comments
 
 ## Migration Guide
 
