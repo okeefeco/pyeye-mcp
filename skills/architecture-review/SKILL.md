@@ -181,9 +181,12 @@ construction); the prior can no longer re-tier an axis (#492). Both are carried 
 cross-run state and are **per-project overridable** (re-tier by editing the bucket
 map).
 
-**Show the human the ranking basis verbatim, and offer to reorder:**
+**Show the human the ranking basis verbatim, and offer to reorder.** The default
+bucket map, highest stakes first, is
+<!-- fact:begin review.buckets -->`high`: `error_handling`, `validation_placement` > `med`: `layering`, `module_boundaries`, `dependency_acquisition`, `cross_cutting` > `low`: `naming_api_shape`<!-- fact:end -->.
+If the project re-tiered the map, show the map you actually passed to `rank`:
 
-> Ranked by stakes bucket (validation/error-handling > … > naming), then
+> Ranked by stakes bucket (<the bucket map, highest first>), then
 > blast-radius within the bucket — reorder?
 
 Ranking is **ordering only**: it never drops, suppresses, or recommends. It is a
