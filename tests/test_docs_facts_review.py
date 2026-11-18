@@ -1067,11 +1067,6 @@ class TestReviewFixes864:
             review.finding_problems(finding, _FACTS, None, symbols)
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#857: resolve_handle doesn't collapse a relative re-export yet; when this "
-        "passes, delete _ProjectSymbols._definition_site and this marker",
-    )
     def test_the_resolver_itself_collapses_a_relative_re_export(self, alias_project: Path) -> None:
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
         from pyeye.resolver import Resolved, resolve_handle
@@ -1079,6 +1074,25 @@ class TestReviewFixes864:
         found = resolve_handle("pkg.run", JediAnalyzer(alias_project.as_posix()))
         assert isinstance(found, Resolved)
         assert found.handle == "pkg.core.run"
+
+    @pytest.mark.parametrize(
+        "init",
+        [
+            "try:\n    from .thing import Maybe\nexcept ImportError:\n    Maybe = None\n",
+            "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
+            "    from .thing import Maybe\nelse:\n    Maybe = object\n",
+        ],
+        ids=["try_except", "type_checking"],
+    )
+    def test_canonical_follows_a_branched_re_export(self, tmp_path: Path, init: str) -> None:
+        """The resolver keeps the first binding here by design (#857, #871); the anchor follows it."""
+        from pyeye.docs_facts.review import _ProjectSymbols
+
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "__init__.py").write_text(init, encoding="utf-8")
+        (tmp_path / "pkg" / "thing.py").write_text("class Maybe:\n    pass\n", encoding="utf-8")
+
+        assert _ProjectSymbols(tmp_path).canonical("pkg.Maybe") == "pkg.thing.Maybe"
 
     def test_a_subject_must_occur_exactly_once(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text(

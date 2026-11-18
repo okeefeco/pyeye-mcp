@@ -362,12 +362,13 @@ class _ProjectSymbols:
     def canonical(self, handle: str) -> str | None:
         """The canonical project handle, following a re-export to its definition site.
 
-        The resolver itself doesn't collapse a relative re-export yet (#857):
-        ``pkg.run`` with ``from .core import run`` in ``pkg/__init__.py`` comes
-        back as ``pkg.run``. So the binding is followed with Jedi's ``goto``; a
-        single definition in another module, which resolves in the project,
-        gives the canonical handle. Once #857 lands this guard is redundant, and
-        the strict xfail in ``tests/test_docs_facts_review.py`` flags it.
+        The resolver collapses a plain relative re-export (#857), but by design
+        not one whose bindings are split across branches (``try: from .thing
+        import Maybe / except ImportError: Maybe = None``, or ``TYPE_CHECKING``):
+        it answers ``pkg.Maybe`` there, as before. A docs anchor wants the one
+        definition, so the binding is still followed with Jedi's ``goto``; a
+        single definition in another module that resolves in the project gives
+        the canonical handle.
         """
         from ..resolver import Resolved, resolve_handle
 

@@ -57,7 +57,9 @@ Run it from the project root: locations are relative to `--root` (default: the
 current directory), and the state file's keys use them. A scope outside
 `--root` is rejected. A file that can't be parsed or decoded is skipped and
 listed as `unparseable`; its source is never printed. Bad arguments or a bad
-state file exit 2 with a one-line message, before anything is scanned.
+state file exit 2 with a one-line message, before anything is scanned. `dismiss`
+exits 1 when `--family` names no family in the scope, which is known only after
+the scan.
 
 Commands: <!-- fact:begin duplication.commands -->`review`, `dismiss`<!-- fact:end -->. Flags: <!-- fact:begin duplication.flags -->`--root`, `--min-tokens`, `--max-occurrences`, `--state`, `--today`, `--json`, `--family`, `--reason`, `--date`, `--review-after`<!-- fact:end -->.
 
@@ -65,20 +67,20 @@ Commands: <!-- fact:begin duplication.commands -->`review`, `dismiss`<!-- fact:e
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--root` | `.` | Locations are reported relative to it. |
-| `--min-tokens` | <!-- fact:begin duplication.default.min_tokens -->`35`<!-- fact:end --> | Minimum clone length in normalised AST tokens. `25` finds more, mostly noise. |
-| `--max-occurrences` | <!-- fact:begin duplication.default.max_occurrences -->`50`<!-- fact:end --> | A token window seen more often than this is paired with its next occurrence only, so the run stays linear on repeated data tables (all-pairs ran a machine out of memory). Every copy is still reported. |
-| `--state` | none | Dismissal state file. Suggested: `.pyeye/duplication-review.json`, committed. |
-| `--today` | none | Today's ISO date. Needed for `--review-after` dismissals to come due; nothing reads a clock. |
-| `--json` | off | Machine-readable output. |
+| <!-- fact:begin duplication.flag.root -->`--root`<!-- fact:end --> | `.` | Locations are reported relative to it. |
+| <!-- fact:begin duplication.flag.min-tokens -->`--min-tokens`<!-- fact:end --> | <!-- fact:begin duplication.default.min_tokens -->`35`<!-- fact:end --> | Minimum clone length in normalised AST tokens. `25` finds more, mostly noise. |
+| <!-- fact:begin duplication.flag.max-occurrences -->`--max-occurrences`<!-- fact:end --> | <!-- fact:begin duplication.default.max_occurrences -->`50`<!-- fact:end --> | A token window seen more often than this is paired with its next occurrence only, so the run stays linear on repeated data tables (all-pairs ran a machine out of memory). Every copy is still reported. |
+| <!-- fact:begin duplication.flag.state -->`--state`<!-- fact:end --> | none | Dismissal state file. Suggested: `.pyeye/duplication-review.json`, committed. |
+| <!-- fact:begin duplication.flag.today -->`--today`<!-- fact:end --> | none | Today's ISO date. Needed for `--review-after` dismissals to come due; nothing reads a clock. |
+| <!-- fact:begin duplication.flag.json -->`--json`<!-- fact:end --> | off | Machine-readable output. |
 
 `dismiss <scope…> --state FILE --family ID --reason R --date YYYY-MM-DD [--review-after YYYY-MM-DD]`
 records a family as a confirmed non-issue. Use the same scope, `--root`,
 `--min-tokens` and `--max-occurrences` as the review that showed the family.
 
-- `--family` — the family id the review printed.
-- `--date` — the dismissal date, ISO `YYYY-MM-DD` (caller-supplied).
-- `--review-after` — optional ISO date to re-surface it for review. No expiry by default.
+- <!-- fact:begin duplication.flag.family -->`--family`<!-- fact:end --> — the family id the review printed.
+- <!-- fact:begin duplication.flag.date -->`--date`<!-- fact:end --> — the dismissal date, ISO `YYYY-MM-DD` (caller-supplied).
+- <!-- fact:begin duplication.flag.review-after -->`--review-after`<!-- fact:end --> — optional ISO date to re-surface it for review. No expiry by default.
 
 `--reason` is one of: <!-- fact:begin duplication.reasons -->`benign-idiom`, `deliberate-twin`, `vendored`, `generated`, `other`<!-- fact:end -->.
 

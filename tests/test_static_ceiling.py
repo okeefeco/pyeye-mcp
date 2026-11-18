@@ -54,10 +54,17 @@ class TestDocs:
         for ceiling, meaning in CEILING_MEANINGS.items():
             assert f"{ceiling}: {meaning}" in description.replace("``", ""), ceiling
 
-    def test_skill_defines_every_id(self) -> None:
-        skill = " ".join(_SKILL.read_text(encoding="utf-8").split())
-        for ceiling, meaning in CEILING_MEANINGS.items():
-            assert f"`{ceiling}`: {meaning}" in skill, ceiling
+    def test_skill_binds_every_id(self) -> None:
+        """The skill shows the ceilings as the generated ``ceilings.table`` block (#830).
+
+        ``docs_facts check`` keeps the block's content equal to ``CEILING_MEANINGS``,
+        so here it is enough that the block is there and lists every id.
+        """
+        skill = _SKILL.read_text(encoding="utf-8")
+        start = skill.index("<!-- fact:begin ceilings.table -->")
+        block = skill[start : skill.index("<!-- fact:end -->", start)]
+        for ceiling in CEILING_MEANINGS:
+            assert f"| `{ceiling}` |" in block, ceiling
 
     @pytest.mark.parametrize("tool, field", [("outline", "ceiling"), ("trace", "ceilings")])
     def test_outline_and_trace_descriptions_name_the_field(self, tool: str, field: str) -> None:

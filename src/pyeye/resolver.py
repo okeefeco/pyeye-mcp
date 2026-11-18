@@ -23,6 +23,7 @@ This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
 
 from __future__ import annotations
 
+import ast
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import path_to_key
+from pyeye.path_utils import path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -411,15 +412,45 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
             all_scopes=True, definitions=True, references=False
         )
-        for name in names:
-            # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
-            # nothing in this scope (#567).
-            if name.full_name == path and not is_attribute_target(name):
-                anchor = _anchor_on_definition(name, path)
-                placed = _canonical_of(anchor, path, analyzer)
-                return (placed, anchor) if placed is not None else None
+        # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
+        # nothing in this scope (#567).
+        matches = [
+            name
+            for name in names
+            if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
+        ]
+        if matches:
+            anchor = _anchor_on_bindings(matches, mod_file, path)
+            placed = _canonical_of(anchor, path, analyzer)
+            return (placed, anchor) if placed is not None else None
         return _follow_alias(module_dotted, rest, names, analyzer, hops)
     return None
+
+
+def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
+    """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
+
+    Jedi names a file from the first sys_path root that contains it, so a
+    package added inside the project (``.hidden/upstream/clonepkg``) gets a
+    module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
+    pyeye's name comes from the one file -> module mapper (#714), through
+    :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
+    The cheap checks run first, so the mapper is asked only about candidates:
+    the respelling changes only the module part, so a name whose Jedi
+    ``full_name`` doesn't end with *qualname* (the part of *path* after its
+    module) can't match.
+    """
+    # ``name.name`` is cheap; ``full_name`` makes Jedi compute the scope chain.
+    if name.name != path.rsplit(".", 1)[-1]:
+        return False
+    full_name = name.full_name
+    if not full_name:
+        return False
+    if full_name == path:
+        return True
+    if not full_name.endswith(f".{qualname}"):
+        return False
+    return handle_for_anchor(name, full_name, analyzer) == path
 
 
 def _follow_alias(
@@ -449,10 +480,12 @@ def _follow_alias(
         if name.name != head or not _is_module_level(name) or is_attribute_target(name):
             continue
         target = _goto_definition(name)
-        if target is None or not target.full_name or not _is_dotted_path(target.full_name):
+        if target is None or not target.full_name:
             continue
+        # Jedi's raw name may not be a dotted path (``.hidden.upstream.…``, #814);
+        # the respelled handle must be.
         canonical_head = _canonical_of(target, target.full_name, analyzer)
-        if canonical_head is None:
+        if canonical_head is None or not _is_dotted_path(canonical_head):
             continue  # a project file the mapper can't place (#714)
         if len(rest) == 1:
             return canonical_head, target
@@ -661,6 +694,141 @@ def _goto_definition(name: Any) -> Any | None:
     return None
 
 
+@dataclass(frozen=True)
+class _Bindings:
+    """What a module's AST says about the names bound on each line (#857).
+
+    Keys are ``(line, name)``, matched against a Jedi name's ``line`` / ``name``.
+    """
+
+    imports: frozenset[tuple[int, str]]  #: a name an ``import`` alias binds
+    definitions: frozenset[tuple[int, str]]  #: a name a plain definition binds
+    branched: frozenset[int]  #: lines inside an if / try / loop / with / match
+
+
+#: Statements whose body may or may not run: a binding inside one is conditional.
+_BRANCHING = (
+    ast.If,
+    ast.Try,
+    ast.TryStar,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.With,
+    ast.AsyncWith,
+    ast.Match,
+)
+
+
+def _definition_keys(node: ast.AST) -> list[tuple[int, str]]:
+    """``(line, name)`` for each name *node* binds as a plain definition.
+
+    Deliberately narrow (#871 review): a ``class`` / ``def`` name, a plain
+    ``Name`` target of ``=`` whose value isn't that same name (``A = A`` is
+    not a new definition), and an annotated assignment WITH a value. Anything
+    else Jedi reports (a comprehension or lambda target, a bare annotation
+    ``A: int``, ``A += 1``, ``del A``) is not one, and keeps the answer from
+    before #857.
+    """
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        return [(node.lineno, node.name)]
+    if isinstance(node, ast.Assign):
+        same = node.value.id if isinstance(node.value, ast.Name) else None
+        return [(t.lineno, t.id) for t in node.targets if isinstance(t, ast.Name) and t.id != same]
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        target = node.target
+        if isinstance(target, ast.Name):
+            return [(target.lineno, target.id)]
+    return []
+
+
+def _bindings(mod_file: Path) -> _Bindings | None:
+    """Import and definition bindings, and conditional lines, of *mod_file*.
+
+    ``None`` when the server's Python can't parse the file (#703): Jedi's parser
+    tolerates it, so resolution must too, just without telling bindings apart.
+    """
+    try:
+        tree = file_artifact_cache.get_ast(mod_file)
+    except (SyntaxError, ValueError):
+        return None
+    imports: set[tuple[int, str]] = set()
+    definitions: set[tuple[int, str]] = set()
+    branched: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".", 1)[0]
+                imports.add((getattr(alias, "lineno", node.lineno), bound))
+        elif isinstance(node, _BRANCHING):
+            branched.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+        definitions.update(_definition_keys(node))
+    return _Bindings(frozenset(imports), frozenset(definitions), frozenset(branched))
+
+
+def _cross_file_target(name: Any) -> Any | None:
+    """The definition an import binding *name* leads to in ANOTHER file, or ``None``."""
+    try:
+        targets = name.goto(follow_imports=True)
+    except Exception:
+        return None
+    own_file = getattr(name, "module_path", None)
+    for target in targets:
+        if (
+            target.module_path is not None
+            and own_file is not None
+            and not paths_equal(target.module_path, own_file)
+            and target.full_name
+        ):
+            return target
+    return None
+
+
+def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
+    """Anchor *handle* among every binding in its module that names it (#857).
+
+    The rule is "answer as before #857, except where that answer was wrong":
+
+    - **One binding**: if its goto leads to a definition in another file it can
+      only be an import, so it collapses (a relative re-export). No AST needed,
+      so a lone import under ``if TYPE_CHECKING:`` collapses too.
+    - **Only imports**, all leading to ONE definition elsewhere (possibly
+      repeated): collapse to it. Imports of DIFFERENT definitions keep the first
+      binding, as before, whether in if/else branches or unconditional: two
+      competing imports are not a case the old answer got wrong.
+    - **Imports and plain definitions, all unconditional** (``from .src import
+      A`` then ``class A``): the LAST binding wins, as at runtime. If the last is
+      an import (``class A`` then ``from .src import A``), it collapses.
+    - **Everything else keeps the first binding**, as before: no import among
+      them (a property's setter, overloads, an if/else ``def``), a binding inside
+      a branch (``TYPE_CHECKING``, ``try/except ImportError``), anything that
+      isn't a plain definition (a comprehension or lambda target, ``A: int``,
+      ``A = A``, ``A += 1``, ``del A``), or a module that won't parse.
+    """
+    first = matches[0]
+    if len(matches) == 1:
+        return _cross_file_target(first) or _anchor_on_definition(first, handle)
+    found = _bindings(mod_file)
+    if found is None:
+        return _anchor_on_definition(first, handle)
+    keys = [((m.line or 0), m.name) for m in matches]
+    is_import = [k in found.imports for k in keys]
+    if all(is_import):
+        targets = [_cross_file_target(m) for m in matches]
+        spots = {(t.module_path, t.line, t.column) for t in targets if t is not None}
+        if len(spots) == 1 and all(t is not None for t in targets):
+            return next(t for t in targets if t is not None)
+        return _anchor_on_definition(first, handle)
+    plain = all(i or k in found.definitions for i, k in zip(is_import, keys, strict=True))
+    unconditional = not any(line in found.branched for line, _ in keys)
+    if not (any(is_import) and plain and unconditional):
+        return _anchor_on_definition(first, handle)
+    last = max(matches, key=lambda m: (m.line or 0, m.column or 0))
+    if ((last.line or 0), last.name) in found.imports:
+        return _cross_file_target(last) or _anchor_on_definition(last, handle)
+    return _anchor_on_definition(last, handle)
+
+
 def _anchor_on_definition(name: Any, handle: str) -> Any:
     """Anchor a ``full_name`` match on its definition site (#429).
 
@@ -716,9 +884,18 @@ def handle_for_anchor(anchor: Any, full_name: str, analyzer: JediAnalyzer) -> st
 def _canonical_of(anchor: Any, fallback: str, analyzer: JediAnalyzer) -> str | None:
     """:func:`handle_for_anchor` of *anchor*'s ``full_name``, or of *fallback* if it has none."""
     full_name = getattr(anchor, "full_name", None)
-    if not (full_name and _is_dotted_path(full_name)):
-        full_name = fallback
-    return handle_for_anchor(anchor, full_name, analyzer)
+    if full_name:
+        # Respell Jedi's name first, even when it isn't itself a dotted path
+        # (``.hidden.upstream.pkg.X``, #814): the respelled handle must be.
+        handle = handle_for_anchor(anchor, full_name, analyzer)
+        if handle is not None and _is_dotted_path(handle):
+            return handle
+        if _is_dotted_path(full_name):
+            # A real name that names no handle stays unplaced: a __main__.*
+            # name is never a handle (#714), never rescued by *fallback*.
+            return None
+    handle = handle_for_anchor(anchor, fallback, analyzer)
+    return handle if handle is not None and _is_dotted_path(handle) else None
 
 
 # ---------------------------------------------------------------------------
