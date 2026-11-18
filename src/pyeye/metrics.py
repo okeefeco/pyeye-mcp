@@ -368,6 +368,18 @@ class MetricsCollector:
         lines.append("# HELP pyeye_artifact_cache_evictions AST/Script cache evictions")
         lines.append("# TYPE pyeye_artifact_cache_evictions counter")
         lines.append(f"pyeye_artifact_cache_evictions {artifact['evictions']}")
+        lines.append(
+            "# HELP pyeye_artifact_cache_cap_evictions AST/Script cache evictions to keep under "
+            "its caps (cap pressure)"
+        )
+        lines.append("# TYPE pyeye_artifact_cache_cap_evictions counter")
+        lines.append(f"pyeye_artifact_cache_cap_evictions {artifact['cap_evictions']}")
+        lines.append(
+            "# HELP pyeye_artifact_cache_stale_evictions AST/Script cache evictions of entries "
+            "whose file changed or was invalidated"
+        )
+        lines.append("# TYPE pyeye_artifact_cache_stale_evictions counter")
+        lines.append(f"pyeye_artifact_cache_stale_evictions {artifact['stale_evictions']}")
 
         # Memory metrics
         memory = self.get_memory_stats()

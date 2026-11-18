@@ -165,7 +165,10 @@ class FileArtifactCache:
         # Stats counters
         self._hits: int = 0
         self._misses: int = 0
-        self._evictions: int = 0
+        # Evictions by cause (#401): the cap (raise the cap?) vs a file that
+        # changed (healthy churn). ``stats()["evictions"]`` is their sum.
+        self._cap_evictions: int = 0
+        self._stale_evictions: int = 0
 
         # Single re-entrant lock guards all mutations
         self._lock = threading.RLock()
@@ -283,11 +286,12 @@ class FileArtifactCache:
         """Clear the entire cache.
 
         ``stats()["evictions"]`` is incremented by the total number of items
-        cleared, matching the per-item semantics of :meth:`invalidate`.
+        cleared, matching the per-item semantics of :meth:`invalidate`. A clear
+        is an invalidation, not cap pressure, so they count as stale (#401).
         """
         with self._lock:
             cleared = len(self._ast_store) + len(self._script_store)
-            self._evictions += cleared
+            self._stale_evictions += cleared
             self._ast_store.clear()
             self._script_store.clear()
 
@@ -297,13 +301,20 @@ class FileArtifactCache:
         Returns
         -------
         dict
-            Keys: ``hits``, ``misses``, ``evictions``.
+            Keys: ``hits``, ``misses``, ``evictions``, ``cap_evictions`` and
+            ``stale_evictions``. ``cap_evictions`` are entries dropped to keep
+            under the caps (``PYEYE_ARTIFACT_CACHE_MAX_ENTRIES``,
+            ``PYEYE_SCRIPT_CACHE_MAX_ENTRIES``): cap pressure. ``stale_evictions``
+            are entries dropped because their file changed, or by an
+            invalidation. ``evictions`` is their sum (#401).
         """
         with self._lock:
             return {
                 "hits": self._hits,
                 "misses": self._misses,
-                "evictions": self._evictions,
+                "evictions": self._cap_evictions + self._stale_evictions,
+                "cap_evictions": self._cap_evictions,
+                "stale_evictions": self._stale_evictions,
             }
 
     # -----------------------------------------------------------------------
@@ -315,7 +326,7 @@ class FileArtifactCache:
         stale = [k for k in self._ast_store if k[0] == resolved and k != current_key]
         for k in stale:
             del self._ast_store[k]
-            self._evictions += 1
+            self._stale_evictions += 1
 
     def _evict_stale_script(self, resolved: str, proj_key: str, current_key: _ScriptKey) -> None:
         """Remove Script entries for *(resolved, proj_key)* that are stale."""
@@ -326,19 +337,19 @@ class FileArtifactCache:
         ]
         for k in stale:
             del self._script_store[k]
-            self._evictions += 1
+            self._stale_evictions += 1
 
     def _evict_all_for_resolved(self, resolved: str) -> None:
         """Remove all cached entries (AST, Script) for *resolved*."""
         ast_stale = [k for k in self._ast_store if k[0] == resolved]
         for k in ast_stale:
             del self._ast_store[k]
-            self._evictions += 1
+            self._stale_evictions += 1
 
         script_stale: list[_ScriptKey] = [k for k in self._script_store if k[0] == resolved]
         for sk in script_stale:
             del self._script_store[sk]
-            self._evictions += 1
+            self._stale_evictions += 1
 
     def _enforce_ast_cap(self) -> None:
         """Enforce both caps: Scripts <= _script_max_entries, then combined <= _ast_max_entries.
@@ -349,7 +360,7 @@ class FileArtifactCache:
         """
         while len(self._script_store) > self._script_max_entries:
             self._script_store.popitem(last=False)
-            self._evictions += 1
+            self._cap_evictions += 1
         while (len(self._ast_store) + len(self._script_store)) > self._ast_max_entries:
             # Determine which store has the globally oldest entry.
             # OrderedDict preserves insertion/access order; first element is LRU.
@@ -358,10 +369,10 @@ class FileArtifactCache:
 
             if ast_lru is not None and script_lru is None:
                 del self._ast_store[ast_lru]
-                self._evictions += 1
+                self._cap_evictions += 1
             elif script_lru is not None and ast_lru is None:
                 del self._script_store[script_lru]
-                self._evictions += 1
+                self._cap_evictions += 1
             else:
                 # Both stores have entries.  Evict from the AST store first.
                 #
@@ -373,7 +384,7 @@ class FileArtifactCache:
                 # rebuild.  Under cap pressure it is therefore better to keep
                 # Scripts warm and let ASTs be re-parsed via parso's cache.
                 del self._ast_store[ast_lru]  # type: ignore[arg-type]
-                self._evictions += 1
+                self._cap_evictions += 1
 
 
 # ---------------------------------------------------------------------------

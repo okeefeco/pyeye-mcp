@@ -41,6 +41,8 @@ def test_performance_report_surfaces_artifact_cache_stats(tmp_path, fresh_artifa
     assert report["artifact_cache"]["hits"] == 1
     assert report["artifact_cache"]["misses"] == 1
     assert report["artifact_cache"]["evictions"] == 0
+    assert report["artifact_cache"]["cap_evictions"] == 0
+    assert report["artifact_cache"]["stale_evictions"] == 0
 
 
 def test_prometheus_export_surfaces_artifact_cache(tmp_path, fresh_artifact_cache):

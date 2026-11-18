@@ -3,10 +3,10 @@ date: "2026-06-16"
 title: "AST/Script cache stats surfaced in the performance report"
 issues: [397]
 anchors: ["MetricsCollector.get_performance_report", "MetricsCollector.export_prometheus", "e9e47d5"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-401-artifact-cache-evictions-split-by-cause.md"]
 superseded_by: []
 ---
 

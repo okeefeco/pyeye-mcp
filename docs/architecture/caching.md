@@ -20,7 +20,11 @@ scripts process-wide, in one LRU of `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` entries
 `PYEYE_SCRIPT_CACHE_MAX_ENTRIES`. Entries are re-checked by file mtime and size
 on every read. Each cached Jedi script keeps alive every module it inferred, so
 the script cap, not the parso cap, is what bounds the memory of Jedi's parse
-trees.
+trees. Its stats count evictions by cause (#401): `cap_evictions` are entries
+dropped to stay under the caps, so a steadily rising count means the caps are
+too small for the working set, while `stale_evictions` are entries dropped
+because their file changed, which is normal on a repo being edited.
+`evictions` is their total. `get_performance_metrics` reports all three.
 
 **parso's parse cache.** Bounded by an LRU of `PYEYE_PARSO_CACHE_MAX_ENTRIES`
 entries (`pyeye._parso_cache`, #713). Evicting an entry is harmless (see
