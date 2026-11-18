@@ -156,7 +156,7 @@ A miss is never dressed up as an answer:
   `imported_by` list what they couldn't resolve or name (#494, #668).
 - A file the server's interpreter can't parse is never silently skipped: a
   source whose own file fails reports `unparseable` (#703), and the scans
-  `subclasses`, `imported_by` and `re_exports` list such files in
+  <!-- fact:begin edges.unparseable -->`imported_by`, `subclasses`, `re_exports`<!-- fact:end --> list such files in
   `unparseable_files` (#729).
 
 ## Where the details live

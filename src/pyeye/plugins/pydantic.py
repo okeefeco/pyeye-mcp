@@ -235,16 +235,17 @@ class PydanticPlugin(AnalyzerPlugin):
 
         for model in models:
             if model["name"] == model_name:
-                return self.schema_for(model)
+                return await self.schema_for(model)
 
         return None
 
-    @staticmethod
-    def schema_for(model: dict[str, Any]) -> dict[str, Any]:
+    async def schema_for(self, model: dict[str, Any]) -> dict[str, Any]:
         """Build the schema answer for one ``find_models`` record.
 
         Selecting *which* model (by name or handle, and reporting a miss or an
         ambiguity) is the MCP layer's job (#627); this only shapes the answer.
+        ``computed_fields`` are the model's own ``@computed_field`` members, read
+        from its class body (#870); a plain ``@property`` isn't one.
         """
         schema: dict[str, Any] = {
             "model": model["name"],
@@ -255,7 +256,7 @@ class PydanticPlugin(AnalyzerPlugin):
             "required": [],
             "optional": [],
             "validators": model["validators"],
-            "computed_fields": [],
+            "computed_fields": await self._own_computed_fields(Path(model["file"]), model["line"]),
             "config": model["config"],
         }
 
@@ -361,17 +362,15 @@ class PydanticPlugin(AnalyzerPlugin):
                                 "settings": self._extract_config_settings(item),
                             }
                             configs.append(config_info)
-                        elif isinstance(item, ast.Assign):
-                            for target in item.targets:
-                                if isinstance(target, ast.Name) and target.id == "model_config":
-                                    configs.append(
-                                        {
-                                            "model": node.name,
-                                            "file": py_file.as_posix(),
-                                            "line": item.lineno,
-                                            "settings": self._extract_config_dict(item.value),
-                                        }
-                                    )
+                        elif (value := self._model_config_value(item)) is not None:
+                            configs.append(
+                                {
+                                    "model": node.name,
+                                    "file": py_file.as_posix(),
+                                    "line": item.lineno,
+                                    "settings": self._extract_config_dict(value),
+                                }
+                            )
 
         return configs
 
@@ -611,6 +610,36 @@ class PydanticPlugin(AnalyzerPlugin):
                         return keyword.value.value
         return "after"  # default
 
+    async def _own_computed_fields(self, py_file: Path, line: int) -> list[dict[str, Any]]:
+        """The ``@computed_field`` members defined in the class at *py_file*:*line* (#870)."""
+        content = await self._read_source(py_file)
+        tree = self._parse_source(py_file, content) if content is not None else None
+        node = next(
+            (
+                n
+                for n in (ast.walk(tree) if tree is not None else ())
+                if isinstance(n, ast.ClassDef) and n.lineno == line
+            ),
+            None,
+        )
+        if node is None:
+            return []
+        return [
+            {"name": item.name, "line": item.lineno, "return_type": self._get_return_type(item)}
+            for item in node.body
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+            and any(self._names_computed_field(d) for d in item.decorator_list)
+        ]
+
+    @staticmethod
+    def _names_computed_field(decorator: Any) -> bool:
+        """True for ``@computed_field``, ``@pydantic.computed_field`` or the called form."""
+        if isinstance(decorator, ast.Call):
+            decorator = decorator.func
+        if isinstance(decorator, ast.Name):
+            return decorator.id == "computed_field"
+        return isinstance(decorator, ast.Attribute) and decorator.attr == "computed_field"
+
     def _extract_config(self, node: ast.ClassDef) -> dict[str, Any]:
         """Extract Config class or model_config from a model."""
         config = {}
@@ -618,12 +647,25 @@ class PydanticPlugin(AnalyzerPlugin):
         for item in node.body:
             if isinstance(item, ast.ClassDef) and item.name == "Config":
                 config = self._extract_config_settings(item)
-            elif isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name) and target.id == "model_config":
-                        config = self._extract_config_dict(item.value)
+            elif (value := self._model_config_value(item)) is not None:
+                config = self._extract_config_dict(value)
 
         return config
+
+    @staticmethod
+    def _model_config_value(item: ast.stmt) -> ast.expr | None:
+        """The value assigned to ``model_config`` by *item*, plain or annotated (#870)."""
+        if isinstance(item, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "model_config" for t in item.targets
+        ):
+            return item.value
+        if (
+            isinstance(item, ast.AnnAssign)
+            and isinstance(item.target, ast.Name)
+            and item.target.id == "model_config"
+        ):
+            return item.value
+        return None
 
     def _extract_config_settings(self, config_class: ast.ClassDef) -> dict[str, Any]:
         """Extract settings from Config class."""
@@ -640,10 +682,20 @@ class PydanticPlugin(AnalyzerPlugin):
         return settings
 
     def _extract_config_dict(self, node: Any) -> dict[str, Any]:
-        """Extract settings from model_config dictionary."""
+        """Extract settings from a ``model_config`` value.
+
+        Reads a dict literal and a ``ConfigDict(k=v, …)`` or
+        ``SettingsConfigDict(k=v, …)`` call, plain or module-qualified (#870).
+        Anything else, and a ``**`` spread, contributes no keys: the unreadable
+        case is open (#870's Q1).
+        """
         settings = {}
 
-        if isinstance(node, ast.Dict):
+        if isinstance(node, ast.Call) and self._is_config_dict_call(node):
+            for keyword in node.keywords:
+                if keyword.arg is not None:
+                    settings[keyword.arg] = ast.unparse(keyword.value)
+        elif isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values, strict=False):
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     settings[key.value] = (
@@ -651,6 +703,13 @@ class PydanticPlugin(AnalyzerPlugin):
                     )
 
         return settings
+
+    @staticmethod
+    def _is_config_dict_call(node: ast.Call) -> bool:
+        """True for ``ConfigDict(...)`` / ``SettingsConfigDict(...)``, bare or qualified."""
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        return name in ("ConfigDict", "SettingsConfigDict")
 
     def _is_computed_field_decorator(self, decorator: Any) -> bool:
         """Check if decorator is computed_field or property."""
@@ -663,7 +722,7 @@ class PydanticPlugin(AnalyzerPlugin):
             return self._is_computed_field_decorator(decorator.func)
         return False
 
-    def _get_return_type(self, node: ast.FunctionDef) -> str | None:
+    def _get_return_type(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
         """Get return type annotation from function."""
         if node.returns:
             return ast.unparse(node.returns) if hasattr(ast, "unparse") else str(node.returns)

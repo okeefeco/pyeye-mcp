@@ -128,9 +128,9 @@ package and lists the repositories that each hold part of it. List those
 repositories one by one: a glob in a namespace entry isn't expanded yet
 ([#872](https://github.com/okeefeco/pyeye-mcp/issues/872)).
 
-Older docs also showed `exclude`, `exclude_patterns`, `cache`, `analysis` and
-`performance` keys. They are deprecated and have no effect: pyeye never read them
-and logs a warning when one is set (#581). Use the
+Older docs also showed keys that are deprecated and have no effect: pyeye never
+read them, and it logs a warning when one is set (#581). They are
+<!-- fact:begin config.ignored_keys -->`analysis`, `cache`, `default_packages`, `exclude`, `exclude_patterns`, `logging`, `performance`, `plugins`, `watch_exclude`<!-- fact:end -->. Use the
 [environment variables](docs/reference/env-vars.md) for cache tuning.
 
 ### Configuration in pyproject.toml

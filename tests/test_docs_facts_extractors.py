@@ -278,6 +278,8 @@ class TestCliAndCi:
     @staticmethod
     def _repo(tmp_path: Path, addopts: str, workflow: str, requires: str = ">=3.11") -> Path:
         (tmp_path / ".github" / "workflows").mkdir(parents=True)
+        # Every CI job installs with `uv sync` (ci.uv_sync_flags, #830).
+        workflow += "      - run: uv sync --locked\n"
         (tmp_path / ".github" / "workflows" / "ci.yml").write_text(workflow, encoding="utf-8")
         (tmp_path / "pyproject.toml").write_text(
             f'[project]\nrequires-python = "{requires}"\n'
@@ -295,6 +297,7 @@ class TestCliAndCi:
             "ci.python_versions": ["3.11"],
             "project.python_versions": ["3.11"],
             "project.requires_python": ">=3.11",
+            "ci.uv_sync_flags": ["--locked"],
         }
 
     def test_requires_python_must_match_the_oldest_classifier(self, tmp_path: Path) -> None:

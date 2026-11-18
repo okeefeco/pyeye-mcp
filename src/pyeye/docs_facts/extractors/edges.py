@@ -92,6 +92,9 @@ def extract_code() -> Iterator[Bindable]:
     yield view("edges.implemented", shown, code_list(f.id[5:] for f in shown))
     deferred = by_status.get(reg.STATUS_DEFERRED_REFERENCE_BACKEND, [])
     yield view("edges.deferred", deferred, code_list(f.id[5:] for f in deferred))
+    # The edges that report ``unparseable_files`` (#729, #874), in resolver order.
+    unparseable = [f for f in shown if f.id[5:] in reg.UNPARSEABLE_FILE_EDGES]
+    yield view("edges.unparseable", unparseable, code_list(f.id[5:] for f in unparseable))
 
     rows = []
     for fact in shown:

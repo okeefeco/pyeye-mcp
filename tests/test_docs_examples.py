@@ -129,3 +129,26 @@ def test_example_runs(
     if example.shows_output:
         mismatches = match_shown(example.output, response)
         assert not mismatches, f"{path}:{example.line}: " + "; ".join(mismatches)
+
+
+def test_an_example_on_a_widened_page_runs(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Design C17: a human prose page (here a README) may hold a runnable example, and it runs."""
+    from pyeye.docs_facts.docs import DocEntry
+
+    page = (
+        "Intro.\n\n```json pyeye-example tool=inspect\n"
+        '{"handle": "myapp.config.Settings"}\n```\n\n'
+        '```json pyeye-output\n{"found": true, "kind": "class", "\u2026": "<omitted>"}\n```\n'
+    )
+    entry = DocEntry("README.md", "human", "prose")
+    found, problems = parse_examples(page)
+    project = tmp_path_factory.mktemp("widened") / "project"
+    shutil.copytree(FIXTURES / "docs_examples", project)
+    monkeypatch.chdir(project)
+
+    assert allows_examples(entry) and problems == [] and len(found) == 1
+    response = _call(project, found[0])
+    lint_response(response, "inspect")
+    assert match_shown(found[0].output, response) == []

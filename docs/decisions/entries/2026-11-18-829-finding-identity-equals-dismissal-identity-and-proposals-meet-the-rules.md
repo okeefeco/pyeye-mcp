@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "/docs-review: finding identity equals dismissal identity, findings carry the page hash, and proposed wording meets the rules it enforces (#829-3)"
 issues: [829, 818, 830]
 anchors: ["pyeye.docs_facts.review.finding_key", "pyeye.docs_facts.review.batch_problems", "pyeye.docs_facts.review.page_hash", "pyeye.docs_facts.review.proposal_problems", "pyeye.docs_facts.review.mentioned_facts", "pyeye.docs_facts.review.RULE_IDS", "tests/test_docs_facts_review.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-829-code-contradictions-and-subject-keyed-dismissals.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-829-page-level-findings-literal-anchors-and-code-bug-routes.md"]
 superseded_by: []
 ---
 

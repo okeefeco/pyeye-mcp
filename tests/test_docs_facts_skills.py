@@ -137,11 +137,18 @@ class TestArchitectureReview:
 
 class TestDuplicationReview:
     def test_every_command_and_flag_is_explained(self, facts: dict[str, Bindable]) -> None:
-        body = binding_free(_text(DUP_SKILL))
+        raw = _text(DUP_SKILL)
+        body = binding_free(raw)
         words = _members(facts, "duplication.commands") + [
             f"--{f}" for f in _members(facts, "duplication.flags")
         ]
-        missing = [w for w in words if f"`{w}" not in body]
+
+        def explained(word: str) -> bool:
+            # Named in prose, or bound to its own fact (a table row or bullet, #830).
+            kind = "flag" if word.startswith("--") else "command"
+            return f"`{word}" in body or f"fact:begin duplication.{kind}.{word.lstrip('-')} " in raw
+
+        missing = [w for w in words if not explained(w)]
         assert not missing, f"not explained in the skill body: {missing}"
 
     def test_no_documented_flag_is_unknown(self, facts: dict[str, Bindable]) -> None:

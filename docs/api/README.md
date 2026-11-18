@@ -63,6 +63,10 @@ to `inspect`, `outline`, `expand` or `trace`. A symbol that can't be placed
 carries `unresolved` instead; there is never a guessed handle (#627). The
 examples on each plugin page show the records.
 
+**Examples** on the plugin pages run in CI against a small project, and their
+output is checked against the real response; `…` marks what an example leaves
+out.
+
 ## 🧭 Core Navigation: Where It's Documented
 
 The core interface is six progressive-disclosure primitives: `resolve`,
@@ -146,13 +150,7 @@ A call that names packages adds them, and with `save` left on, writes
 
 ## ⚙️ Configuration Sources
 
-Configuration can also be set without calling the tool. The loader's own
-docstring (`ProjectConfig.load_config` in `src/pyeye/config.py`) is the
-authoritative order; later sources override earlier ones:
-
-1. Global config `~/.config/pyeye/config.json`
-2. A project config file: `.pyeye.json` or `pyproject.toml` `[tool.pyeye]`
-3. Override file `.pyeye.override.json` (local development)
-4. Auto-discovery, used only when nothing above configured any packages
-
-See [DOCUMENTATION.md](../../DOCUMENTATION.md#configuration) for the file format.
+Configuration can also be set without calling the tool, in a config file. The
+README's [Configuration Methods](../../README.md#configuration-methods) lists the
+files and the order they're loaded in, and
+[DOCUMENTATION.md](../../DOCUMENTATION.md#configuration) gives the file format.

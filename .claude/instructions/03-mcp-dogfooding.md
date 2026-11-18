@@ -31,28 +31,10 @@ cheap by default (small structural responses, no source content), honour the
 absence-vs-zero invariant, and operate on canonical handles that collapse
 re-exported paths to the definition site.
 
-The old Jedi-shaped tools (`find_symbol`, `goto_definition`, `get_type_info`,
-`find_imports`, `find_subclasses`, `list_packages`, `list_modules`,
-`get_module_info`, `list_project_structure`) have been **removed** from the MCP
-surface — they are gone, not just discouraged.
-
-**Nothing legacy survives.** v2.0 removed the last three (#505), along with the
-superseded `lookup` entry point:
-`find_references`, `get_call_hierarchy` and `analyze_dependencies` were removed.
-They were removed rather than left deprecated because they answered *confidently
-and wrongly*:
-
-- the removed `get_call_hierarchy` could never populate `callees` at all, and it
-  anchored bare names on the first match with no ambiguity signal;
-- the removed `analyze_dependencies` classified every first-party module as
-  third-party on a `src/` layout, which in turn silently disabled its own cycle
-  detection;
-- the removed `find_references` advertised "ALL usages" with no way to distinguish
-  an empty result from a failed search.
-
-Never use the reverse-reference tools to answer "who calls / references this":
-they no longer exist, and the honest-limits rule in the skill is the whole answer. See
-`docs/api-redesign.md` for the redesign background.
+The v1 Jedi-shaped tools and the v2.0 legacy tools have been **removed** from the
+MCP surface. NEVER reach for a tool name you remember from before v2.0. The
+`python-explore` skill ("There is no legacy escape hatch") says which were removed
+and why; `docs/api-redesign.md` has the redesign background.
 
 ## Tool mechanics live in the `python-explore` skill
 

@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Documented tool examples are executed against a fixture and matched on structure, with every trim marked (#828)"
 issues: [828, 818, 843]
 anchors: ["pyeye.docs_facts.examples.parse_examples", "pyeye.docs_facts.examples.match_shown", "pyeye.docs_facts.examples.allows_examples", "pyeye.docs_facts.binding.fences", "tests/test_docs_examples.py", "tests/fixtures/docs_examples"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-828-runnable-examples-may-live-on-any-prose-page-for-humans.md"]
 superseded_by: []
 ---
 

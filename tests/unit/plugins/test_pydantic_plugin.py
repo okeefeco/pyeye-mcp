@@ -799,3 +799,128 @@ class User(BaseModel):
         assert full_name["type"] == "computed_field"
         assert full_name["return_type"] == "str"
         assert full_name["line"] == 10  # the def line, not a decorator's
+
+
+class TestModelConfigForms:
+    """``model_config`` is read in every literal form pydantic v2 code uses (#870)."""
+
+    _SOURCE = """
+import pydantic
+from pydantic import BaseModel, ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Call(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    name: str
+
+class Annotated(BaseModel):
+    model_config: ConfigDict = ConfigDict(frozen=True)
+    name: str
+
+class Qualified(BaseModel):
+    model_config = pydantic.ConfigDict(validate_assignment=True)
+    name: str
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="APP_")
+    name: str
+
+class Literal(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+    name: str
+"""
+
+    _EXPECTED = {
+        "Call": {"str_strip_whitespace": "True", "extra": "'forbid'"},
+        "Annotated": {"frozen": "True"},
+        "Qualified": {"validate_assignment": "True"},
+        "Settings": {"env_prefix": "'APP_'"},
+        "Literal": {"str_strip_whitespace": "True"},
+    }
+
+    @pytest.mark.asyncio
+    async def test_find_model_config_reads_every_form(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        configs = await PydanticPlugin(temp_project).find_model_config()
+
+        assert {c["model"]: c["settings"] for c in configs} == self._EXPECTED
+
+    @pytest.mark.asyncio
+    async def test_model_records_carry_the_config(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        found = {m["name"]: m["config"] for m in models if m["name"] in self._EXPECTED}
+        # Settings subclasses BaseSettings, which find_models may not treat as a root.
+        expected = {k: v for k, v in self._EXPECTED.items() if k in found}
+        assert found == expected
+        assert {"Call", "Annotated", "Qualified", "Literal"} <= set(found)
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_config_keeps_todays_answer(self, temp_project):
+        """Until #870's Q1 is decided, an expression the AST can't read gives ``{}``."""
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\n"
+            "class M(BaseModel):\n"
+            "    model_config = make_config()\n"
+            "    name: str\n"
+        )
+
+        configs = await PydanticPlugin(temp_project).find_model_config()
+
+        assert [c["settings"] for c in configs] == [{}]
+
+
+class TestSchemaComputedFields:
+    """``get_model_schema`` lists the model's ``@computed_field`` members (#870)."""
+
+    _SOURCE = """
+from pydantic import BaseModel, computed_field
+
+class User(BaseModel):
+    first: str
+
+    @computed_field
+    @property
+    def upper(self) -> str:
+        return self.first.upper()
+
+    @computed_field(repr=False)
+    def slug(self) -> str:
+        return self.first.lower()
+
+    @property
+    def plain(self) -> str:
+        return self.first
+
+class Other(BaseModel):
+    @computed_field
+    @property
+    def elsewhere(self) -> int:
+        return 1
+"""
+
+    @pytest.mark.asyncio
+    async def test_schema_lists_only_its_own_computed_fields(self, temp_project):
+        (temp_project / "models.py").write_text(self._SOURCE)
+
+        schema = await PydanticPlugin(temp_project).get_model_schema("User")
+
+        assert schema is not None
+        # A plain @property isn't a pydantic computed field; Other's isn't User's.
+        assert schema["computed_fields"] == [
+            {"name": "upper", "line": 9, "return_type": "str"},  # the def line
+            {"name": "slug", "line": 13, "return_type": "str"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_model_without_any_has_an_empty_list(self, temp_project):
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    name: str\n"
+        )
+
+        schema = await PydanticPlugin(temp_project).get_model_schema("M")
+
+        assert schema is not None and schema["computed_fields"] == []

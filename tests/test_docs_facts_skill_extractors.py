@@ -46,6 +46,20 @@ def test_tables_render_one_row_per_axis() -> None:
         assert len(rows) == len(taxonomy.SEED_AXES), view_id
 
 
+def test_buckets_view_is_the_default_bucket_map_in_rank_order() -> None:
+    """``review.buckets`` renders the ranker's default map, highest stakes first (#830)."""
+    facts = _facts(review)
+    group = facts["review.buckets"]
+    assert isinstance(group, View)
+    assert [m.rsplit(".", 1)[1] for m in group.members] == list(taxonomy.SEED_AXES)
+    parts = group.markdown.split(" > ")
+    order = sorted(taxonomy._BUCKET_ORDER, key=taxonomy._BUCKET_ORDER.__getitem__, reverse=True)
+    assert [part.split(":", 1)[0] for part in parts] == [f"`{b}`" for b in order]
+    for bucket, part in zip(order, parts, strict=True):
+        axes = [a for a in taxonomy.SEED_AXES if taxonomy.AXIS_STAKES_BUCKET[a] == bucket]
+        assert part == f"`{bucket}`: " + ", ".join(f"`{a}`" for a in axes)
+
+
 def test_duplication_vocabulary_is_the_parsers() -> None:
     facts = _facts(duplication)
     commands = {i.rsplit(".", 1)[1] for i in facts if i.startswith("duplication.command.")}

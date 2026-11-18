@@ -280,8 +280,14 @@ Ordered so that nothing generation will produce gets hand-fixed:
     - The next networked `/docs-review` run lifts the dismissal once the issue is closed.
   - **Contradictory directives.** An audience rule, `contradictory-directive`, always `needs_decision`. Its options are the directives, and after the choice the recommended fix keeps the directive in one place and links to it from the other.
   - **One finding per fact** when a sentence restates several facts.
-  - **The scenario skill.** `pyeye-scenarios`' timing and baseline numbers are deleted from its prose, which points to the scenario baseline files instead, binding to them only where a number is genuinely needed.
+  - **The scenario skill.** *(Corrected by C18: there were no baseline files.)* `pyeye-scenarios`' timing and baseline numbers are deleted from its prose, which points to the scenario baseline files instead, binding to them only where a number is genuinely needed.
   - **Builder calls already accepted:** `D12-measurement`; `page_hash` in packets; finding identity equal to dismissal identity (subject included for rule anchors), with duplicate keys in a batch rejected.
+- **C18. Correction to C17's scenario-skill item (maintainer, 2026-11-18).**
+  - **The premise was wrong.** C17 assumed scenario baseline files existed. They don't: the probe tables, round-trip counts and timings live only in `.claude/skills/pyeye-scenarios/SKILL.md`, and `pyeye-verify` diffs against them. Deleting them would have destroyed the baseline data.
+  - **The fix (option c1):**
+    - Each scenario's data moves to `.claude/skills/pyeye-scenarios/baselines/<scenario>.md`, registered as `record` kind, with front matter giving `date`, `command`, `commit` and `machine`.
+    - `SKILL.md` links them and holds no numbers, and `pyeye-verify` reads its baselines from them.
+    - Stale results (e.g. jaraco's) keep their original date and commit, so each record states when it was measured instead of implying the figures are current.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder

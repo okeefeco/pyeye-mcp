@@ -7,12 +7,23 @@ from pathlib import Path
 from typing import Any
 
 from .async_utils import pruned_rglob
-from .constants import CONFIG_DIR, CONFIG_FILE, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
+from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
+
+#: The top-level keys of the pyeye config that pyeye reads (docs facts
+#: ``config.key.*``). ``tests/test_docs_facts_repo_config.py`` fails if code reads
+#: a top-level key that isn't listed here.
+CONFIG_KEYS: tuple[str, ...] = (
+    "packages",
+    "namespaces",
+    "standalone",
+    "scope_defaults",
+    "scope_aliases",
+)
 
 #: Top-level config keys that docs or the generated example once described,
 #: but that nothing in pyeye has ever read (#581). They are ignored with a
@@ -145,10 +156,7 @@ class ProjectConfig:
 
         Global config provides defaults that can be overridden by project config.
         """
-        global_configs = [
-            Path.home() / CONFIG_DIR / "config.json",
-            Path.home() / f".{PROJECT_NAME}.json",
-        ]
+        global_configs = [Path.home() / name for name in GLOBAL_CONFIG_FILES]
 
         for config_path in global_configs:
             if config_path.exists():

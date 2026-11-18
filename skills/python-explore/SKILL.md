@@ -182,17 +182,17 @@ report a static result as exhaustive over instance attributes or the runtime.
 The boundary is also in the response (#417): `expand` carries `ceiling`, the root
 of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The ids:
 
-<!-- markdownlint-disable MD050 -- dunder names are quoted verbatim from edges.CEILING_MEANINGS -->
-
-- `static_definitions`: definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included.
-- `literal_subclassing`: project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included.
-- `declared_bases`: the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses.
-- `static_imports`: import statements written in source; importlib / __import__ with a computed name is not included.
-- `static_calls`: calls whose target static analysis resolves; dynamic calls are counted in unresolved_call_sites, not listed.
-- `on_disk_modules`: modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included.
-- `package_reexports`: import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module __getattr__ are not included.
-
-<!-- markdownlint-enable MD050 -->
+<!-- fact:begin ceilings.table -->
+| Ceiling | Complete over |
+|---|---|
+| `declared_bases` | the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved\_superclasses |
+| `literal_subclassing` | project classes whose class statement names this class as a base; classes built with type(), class factories or \_\_init\_subclass\_\_ registration are not included |
+| `on_disk_modules` | modules and subpackages present on disk under the package; entries added to \_\_path\_\_ at runtime are not included |
+| `package_reexports` | import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module \_\_getattr\_\_ are not included |
+| `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
+| `static_definitions` | definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, \_\_getattr\_\_, type(), \_\_init\_subclass\_\_) are not included |
+| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included |
+<!-- fact:end -->
 
 `enclosing_scope` has none: lexical nesting is exact.
 
@@ -330,11 +330,11 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   they can't be stubs. They are still dependents: count them when sizing fan-in.
   `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
   list (`[]` when every importer has a handle).
-- **`unparseable_files`** (present only when you traced `subclasses`, `imported_by` or `re_exports`): a
+- **`unparseable_files`** (present only when you traced one of <!-- fact:begin edges.unparseable -->`imported_by`, `subclasses`, `re_exports`<!-- fact:end -->): a
   `{handle: [file, …]}` map of project files the server's Python **couldn't parse** (often
   newer syntax than its interpreter), so the reverse scan never read them. A subclass or
-  importer defined there is **unknown, not absent**. `expand(handle, "subclasses" |
-  "imported_by" | "re_exports")` carries the same flat `unparseable_files: [file, …]` list (`[]` when every
+  importer defined there is **unknown, not absent**. `expand` on one of those edges
+  carries the same flat `unparseable_files: [file, …]` list (`[]` when every
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
@@ -346,8 +346,8 @@ claim from `imports` likewise requires the node absent from `unresolved_imports`
 ### Framework plugin tools — always pass `envelope=true`
 
 When pyeye detects Pydantic, Django or Flask (in the project or a configured package),
-it also registers that framework's tools (`find_pydantic_models`, `get_model_schema`,
-`find_django_models`, `find_flask_routes`, `find_error_handlers`, …). After
+it also registers that framework's tools (listed in the
+[tool reference](../../docs/reference/tools.md#plugin-tools)). After
 `configure_packages` adds a package that brings a new framework, its result lists the
 newly activated plugins in `activated_plugins`, and their tools are **callable by name
 at once**: call them even if your tool list hasn't refreshed (pyeye sends no
@@ -360,10 +360,16 @@ the given project even if its framework wasn't auto-detected there; an empty res
 the scan found none. Omitted, they answer about the project the server started in. A
 `project_path` that doesn't exist is a tool error.
 
-**Always call them with `envelope=true`.** You get one object back:
+**Always call them with `envelope=true`.** You get one object back, the tool's
+answer wrapped with the scopes it covered:
 
-```text
-{ scope: "main", searched: ["main"], unsearched_scopes: ["namespace:company"], results: [...] }
+```json pyeye-example tool=find_django_models fixture=docs_examples_django
+{"envelope": true}
+```
+
+```json pyeye-output
+{"scope": "main", "searched": ["main"], "unsearched_scopes": [],
+ "results": [{"name": "Product", "handle": "shop.models.Product", "…": "<omitted>"}]}
 ```
 
 - **`results`** is the tool's normal answer (`[]` means searched and found none).
@@ -521,8 +527,15 @@ match `inspect`'s `edge_counts`: a survey cut by `max_nodes` carries
 `submodule_count`. A package with no submodules is outlined
 by its members instead:
 
+```json pyeye-example tool=resolve
+{"identifier": "myapp"}
+```
+
+```json pyeye-output
+{"found": true, "handle": "myapp", "kind": "module", "scope": "project", "…": "<omitted>"}
+```
+
 ```text
-resolve("myapp")                  -> { handle: "myapp", kind: "module", scope: "project" }
 outline("myapp")                  -> direct submodules/subpackages (depth-1 survey)
 expand("myapp.db", "submodules")  -> one hop of a subpackage's children
 trace("myapp", follow=["submodules"], max_depth=3)  -> bounded package tree (capped + `truncated`)
@@ -584,10 +597,19 @@ expand("pathlib.Path", edge="subclasses")    -> only classes in THIS project tha
 
 **"Who calls `Cache.evict`?"** — pyeye defers it; delegate to the LSP:
 
+```json pyeye-example tool=resolve
+{"identifier": "myapp.cache.Cache.evict"}
+```
+
+```json pyeye-output
+{"found": true, "handle": "myapp.cache.Cache.evict", "kind": "method",
+ "location": {"line_start": 25, "column_start": 8, "…": "<omitted>"}, "…": "<omitted>"}
+```
+
+Then hand that position (the `location`'s file, line, and column + 1) to your LSP tool:
+
 ```text
-resolve("myapp.cache.Cache.evict")   -> location: { file: "/work/myapp/myapp/cache.py", line_start: 25, column_start: 8 }
-# then hand that position to your LSP tool:
-LSP.incomingCalls("/work/myapp/myapp/cache.py", line=25, character=9)  -> real callers, with call sites
+LSP.incomingCalls(<location.file>, line=25, character=9)  -> real callers, with call sites
 ```
 
 > pyeye doesn't index callers (deferred to #333), so I delegated: `resolve` gave the

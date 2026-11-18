@@ -12,7 +12,8 @@ A repeatable, scenario-independent procedure for two questions:
    the agent-consumption rubric, not just whether it's correct.
 
 The scenarios, pins, probe suites, and recorded baselines are the *data*, held in
-**[[pyeye-scenarios]]**. This skill is the *procedure* that runs against any of them.
+**[[pyeye-scenarios]]**; each scenario's recorded baseline is a dated record under
+`.claude/skills/pyeye-scenarios/baselines/`. This skill is the *procedure* that runs against any of them.
 
 **Announce at start:** "Using the pyeye-verify skill to verify `<scenario>` on `<build>`."
 
@@ -67,7 +68,7 @@ Compare each probe's live result to the recorded baseline row. Every divergence 
 
 | Classification | Meaning | Action |
 |----------------|---------|--------|
-| **Fixed** | a ❌ baseline row (known gap, tied to an issue) now passes | Update the baseline in [[pyeye-scenarios]], cite the issue/PR that fixed it, note the build |
+| **Fixed** | a ❌ baseline row (known gap, tied to an issue) now passes | Record a new dated baseline under `pyeye-scenarios/baselines/` (keep the old record), cite the issue/PR that fixed it, note the build |
 | **Regressed** | a ✅ baseline row now fails | **File an issue** with the probe, expected vs actual, and the build; this is the harness's primary job |
 | **Environment** | difference explained by the build under test, not behavior | Record against that build, tag the build; do NOT treat as a regression |
 
@@ -99,8 +100,8 @@ uv run python scripts/roundtrip_probe.py <project_path> <round-trip module> 2>/d
 - It reports `stubs` and the number that **don't round-trip**, split into
   `inspect miss`, `resolve miss`, `disagree` (one tool finds it, the other
   doesn't) and `handle mismatch` (both find it under different handles).
-- Compare these to the scenario's round-trip baseline row in
-  [[pyeye-scenarios]]. Classify a change like any other divergence: **fewer**
+- Compare these to the round-trip baseline in the scenario's record
+  (`pyeye-scenarios/baselines/<scenario>.md`). Classify a change like any other divergence: **fewer**
   is *fixed* (cite the PR, usually the #629 consolidation work such as #623),
   **more** is *regressed* (file an issue), and a count that moves with the
   build is *environment*.

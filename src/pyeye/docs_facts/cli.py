@@ -82,7 +82,7 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
             problems.append(
                 binding.Problem(
                     runnable[0].line,
-                    "runnable examples belong in docs/api/, docs/reference/ or a skill",
+                    f"runnable examples belong in {examples.WHERE_EXAMPLES_LIVE}",
                 )
             )
         result.problems.extend(f"{path}:{p.line}: {p.message}" for p in problems)

@@ -126,20 +126,6 @@ _ENTRIES: tuple[DocEntry, ...] = (
         ".claude/instructions/03-mcp-dogfooding.md",
         _C,
         "prose",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'get_module_info' beside 'removed'",
-                    "names removed tool 'list_project_structure' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
-                )
-            }
-        ),
     ),
     DocEntry(
         ".claude/instructions/04-agent-triggers.md",
@@ -165,6 +151,7 @@ _ENTRIES: tuple[DocEntry, ...] = (
     DocEntry(".claude/skills/docs-review/SKILL.md", _C, "skill"),
     DocEntry(".claude/skills/docs-review/reviewer.md", _C, "skill"),
     DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
+    DocEntry(".claude/skills/pyeye-scenarios/baselines/*.md", _C, "record"),
     DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
     # Shipped skills
     DocEntry(
