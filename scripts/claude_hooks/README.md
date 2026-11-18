@@ -43,41 +43,17 @@ python3 scripts/claude_hooks/mcp_analytics.py --days 14
 mcp-export
 ```
 
-### Sample Report
+### What the Report Shows
 
-```text
-============================================================
-MCP MONITORING ANALYTICS REPORT
-Period: Last 7 days
-============================================================
+`mcp_analytics.py` prints these sections, in order, for the period you ask for:
 
-📊 ADOPTION METRICS
-----------------------------------------
-MCP Tool Calls: 156
-Grep/Find Usage: 23
-Total Searches: 179
-🎯 MCP Adoption Rate: 87.2%
+- **Adoption metrics**: MCP tool calls, grep/find usage, and the MCP adoption
+  rate (MCP calls as a share of all searches).
+- **Session statistics**: total, complete and active sessions.
+- **Top MCP tools used** and a **grep tool breakdown**, when there is data.
+- **Recommendations**, chosen from the adoption rate.
 
-📅 SESSION STATISTICS
-----------------------------------------
-Total Sessions: 12
-Complete Sessions: 10
-Active Sessions: 2
-
-🔧 TOP MCP TOOLS USED
-----------------------------------------
-  resolve: 45 calls
-  inspect: 32 calls
-  expand: 28 calls
-  outline: 18 calls
-  trace: 15 calls
-
-💡 RECOMMENDATIONS
-----------------------------------------
-🎉 Excellent MCP adoption rate!
-  • Continue monitoring for edge cases
-  • Share learnings with team
-```
+Run `mcp-report` to see it for your own sessions.
 
 ## 🔧 How It Works
 
@@ -167,15 +143,6 @@ cat ~/.claude/mcp_monitoring/hook_errors.log
 # Verify hooks are installed
 cat ~/.claude/hooks.json
 ```
-
-## 📊 Metrics Goals
-
-We're tracking progress toward:
-
-- **Week 1**: Establish baseline, >30% MCP usage ✅
-- **Week 2**: >50% MCP usage ✅
-- **Week 3**: >70% MCP usage ✅
-- **Week 4**: >80% MCP usage 🎯
 
 ## 🤝 Contributing
 

@@ -264,6 +264,11 @@ class TestSeeds:
         for path, keys in SEEDS.items():
             assert by_path[path].allow["honest-claims"] == keys, path
 
+    def test_the_seeds_are_used_up(self) -> None:
+        """#830 bound or deleted every seeded claim: D12 runs with no allowance."""
+        assert SEEDS == {}
+        assert not [e.path for e in DOCS if "honest-claims" in e.allow]
+
 
 def test_env_defaults_are_bindable_inline() -> None:
     """A documented default is a bound fact ("default <block>0.5</block> s"), not a restatement."""
