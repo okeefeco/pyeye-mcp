@@ -56,7 +56,7 @@ This file is optional and ignored if it doesn't exist. It won't be committed to 
 
 ## Dogfooding Metrics Tracking
 
-To measure our MCP adoption:
+To measure our MCP adoption (aliases defined by `scripts/claude_hooks/setup_mcp_monitoring.sh`; load them with `source ~/.claude/mcp_monitoring/aliases.sh`):
 
 ```bash
 # View real-time analytics

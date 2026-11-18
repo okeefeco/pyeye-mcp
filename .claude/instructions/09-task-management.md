@@ -12,7 +12,7 @@ Use the **TodoWrite tool** for all task tracking - it persists across context re
 
 ## Best Practices
 
-- **Break tasks into small chunks** - 5-10 minute increments
+- **Break tasks into small chunks** - each one a single, checkable step
 - **Include file:line references** - e.g., "Fix validation in server.py:125-150"
 - **Mark complete immediately** - Update status as you finish each task
 - **Keep ONE task in_progress** - Focus on single task at a time

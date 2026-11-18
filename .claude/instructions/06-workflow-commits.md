@@ -104,8 +104,8 @@ Always reference the related issue in PR body:
 **Before marking any PR as ready:**
 
 ```bash
-# MANDATORY: Run ALL tests with coverage
-pytest --cov=src/pyeye --cov-fail-under=85
+# MANDATORY: Run ALL tests with coverage (pyproject's addopts enforce the threshold)
+uv run pytest --cov=src/pyeye
 ```
 
 ## Using Smart-Commit Agent
@@ -114,7 +114,7 @@ pytest --cov=src/pyeye --cov-fail-under=85
 
 ```bash
 # Instead of manual commands, use:
-Task tool with subagent_type="smart-commit"
+Agent tool with subagent_type="smart-commit"
 ```
 
 The agent will:

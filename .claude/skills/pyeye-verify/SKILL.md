@@ -123,9 +123,9 @@ probe evidence.
 | **Absence vs zero** | empty/measured-none distinct from not-measured; missing `edge_counts` key ≠ `0` | a `0` that actually means "didn't measure", or empty conflated with unsupported | django inspect omits `callers` from `edge_counts` (absent ≠ 0) |
 | **No content leakage** | pointers + structured facts; `file:line` to `Read` | source bodies / snippets in the response | every probe returns handles + locations, no source |
 | **Honest limits** | reverse-reference edges *refuse* with a reason | faked/empty caller data, or grep/legacy-tool fallback | django `expand(…, "callers")` → `deferred_reference_backend` (#333) |
-| **Right altitude** | cheap by default; truncation flagged (`truncated`, `max_nodes`) | firehose with no bound; silent truncation | jaraco `trace(imports)` caps at `max_nodes` with `truncated:true` |
+| **Right altitude** | cheap by default; truncation flagged (`truncated` + `truncation_reasons`: `max_nodes`, `max_depth`, `max_stubs`, `max_candidates`) | firehose with no bound; silent truncation | jaraco `trace(imports)` caps at `max_nodes` with `truncated:true` |
 | **Canonical handles** | re-exports collapse to definition site | alias path returned as the identity | `resolve("django.db.models.Model")` → `…base.Model` |
-| **Static-surface honesty** | static result not claimed as runtime-exhaustive | a static `members` count sold as the complete runtime surface | django `members:68` excludes metaclass-injected `_meta`/`objects` |
+| **Static-surface honesty** | static result not claimed as runtime-exhaustive | a static `members` count sold as the complete runtime surface | django `members:67` excludes metaclass-injected `_meta`/`objects` |
 | **Cross-repo correctness** | a symbol's `scope`/handle consistent across entry points | same symbol labelled differently by different primitives | ✅ #454: `resolve` and the `imports`/`callees` edges now agree (`project`) for namespace siblings |
 | **Determinism** | same query → same result across runs | order/contents vary run-to-run | re-run a probe twice and compare |
 
