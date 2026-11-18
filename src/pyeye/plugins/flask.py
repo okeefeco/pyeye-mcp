@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob
-from ..path_utils import relative_within
+from ..path_utils import path_to_key, relative_within
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,36 @@ def _str_value(node: ast.AST) -> str | None:
     """
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    return None
+
+
+# A handler may be ``async def`` (Flask 2.0+); both are scanned (#873).
+_FUNCTION_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+# Config files: at a scope root or one directory below it (#873).
+_CONFIG_FILE_PATTERNS = ("config.py", "settings.py", "*/config.py", "*/settings.py")
+
+
+def _blueprint_assignment(node: ast.AST) -> tuple[str, ast.Call, int] | None:
+    """``(target, call, line)`` when *node* binds a name to a ``Blueprint(...)`` call.
+
+    Accepts ``bp = Blueprint(...)``, ``bp = <module>.Blueprint(...)`` (such as
+    ``flask.Blueprint`` or an aliased import) and the annotated forms of both
+    (#873). An annotation with no value binds nothing and is not a blueprint.
+    """
+    if isinstance(node, ast.Assign) and node.targets:
+        target, value = node.targets[0], node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        target, value = node.target, node.value
+    else:
+        return None
+    if not (isinstance(target, ast.Name) and isinstance(value, ast.Call)):
+        return None
+    func = value.func
+    if (isinstance(func, ast.Name) and func.id == "Blueprint") or (
+        isinstance(func, ast.Attribute) and func.attr == "Blueprint"
+    ):
+        return target.id, value, target.lineno
     return None
 
 
@@ -108,7 +138,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.FunctionDef):
+                        if isinstance(node, _FUNCTION_DEFS):
                             # Check for route decorators
                             for decorator in node.decorator_list:
                                 route_path = None
@@ -169,36 +199,25 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.Assign):
-                            # Check for Blueprint instantiation
-                            if isinstance(node.value, ast.Call) and (
-                                isinstance(node.value.func, ast.Name)
-                                and node.value.func.id == "Blueprint"
-                            ):
-                                # Get blueprint name
-                                if node.targets and isinstance(node.targets[0], ast.Name):
-                                    bp_name = None
-                                    url_prefix = None
+                        found = _blueprint_assignment(node)
+                        if found is not None:
+                            target, call, line = found
+                            bp_name = _str_value(call.args[0]) if call.args else None
+                            url_prefix = None
+                            for keyword in call.keywords:
+                                if keyword.arg == "url_prefix":
+                                    url_prefix = _str_value(keyword.value)
 
-                                    # Extract blueprint name from args
-                                    if node.value.args:
-                                        bp_name = _str_value(node.value.args[0])
-
-                                    # Extract url_prefix if specified
-                                    for keyword in node.value.keywords:
-                                        if keyword.arg == "url_prefix":
-                                            url_prefix = _str_value(keyword.value)
-
-                                    blueprints.append(
-                                        {
-                                            "name": node.targets[0].id,
-                                            "blueprint_name": bp_name,
-                                            "file": py_file.as_posix(),
-                                            "line": node.lineno,
-                                            "url_prefix": url_prefix,
-                                            "type": "blueprint",
-                                        }
-                                    )
+                            blueprints.append(
+                                {
+                                    "name": target,
+                                    "blueprint_name": bp_name,
+                                    "file": py_file.as_posix(),
+                                    "line": line,
+                                    "url_prefix": url_prefix,
+                                    "type": "blueprint",
+                                }
+                            )
 
         return blueprints
 
@@ -395,12 +414,16 @@ class FlaskPlugin(AnalyzerPlugin):
         """
         configs: list[dict[str, Any]] = []
 
-        # Look for config files
-        config_patterns = ["config.py", "settings.py", "*/config.py", "*/settings.py"]
-        for pattern in config_patterns:
-            for config_file in self.project_path.glob(pattern):
-                if config_file.is_file():
-                    configs.append({"file": config_file.as_posix(), "type": "config_file"})
+        # Config files: depth <= 1 below each root the scope names (#873)
+        seen: set[str] = set()
+        roots = sorted(await self._resolve_scope_to_paths(scope), key=path_to_key)
+        for root in roots:
+            for pattern in _CONFIG_FILE_PATTERNS:
+                for config_file in sorted(root.glob(pattern)):
+                    key = path_to_key(config_file)
+                    if config_file.is_file() and key not in seen:
+                        seen.add(key)
+                        configs.append({"file": config_file.as_posix(), "type": "config_file"})
 
         # Find app.config usage
         py_files = await self.get_project_files("*.py", scope)
@@ -445,7 +468,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.FunctionDef):
+                        if isinstance(node, _FUNCTION_DEFS):
                             for decorator in node.decorator_list:
                                 # Check for @app.errorhandler()
                                 if isinstance(decorator, ast.Call):
@@ -490,7 +513,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
-                        if isinstance(node, ast.FunctionDef):
+                        if isinstance(node, _FUNCTION_DEFS):
                             for decorator in node.decorator_list:
                                 # Check for @app.cli.command() or @click.command()
                                 if isinstance(decorator, ast.Call):
