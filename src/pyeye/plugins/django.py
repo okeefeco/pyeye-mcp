@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob, pruned_rglob
+from ..path_utils import path_to_key
+from ..project_layout import module_name_for_file
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,17 @@ class DjangoPlugin(AnalyzerPlugin):
     async def find_views(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Django views in the project.
 
+        Class views are classes with a base the module imports from Django
+        (#941), and the project classes that subclass those, directly or
+        through other project classes (#942). Function views are functions,
+        ``async`` or not, whose first parameter is ``request``.
+
+        Cost: following subclasses uses the project's class graph, the one
+        ``expand(subclasses)`` and ``find_pydantic_models`` share. The first
+        call that needs it builds it, a scan of every file in scope; later calls
+        reuse it until a file changes. A project with no Django class views
+        never builds it.
+
         Args:
             scope: One scope or a list of scopes (default: this tool's
                 ``scope_defaults.methods`` entry in the project config, else
@@ -122,6 +135,7 @@ class DjangoPlugin(AnalyzerPlugin):
                 scopes it lists.
         """
         views: list[dict[str, Any]] = []
+        seeds: list[str] = []  # the direct class views' handles, to walk from (#942)
         for views_file in await self._views_files(scope):
             content = await self._read_source(views_file)
             if content is None:
@@ -139,7 +153,53 @@ class DjangoPlugin(AnalyzerPlugin):
                 elif isinstance(node, ast.ClassDef):
                     if any(_is_django_view_base(base, bound, star_others) for base in node.bases):
                         views.append(_view_record(node, views_file, "class_view"))
+                        if node in tree.body:
+                            seeds.append(self._class_handle(views_file, node.name))
+        views.extend(await self._indirect_class_views([s for s in seeds if s], views, scope))
         return views
+
+    def _class_handle(self, path: Path, name: str) -> str:
+        """The dotted handle of top-level class *name* in *path*, or ``""`` if unnameable."""
+        module = module_name_for_file(self._analyzer(), path)
+        return f"{module}.{name}" if module else ""
+
+    async def _indirect_class_views(
+        self, seeds: list[str], direct: list[dict[str, Any]], scope: Scope
+    ) -> list[dict[str, Any]]:
+        """Project classes that subclass a class view, at any depth, by definition site (#942).
+
+        Walks the shared class graph (``JediAnalyzer.find_subclasses``), as
+        ``find_pydantic_models`` does (#664). A subclass defined in any module
+        counts, not only in views files. Ordered by file, then line.
+        """
+        if not seeds:
+            return []
+        analyzer = self._analyzer()
+        # Keyed by path_to_key: the class graph may spell a file differently.
+        known = {(path_to_key(v["file"]), v["line"]) for v in direct}
+        seen = set(seeds)
+        queue = list(seeds)
+        found: list[dict[str, Any]] = []
+        while queue:
+            result = await analyzer.find_subclasses(queue.pop(0), scope=scope)
+            for sub in result.get("subclasses", []):
+                handle = sub.get("full_name")
+                if not handle or handle in seen:
+                    continue
+                seen.add(handle)
+                queue.append(handle)
+                where = (path_to_key(sub["file"]), sub["line"])
+                if where not in known:
+                    known.add(where)
+                    found.append(
+                        {
+                            "name": sub["name"],
+                            "file": Path(sub["file"]).as_posix(),
+                            "line": sub["line"],
+                            "type": "class_view",
+                        }
+                    )
+        return sorted(found, key=lambda v: (v["file"], v["line"]))
 
     async def _views_files(self, scope: Scope) -> list[Path]:
         """Every ``views.py``, and every module of a ``views`` package (#941)."""
