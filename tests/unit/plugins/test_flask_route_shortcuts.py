@@ -132,7 +132,7 @@ async def test_module_attribute_and_annotated_owners_are_recognised(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_a_blueprint_imported_from_another_module_is_not_recognised(tmp_path: Path) -> None:
-    """Honest limit (#905): the receiver must be bound in the same file.
+    """Honest limit (#905, tracked in #910): the receiver must be bound in the same file.
 
     ``.route`` has no such rule, so ``@bp.route`` on an imported ``bp`` is still found.
     """
