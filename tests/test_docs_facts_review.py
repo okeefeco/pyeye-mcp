@@ -1539,3 +1539,74 @@ def test_the_reviewer_prompt_lists_exactly_the_registered_extractors() -> None:
     listed = re.search(r"extractor that would produce it \(([^)]*)\)", " ".join(prompt.split()))
     assert listed is not None
     assert re.findall(r"`(\w+)`", listed.group(1)) == [e.name for e in EXTRACTORS]
+
+
+class TestC17Coverage:
+    """The paths the C17 tests above don't reach: real literals, gh, move's refusals, the CLI."""
+
+    def test_project_symbols_has_literal_and_skips_unparseable_files(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "ok.py").write_text('MSG = "Package path does not exist"\n')
+        (tmp_path / "src" / "broken.py").write_text("def broken(:\n")
+        symbols = review.project_symbols(tmp_path)
+        assert symbols.has_literal("Package path does not exist")
+        assert not symbols.has_literal("Package path")
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout", "expected"),
+        [(0, "CLOSED\n", True), (0, "OPEN\n", False), (1, "", None)],
+    )
+    def test_gh_issue_closed_reads_gh(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: bool | None
+    ) -> None:
+        import subprocess  # nosec B404 - only the fake below runs
+
+        seen: list[list[str]] = []
+
+        def fake(args: list[str], **_kwargs: Any) -> Any:
+            seen.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+        monkeypatch.setattr(subprocess, "run", fake)
+        assert review.gh_issue_closed(851) is expected
+        assert seen == [["gh", "issue", "view", "851", "--json", "state", "-q", ".state"]]
+
+    def test_gh_issue_closed_is_unknown_without_gh(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess  # nosec B404 - only the fake below runs
+
+        def missing(*_args: Any, **_kwargs: Any) -> Any:
+            raise FileNotFoundError("gh")
+
+        monkeypatch.setattr(subprocess, "run", missing)
+        assert review.gh_issue_closed(851) is None
+
+    def test_move_needs_pyeye_for_a_symbol_or_literal(self) -> None:
+        state: dict[str, Any] = {}
+        finding = TestC17()._literal("Package path does not exist: {}")
+        entry = review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18", None, _syms())
+        with pytest.raises(ValueError, match="moving a literal needs pyeye"):
+            review.move(state, entry["key"], "x", _FACTS, None, None)
+
+    def test_move_refuses_a_new_string_that_isnt_a_literal(self) -> None:
+        state: dict[str, Any] = {}
+        finding = TestC17()._literal("Package path does not exist: {}")
+        entry = review.dismiss_finding(state, finding, _FACTS, "fine", "2026-11-18", None, _syms())
+        gone = _syms(literals=frozenset({"Something else"}))
+        with pytest.raises(ValueError, match="isn't a whole string literal in src/"):
+            review.move(state, entry["key"], "Not one either", _FACTS, None, gone)
+
+    def test_lift_blocked_on_the_command_line(
+        self,
+        memory_state: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        finding = _contradiction(route="code_bug", blocked_by="#851")
+        entry = review.dismiss_finding(
+            memory_state, finding, _FACTS, "deliberate", "2026-11-18", None, _syms()
+        )
+        monkeypatch.setattr(review, "gh_issue_closed", lambda number: number == 851)
+        assert review.main(["lift-blocked"], root=_ROOT) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["lifted"] == [{"key": entry["key"], "blocked_by": "#851"}]
+        assert memory_state["confirmed_non_issues"] == []
