@@ -322,7 +322,8 @@ including the result TTL (`PYEYE_CACHE_TTL`).
 ### Debugging Scope Resolution
 
 Call any plugin tool with `envelope=true` and read `searched` and
-`unsearched_scopes` to see which configured scopes the call covered:
+`unsearched_scopes` to see which configured scopes the call covered.
+`rejected_paths` names any configured path the path check refused:
 
 ```python
 result = await find_pydantic_models(scope="namespace:company", envelope=True)

@@ -105,3 +105,23 @@ def test_the_runtime_never_imports_prometheus_client() -> None:
         check=True,
     )
     assert loaded.stdout.strip().splitlines()[-1] == "False"
+
+
+def test_the_artifact_cache_eviction_causes_are_counter_families(export: str) -> None:
+    """#401: cap pressure and staleness are separate series; the total keeps its name."""
+    families = _families(export)
+
+    for name in (
+        "pyeye_artifact_cache_evictions",
+        "pyeye_artifact_cache_cap_evictions",
+        "pyeye_artifact_cache_stale_evictions",
+    ):
+        assert families[name].type == "counter", name
+        assert families[name].documentation, name
+        assert len(families[name].samples) == 1, name
+    total = families["pyeye_artifact_cache_evictions"].samples[0].value
+    parts = sum(
+        families[name].samples[0].value
+        for name in ("pyeye_artifact_cache_cap_evictions", "pyeye_artifact_cache_stale_evictions")
+    )
+    assert total == parts

@@ -142,6 +142,48 @@ def resolve_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         )
 
 
+#: The ``ScopedCache`` scope that holds :func:`resolve_external_item`'s answers.
+EXTERNAL_RESOLVE_SCOPE = "resolve:external"
+
+
+def resolve_external_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
+    """:func:`resolve_item`, memoised for an answer outside the project (#925).
+
+    The ``imports`` edge re-resolves every external import target, and the same
+    stdlib targets recur across modules and calls: each resolution builds a
+    synthetic Jedi script, so a ``trace`` over ``imports`` into the stdlib paid
+    for the same answers again and again.
+
+    Only a :class:`Resolved` whose scope is ``external`` is kept: a miss (honest
+    per item, #704) and a project answer are resolved every time. The entries
+    live in the analyzer's ``scoped_cache``, so the file watcher clears them
+    with the rest of the project's caches. That covers a project edit that
+    changes an external answer, such as a new module shadowing a stdlib name.
+    The epoch guard keeps an answer computed across such a change from being
+    stored (#817). The scope is an LRU of ``PYEYE_RESOLVE_CACHE_MAX_ENTRIES``.
+    """
+    from pyeye.scope_utils import ScopedCache
+    from pyeye.settings import settings
+
+    cache = getattr(analyzer, "scoped_cache", None)
+    if not isinstance(cache, ScopedCache):
+        return resolve_item(path, analyzer)
+    hit = cache.get_recent(path, EXTERNAL_RESOLVE_SCOPE)
+    if isinstance(hit, Resolved):
+        return hit
+    epoch = cache.epoch()
+    resolved = resolve_item(path, analyzer)
+    if isinstance(resolved, Resolved) and resolved.scope == "external":
+        cache.set(
+            path,
+            resolved,
+            EXTERNAL_RESOLVE_SCOPE,
+            epoch=epoch,
+            max_entries=settings.resolve_cache_max_entries,
+        )
+    return resolved
+
+
 async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguous | NotFound:
     """Resolve a bare (dot-free) name: an exact top-level module wins (#623).
 

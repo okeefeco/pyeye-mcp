@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "The path deny-list is anchored patterns only, matched ignoring case (#939)"
 issues: [939, 909, 856, 867]
 anchors: ["pyeye.validation.PathValidator.RESTRICTED_TARGETS", "pyeye.validation.PathValidator._check_spelling", "pyeye.validation.PathValidator._check_targets", "pyeye.validation.PathValidator.check_forms", "tests/test_anchored_deny_list.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-856-every-caller-path-is-checked-in-its-final-form.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-909-deny-list-adds-boot-and-secrets-dirs-and-home-credential-stores.md"]
 superseded_by: []
 ---
 

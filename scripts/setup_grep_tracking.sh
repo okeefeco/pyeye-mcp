@@ -12,13 +12,21 @@ mkdir -p "$LOCAL_BIN"
 
 echo "Setting up grep tracking..."
 
+# Does the rc file already add ~/.local/bin? A bash match, not grep: grep may
+# be one of the wrappers this script installs, and a broken one from before
+# #969 would stop a re-run that is meant to repair it.
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+has_path_line() {
+    [[ "$(<"$1")" == *"$PATH_LINE"* ]]
+}
+
 # Check if ~/.local/bin is in PATH
 if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     echo "Adding ~/.local/bin to PATH in shell configuration..."
 
     # Add to .bashrc if it exists
     if [[ -f "$HOME/.bashrc" ]]; then
-        if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.bashrc"; then
+        if ! has_path_line "$HOME/.bashrc"; then
             echo "" >> "$HOME/.bashrc"
             echo "# Added by PyEye dogfooding setup" >> "$HOME/.bashrc"
             echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
@@ -27,7 +35,7 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
 
     # Add to .zshrc if it exists
     if [[ -f "$HOME/.zshrc" ]]; then
-        if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$HOME/.zshrc"; then
+        if ! has_path_line "$HOME/.zshrc"; then
             echo "" >> "$HOME/.zshrc"
             echo "# Added by PyEye dogfooding setup" >> "$HOME/.zshrc"
             echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$HOME/.zshrc"

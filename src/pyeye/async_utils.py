@@ -141,6 +141,11 @@ def pruned_walk(path: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
     to that plus its relative path, since ``os.walk`` never follows a symlinked
     subdirectory. A restricted *path* yields nothing.
 
+    Entries are judged too, so a scan never reads a restricted target through a
+    link: a symlinked FILE or directory is judged by what it points at, and one
+    that resolves into a restricted location (``x.py`` -> ``~/.netrc``) is
+    dropped from ``filenames`` / ``dirnames`` (#909 review).
+
     Yields ``(dir, dirnames, filenames)`` as ``os.walk`` does; a caller may
     prune ``dirnames`` in place, and the walk honours it.
     """
@@ -154,10 +159,26 @@ def pruned_walk(path: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
     real_of: dict[str, Path] = {}
     for dirpath, dirnames, filenames in os.walk(path):
         real_here = real_of.pop(dirpath, real_root)
-        dirnames[:] = [d for d in dirnames if not restricted_dir(real_here / d)]
+        dirnames[:] = [
+            d for d in dirnames if not restricted_dir(_entry_target(dirpath, d, real_here))
+        ]
         for d in dirnames:
             real_of[os.path.join(dirpath, d)] = real_here / d
+        filenames[:] = [
+            f for f in filenames if not restricted_dir(_entry_target(dirpath, f, real_here))
+        ]
         yield Path(dirpath), dirnames, filenames
+
+
+def _entry_target(dirpath: str, name: str, real_here: Path) -> Path:
+    """Where entry *name* of *dirpath* really is: a symlink's target, else *real_here*/*name*."""
+    entry = os.path.join(dirpath, name)
+    if os.path.islink(entry):
+        try:
+            return normalize_path(entry)
+        except (OSError, RuntimeError):
+            pass  # a broken or looping link: judged where it sits
+    return real_here / name
 
 
 def pruned_rglob(pattern: str, path: Path) -> list[Path]:

@@ -1,0 +1,24 @@
+name: Question
+description: How do I do something with pyeye?
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: The [troubleshooting guide](https://github.com/okeefeco/pyeye-mcp/blob/main/docs/TROUBLESHOOTING.md) may already answer it.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to do.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: The tool calls or config you tried, and what they returned.
+  - type: input
+    id: version
+    attributes:
+      label: pyeye version
+      description: The `version` from the `pyeye://about` resource, or the output of `pip show pyeye-mcp`.

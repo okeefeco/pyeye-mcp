@@ -1,7 +1,7 @@
 # Django Tools
 
-Tools for finding the parts of a Django project: models, views, URL
-configurations, templates and migrations.
+Tools for finding the parts of a Django project: models, views (Django REST
+framework's too), URL configurations, templates and migrations.
 
 The [plugin tools overview](README.md) says when these tools are available and
 what every plugin tool shares: its parameters, its records and how the examples
@@ -26,32 +26,36 @@ see its fields.
 
 ## find_django_views
 
-The views in each app's `views.py`, and in every module of a `views` package,
-in files that import Django:
+The views of Django and of Django REST framework. It reads each `views.py`,
+`viewsets.py` and `api.py`, and every module of a `views`, `viewsets` or `api`
+package, in files that import `django` or `rest_framework`. Each record's
+`framework` says which: `"django"` or `"rest_framework"`.
 
-- **class-based views**: classes with a base the module imports from Django
-  whose name contains `View`, such as `ListView`, `generic.ListView` or
-  `django.views.View`; and every project class that subclasses one of those,
-  directly or through your own classes, in any module. A view built on another
-  framework's base, such as Django REST framework's `APIView`, isn't found
-  (#947).
-- **function views**: functions, `async` or not, whose first parameter is
-  `request`.
+- **class-based views**: classes with a base the module imports from `django`
+  or `rest_framework` whose name contains `View`, such as `ListView`,
+  `generic.ListView`, `APIView`, `generics.ListAPIView` or
+  `viewsets.ModelViewSet`; and every project class that subclasses one of
+  those, directly or through your own classes, in any module. A class with a
+  `rest_framework` base or ancestor is `rest_framework`. A mixin alone isn't a
+  view, and neither is a project class whose name merely contains `View`.
+- **function views**: functions decorated with `rest_framework`'s `@api_view`
+  (`rest_framework`), and functions, `async` or not, whose first parameter is
+  `request` (`django`).
 
 Following subclasses uses the project's class graph, which `expand` with the
 `subclasses` edge and `find_pydantic_models` share. The first call that needs
 it builds it by reading every file in scope, so it is slower on a large
-project; later calls reuse it until a file changes. A project with no Django
-class views never builds it.
+project; later calls reuse it until a file changes. A project with no class
+views never builds it.
 
 ```json pyeye-example tool=find_django_views fixture=docs_examples_django
 {}
 ```
 
 ```json pyeye-output
-[{"name": "ProductList", "type": "class_view", "handle": "shop.views.ProductList",
-  "…": "<omitted>"},
- {"name": "product_detail", "type": "function_view",
+[{"name": "ProductList", "type": "class_view", "framework": "django",
+  "handle": "shop.views.ProductList", "…": "<omitted>"},
+ {"name": "product_detail", "type": "function_view", "framework": "django",
   "handle": "shop.views.product_detail", "…": "<omitted>"}]
 ```
 

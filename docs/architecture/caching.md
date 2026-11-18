@@ -13,6 +13,10 @@ LRU-bounded by `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJE
 **Scoped cache.** Each analyzer's `ScopedCache` keeps the list of files each
 scope covers, separately per scope (`main`, `all`, `namespace:<name>`, ...).
 Entries live `PYEYE_CACHE_TTL` seconds (default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->).
+It also holds the `imports` edge's resolutions of targets outside the project,
+in an LRU of `PYEYE_RESOLVE_CACHE_MAX_ENTRIES` entries (#925). A miss or a
+project target is resolved every time, and a watcher event clears the lot, so a
+new project module that shadows a stdlib name is seen.
 
 **Parsed-file cache.** `pyeye.file_artifact_cache` keeps parsed ASTs and Jedi
 scripts process-wide, in one LRU of `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` entries
@@ -20,7 +24,11 @@ scripts process-wide, in one LRU of `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` entries
 `PYEYE_SCRIPT_CACHE_MAX_ENTRIES`. Entries are re-checked by file mtime and size
 on every read. Each cached Jedi script keeps alive every module it inferred, so
 the script cap, not the parso cap, is what bounds the memory of Jedi's parse
-trees.
+trees. Its stats count evictions by cause (#401): `cap_evictions` are entries
+dropped to stay under the caps, so a steadily rising count means the caps are
+too small for the working set, while `stale_evictions` are entries dropped
+because their file changed, which is normal on a repo being edited.
+`evictions` is their total. `get_performance_metrics` reports all three.
 
 **parso's parse cache.** Bounded by an LRU of `PYEYE_PARSO_CACHE_MAX_ENTRIES`
 entries (`pyeye._parso_cache`, #713). Evicting an entry is harmless (see

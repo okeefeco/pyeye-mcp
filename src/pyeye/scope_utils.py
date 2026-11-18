@@ -673,7 +673,34 @@ class ScopedCache:
         metrics.record_cache_hit()
         return value
 
-    def set(self, key: str, value: Any, scope: Scope, *, epoch: int | None = None) -> bool:
+    def get_recent(self, key: str, scope: Scope) -> Any | None:
+        """:meth:`get`, and mark a hit most recently used, for a scope set with ``max_entries``.
+
+        The move happens under the write lock, and only if the entry is still the
+        one just read, so it can't resurrect a value ``invalidate_all`` dropped.
+        """
+        value = self.get(key, scope)
+        if value is None:
+            return None
+        scope_key = self._normalize_scope(scope)
+        with self._write_lock:
+            entries = self.caches.get(scope_key)
+            stamps = self.timestamps.get(scope_key)
+            if entries is not None and entries.get(key, _MISSING) is value:
+                entries[key] = entries.pop(key)
+                if stamps is not None and key in stamps:
+                    stamps[key] = stamps.pop(key)
+        return value
+
+    def set(
+        self,
+        key: str,
+        value: Any,
+        scope: Scope,
+        *,
+        epoch: int | None = None,
+        max_entries: int | None = None,
+    ) -> bool:
         """Set cache value for a specific scope.
 
         Args:
@@ -683,6 +710,9 @@ class ScopedCache:
             epoch: The :meth:`epoch` taken before *value* was computed. If the
                 cache was invalidated since, *value* may predate the change, so
                 it is not stored (#817, the #617 pattern). ``None`` always stores.
+            max_entries: Bound *scope* to this many entries, evicting the least
+                recently used (read through :meth:`get_recent`) first (#925).
+                ``None`` leaves the scope unbounded.
 
         Returns:
             Whether *value* was stored.
@@ -694,8 +724,18 @@ class ScopedCache:
                 return False
             # setdefault, not check-then-index: get() is lock-free and may run
             # while invalidate_all swaps the dicts (#617).
-            self.timestamps.setdefault(scope_key, {})[key] = time.time()
-            self.caches.setdefault(scope_key, {})[key] = value
+            stamps = self.timestamps.setdefault(scope_key, {})
+            entries = self.caches.setdefault(scope_key, {})
+            # pop first, so a re-set key moves to the most recent end.
+            stamps.pop(key, None)
+            entries.pop(key, None)
+            stamps[key] = time.time()
+            entries[key] = value
+            if max_entries is not None:
+                while len(entries) > max_entries:
+                    oldest = next(iter(entries))
+                    del entries[oldest]
+                    stamps.pop(oldest, None)
         return True
 
     def invalidate_all(self) -> None:

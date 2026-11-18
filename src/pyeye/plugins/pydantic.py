@@ -542,8 +542,9 @@ class PydanticPlugin(AnalyzerPlugin):
         ``defined_in`` handle of the class that declares it. Both come from the
         statically resolved bases, project or installed (#870). Each is OMITTED
         when it can't be computed: a base that doesn't resolve to a class, or no
-        consistent order; ``fields_inherited`` also when an ancestor has an
-        un-annotated public class attribute, which pydantic v1 would make a field.
+        consistent order; ``fields_inherited`` also when an ancestor's class body
+        can't be read, or its fields can't be known under the model's own pydantic
+        API (v1 or v2, #913).
 
         Args:
             model_name: The model to trace: the model's class name, or its canonical handle (a dotted name,
