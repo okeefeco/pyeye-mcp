@@ -130,11 +130,10 @@ class EdgeResult:
             files that import the target but have no module name, so no handle
             (``my-script.py``, ``tools-dir/x.py``).  Listed, never dropped.
             ``None`` for every other edge.
-        unparseable_files: For the reverse scans ``subclasses`` and
-            ``imported_by`` (#729), the POSIX paths of files in scope the
-            server's interpreter couldn't parse, so an adjacent defined there is
-            unknown, not absent.  ``[]`` when every file parsed; ``None`` for
-            every other edge.
+        unparseable_files: For the edges in :data:`UNPARSEABLE_FILE_EDGES`
+            (#729), the POSIX paths of files in scope the server's interpreter
+            couldn't parse, so an adjacent defined there is unknown, not absent.
+            ``[]`` when every file parsed; ``None`` for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
@@ -361,6 +360,13 @@ EDGE_CEILINGS: dict[str, str] = {
 
 #: Edges with no ceiling: exact over their domain.
 EXACT_EDGES: frozenset[str] = frozenset({"enclosing_scope"})
+
+#: The edges whose scan reads files it may fail to parse, so their result lists
+#: those files in ``unparseable_files`` (#729): ``[]`` when every file parsed,
+#: and the key is absent on every other edge.  The one statement of the set
+#: (#874): ``trace`` gates its per-node map on it, and the docs and tool
+#: descriptions bind it as the ``edges.unparseable`` fact.
+UNPARSEABLE_FILE_EDGES: frozenset[str] = frozenset({"subclasses", "imported_by", "re_exports"})
 
 #: What each ceiling id means: the one definition the docs and the skill use.
 CEILING_MEANINGS: dict[str, str] = {
