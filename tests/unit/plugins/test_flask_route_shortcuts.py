@@ -131,10 +131,11 @@ async def test_module_attribute_and_annotated_owners_are_recognised(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_a_blueprint_imported_from_another_module_is_not_recognised(tmp_path: Path) -> None:
-    """Honest limit (#905, tracked in #910): the receiver must be bound in the same file.
+async def test_a_blueprint_imported_from_another_module_is_recognised(tmp_path: Path) -> None:
+    """Once #905's limit, closed by #910: the import is placed through the resolver.
 
-    ``.route`` has no such rule, so ``@bp.route`` on an imported ``bp`` is still found.
+    The import cases (relative, re-exported, module attribute, the precision
+    negatives) are in ``test_flask_imported_owners.py``.
     """
     (tmp_path / "blueprints.py").write_text(
         "from flask import Blueprint\nbp = Blueprint('bp', __name__)\n", encoding="utf-8"
@@ -144,4 +145,4 @@ async def test_a_blueprint_imported_from_another_module_is_not_recognised(tmp_pa
         "from blueprints import bp\n\n@bp.get('/x')\ndef x():\n    pass\n\n"
         "@bp.route('/y')\ndef y():\n    pass\n",
     )
-    assert [r["name"] for r in routes] == ["y"]
+    assert sorted(r["name"] for r in routes) == ["x", "y"]

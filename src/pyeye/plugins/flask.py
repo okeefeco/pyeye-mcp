@@ -8,6 +8,8 @@ from typing import Any
 
 from ..async_utils import filtered_rglob, pruned_rglob
 from ..path_utils import path_to_key, relative_within
+from ..project_layout import module_name_for_file
+from ..resolver import Resolved, resolve_item
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,59 @@ def _flask_route_owners(tree: ast.AST) -> set[str]:
         if found is not None:
             owners.add(found[0])
     return owners
+
+
+def _import_bindings(tree: ast.AST) -> dict[str, tuple[int, str, str | None]]:
+    """Names this file binds by import: ``local -> (level, module, imported name)``.
+
+    ``import a.b`` binds ``a`` to ``(0, "a", None)``; ``import a.b as c`` binds
+    ``c`` to ``(0, "a.b", None)``; ``from .m import x as y`` binds ``y`` to
+    ``(1, "m", "x")``. A star import binds nothing nameable.
+    """
+    bindings: dict[str, tuple[int, str, str | None]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    bindings[alias.asname] = (0, alias.name, None)
+                else:
+                    top = alias.name.split(".")[0]
+                    bindings[top] = (0, top, None)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    bindings[alias.asname or alias.name] = (
+                        node.level,
+                        node.module or "",
+                        alias.name,
+                    )
+    return bindings
+
+
+def _receiver_chain(receiver: ast.expr) -> list[str] | None:
+    """``["blueprints", "bp"]`` for ``blueprints.bp``; ``None`` unless names all the way down."""
+    parts: list[str] = []
+    while isinstance(receiver, ast.Attribute):
+        parts.append(receiver.attr)
+        receiver = receiver.value
+    if not isinstance(receiver, ast.Name):
+        return None
+    parts.append(receiver.id)
+    return parts[::-1]
+
+
+def _absolute_module(level: int, module: str, importer: str | None, is_package: bool) -> str | None:
+    """The absolute module a ``from`` import of *level* names, or ``None`` if it can't be named."""
+    if level == 0:
+        return module
+    if importer is None:
+        return None
+    package = importer.split(".") if is_package else importer.split(".")[:-1]
+    drop = level - 1  # each extra dot climbs one package
+    if drop >= len(package):
+        return None
+    base = package[: len(package) - drop]
+    return ".".join([*base, module] if module else base)
 
 
 def _template_name(template_file: Path, template_dir: Path) -> str:
@@ -159,6 +214,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 scopes it lists.
         """
         routes = []
+        placed: dict[str, bool] = {}  # imported receiver path -> is a Flask owner (#910)
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
@@ -167,6 +223,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     owners = _flask_route_owners(tree)
+                    bindings: dict[str, tuple[int, str, str | None]] | None = None
                     for node in ast.walk(tree):
                         if isinstance(node, _FUNCTION_DEFS):
                             # Check for route decorators
@@ -197,19 +254,30 @@ class FlaskPlugin(AnalyzerPlugin):
 
                                 # @app.get("/p"), .post, .put, .delete, .patch (#905):
                                 # route() with one fixed method. Only on a receiver
-                                # this file binds to Flask(...) or Blueprint(...),
-                                # so FastAPI's @router.get or @cache.get("k") is not
-                                # a route; and the path must be a string literal.
+                                # bound to Flask(...) or Blueprint(...), in this file
+                                # or, through an import, in the module it names
+                                # (#910). So FastAPI's @router.get or @cache.get("k")
+                                # is not a route; and the path must be a string.
                                 elif (
                                     isinstance(decorator, ast.Call)
                                     and isinstance(decorator.func, ast.Attribute)
                                     and decorator.func.attr in _ROUTE_SHORTCUTS
-                                    and isinstance(decorator.func.value, ast.Name)
-                                    and decorator.func.value.id in owners
                                     and decorator.args
+                                    and _str_value(decorator.args[0]) is not None
                                 ):
-                                    route_path = _str_value(decorator.args[0])
-                                    methods = [decorator.func.attr.upper()]
+                                    receiver = decorator.func.value
+                                    is_owner = isinstance(receiver, ast.Name) and (
+                                        receiver.id in owners
+                                    )
+                                    if not is_owner:
+                                        if bindings is None:
+                                            bindings = _import_bindings(tree)
+                                        is_owner = await self._imported_route_owner(
+                                            receiver, bindings, py_file, placed
+                                        )
+                                    if is_owner:
+                                        route_path = _str_value(decorator.args[0])
+                                        methods = [decorator.func.attr.upper()]
 
                                 if route_path:
                                     routes.append(
@@ -224,6 +292,62 @@ class FlaskPlugin(AnalyzerPlugin):
                                     )
 
         return routes
+
+    async def _imported_route_owner(
+        self,
+        receiver: ast.expr,
+        bindings: dict[str, tuple[int, str, str | None]],
+        py_file: Path,
+        placed: dict[str, bool],
+    ) -> bool:
+        """Is *receiver* an imported name for a ``Flask(...)`` or ``Blueprint(...)`` binding? (#910).
+
+        ``bp`` from ``from .blueprints import bp`` or ``blueprints.bp`` from
+        ``from . import blueprints`` names a dotted path, which the canonical
+        resolver places (following re-exports). The definition it lands on must
+        itself bind a ``Flask``/``Blueprint`` call, checked on that file's AST, so
+        an imported FastAPI router or cache stays out. Results are memoised in
+        *placed* for the call. A receiver that isn't imported (a function
+        parameter, say) is never placed.
+        """
+        chain = _receiver_chain(receiver)
+        if chain is None or chain[0] not in bindings:
+            return False
+        level, module, name = bindings[chain[0]]
+        if level:
+            analyzer = self._analyzer()
+            importer = module_name_for_file(analyzer, py_file)
+            module_abs = _absolute_module(level, module, importer, py_file.name == "__init__.py")
+        else:
+            module_abs = module
+        if not module_abs:
+            return False
+        head = f"{module_abs}.{name}" if name else module_abs
+        path = ".".join([head, *chain[1:]])
+        if path not in placed:
+            placed[path] = await self._binds_route_owner(path)
+        return placed[path]
+
+    async def _binds_route_owner(self, path: str) -> bool:
+        """Does the definition *path* resolves to bind a ``Flask``/``Blueprint`` call?"""
+        found = resolve_item(path, self._analyzer())
+        if not isinstance(found, Resolved):
+            return False
+        module_path = getattr(found.anchor, "module_path", None)
+        line = getattr(found.anchor, "line", None)
+        if module_path is None or not isinstance(line, int):
+            return False
+        target_file = Path(module_path)
+        content = await self._read_source(target_file)
+        tree = self._parse_source(target_file, content) if content is not None else None
+        if tree is None:
+            return False
+        name = found.handle.rsplit(".", 1)[-1]
+        for node in ast.walk(tree):
+            match = _constructor_assignment(node, _FLASK_ROUTE_OWNERS)
+            if match is not None and match[0] == name and match[2] == line:
+                return True
+        return False
 
     async def find_blueprints(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Flask blueprints in the project.

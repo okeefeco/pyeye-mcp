@@ -5,10 +5,13 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..path_utils import normalize_path, relative_within
 from ..scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
+
+if TYPE_CHECKING:
+    from ..analyzers.jedi_analyzer import JediAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,12 @@ class AnalyzerPlugin(ABC):
         except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
             return None
+
+    def _analyzer(self) -> "JediAnalyzer":
+        """The project's shared analyzer (the server's instance; no ``pyeye.mcp`` import)."""
+        from ..project_manager import get_project_manager
+
+        return get_project_manager().get_analyzer(self.project_path.as_posix())
 
     async def _read_source(self, path: Path) -> str | None:
         """Read a project file, or warn and return ``None`` if it cannot be read as text."""

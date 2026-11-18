@@ -133,12 +133,6 @@ class PydanticPlugin(AnalyzerPlugin):
             if content is not None and ("BaseModel" in content or "pydantic" in content.lower()):
                 self._parse_source(py_file, content)
 
-    def _analyzer(self) -> "JediAnalyzer":
-        """The project's shared analyzer (the server's instance; no ``pyeye.mcp`` import)."""
-        from ..project_manager import get_project_manager
-
-        return get_project_manager().get_analyzer(self.project_path.as_posix())
-
     @staticmethod
     def _resolve_roots(analyzer: "JediAnalyzer") -> tuple[list[str], frozenset[str]]:
         """The roots' definition-site handles, and the root names that don't resolve."""
