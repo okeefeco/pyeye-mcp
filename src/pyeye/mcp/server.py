@@ -407,6 +407,9 @@ def _plugin_tool(
         if target.rejected_paths is not None:
             wrapped["rejected_paths"] = target.rejected_paths
         wrapped["results"] = result
+        # A plugin's own keys follow (#921: find_pydantic_models' unplaced_classes).
+        extras = await target.envelope_extras(tool_name, dict(bound.arguments))
+        wrapped.update(respell_paths(extras, [absolute_path(project_path or target.project_path)]))
         return wrapped
 
     # Keep the tool's own return type, so the SDK builds the same structured

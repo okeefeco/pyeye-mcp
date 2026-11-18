@@ -282,6 +282,18 @@ class AnalyzerPlugin(ABC):
             for name, paths in self.scope_layout().configured_scopes().items()
         }
 
+    async def envelope_extras(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Extra keys this plugin adds to *tool_name*'s envelope (``envelope=true``).
+
+        The server merges them into ``{scope, searched, unsearched_scopes,
+        results}`` without knowing which tool asked, so a tool-specific
+        disclosure (``find_pydantic_models``' ``unplaced_classes``, #921) stays
+        in its plugin. *arguments* are the call's bound arguments, ``scope``
+        already resolved. Default: none.
+        """
+        _ = tool_name, arguments
+        return {}
+
     def describe_scope(self, scope: Scope) -> tuple[list[str], list[str]]:
         """Report what a search over ``scope`` covers, for the plugin-tool envelope (#594).
 

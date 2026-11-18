@@ -383,6 +383,10 @@ answer wrapped with the scopes it covered:
   always unsearched. Tell the user which configured path was skipped and why; don't
   retry it. If the key is **missing**, the check couldn't run (a config file failed
   to load): don't report "no paths were refused".
+- **`unplaced_classes`** (`find_pydantic_models` only) lists classes whose base is an
+  expression (`make_base()`), which can't be placed, so any of them may be a model the
+  results don't show. If it is non-empty, say so, or read those classes. Its own cap
+  (`max_unplaced`) can add `truncated` / `total` beside it; `results` is never capped.
 
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.

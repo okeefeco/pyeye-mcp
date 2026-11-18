@@ -232,6 +232,10 @@
     {
       "fact_id": "precommit.hook.trailing-whitespace",
       "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "tool.find_pydantic_models.param.max_unplaced",
+      "first_seen": "unreleased"
     }
   ]
 }
