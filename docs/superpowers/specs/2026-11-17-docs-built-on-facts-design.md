@@ -269,6 +269,19 @@ Ordered so that nothing generation will produce gets hand-fixed:
     - **The honest-claims gate:**
       - A `history` page is published only once it has no honest-claims seeds. Today that means only CHANGELOG; the migration guide, `api-redesign.md` and the measurement records appear once #830 clears them.
       - Live pages publish now even with seeds. The maintainer chose this because the stale site is far worse, and #830 cleans them in place.
+- **C17. Rulings from the first real `/docs-review` runs (maintainer, 2026-11-18).**
+  - **Repo config is a code fact too.** C15 reaches machine-readable project config the docs restate: `.pre-commit-config.yaml` hook IDs and CI's `uv` flags become extracted facts, like the existing `ci.*` facts. The candidates include `config.ignored_keys` (all of `IGNORED_TOP_LEVEL_KEYS`), the config file names and the config keys. How-to instructions with no config source (e.g. "use `uv sync --frozen` locally") stay prose.
+  - **Link, don't repeat.** Prose that repeats another registered page is replaced with a link. A new style rule, `duplicated-prose`, flags it.
+  - **Wider run examples.** Runnable `pyeye-example` blocks are allowed on every registered prose page with audience human or both, so guides, the README and CONTRIBUTING can show a response shape without restating it. They're still excluded from `history` pages and `.claude/`.
+  - **Page-level findings.** A finding may target the whole page (section `*`) for a genuinely page-wide defect. `validate` rejects `*` on clear-fix categories.
+  - **Error and log strings get a `literal` anchor.** It is checked against string literals parsed from `src/` (including f-string constant parts), not a text grep. A literal that disappears is an orphan (C14). Labels stay as rule anchors with the label as the quoted subject, until `.github` holds a labels file to extract.
+  - **The `code_bug` route,** for when the doc is right and the code is wrong:
+    - The human files or approves an issue, and the finding carries `blocked_by: #N` and is dismissed as deliberate.
+    - The next networked `/docs-review` run lifts the dismissal once the issue is closed.
+  - **Contradictory directives.** An audience rule, `contradictory-directive`, always `needs_decision`. Its options are the directives, and after the choice the recommended fix keeps the directive in one place and links to it from the other.
+  - **One finding per fact** when a sentence restates several facts.
+  - **The scenario skill.** `pyeye-scenarios`' timing and baseline numbers are deleted from its prose, which points to the scenario baseline files instead, binding to them only where a number is genuinely needed.
+  - **Builder calls already accepted:** `D12-measurement`; `page_hash` in packets; finding identity equal to dismissal identity (subject included for rule anchors), with duplicate keys in a batch rejected.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
