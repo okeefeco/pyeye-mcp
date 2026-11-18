@@ -3,6 +3,7 @@
 import ast
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,156 @@ def _receiver_chain(receiver: ast.expr) -> list[str] | None:
     return parts[::-1]
 
 
+def _flask_bindings(tree: ast.AST) -> dict[str, str | None]:
+    """The names a module binds from Flask imports (#951).
+
+    Maps each local name to the Flask name it was imported as, or to ``None``
+    for a module (whose attributes are Flask names): ``from flask import
+    render_template as rt`` binds ``rt -> "render_template"``, ``import flask``
+    binds ``flask -> None``, ``import flask.views as fv`` binds ``fv -> None``,
+    and ``from flask import views`` binds ``views -> "views"`` (an attribute of
+    it is still a Flask name). Relative imports are never Flask.
+    """
+    bound: dict[str, str | None] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "flask" or alias.name.startswith("flask."):
+                    bound[alias.asname or alias.name.split(".", 1)[0]] = None
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            module = node.module or ""
+            if module == "flask" or module.startswith("flask."):
+                for alias in node.names:
+                    if alias.name != "*":
+                        bound[alias.asname or alias.name] = alias.name
+    return bound
+
+
+def _names_flask(expr: ast.expr, name: str, bound: dict[str, str | None]) -> bool:
+    """Whether *expr* refers to Flask's *name*, by the module's own imports (#951).
+
+    A bare name imported from Flask as *name* (through an alias too), or an
+    attribute chain ending in *name* whose root was imported from Flask
+    (``flask.render_template``, ``fv.MethodView``). A local definition that
+    merely shares the name doesn't count.
+    """
+    if isinstance(expr, ast.Name):
+        return bound.get(expr.id, "") == name
+    chain = _receiver_chain(expr) if isinstance(expr, ast.Attribute) else None
+    return chain is not None and chain[-1] == name and chain[0] in bound
+
+
+def _template_argument(call: ast.Call) -> str | None:
+    """The template a ``render_template`` call names: first positional, or the keyword."""
+    if call.args:
+        return _str_value(call.args[0])
+    keyword = next((k for k in call.keywords if k.arg == "template_name_or_list"), None)
+    return _str_value(keyword.value) if keyword is not None else None
+
+
+#: A prefix option that isn't a string literal (#952): its value can't be known.
+_DYNAMIC = "<dynamic>"
+
+
+@dataclass(frozen=True)
+class _Owner:
+    """A ``Flask(...)`` app or a ``Blueprint(...)``: its constructor prefix (#952)."""
+
+    is_app: bool
+    prefix: str | None  # the literal, None when absent, or _DYNAMIC
+    subdomain: bool
+
+
+def _prefix_option(call: ast.Call) -> tuple[str | None, bool]:
+    """The ``url_prefix`` a constructor or ``register_blueprint`` call gives, and any subdomain.
+
+    A string literal, ``None`` when absent or a literal ``None``, else
+    :data:`_DYNAMIC`; a ``**`` splat may set either, so it is dynamic too.
+    """
+    prefix: str | None = None
+    subdomain = False
+    for keyword in call.keywords:
+        if keyword.arg is None:
+            return _DYNAMIC, True
+        if keyword.arg == "url_prefix":
+            value = keyword.value
+            if isinstance(value, ast.Constant) and value.value is None:
+                prefix = None
+            else:
+                literal = _str_value(value)
+                prefix = literal if literal is not None else _DYNAMIC
+        elif keyword.arg == "subdomain":
+            subdomain = True
+    return prefix, subdomain
+
+
+def _join(prefix: str | None, rule: str) -> str:
+    """Flask's join of a prefix and a rule (``BlueprintSetupState.add_url_rule``)."""
+    if prefix is None:
+        return rule
+    return "/".join((prefix.rstrip("/"), rule.lstrip("/"))) if rule else prefix
+
+
+class _UrlRegistry:
+    """Each blueprint's registrations, and the served prefixes they give (#952).
+
+    Composition follows Flask: a registration's ``url_prefix`` overrides the
+    blueprint's own; a nested blueprint joins its parent's prefix. A prefix is
+    known only when EVERY registration of the blueprint and of each parent is a
+    string literal (or absent) on a placed app or blueprint, with no subdomain
+    and no cycle; otherwise it is ``None`` (omitted, never partial). A
+    registration whose blueprint can't be placed makes every answer unknown,
+    since it might be any of them.
+    """
+
+    def __init__(self, owners: dict[str, _Owner]) -> None:
+        self.owners = owners
+        self._registrations: dict[str, list[tuple[str | None, str | None, bool]]] = {}
+        self._unplaced_registration = False
+
+    def register(
+        self, child: str | None, parent: str | None, prefix: str | None, subdomain: bool
+    ) -> None:
+        if child is None:
+            self._unplaced_registration = True
+            return
+        self._registrations.setdefault(child, []).append((parent, prefix, subdomain))
+
+    def prefixes(self, key: str, seen: frozenset[str] = frozenset()) -> list[str | None] | None:
+        """The effective prefixes of *key*, or ``None`` if unknown; a ``None`` entry means no prefix."""
+        owner = self.owners.get(key)
+        if owner is None or self._unplaced_registration or key in seen:
+            return None
+        if owner.is_app:
+            return [None]
+        if owner.subdomain or owner.prefix == _DYNAMIC:
+            return None
+        registrations = self._registrations.get(key)
+        if not registrations:
+            return None  # never registered in scope: maybe elsewhere, maybe not served
+        found: list[str | None] = []
+        for parent, prefix, subdomain in registrations:
+            if parent is None or subdomain or prefix == _DYNAMIC:
+                return None
+            own = prefix if prefix is not None else owner.prefix
+            parents = self.prefixes(parent, seen | {key})
+            if parents is None:
+                return None
+            for outer in parents:
+                if outer is not None and own is not None:
+                    found.append(outer.rstrip("/") + "/" + own.lstrip("/"))
+                else:
+                    found.append(own if own is not None else outer)
+        return found
+
+    def urls(self, owner: str | None, rule: str) -> list[str] | None:
+        """The served URLs of a route with *rule* on *owner*, sorted, or ``None`` if unknown."""
+        prefixes = self.prefixes(owner) if owner is not None else None
+        if prefixes is None:
+            return None
+        return sorted({_join(prefix, rule) for prefix in prefixes})
+
+
 def _absolute_module(level: int, module: str, importer: str | None, is_package: bool) -> str | None:
     """The absolute module a ``from`` import of *level* names, or ``None`` if it can't be named."""
     if level == 0:
@@ -215,6 +366,8 @@ class FlaskPlugin(AnalyzerPlugin):
         """
         routes = []
         placed: dict[str, bool] = {}  # imported receiver path -> is a Flask owner (#910)
+        registry = await self._url_registry(scope)  # served URLs (#952)
+        analyzer = self._analyzer()
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
@@ -223,6 +376,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     owners = _flask_route_owners(tree)
+                    module = module_name_for_file(analyzer, py_file)
                     bindings: dict[str, tuple[int, str, str | None]] | None = None
                     for node in ast.walk(tree):
                         if isinstance(node, _FUNCTION_DEFS):
@@ -279,17 +433,36 @@ class FlaskPlugin(AnalyzerPlugin):
                                         route_path = _str_value(decorator.args[0])
                                         methods = [decorator.func.attr.upper()]
 
-                                if route_path:
-                                    routes.append(
-                                        {
-                                            "name": node.name,
-                                            "file": py_file.as_posix(),
-                                            "line": node.lineno,
-                                            "path": route_path,
-                                            "methods": methods,
-                                            "type": "route",
-                                        }
+                                # "" is a valid rule on a blueprint: the prefix itself.
+                                if route_path is not None:
+                                    route: dict[str, Any] = {
+                                        "name": node.name,
+                                        "file": py_file.as_posix(),
+                                        "line": node.lineno,
+                                        "path": route_path,
+                                        "methods": methods,
+                                        "type": "route",
+                                    }
+                                    if bindings is None:
+                                        bindings = _import_bindings(tree)
+                                    assert isinstance(decorator, ast.Call)  # noqa: S101
+                                    assert isinstance(decorator.func, ast.Attribute)  # noqa: S101
+                                    owner = (
+                                        self._owner_key(
+                                            decorator.func.value,
+                                            module,
+                                            owners,
+                                            bindings,
+                                            py_file,
+                                            registry.owners,
+                                        )
+                                        if module is not None
+                                        else None
                                     )
+                                    urls = registry.urls(owner, route_path)
+                                    if urls is not None:
+                                        route["urls"] = urls
+                                    routes.append(route)
 
         return routes
 
@@ -310,23 +483,113 @@ class FlaskPlugin(AnalyzerPlugin):
         *placed* for the call. A receiver that isn't imported (a function
         parameter, say) is never placed.
         """
-        chain = _receiver_chain(receiver)
-        if chain is None or chain[0] not in bindings:
+        path = self._imported_path(receiver, bindings, py_file)
+        if path is None:
             return False
+        if path not in placed:
+            placed[path] = await self._binds_route_owner(path)
+        return placed[path]
+
+    def _imported_path(
+        self, expr: ast.expr, bindings: dict[str, tuple[int, str, str | None]], py_file: Path
+    ) -> str | None:
+        """The dotted path an imported name (or an attribute of one) names, or ``None``."""
+        chain = _receiver_chain(expr)
+        if chain is None or chain[0] not in bindings:
+            return None
         level, module, name = bindings[chain[0]]
         if level:
-            analyzer = self._analyzer()
-            importer = module_name_for_file(analyzer, py_file)
+            importer = module_name_for_file(self._analyzer(), py_file)
             module_abs = _absolute_module(level, module, importer, py_file.name == "__init__.py")
         else:
             module_abs = module
         if not module_abs:
-            return False
+            return None
         head = f"{module_abs}.{name}" if name else module_abs
-        path = ".".join([head, *chain[1:]])
-        if path not in placed:
-            placed[path] = await self._binds_route_owner(path)
-        return placed[path]
+        return ".".join([head, *chain[1:]])
+
+    async def _url_registry(self, scope: Scope) -> "_UrlRegistry":
+        """Every Flask app and blueprint in *scope*, and each blueprint's registrations (#952)."""
+        analyzer = self._analyzer()
+        self._owner_paths: dict[str, str | None] = {}  # re-export -> handle, per call
+        owners: dict[str, _Owner] = {}
+        sites: list[tuple[Path, ast.AST, str, set[str]]] = []
+        for py_file in await self.get_project_files("*.py", scope):
+            content = await self._read_source(py_file)
+            if content is None or ("Flask" not in content and "Blueprint" not in content):
+                continue
+            tree = self._parse_source(py_file, content)
+            module = module_name_for_file(analyzer, py_file) if tree is not None else None
+            if tree is None or module is None:
+                continue
+            names: set[str] = set()
+            for node in ast.walk(tree):
+                found = _constructor_assignment(node, _FLASK_ROUTE_OWNERS)
+                if found is None:
+                    continue
+                target, call, _line = found
+                func = call.func
+                kind = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+                prefix, subdomain = _prefix_option(call)
+                owners[f"{module}.{target}"] = _Owner(kind == "Flask", prefix, subdomain)
+                names.add(target)
+            sites.append((py_file, tree, module, names))
+        registry = _UrlRegistry(owners)
+        for site_file, site_tree, site_module, site_names in sites:
+            bindings: dict[str, tuple[int, str, str | None]] | None = None
+            for node in ast.walk(site_tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "register_blueprint"
+                ):
+                    continue
+                if bindings is None:
+                    bindings = _import_bindings(site_tree)
+                blueprint_expr = (
+                    node.args[0]
+                    if node.args
+                    else next((k.value for k in node.keywords if k.arg == "blueprint"), None)
+                )
+                child = (
+                    self._owner_key(
+                        blueprint_expr, site_module, site_names, bindings, site_file, owners
+                    )
+                    if blueprint_expr is not None
+                    else None
+                )
+                parent = self._owner_key(
+                    node.func.value, site_module, site_names, bindings, site_file, owners
+                )
+                prefix, subdomain = _prefix_option(node)
+                registry.register(child, parent, prefix, subdomain)
+        return registry
+
+    def _owner_key(
+        self,
+        expr: ast.expr,
+        module: str,
+        names: set[str],
+        bindings: dict[str, tuple[int, str, str | None]],
+        py_file: Path,
+        owners: dict[str, "_Owner"],
+    ) -> str | None:
+        """The definition-site key of the app or blueprint *expr* names, or ``None``."""
+        if isinstance(expr, ast.Name) and expr.id in names:
+            key = f"{module}.{expr.id}"
+            return key if key in owners else None
+        path = self._imported_path(expr, bindings, py_file)
+        if path is None:
+            return None
+        if path in owners:
+            return path  # names its definition site directly: no resolver needed
+        # A re-export: place it once per path per call, through the resolver.
+        memo = self._owner_paths
+        if path not in memo:
+            found = resolve_item(path, self._analyzer())
+            memo[path] = found.handle if isinstance(found, Resolved) else None
+        handle = memo[path]
+        return handle if handle in owners else None
 
     async def _binds_route_owner(self, path: str) -> bool:
         """Does the definition *path* resolves to bind a ``Flask``/``Blueprint`` call?"""
@@ -361,6 +624,8 @@ class FlaskPlugin(AnalyzerPlugin):
                 scopes it lists.
         """
         blueprints = []
+        registry = await self._url_registry(scope)  # effective prefixes (#952)
+        analyzer = self._analyzer()
 
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
@@ -378,16 +643,19 @@ class FlaskPlugin(AnalyzerPlugin):
                                 if keyword.arg == "url_prefix":
                                     url_prefix = _str_value(keyword.value)
 
-                            blueprints.append(
-                                {
-                                    "name": target,
-                                    "blueprint_name": bp_name,
-                                    "file": py_file.as_posix(),
-                                    "line": line,
-                                    "url_prefix": url_prefix,
-                                    "type": "blueprint",
-                                }
-                            )
+                            record: dict[str, Any] = {
+                                "name": target,
+                                "blueprint_name": bp_name,
+                                "file": py_file.as_posix(),
+                                "line": line,
+                                "url_prefix": url_prefix,
+                                "type": "blueprint",
+                            }
+                            module = module_name_for_file(analyzer, py_file)
+                            prefixes = registry.prefixes(f"{module}.{target}") if module else None
+                            if prefixes is not None:
+                                record["url_prefixes"] = sorted({p or "" for p in prefixes})
+                            blueprints.append(record)
 
         return blueprints
 
@@ -402,34 +670,54 @@ class FlaskPlugin(AnalyzerPlugin):
                 A name from the project's ``scope_aliases`` config expands to the
                 scopes it lists.
         """
-        views = []
-
-        py_files = await self.get_project_files("*.py", scope)
-        for py_file in py_files:
+        # Seeds: classes whose base is Flask's MethodView by the module's own
+        # imports (an alias or a module attribute too). Then every project class
+        # below them through the one class graph, by definition site (#951).
+        analyzer = self._analyzer()
+        found: dict[str, dict[str, Any]] = {}
+        queue: list[dict[str, Any]] = []
+        for py_file in await self.get_project_files("*.py", scope):
             content = await self._read_source(py_file)
-            if content is not None and "flask" in content.lower():
-                tree = self._parse_source(py_file, content)
-                if tree is not None:
-                    for node in ast.walk(tree):
-                        # Find MethodView classes
-                        if isinstance(node, ast.ClassDef):
-                            for base in node.bases:
-                                if (
-                                    isinstance(base, ast.Name)
-                                    and base.id == "MethodView"
-                                    or isinstance(base, ast.Attribute)
-                                    and base.attr == "MethodView"
-                                ):
-                                    views.append(
-                                        {
-                                            "name": node.name,
-                                            "file": py_file.as_posix(),
-                                            "line": node.lineno,
-                                            "type": "method_view",
-                                        }
-                                    )
+            if content is None or "flask" not in content:
+                continue
+            tree = self._parse_source(py_file, content)
+            module = module_name_for_file(analyzer, py_file) if tree is not None else None
+            if tree is None or module is None:
+                continue
+            bound = _flask_bindings(tree)
+            if not bound:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and any(
+                    _names_flask(base, "MethodView", bound) for base in node.bases
+                ):
+                    queue.append(
+                        {
+                            "name": node.name,
+                            "full_name": f"{module}.{node.name}",
+                            "file": py_file.as_posix(),
+                            "line": node.lineno,
+                        }
+                    )
+        while queue:
+            view = queue.pop(0)
+            if view["full_name"] in found:
+                continue
+            found[view["full_name"]] = view
+            result = await analyzer.find_subclasses(view["full_name"], scope=scope)
+            queue.extend(s for s in result.get("subclasses", []) if s.get("full_name"))
 
-        return views
+        return [
+            {
+                "name": view["name"],
+                "file": Path(view["file"]).as_posix(),
+                "line": view["line"],
+                "type": "method_view",
+            }
+            for view in sorted(
+                found.values(), key=lambda v: (Path(v["file"]).as_posix(), v["line"])
+            )
+        ]
 
     async def find_templates(self, scope: Scope = "main") -> list[dict[str, Any]]:
         """Find all Flask templates and render_template calls.
@@ -444,6 +732,7 @@ class FlaskPlugin(AnalyzerPlugin):
         """
         templates = []
         render_calls = []
+        seen_templates: set[str] = set()  # app/templates matches two patterns (#951)
 
         # Find template files
         template_dirs = ["templates", "*/templates", "app/templates"]
@@ -454,6 +743,9 @@ class FlaskPlugin(AnalyzerPlugin):
                 for template_dir in root.glob(pattern):
                     if template_dir.is_dir():
                         for template_file in pruned_rglob("*.html", template_dir):
+                            if path_to_key(template_file) in seen_templates:
+                                continue
+                            seen_templates.add(path_to_key(template_file))
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),
@@ -462,6 +754,9 @@ class FlaskPlugin(AnalyzerPlugin):
                                 }
                             )
                         for template_file in pruned_rglob("*.jinja2", template_dir):
+                            if path_to_key(template_file) in seen_templates:
+                                continue
+                            seen_templates.add(path_to_key(template_file))
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),
@@ -476,16 +771,15 @@ class FlaskPlugin(AnalyzerPlugin):
             content = await self._read_source(py_file)
             if content is not None and "render_template" in content:
                 tree = self._parse_source(py_file, content)
-                if tree is not None:
+                bound = _flask_bindings(tree) if tree is not None else {}
+                if tree is not None and bound:
                     for node in ast.walk(tree):
+                        # Flask's render_template by this module's imports: bare,
+                        # aliased or module-qualified; positional or keyword (#951).
                         if (
                             isinstance(node, ast.Call)
-                            and (
-                                isinstance(node.func, ast.Name)
-                                and node.func.id == "render_template"
-                            )
-                            and node.args
-                            and (template_name := _str_value(node.args[0])) is not None
+                            and _names_flask(node.func, "render_template", bound)
+                            and (template_name := _template_argument(node)) is not None
                         ):
                             render_calls.append(
                                 {
@@ -604,10 +898,17 @@ class FlaskPlugin(AnalyzerPlugin):
                 if tree is not None:
                     for node in ast.walk(tree):
                         # Look for config access patterns
-                        if isinstance(node, ast.Attribute):
-                            if isinstance(node.value, ast.Name) and (
-                                node.value.id in ["app", "current_app"] and node.attr == "config"
-                            ):
+                        # ``app.config`` / ``current_app.config``, also reached
+                        # through an attribute (``self.app.config``,
+                        # ``flask.current_app.config``, #951).
+                        if isinstance(node, ast.Attribute) and node.attr == "config":
+                            receiver = node.value
+                            receiver_name = (
+                                receiver.id
+                                if isinstance(receiver, ast.Name)
+                                else getattr(receiver, "attr", None)
+                            )
+                            if receiver_name in ("app", "current_app"):
                                 configs.append(
                                     {
                                         "file": py_file.as_posix(),

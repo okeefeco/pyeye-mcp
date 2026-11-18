@@ -37,6 +37,10 @@ class AnalyzerPlugin(ABC):
         self.additional_paths: list[Path] = []
         self.namespace_paths: dict[str, list[Path]] = {}
         self.standalone_paths: list[Path] = []
+        #: Config entries the path check refused (``ProjectConfig.rejected_paths``,
+        #: #898). ``None`` until a completed check sets it: never a ``[]`` that
+        #: nothing measured.
+        self.rejected_paths: list[dict[str, str]] | None = None
 
     # Read/parse contract shared by every plugin (#622, #637): unreadable files and
     # unparseable user source are warned about and skipped; anything else, such as an
@@ -172,6 +176,15 @@ class AnalyzerPlugin(ABC):
         """
         self.standalone_paths = paths
 
+    def set_rejected_paths(self, rejected: list[dict[str, str]] | None) -> None:
+        """Set the config entries the path check refused (#898).
+
+        Args:
+            rejected: ``ProjectConfig.rejected_paths()``: ``{scope, path, reason, detail}``
+                records, or ``None`` when the check couldn't complete
+        """
+        self.rejected_paths = rejected
+
     async def get_project_files(self, pattern: str = "*.py", scope: Scope = "main") -> list[Path]:
         """Get files from project based on scope.
 
@@ -303,6 +316,10 @@ class AnalyzerPlugin(ABC):
               exist, spelled as given (#842). A relative path is relative to the
               project (:func:`~pyeye.scope_utils.package_scope_path`).
 
+            A scope with a config entry the path check refused
+            (:attr:`rejected_paths`) is never ``searched`` and always
+            ``unsearched``, whatever was asked: part of it can't be read (#898).
+
             A ``namespace:`` that isn't configured and an unknown scope search
             nothing, so they appear in neither list.
         """
@@ -327,6 +344,11 @@ class AnalyzerPlugin(ABC):
             # logging it, so [] can't read as a measured empty (#842).
             elif s.startswith("package:") and not exists and s not in unsearched:
                 unsearched.append(s)
+        for name in dict.fromkeys(r["scope"] for r in self.rejected_paths or []):
+            if name in searched:
+                searched.remove(name)
+            if name not in unsearched:
+                unsearched.append(name)
         return searched, unsearched
 
     async def _get_scope_roots(self, scope: Scope) -> list[Path]:

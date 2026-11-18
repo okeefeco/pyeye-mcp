@@ -102,23 +102,43 @@ they can't drift from it.
 
   <!-- fact:begin security.path_checks -->
   - anywhere in the path: null bytes, suspicious triple dots;
-  - naming one of these directories: `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`;
-  - a target matching one of these patterns: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
+  - a target matching one of these anchored patterns, ignoring case: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `^/boot/`, `^/run/secrets/`, `^/var/run/secrets/`, `^/private/var/run/secrets/`, `^/var/root/`, `^/private/var/root/`;
+  - a credential store directly below a user home, or anything inside it, ignoring case: `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.azure`, `.kube`, `.docker`, `.config/gh`, `.netrc`, `.pypirc`, `.pgpass`, `.git-credentials`, `.npmrc`; a user home is one of `^/home/[^/]+/`, `^/Users/[^/]+/`, `^/root/`, or the server's own home;
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 
   A directory pyeye scans (a plugin scope, or a configured package, namespace
   or standalone directory) is also refused when it is an ancestor of one of the
-  anchored directories above: `/`, and `/private` on macOS. That includes the
+  anchored directories above:
+  <!-- fact:begin security.path_checks.ancestors -->`/`, `/private`, `/private/var`, `/private/var/run`, `/run`, `/var`, `/var/run`<!-- fact:end -->. That includes the
   scan `project_path="/"` implies for scope `main`. `project_path` itself and
   single-file inputs are not affected. Every directory walk also skips a
   directory whose resolved form is one of them, so a symlink inside a scanned
   tree can't lead a walk into one.
 
-  The directories and patterns are POSIX system paths. On Windows a resolved
-  path starts with a drive letter, so the `^`-anchored patterns never match it,
-  and the system-directory rules only catch a path that spells one of these
-  names. This is a sanity check, **not a sandbox**:
+  The credential stores are different: they define no ancestors. A scan of
+  `~`, `/home` or `/Users` works and simply skips them. A project placed inside
+  one, such as a repository at `~/.config/gh/x`, is refused, as intended. A
+  user home is matched by pattern, so a home created after the server started
+  is covered too. The server's own home is read once, when the process starts,
+  and is matched both as `$HOME` spells it and as it resolves, so a symlinked
+  home (an NFS or autofs `/home/u` that points at `/data/u`) is covered under
+  either name. Homes anywhere other than directly in `/home`, `/Users` or
+  `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
+  `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
+  user; other users' homes there are not (#909).
+
+  A directory walk also skips a file or directory that is a symlink into any
+  restricted location, such as a project file `x.py` that points at
+  `~/.netrc`, so a scan never reads one through a link.
+
+  A directory merely named like one of these inside another path, such as
+  `~/dev/proj`, `/srv/etc/lib` or a project's own `etc/` package, is not
+  refused: only where the path leads counts (#939).
+
+  The patterns are POSIX system paths. On Windows a resolved path starts with a
+  drive letter, so they never match it. This is a sanity check, **not a
+  sandbox**:
   - any directory the server's user can read can be analysed if a client asks
     for it;
   - the check is the deny-list above, nothing more: any other directory the
@@ -128,7 +148,7 @@ they can't drift from it.
   MCP client.
 - **What it writes.** Every place in the server's code that writes a file or
   creates a directory:
-  <!-- fact:begin security.write_sites -->`pyeye.config:ProjectConfig.save_config`, `pyeye.config:create_example_config`, `pyeye.mcp.__main__:_configure_logging`, `pyeye.unified_metrics:UnifiedMetricsCollector.__init__`, `pyeye.unified_metrics:UnifiedMetricsCollector._append_jsonl`, `pyeye.unified_metrics:UnifiedMetricsCollector._write_json`, `pyeye.unified_metrics:UnifiedMetricsCollector.cleanup_old_sessions`, `pyeye.unified_metrics:UnifiedMetricsCollector.export_metrics`<!-- fact:end -->.
+  <!-- fact:begin security.write_sites -->`pyeye.config:ProjectConfig.save_config`, `pyeye.config:create_example_config`, `pyeye.mcp.__main__:_configure_logging`<!-- fact:end -->.
   Among them, the files the server keeps:
   - the project configuration,
     <!-- fact:begin security.writes.config -->`<project_path>/.pyeye.json`<!-- fact:end -->, when
@@ -136,10 +156,6 @@ they can't drift from it.
     The parameter and its default:
     <!-- fact:begin tool.configure_packages.param.save -->`save`: true<!-- fact:end -->;
     pass `save=false` to change only the running configuration;
-  - usage metrics, under <!-- fact:begin security.writes.metrics -->`~/.pyeye/metrics/`<!-- fact:end -->.
-    A tool call hands the metrics recorder only
-    <!-- fact:begin security.metrics_inputs -->`tool_name`, `session_id`, `success`, `duration_ms`<!-- fact:end -->, so no tool
-    arguments, paths or source reach it;
   - logs, to the file named by
     <!-- fact:begin env.PYEYE_LOG_FILE -->`PYEYE_LOG_FILE`<!-- fact:end -->, if it's set.
 

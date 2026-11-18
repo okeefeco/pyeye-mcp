@@ -6,7 +6,8 @@ result. An empty result is zero items, and nothing says which scope was searched
 
 With ``envelope=true`` every plugin tool returns::
 
-    {"scope": ..., "searched": [...], "unsearched_scopes": [...], "results": ...}
+    {"scope": ..., "searched": [...], "unsearched_scopes": [...], "rejected_paths": [...],
+     "results": ...}
 
 The default (``envelope`` omitted or false) must stay byte-for-byte what it was:
 making the envelope the default is a breaking change, deferred to #644.
@@ -87,11 +88,14 @@ def _config(main: Path, shared: Path, extra: Path | None, **more: Any) -> Projec
 
 
 def _plugins(main: Path, config: ProjectConfig) -> list[AnalyzerPlugin]:
+    from pyeye.mcp.server import _apply_plugin_paths
+
     plugins = []
     for cls in PLUGIN_CLASSES:
         plugin = cls(str(main))
-        plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
-        plugin.set_namespace_paths(config.get_namespaces())
+        # As initialize_plugins does, rejected_paths included (#898): a plugin
+        # whose check never ran omits the key rather than report [].
+        _apply_plugin_paths(plugin, config)
         plugins.append(plugin)
     return plugins
 
@@ -221,7 +225,14 @@ class TestEnvelopeShape:
         # A plugin may add its own keys after these (#921: find_pydantic_models'
         # unplaced_classes, through AnalyzerPlugin.envelope_extras).
         extras = ["unplaced_classes"] if tool == "find_pydantic_models" else []
-        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results", *extras]
+        assert list(payload) == [
+            "scope",
+            "searched",
+            "unsearched_scopes",
+            "rejected_paths",  # #898
+            "results",
+            *extras,
+        ]
         expected = await method(**EXTRA_ARGS.get(tool, {}), scope="main")
         assert _strip_627(payload["results"]) == json.loads(json.dumps(expected))
 
@@ -239,6 +250,7 @@ class TestEnvelopeShape:
             "scope": "main",
             "searched": ["main"],
             "unsearched_scopes": [],
+            "rejected_paths": [],
             "results": [],
         }
 

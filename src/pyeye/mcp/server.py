@@ -21,37 +21,10 @@ from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import CONFIG_FILE
 from ..docs_facts.describe import described, fill
-from ..metrics import metrics
-from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
-
-# Import metrics_hook only if available (for optional unified metrics support)
-try:
-    from ..metrics_hook import auto_session_for_mcp, track_mcp_operation
-
-    UNIFIED_METRICS_AVAILABLE = True
-except ImportError:
-    # Fallback if unified metrics not available
-    UNIFIED_METRICS_AVAILABLE = False
-
-    def track_mcp_operation(tool_name: str | None = None) -> Any:  # type: ignore[misc]
-        """No-op decorator when unified metrics not available."""
-        _ = tool_name  # Mark as intentionally unused
-
-        def decorator(func):  # type: ignore[no-untyped-def]
-            # Preserve the original function without modification
-            # This is critical for maintaining async compatibility
-            import functools
-
-            return functools.wraps(func)(func)
-
-        return decorator
-
-    def auto_session_for_mcp() -> str:
-        """No-op when unified metrics not available."""
-        return "default_session"
-
-
 from ..exceptions import ValidationError
+from ..metrics import metrics
+from ..metrics_hook import track_mcp_operation
+from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
 from ..plugins import handles as plugin_handles
 from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
@@ -82,17 +55,6 @@ logger = logging.getLogger(__name__)
 # so a positional instructions string would silently become the title (#538).
 # mcp 2.x reports an empty server version unless one is passed.
 mcp = MCPServer("PyEye", instructions=meta.server_instructions(), version=meta.version())
-
-# Initialize unified metrics session
-_unified_session_id = None
-
-
-def ensure_unified_session() -> None:
-    """Ensure unified metrics session is started."""
-    global _unified_session_id
-    if _unified_session_id is None:
-        _unified_session_id = auto_session_for_mcp()
-
 
 # Global plugin registry
 _plugins: list[Any] = []
@@ -261,6 +223,10 @@ def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:
     plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
     plugin.set_namespace_paths(config.get_namespaces())
     plugin.set_standalone_paths(config.get_standalone_paths())
+    # Cleared first, so a check that raises leaves "not measured", never the
+    # previous list or a [] that nothing measured (#898).
+    plugin.set_rejected_paths(None)
+    plugin.set_rejected_paths(config.rejected_paths())
 
 
 _PLUGIN_CLASSES: tuple[type[AnalyzerPlugin], ...] = (PydanticPlugin, DjangoPlugin, FlaskPlugin)
@@ -288,10 +254,14 @@ framework wasn't auto-detected there; an empty result means the scan found
 none.  A ``project_path`` that doesn't exist is an MCP tool error.
 
 ``envelope`` (default false): when true, the result is wrapped as
-``{scope, searched, unsearched_scopes, results}``, so a caller can see which
-scopes were searched (#594).  ``unsearched_scopes`` lists the configured scopes
-that were not, then any ``package:<path>`` given whose directory doesn't exist
-(#842); a relative ``package:`` path is relative to ``project_path``."""
+``{scope, searched, unsearched_scopes, rejected_paths, results}``, so a caller
+can see which scopes were searched (#594).  ``unsearched_scopes`` lists the
+configured scopes that were not, then any ``package:<path>`` given whose
+directory doesn't exist (#842); a relative ``package:`` path is relative to
+``project_path``.  ``rejected_paths`` lists each config entry the path check
+refused, as ``{scope, path, reason: "rejected_path", detail}`` (``[]`` when
+none); its scope is always in ``unsearched_scopes`` (#898).  It is absent only
+when the check couldn't complete (a config file that failed to load)."""
 
 
 class _PluginContext(NamedTuple):
@@ -364,9 +334,10 @@ def _plugin_tool(
       call without it gets ``resolver.plugin_tool_default(tool_name)``, an explicit
       ``scope`` always wins, and ``scope_aliases`` are expanded either way.
     - ``envelope: bool = False`` is appended (#594). When true, the tool returns
-      ``{scope, searched, unsearched_scopes, results}``: ``scope`` is the scope as
-      requested or defaulted (before alias expansion), ``searched`` and
-      ``unsearched_scopes`` come from ``AnalyzerPlugin.describe_scope``, and
+      ``{scope, searched, unsearched_scopes, rejected_paths, results}``: ``scope``
+      is the scope as requested or defaulted (before alias expansion), ``searched``
+      and ``unsearched_scopes`` come from ``AnalyzerPlugin.describe_scope``,
+      ``rejected_paths`` from ``AnalyzerPlugin.rejected_paths`` (#898), and
       ``results`` is exactly what the tool returns without the envelope. When
       false, the return value is passed through untouched, so the default wire
       format is unchanged (making the envelope the default is #644).
@@ -425,14 +396,21 @@ def _plugin_tool(
         if not envelope:
             return result
         searched, unsearched = target.describe_scope(bound.arguments["scope"])
-        extras = await target.envelope_extras(tool_name, dict(bound.arguments))
-        return {
+        wrapped: dict[str, Any] = {
             "scope": requested,
             "searched": searched,
             "unsearched_scopes": unsearched,
-            "results": result,
-            **respell_paths(extras, [absolute_path(project_path or target.project_path)]),
         }
+        # Present whenever the check completed: [] is a measured "none refused".
+        # Absent when it couldn't (a config that failed to load), never a []
+        # for a check that didn't finish (#898, #568).
+        if target.rejected_paths is not None:
+            wrapped["rejected_paths"] = target.rejected_paths
+        wrapped["results"] = result
+        # A plugin's own keys follow (#921: find_pydantic_models' unplaced_classes).
+        extras = await target.envelope_extras(tool_name, dict(bound.arguments))
+        wrapped.update(respell_paths(extras, [absolute_path(project_path or target.project_path)]))
+        return wrapped
 
     # Keep the tool's own return type, so the SDK builds the same structured
     # output as before when ``envelope`` is false; the union admits the envelope.
@@ -831,8 +809,14 @@ def configure_packages(
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
-        "config_file": (config.project_path / CONFIG_FILE).as_posix(),
     }
+    # Entries the path check refused, skipped above; [] when none. Absent when
+    # the check couldn't complete (a config that failed to load), never a []
+    # for a check that didn't finish (#898).
+    rejected = config.rejected_paths()
+    if rejected is not None:
+        result["rejected_paths"] = rejected
+    result["config_file"] = (config.project_path / CONFIG_FILE).as_posix()
     # #659: present whenever re-detection ran (the startup project); [] when no
     # framework newly activated.  Their tools are callable by name at once.
     if activated is not None:
@@ -1518,15 +1502,3 @@ def get_about() -> str:
         A JSON object with ``name``, ``version``, ``repository`` and ``issues``.
     """
     return json.dumps(meta.about())
-
-
-# Export for __main__.py
-def get_unified_collector() -> Any:
-    """Get the unified metrics collector.
-
-    Returns:
-        Unified metrics collector instance
-    """
-    from ..unified_metrics import get_unified_collector as _get_collector
-
-    return _get_collector()

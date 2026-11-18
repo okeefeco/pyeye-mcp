@@ -1,5 +1,6 @@
 """Tests for input validation and sanitization."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -94,9 +95,9 @@ class TestPathValidator:
             outside = Path("/etc/passwd")
             with pytest.raises(ValidationError) as exc_info:
                 PathValidator.validate_path(outside, base)
-            # Could be rejected for being outside base OR for being suspicious
+            # Rejected for being outside base OR for its restricted target
             error_msg = str(exc_info.value).lower()
-            assert "outside" in error_msg or "suspicious" in error_msg
+            assert "outside" in error_msg or "restricted location" in error_msg
 
     def test_warns_on_sensitive_paths(self, caplog):
         """Test warning on potentially sensitive paths."""
@@ -179,9 +180,6 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_paths(self):
         """Test that decorator validates path parameters."""
-        import os
-
-        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(file: str, project_path: str = "."):
@@ -201,7 +199,17 @@ class TestValidateMCPInputsDecorator:
         assert result["file"] == expected
         assert "\\" not in result["file"]
 
-        # Invalid path should raise ValidationError
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="the deny-list names POSIX system directories; /etc/passwd is C:\\etc\\passwd here (#867)",
+    )
+    def test_decorator_refuses_a_file_climbing_to_etc(self):
+        """``../../etc/passwd`` from ``/project`` is /etc/passwd: refused (POSIX)."""
+
+        @validate_mcp_inputs
+        def test_func(file: str, project_path: str = "."):
+            return {"file": file, "project_path": project_path}
+
         with pytest.raises(ValidationError) as exc_info:
             test_func("../../etc/passwd", "/project")
         assert "Invalid file" in str(exc_info.value)
@@ -247,7 +255,6 @@ class TestValidateMCPInputsDecorator:
 
     def test_decorator_validates_path_lists(self):
         """Test that decorator validates lists of paths."""
-        from pyeye.exceptions import ValidationError
 
         @validate_mcp_inputs
         def test_func(paths: list, packages: list):
@@ -258,9 +265,20 @@ class TestValidateMCPInputsDecorator:
         assert len(result["paths"]) == 2
         assert len(result["packages"]) == 2
 
-        # List with invalid path should raise ValidationError
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="the deny-list names POSIX system directories; /etc/passwd is C:\\etc\\passwd here (#867)",
+    )
+    def test_decorator_refuses_a_list_item_climbing_to_etc(self):
+        """A list item that climbs to /etc is refused, naming its list (POSIX)."""
+
+        @validate_mcp_inputs
+        def test_func(paths: list, packages: list):
+            return {"paths": paths, "packages": packages}
+
         with pytest.raises(ValidationError) as exc_info:
-            test_func(["/valid", "../../etc/passwd"], ["/pkg1"])
+            # Enough ".." to reach "/" from any cwd: a real climb to /etc (#939).
+            test_func(["/valid", "../" * 40 + "etc/passwd"], ["/pkg1"])
         assert "Invalid path" in str(exc_info.value)
         assert "paths" in str(exc_info.value)
 

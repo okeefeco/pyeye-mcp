@@ -46,13 +46,22 @@ covered; `results` is exactly what the tool returns without `envelope`:
 ```
 
 ```json pyeye-output
-{"scope": "all", "searched": ["main"], "unsearched_scopes": [],
+{"scope": "all", "searched": ["main"], "unsearched_scopes": [], "rejected_paths": [],
  "results": [{"name": "dashboard", "…": "<omitted>"}, "<omitted>"]}
 ```
 
 When `unsearched_scopes` isn't empty, the results may be incomplete: retry with
 a wider scope or fix the path. AI agents should always pass `envelope=true`
 (#594).
+
+`rejected_paths` lists each config entry (a package, namespace or standalone
+directory in `.pyeye.json`) that the path check refused, as
+`{scope, path, reason: "rejected_path", detail}`. It is `[]` when there are
+none, and its scope is always in `unsearched_scopes`. A `package:` path that
+merely doesn't exist is unsearched but not rejected. The key is missing only
+when the check couldn't run, because a config file failed to load: then
+nothing can be said about refused entries, so don't read its absence as "none"
+(#898).
 
 **`project_path`** points the tool at a project other than the server's own.
 Once a plugin is active, its tools answer for any project you name, and an
@@ -138,8 +147,13 @@ project's starting point: the project itself is the first package.
 
 ```json pyeye-output
 {"packages": ["<omitted>"], "namespaces": {}, "standalone": {"dirs": []},
- "config_file": "<omitted>"}
+ "rejected_paths": [], "config_file": "<omitted>"}
 ```
+
+`rejected_paths` lists the config entries the path check refused and skipped,
+in the same shape as the plugin `envelope`'s, and is `[]` when there are none.
+Like the envelope's, it is missing only when a config file failed to load
+(#898).
 
 A call that names packages adds them, and with `save` left on, writes
 `.pyeye.json`. To add a package for this session only:

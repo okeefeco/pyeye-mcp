@@ -6,6 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from pyeye_tool_names import short_name  # a sibling module: hooks run the script by path
+
 
 def ensure_monitoring_dir() -> Path:
     """Ensure monitoring directory exists."""
@@ -28,10 +30,7 @@ def main() -> None:
         tool_response = payload.get("tool_response", {})
 
         # Extract the specific MCP tool
-        if tool_name.startswith("mcp__pyeye__"):
-            mcp_tool = tool_name.replace("mcp__pyeye__", "")
-        else:
-            mcp_tool = tool_name
+        mcp_tool = short_name(tool_name)  # either install form (#965)
 
         # Calculate response size (useful for performance tracking)
         response_size = len(json.dumps(tool_response))

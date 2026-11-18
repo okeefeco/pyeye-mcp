@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "One project-roots policy and one file↔module mapper, both named after Jedi's `full_name` (#625)"
 issues: [625, 619]
 anchors: ["pyeye.project_layout.project_roots", "RootsBoundary", "module_name_for_file", "file_for_module", "JediAnalyzer._get_import_path_for_file", "_index_module_name", "canonicalization.find_module_file"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md"]
 superseded_by: []
 ---
 

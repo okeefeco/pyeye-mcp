@@ -27,7 +27,12 @@ from ..facts import Bindable, ExtractionError, Fact, code, literal, table, view
 
 PREFIXES = ("env",)
 
-_KINDS = {"_get_int_env": "int", "_get_float_env": "float", "_get_bool_env": "bool"}
+_KINDS = {
+    "_get_int_env": "int",
+    "_get_float_env": "float",
+    "_get_bool_env": "bool",
+    "_get_str_env": "str",
+}
 
 
 _ENV_NAME = re.compile(r"PYEYE_[A-Z0-9_]+")
