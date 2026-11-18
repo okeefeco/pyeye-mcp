@@ -672,13 +672,6 @@
       "duration_ms"
     ],
     "security.network_imports": [],
-    "security.path_checks.components": [
-      "/etc/",
-      "/root/",
-      "/proc/",
-      "/sys/",
-      "/dev/"
-    ],
     "security.path_checks.forms": "the deny-list checks the target's lexical and resolved forms.",
     "security.path_checks.rejected": [
       "null bytes",
@@ -690,9 +683,7 @@
       "^/root/",
       "^/proc/",
       "^/sys/",
-      "^/dev/",
-      "/etc/",
-      "/root/"
+      "^/dev/"
     ],
     "security.subprocesses": [],
     "security.write_sites": [

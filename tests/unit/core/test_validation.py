@@ -94,9 +94,9 @@ class TestPathValidator:
             outside = Path("/etc/passwd")
             with pytest.raises(ValidationError) as exc_info:
                 PathValidator.validate_path(outside, base)
-            # Could be rejected for being outside base OR for being suspicious
+            # Rejected for being outside base OR for its restricted target
             error_msg = str(exc_info.value).lower()
-            assert "outside" in error_msg or "suspicious" in error_msg
+            assert "outside" in error_msg or "restricted location" in error_msg
 
     def test_warns_on_sensitive_paths(self, caplog):
         """Test warning on potentially sensitive paths."""
@@ -260,7 +260,8 @@ class TestValidateMCPInputsDecorator:
 
         # List with invalid path should raise ValidationError
         with pytest.raises(ValidationError) as exc_info:
-            test_func(["/valid", "../../etc/passwd"], ["/pkg1"])
+            # Enough ".." to reach "/" from any cwd: a real climb to /etc (#939).
+            test_func(["/valid", "../" * 40 + "etc/passwd"], ["/pkg1"])
         assert "Invalid path" in str(exc_info.value)
         assert "paths" in str(exc_info.value)
 
