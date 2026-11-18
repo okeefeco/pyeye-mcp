@@ -695,11 +695,14 @@ def _goto_definition(name: Any) -> Any | None:
 
 
 @dataclass(frozen=True)
-class _BindingLines:
-    """What a module's AST says about the lines its bindings sit on (#857)."""
+class _Bindings:
+    """What a module's AST says about the names bound on each line (#857).
 
-    imports: frozenset[int]  #: lines of an ``import`` / ``from … import``
-    deletes: frozenset[int]  #: lines of a ``del`` (never a binding)
+    Keys are ``(line, name)``, matched against a Jedi name's ``line`` / ``name``.
+    """
+
+    imports: frozenset[tuple[int, str]]  #: a name an ``import`` alias binds
+    definitions: frozenset[tuple[int, str]]  #: a name a plain definition binds
     branched: frozenset[int]  #: lines inside an if / try / loop / with / match
 
 
@@ -717,8 +720,30 @@ _BRANCHING = (
 )
 
 
-def _binding_lines(mod_file: Path) -> _BindingLines | None:
-    """Import, ``del`` and conditional lines of *mod_file*, from its AST.
+def _definition_keys(node: ast.AST) -> list[tuple[int, str]]:
+    """``(line, name)`` for each name *node* binds as a plain definition.
+
+    Deliberately narrow (#871 review): a ``class`` / ``def`` name, a plain
+    ``Name`` target of ``=`` whose value isn't that same name (``A = A`` is
+    not a new definition), and an annotated assignment WITH a value. Anything
+    else Jedi reports (a comprehension or lambda target, a bare annotation
+    ``A: int``, ``A += 1``, ``del A``) is not one, and keeps the answer from
+    before #857.
+    """
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        return [(node.lineno, node.name)]
+    if isinstance(node, ast.Assign):
+        same = node.value.id if isinstance(node.value, ast.Name) else None
+        return [(t.lineno, t.id) for t in node.targets if isinstance(t, ast.Name) and t.id != same]
+    if isinstance(node, ast.AnnAssign) and node.value is not None:
+        target = node.target
+        if isinstance(target, ast.Name):
+            return [(target.lineno, target.id)]
+    return []
+
+
+def _bindings(mod_file: Path) -> _Bindings | None:
+    """Import and definition bindings, and conditional lines, of *mod_file*.
 
     ``None`` when the server's Python can't parse the file (#703): Jedi's parser
     tolerates it, so resolution must too, just without telling bindings apart.
@@ -727,18 +752,18 @@ def _binding_lines(mod_file: Path) -> _BindingLines | None:
         tree = file_artifact_cache.get_ast(mod_file)
     except (SyntaxError, ValueError):
         return None
-    imports: set[int] = set()
-    deletes: set[int] = set()
+    imports: set[tuple[int, str]] = set()
+    definitions: set[tuple[int, str]] = set()
     branched: set[int] = set()
     for node in ast.walk(tree):
-        span = range(getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1)
         if isinstance(node, ast.Import | ast.ImportFrom):
-            imports.update(span)
-        elif isinstance(node, ast.Delete):
-            deletes.update(span)
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".", 1)[0]
+                imports.add((getattr(alias, "lineno", node.lineno), bound))
         elif isinstance(node, _BRANCHING):
-            branched.update(span)
-    return _BindingLines(frozenset(imports), frozenset(deletes), frozenset(branched))
+            branched.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+        definitions.update(_definition_keys(node))
+    return _Bindings(frozenset(imports), frozenset(definitions), frozenset(branched))
 
 
 def _cross_file_target(name: Any) -> Any | None:
@@ -765,35 +790,41 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     The rule is "answer as before #857, except where that answer was wrong":
 
     - **One binding**: if its goto leads to a definition in another file it can
-      only be an import, so it collapses (a relative re-export). No AST needed.
+      only be an import, so it collapses (a relative re-export). No AST needed,
+      so a lone import under ``if TYPE_CHECKING:`` collapses too.
     - **Only imports**, all leading to ONE definition elsewhere (possibly
-      repeated): collapse to it. Imports of different definitions (an if/else
-      re-export) stay uncollapsed, never a confident branch.
-    - **An import and a real definition, all unconditional** (``from .src import
+      repeated): collapse to it. Imports of DIFFERENT definitions keep the first
+      binding, as before, whether in if/else branches or unconditional: two
+      competing imports are not a case the old answer got wrong.
+    - **Imports and plain definitions, all unconditional** (``from .src import
       A`` then ``class A``): the LAST binding wins, as at runtime. If the last is
-      the import (``class A`` then ``from .src import A``), it collapses.
+      an import (``class A`` then ``from .src import A``), it collapses.
     - **Everything else keeps the first binding**, as before: no import among
-      them (a property and its setter, overloads, an if/else ``def``), bindings
-      split across branches (``TYPE_CHECKING``, ``try/except ImportError``), a
-      ``del`` among them (it binds nothing), or a module that won't parse.
+      them (a property's setter, overloads, an if/else ``def``), a binding inside
+      a branch (``TYPE_CHECKING``, ``try/except ImportError``), anything that
+      isn't a plain definition (a comprehension or lambda target, ``A: int``,
+      ``A = A``, ``A += 1``, ``del A``), or a module that won't parse.
     """
     first = matches[0]
     if len(matches) == 1:
         return _cross_file_target(first) or _anchor_on_definition(first, handle)
-    lines = _binding_lines(mod_file)
-    if lines is None or any((m.line or 0) in lines.deletes for m in matches):
+    found = _bindings(mod_file)
+    if found is None:
         return _anchor_on_definition(first, handle)
-    is_import = [(m.line or 0) in lines.imports for m in matches]
+    keys = [((m.line or 0), m.name) for m in matches]
+    is_import = [k in found.imports for k in keys]
     if all(is_import):
         targets = [_cross_file_target(m) for m in matches]
-        found = {(t.module_path, t.line, t.column) for t in targets if t is not None}
-        if len(found) == 1 and all(t is not None for t in targets):
+        spots = {(t.module_path, t.line, t.column) for t in targets if t is not None}
+        if len(spots) == 1 and all(t is not None for t in targets):
             return next(t for t in targets if t is not None)
         return _anchor_on_definition(first, handle)
-    if not any(is_import) or any((m.line or 0) in lines.branched for m in matches):
+    plain = all(i or k in found.definitions for i, k in zip(is_import, keys, strict=True))
+    unconditional = not any(line in found.branched for line, _ in keys)
+    if not (any(is_import) and plain and unconditional):
         return _anchor_on_definition(first, handle)
     last = max(matches, key=lambda m: (m.line or 0, m.column or 0))
-    if (last.line or 0) in lines.imports:
+    if ((last.line or 0), last.name) in found.imports:
         return _cross_file_target(last) or _anchor_on_definition(last, handle)
     return _anchor_on_definition(last, handle)
 

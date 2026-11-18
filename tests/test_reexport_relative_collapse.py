@@ -255,7 +255,7 @@ class TestRelativeForms:
 
 
 def test_an_unparseable_package_still_resolves(tmp_path: Path) -> None:
-    """The AST can't be built (#703); Jedi still places the binding, uncollapsed."""
+    """The AST can't be built (#703). One binding needs none: it collapses via goto."""
     analyzer = _tree(
         tmp_path,
         {
@@ -264,9 +264,10 @@ def test_an_unparseable_package_still_resolves(tmp_path: Path) -> None:
         },
     )
 
-    result = resolve_handle("pkg.T", analyzer)
+    result = _resolved("pkg.T", analyzer)
 
-    assert isinstance(result, Resolved), result
+    assert (result.handle, result.kind) == ("pkg.a.T", "class")
+    assert f"{Path(result.anchor.module_path).name}:{result.anchor.line}" == "a.py:1"
 
 
 #: (files, handle, expected handle, kind, anchor "file:line"). Every case but the
@@ -379,6 +380,133 @@ def test_several_bindings_of_one_name(tmp_path: Path, case: str) -> None:
     files, path, handle, kind, where = BINDING_CASES[case]
 
     result = _resolved(path, _tree(tmp_path, files))
+
+    assert (result.handle, result.kind) == (handle, kind)
+    assert f"{Path(result.anchor.module_path).name}:{result.anchor.line}" == where
+
+
+#: The #871 second re-review: bindings Jedi reports that a plain definition
+#: isn't. Same columns as BINDING_CASES; ``q/src.py`` defines ``A`` and ``f``,
+#: ``q/other.py`` another ``A``. "main" marks main's exact answer.
+_Q = {
+    "q/src.py": "class A:\n    pass\n\n\ndef f() -> None:\n    pass\n",
+    "q/other.py": "class A:\n    pass\n",
+}
+
+NON_BINDING_CASES = {
+    # main: a comprehension target doesn't bind the module name.
+    "list_comprehension": (
+        "from .src import A\nX = [A for A in range(3)]\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    "set_comprehension": (
+        "from .src import A\nX = {A for A in range(3)}\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    "dict_comprehension": (
+        "from .src import A\nX = {A: 1 for A in range(3)}\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    "generator": (
+        "from .src import A\nX = (A for A in range(3))\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    # main: a bare annotation, a self-assignment and += aren't new definitions.
+    "bare_annotation": ("from .src import A\nA: int\n", "q.A", "q.A", "variable", "__init__.py:1"),
+    "self_assignment": ("from .src import A\nA = A\n", "q.A", "q.A", "class", "__init__.py:1"),
+    "augmented_assignment": (
+        "from .src import A\nA += 1\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    # main, deliberately: two competing unconditional imports are not a case the
+    # old answer got wrong, so the first binding stays (rule 1's spirit).
+    "two_imports_of_different_definitions": (
+        "from .src import A\nfrom .other import A\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+    # Fixed by #857: a lambda parameter isn't a module binding (Jedi doesn't
+    # report it), so the import is the only binding: a plain relative re-export.
+    "lambda_parameter": (
+        "from .src import A\nX = lambda A: A\n",
+        "q.A",
+        "q.src.A",
+        "class",
+        "src.py:1",
+    ),
+    # Fixed by #857: import, class, then an import from elsewhere: the last wins.
+    "import_class_import": (
+        "from .src import A\n\n\nclass A:\n    pass\n\n\nfrom .other import A\n",
+        "q.A",
+        "q.other.A",
+        "class",
+        "other.py:1",
+    ),
+    # Pinned: ONE import under TYPE_CHECKING has no competing binding, so it
+    # collapses (the branch rule is about competing bindings).
+    "single_type_checking_import": (
+        "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from .src import A\n",
+        "q.A",
+        "q.src.A",
+        "class",
+        "src.py:1",
+    ),
+    # Fixed by #857: a decorated def shadowing an import; anchored on its def line.
+    "decorated_def_shadows": (
+        "from .src import f\n\n\ndef deco(x):\n    return x\n\n\n@deco\ndef f() -> None:\n    pass\n",
+        "q.f",
+        "q.f",
+        "function",
+        "__init__.py:9",
+    ),
+    # A multi-line import: the alias's own line is the binding's line.
+    "multi_line_import_shadowed": (
+        "from .src import (\n    A,\n)\n\n\nclass A:\n    pass\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:6",
+    ),
+    "multi_line_import_alone": (
+        "from .src import (\n    A,\n)\n",
+        "q.A",
+        "q.src.A",
+        "class",
+        "src.py:1",
+    ),
+    # main: competing bindings in a module that won't parse keep the first one.
+    "unparseable_with_competing_bindings": (
+        "from .src import A\n\n\nclass A:\n    pass\n\n\ndef broken(:\n    pass\n",
+        "q.A",
+        "q.A",
+        "class",
+        "__init__.py:1",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NON_BINDING_CASES))
+def test_bindings_that_are_not_plain_definitions(tmp_path: Path, case: str) -> None:
+    init, path, handle, kind, where = NON_BINDING_CASES[case]
+
+    result = _resolved(path, _tree(tmp_path, {**_Q, "q/__init__.py": init}))
 
     assert (result.handle, result.kind) == (handle, kind)
     assert f"{Path(result.anchor.module_path).name}:{result.anchor.line}" == where

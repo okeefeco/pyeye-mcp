@@ -351,13 +351,46 @@ class _ProjectSymbols:
         return self._analyzer
 
     def canonical(self, handle: str) -> str | None:
-        """The canonical project handle: a re-export collapses to its definition (#857)."""
+        """The canonical project handle, following a re-export to its definition site.
+
+        The resolver collapses a plain relative re-export (#857), but by design
+        not one whose bindings are split across branches (``try: from .thing
+        import Maybe / except ImportError: Maybe = None``, or ``TYPE_CHECKING``):
+        it answers ``pkg.Maybe`` there, as before. A docs anchor wants the one
+        definition, so the binding is still followed with Jedi's ``goto``; a
+        single definition in another module that resolves in the project gives
+        the canonical handle.
+        """
         from ..resolver import Resolved, resolve_handle
 
         found = resolve_handle(handle, self._jedi())
-        if isinstance(found, Resolved) and found.scope == "project":
-            return found.handle
-        return None
+        if not (isinstance(found, Resolved) and found.scope == "project"):
+            return None
+        target = self._definition_site(found.anchor)
+        if target is not None and target != found.handle:
+            resolved = resolve_handle(target, self._jedi())
+            if isinstance(resolved, Resolved) and resolved.scope == "project":
+                return resolved.handle
+        return found.handle
+
+    @staticmethod
+    def _definition_site(anchor: Any) -> str | None:
+        """The ``full_name`` of the one definition *anchor*'s binding imports, if elsewhere."""
+        from ..path_utils import paths_equal
+
+        goto = getattr(anchor, "goto", None)
+        here = getattr(anchor, "module_path", None)
+        if goto is None or here is None:
+            return None
+        try:
+            defs = goto(follow_imports=True)
+        except Exception:  # noqa: BLE001 - Jedi internals; no guard is the safe answer
+            return None
+        if len(defs) != 1 or not defs[0].full_name or defs[0].module_path is None:
+            return None
+        if paths_equal(defs[0].module_path, here):
+            return None
+        return str(defs[0].full_name)
 
     def surface(self, handle: str) -> dict[str, str] | None:
         import asyncio
