@@ -18,9 +18,6 @@ class PathValidator:
         ("...", "suspicious triple dots"),
     )
 
-    #: System directories a given path may not name (docs fact ``security.path_checks``).
-    RESTRICTED_COMPONENTS: tuple[str, ...] = ("/etc/", "/root/", "/proc/", "/sys/", "/dev/")
-
     # Patterns for potentially dangerous file names
     DANGEROUS_NAMES = [
         r"\.git/",  # Git directory
@@ -34,7 +31,12 @@ class PathValidator:
         r"^/sys/",  # System info (Unix)
     ]
 
-    #: Checked against every form of the target (:meth:`check_forms`).
+    #: Checked against every form of the target (:meth:`check_forms`), ignoring
+    #: case (a case-insensitive macOS volume reads "/ETC/passwd" as /etc). Every
+    #: pattern is ANCHORED (#939): a check that matched a component anywhere
+    #: refused ~/dev/proj, /srv/etc/lib and a project's own etc/ package. The
+    #: anchored forms still catch every route to these directories, because
+    #: since #856 each caller path is checked anchored and resolved.
     RESTRICTED_TARGETS: tuple[str, ...] = (
         r"^/etc/",
         r"^/private/etc/",  # macOS: /etc resolves here (#856 review)
@@ -42,8 +44,6 @@ class PathValidator:
         r"^/proc/",
         r"^/sys/",
         r"^/dev/",
-        r"/etc/",  # Also check if /etc/ appears anywhere in path
-        r"/root/",  # Also check if /root/ appears anywhere
     )
 
     @classmethod
@@ -51,30 +51,26 @@ class PathValidator:
         """Reject a path by how it's spelled, before anything resolves it.
 
         Null bytes and patterns that might be attacks are rejected even if the
-        path doesn't exist, and so is a system directory named in any spelling.
+        path doesn't exist. Where a path LEADS is :meth:`_check_targets`' job,
+        on its anchored forms: a directory name inside the path proves nothing
+        (#939).
         """
         for sequence, described in cls.REJECTED_SEQUENCES:
             if sequence in path_str:
                 raise ValidationError(f"Path contains {described}")
-        path_lower = path_str.lower()
-        for comp in cls.RESTRICTED_COMPONENTS:
-            if comp in path_lower:
-                raise ValidationError(f"Path contains suspicious component: {comp}")
 
     @classmethod
     def _check_targets(cls, forms: list[str]) -> None:
         """Reject a target any of whose *forms* matches :data:`RESTRICTED_TARGETS`.
 
         The system directory itself counts too: "/etc" (from "../../etc") must
-        not slip past "^/etc/" for lack of a trailing slash. Only for the
-        anchored patterns: a project dir that merely ENDS in "root" or "etc"
-        (/home/u/repos/root) is not a system directory.
+        not slip past "^/etc/" for lack of a trailing slash. Case is ignored
+        (#939).
         """
         for form in forms:
             as_dir = form.rstrip("/") + "/"
             for pattern in cls.RESTRICTED_TARGETS:
-                anchored = pattern.startswith("^")
-                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
+                if re.search(pattern, as_dir, re.IGNORECASE):
                     raise ValidationError(f"Path resolves to restricted location: {pattern}")
 
     @classmethod
@@ -151,18 +147,22 @@ class PathValidator:
         - An absolute path: as given.
         - A relative path with *anchor_root* (where the tool will anchor it):
           ALWAYS anchored there, ``..`` or not (#856).
-        - A relative path without one: anchored on the cwd if it contains
-          ``..``; otherwise checked as written only.
+        - A relative path without one: anchored on the cwd, where the OS would
+          resolve it (#939). The deny-list is all anchored patterns, so a path
+          checked only as written ("etc/passwd") would never match.
+
+        The resolved form resolves the RAW join, never the lexical form: the OS
+        follows a symlink before ``..``, so ``l_tmp/../etc`` with ``l_tmp`` ->
+        ``/tmp`` is ``/etc`` on disk, though it collapses lexically to
+        ``<root>/etc`` (as :meth:`_final_forms` does, #856 review; #939 review).
         """
         if path.is_absolute():
-            lexical = absolute_path(path)
+            lexical, raw = absolute_path(path), path
         elif anchor_root is not None:
-            lexical = absolute_path(anchor(path, anchor_root))
-        elif ".." in path.as_posix():
-            lexical = absolute_path(path)
+            lexical, raw = absolute_path(anchor(path, anchor_root)), Path(anchor_root) / path
         else:
-            return path, [path.as_posix()]
-        resolved = normalize_path(lexical)
+            lexical, raw = absolute_path(path), path
+        resolved = normalize_path(raw)
         return resolved, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
 
     @classmethod
@@ -245,10 +245,10 @@ class PathValidator:
         return path_obj
 
 
-#: The restricted DIRECTORIES: the literal of each ANCHORED deny-list pattern
-#: ("^/private/etc/" -> "/private/etc"). Only anchored patterns name a
-#: directory: the unanchored "/etc/" and "/root/" match that component at any
-#: depth (/home/u/x/etc/...), so they have no fixed location, and no ancestors.
+#: The restricted DIRECTORIES: the literal of each anchored deny-list pattern
+#: ("^/private/etc/" -> "/private/etc"). Every pattern is anchored since #939;
+#: the filter keeps an unanchored one, if ever added, from defining ancestors:
+#: it would name no fixed directory.
 _RESTRICTED_DIRS: tuple[str, ...] = tuple(
     pattern[1:].rstrip("/")
     for pattern in PathValidator.RESTRICTED_TARGETS

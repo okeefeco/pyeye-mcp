@@ -264,11 +264,6 @@ def _path_checks() -> Iterator[Bindable]:
         [described for _sequence, described in PathValidator.REJECTED_SEQUENCES],
         ", ".join(described for _sequence, described in PathValidator.REJECTED_SEQUENCES),
     )
-    components = Fact(
-        "security.path_checks.components",
-        list(PathValidator.RESTRICTED_COMPONENTS),
-        code_list(PathValidator.RESTRICTED_COMPONENTS),
-    )
     targets = Fact(
         "security.path_checks.targets",
         list(PathValidator.RESTRICTED_TARGETS),
@@ -282,15 +277,14 @@ def _path_checks() -> Iterator[Bindable]:
             f"{prefix!r}, so the checked forms can't be read from it"
         )
     forms = Fact("security.path_checks.forms", summary[len(prefix) :], text(summary[len(prefix) :]))
-    yield from (rejected, components, targets, forms)
+    yield from (rejected, targets, forms)
     yield view(
         "security.path_checks",
-        [rejected, components, targets, forms],
+        [rejected, targets, forms],
         "\n".join(
             [
                 f"- anywhere in the path: {rejected.markdown};",
-                f"- naming one of these directories: {components.markdown};",
-                f"- a target matching one of these patterns: {targets.markdown};",
+                f"- a target matching one of these anchored patterns, ignoring case: {targets.markdown};",
                 f"- forms checked: {forms.markdown}",
             ]
         ),

@@ -102,8 +102,7 @@ they can't drift from it.
 
   <!-- fact:begin security.path_checks -->
   - anywhere in the path: null bytes, suspicious triple dots;
-  - naming one of these directories: `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`;
-  - a target matching one of these patterns: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
+  - a target matching one of these anchored patterns, ignoring case: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`;
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 
@@ -115,10 +114,13 @@ they can't drift from it.
   directory whose resolved form is one of them, so a symlink inside a scanned
   tree can't lead a walk into one.
 
-  The directories and patterns are POSIX system paths. On Windows a resolved
-  path starts with a drive letter, so the `^`-anchored patterns never match it,
-  and the system-directory rules only catch a path that spells one of these
-  names. This is a sanity check, **not a sandbox**:
+  A directory merely named like one of these inside another path, such as
+  `~/dev/proj`, `/srv/etc/lib` or a project's own `etc/` package, is not
+  refused: only where the path leads counts (#939).
+
+  The patterns are POSIX system paths. On Windows a resolved path starts with a
+  drive letter, so they never match it. This is a sanity check, **not a
+  sandbox**:
   - any directory the server's user can read can be analysed if a client asks
     for it;
   - the check is the deny-list above, nothing more: any other directory the

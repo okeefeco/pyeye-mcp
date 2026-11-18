@@ -35,7 +35,7 @@ pytestmark = pytest.mark.skipif(
 
 #: The validator's refusals: the given spelling, the checked target, or a glob
 #: with ``..`` in configure_packages.
-REFUSED = "suspicious component|restricted location|may not contain '\\.\\.'"
+REFUSED = "restricted location|may not contain '\\.\\.'"
 
 
 def _assert_refused(tool: str, args: dict[str, Any], server: Any = None) -> None:

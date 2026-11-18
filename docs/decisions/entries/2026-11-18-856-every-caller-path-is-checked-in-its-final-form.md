@@ -6,7 +6,7 @@ anchors: ["pyeye.validation.PathValidator.validate_final", "pyeye.validation.Pat
 status: "amended"
 amends: ["2026-11-18-842-relative-caller-paths-anchor-on-project-path-missing-package-is-unsearched.md"]
 supersedes: []
-amended_by: ["2026-11-18-872-namespace-globs-expand-to-sorted-matches-through-the-package-helper.md"]
+amended_by: ["2026-11-18-872-namespace-globs-expand-to-sorted-matches-through-the-package-helper.md", "2026-11-18-939-the-deny-list-is-anchored-patterns-only-matched-ignoring-case.md"]
 superseded_by: []
 ---
 
