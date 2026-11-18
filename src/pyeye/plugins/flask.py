@@ -27,6 +27,15 @@ def _str_value(node: ast.AST) -> str | None:
 # A handler may be ``async def`` (Flask 2.0+); both are scanned (#873).
 _FUNCTION_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
+# Flask 2.0's route shortcuts: ``@app.get(path)`` is ``route(path, methods=["GET"])`` (#905).
+_ROUTE_SHORTCUTS = frozenset({"get", "post", "put", "delete", "patch"})
+
+
+def _may_declare_routes(content: str) -> bool:
+    """Cheap text pre-filter: could *content* hold a route decorator?"""
+    return "route" in content or any(f".{m}(" in content for m in _ROUTE_SHORTCUTS)
+
+
 # Config files: at a scope root or one directory below it (#873).
 _CONFIG_FILE_PATTERNS = ("config.py", "settings.py", "*/config.py", "*/settings.py")
 
@@ -134,7 +143,7 @@ class FlaskPlugin(AnalyzerPlugin):
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             content = await self._read_source(py_file)
-            if content is not None and "@" in content and "route" in content:
+            if content is not None and "@" in content and _may_declare_routes(content):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
@@ -164,6 +173,18 @@ class FlaskPlugin(AnalyzerPlugin):
                                                 method = _str_value(elt)
                                                 if method is not None:
                                                     methods.append(method)
+
+                                # @app.get("/p"), .post, .put, .delete, .patch (#905):
+                                # route() with one fixed method. A string path is
+                                # required, so @cache.get(key) is not a route.
+                                elif (
+                                    isinstance(decorator, ast.Call)
+                                    and isinstance(decorator.func, ast.Attribute)
+                                    and decorator.func.attr in _ROUTE_SHORTCUTS
+                                    and decorator.args
+                                ):
+                                    route_path = _str_value(decorator.args[0])
+                                    methods = [decorator.func.attr.upper()]
 
                                 if route_path:
                                     routes.append(
