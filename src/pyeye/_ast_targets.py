@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any
 
 from pyeye import file_artifact_cache
 
@@ -48,6 +49,17 @@ def find_function_def_at_line(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == line:
             return node
     return None
+
+
+def unsubscripted(node: Any) -> Any:
+    """*node* with any subscripts removed: ``Box[int][str]`` -> ``Box`` (#921).
+
+    A subscripted class base (``Box[int]``, ``pydantic.RootModel[list[int]]``)
+    names the class it subscripts; the type arguments are not bases.
+    """
+    while isinstance(node, ast.Subscript):
+        node = node.value
+    return node
 
 
 def attr_target_position(node: ast.expr) -> tuple[int, int]:

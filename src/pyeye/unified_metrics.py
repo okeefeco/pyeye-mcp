@@ -6,7 +6,10 @@ across all Claude sessions, including subagents and parallel sessions.
 
 import json
 import logging
+import os
+import tempfile
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,6 +20,26 @@ from filelock import FileLock, Timeout
 from .constants import METRICS_DIR
 
 logger = logging.getLogger(__name__)
+
+#: An active session with no activity for this long is closed at start-up (#914):
+#: its process died without ending it (a killed server, a crashed test run).
+STALE_SESSION_AGE = timedelta(hours=24)
+
+#: How long an update waits for the store's file lock before it is skipped (#914).
+_LOCK_TIMEOUT_S = 10.0
+
+#: How often a write retries replacing a file that a reader holds open (Windows).
+_REPLACE_ATTEMPTS = 50
+
+
+def default_storage_dir() -> Path:
+    """Where metrics are stored: ``PYEYE_METRICS_DIR`` if set, else ``~/.pyeye/metrics``.
+
+    The test suite sets it so that neither it nor a server it launches writes
+    the developer's real store (#914).
+    """
+    configured = os.environ.get("PYEYE_METRICS_DIR")
+    return Path(configured) if configured else Path.home() / METRICS_DIR
 
 
 @dataclass
@@ -36,6 +59,7 @@ class SessionMetrics:
     cache_misses: int = 0
     memory_peak_mb: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    last_activity: str | None = None  # refreshed by every update; the prune clock (#914)
 
 
 class UnifiedMetricsCollector:
@@ -48,7 +72,7 @@ class UnifiedMetricsCollector:
             storage_dir: Directory for metrics storage (defaults to ~/.pyeye/metrics)
         """
         if storage_dir is None:
-            storage_dir = Path.home() / METRICS_DIR
+            storage_dir = default_storage_dir()
 
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -58,11 +82,15 @@ class UnifiedMetricsCollector:
         self.completed_sessions_file = self.storage_dir / "completed_sessions.jsonl"
         self.aggregated_stats_file = self.storage_dir / "aggregated_stats.json"
 
-        # Thread-local storage for session tracking
-        self._local = threading.local()
+        # The process's current session. One per process, not per thread: tool
+        # work runs on worker threads, and a thread-local id opened a new session
+        # on every thread that recorded something (#914).
+        self._session_id: str | None = None
+        self._session_lock = threading.RLock()  # start_session re-enters it
 
         # Initialize files if they don't exist
         self._init_storage_files()
+        self.prune_stale_sessions()
 
     def _init_storage_files(self) -> None:
         """Initialize storage files if they don't exist."""
@@ -102,9 +130,31 @@ class UnifiedMetricsCollector:
             return {}
 
     def _write_json(self, file_path: Path, data: dict[str, Any]) -> None:
-        """Write JSON file."""
-        with open(file_path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+        """Write a JSON file whole: a reader sees the old file or the new one (#914).
+
+        The data goes to a temporary file in the same directory, which then
+        replaces the target. Writing in place let a reader see a truncated file.
+        """
+        fd, tmp = tempfile.mkstemp(dir=file_path.parent, prefix=f".{file_path.name}.")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2, default=str)
+            for attempt in range(_REPLACE_ATTEMPTS):
+                try:
+                    os.replace(tmp, file_path)
+                    return
+                except PermissionError:
+                    # Windows refuses to replace a file another process has open;
+                    # readers hold it only briefly.
+                    if attempt == _REPLACE_ATTEMPTS - 1:
+                        logger.warning(
+                            "Metrics write skipped: %s stayed open elsewhere",
+                            file_path.as_posix(),
+                        )
+                    else:
+                        time.sleep(0.01)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
 
     def _update_json_atomic(self, file_path: Path, update_func: Any) -> None:
         """Atomically read, update, and write JSON file using filelock.
@@ -113,7 +163,7 @@ class UnifiedMetricsCollector:
         preventing race conditions on all platforms including Windows.
         """
         lock_path = f"{file_path}.lock"
-        lock = FileLock(lock_path, timeout=10)
+        lock = FileLock(lock_path, timeout=_LOCK_TIMEOUT_S)
 
         try:
             with lock:
@@ -124,25 +174,28 @@ class UnifiedMetricsCollector:
                 # Write updated data
                 self._write_json(file_path, data)
         except Timeout:
-            logger.warning(f"Could not acquire lock for {file_path} after 10 seconds")
-            # Fall back to non-atomic operation as last resort
-            data = self._read_json(file_path)
-            update_func(data)
-            self._write_json(file_path, data)
+            # An unlocked read-update-write could read a file another process is
+            # mid-way through and write back only its own update (#914): skip it.
+            logger.warning(
+                "Metrics update skipped: could not lock %s within %ss",
+                file_path.as_posix(),
+                _LOCK_TIMEOUT_S,
+            )
 
     def _append_jsonl(self, file_path: Path, data: dict[str, Any]) -> None:
         """Append to JSONL file with file locking."""
         lock_path = f"{file_path}.lock"
-        lock = FileLock(lock_path, timeout=10)
+        lock = FileLock(lock_path, timeout=_LOCK_TIMEOUT_S)
 
         try:
             with lock, open(file_path, "a") as f:
                 f.write(json.dumps(data, default=str) + "\n")
         except Timeout:
-            logger.warning(f"Could not acquire lock for {file_path} after 10 seconds")
-            # Fall back to non-atomic append
-            with open(file_path, "a") as f:
-                f.write(json.dumps(data, default=str) + "\n")
+            logger.warning(
+                "Metrics append skipped: could not lock %s within %ss",
+                file_path.as_posix(),
+                _LOCK_TIMEOUT_S,
+            )
 
     def start_session(
         self,
@@ -173,6 +226,7 @@ class UnifiedMetricsCollector:
         )
 
         # Store in active sessions using atomic update
+        session.last_activity = session.start_time
         session_dict = asdict(session)
 
         def update_sessions(data: dict[str, Any]) -> None:
@@ -180,8 +234,9 @@ class UnifiedMetricsCollector:
 
         self._update_json_atomic(self.active_sessions_file, update_sessions)
 
-        # Set as current session for this thread
-        self._local.session_id = session_id
+        # Set as the process's current session
+        with self._session_lock:
+            self._session_id = session_id
 
         return session_id
 
@@ -200,14 +255,12 @@ class UnifiedMetricsCollector:
             success: Whether operation succeeded
             duration_ms: Operation duration in milliseconds
         """
-        session_id = session_id or getattr(self._local, "session_id", None)
-        if not session_id:
-            # Auto-create session if needed
-            session_id = self.start_session(session_type="auto")
+        session_id = session_id or self._current_or_new_session()
 
         def update_mcp_op(data: dict[str, Any]) -> None:
             if session_id in data:
                 session = data[session_id]
+                session["last_activity"] = datetime.now().isoformat()
                 session["mcp_operations"][tool_name] = (
                     session["mcp_operations"].get(tool_name, 0) + 1
                 )
@@ -227,12 +280,13 @@ class UnifiedMetricsCollector:
 
     def record_grep_operation(self, session_id: str | None = None) -> None:
         """Record a grep/text search operation."""
-        session_id = session_id or getattr(self._local, "session_id", None)
+        session_id = session_id or self._session_id
         if not session_id:
             return
 
         def update_grep_op(data: dict[str, Any]) -> None:
             if session_id in data:
+                data[session_id]["last_activity"] = datetime.now().isoformat()
                 data[session_id]["grep_operations"] += 1
                 data[session_id]["total_operations"] += 1
 
@@ -242,12 +296,13 @@ class UnifiedMetricsCollector:
         self, hits: int = 0, misses: int = 0, session_id: str | None = None
     ) -> None:
         """Update cache statistics for a session."""
-        session_id = session_id or getattr(self._local, "session_id", None)
+        session_id = session_id or self._session_id
         if not session_id:
             return
 
         def update_cache(data: dict[str, Any]) -> None:
             if session_id in data:
+                data[session_id]["last_activity"] = datetime.now().isoformat()
                 data[session_id]["cache_hits"] += hits
                 data[session_id]["cache_misses"] += misses
 
@@ -259,7 +314,7 @@ class UnifiedMetricsCollector:
         Returns:
             Final session metrics
         """
-        session_id = session_id or getattr(self._local, "session_id", None)
+        session_id = session_id or self._session_id
         if not session_id:
             return {}
 
@@ -268,9 +323,45 @@ class UnifiedMetricsCollector:
         if session_id not in active_sessions:
             return {}
 
-        # Get session for calculations
-        session: dict[str, Any] = active_sessions[session_id].copy()
-        session["end_time"] = datetime.now().isoformat()
+        session = self._finalised(active_sessions[session_id], datetime.now().isoformat())
+
+        # Move to completed sessions
+        self._append_jsonl(self.completed_sessions_file, session)
+
+        # Remove from active sessions atomically
+        def remove_session(data: dict[str, Any]) -> None:
+            if session_id in data:
+                del data[session_id]
+
+        self._update_json_atomic(self.active_sessions_file, remove_session)
+
+        # Update aggregated statistics
+        self._update_aggregated_stats(session)
+
+        # Clear the process's current session
+        with self._session_lock:
+            if self._session_id == session_id:
+                self._session_id = None
+
+        return session
+
+    def _current_or_new_session(self) -> str:
+        """The process's session, opening an ``auto`` one if there is none yet.
+
+        Checked and opened under a lock so that threads recording at once share
+        one session.
+        """
+        with self._session_lock:
+            if self._session_id is None:
+                self.start_session(session_type="auto")
+            assert self._session_id is not None  # nosec B101 - set by start_session
+            return self._session_id
+
+    @staticmethod
+    def _finalised(active: dict[str, Any], end_time: str) -> dict[str, Any]:
+        """A copy of an active session, ended at *end_time*, with its statistics."""
+        session: dict[str, Any] = active.copy()
+        session["end_time"] = end_time
 
         # Calculate session statistics
         duration_seconds = (
@@ -299,25 +390,48 @@ class UnifiedMetricsCollector:
                 else 0
             ),
         }
-
-        # Move to completed sessions
-        self._append_jsonl(self.completed_sessions_file, session)
-
-        # Remove from active sessions atomically
-        def remove_session(data: dict[str, Any]) -> None:
-            if session_id in data:
-                del data[session_id]
-
-        self._update_json_atomic(self.active_sessions_file, remove_session)
-
-        # Update aggregated statistics
-        self._update_aggregated_stats(session)
-
-        # Clear thread-local session
-        if hasattr(self._local, "session_id") and self._local.session_id == session_id:
-            delattr(self._local, "session_id")
-
         return session
+
+    def prune_stale_sessions(self, now: datetime | None = None) -> int:
+        """Close active sessions idle for longer than :data:`STALE_SESSION_AGE` (#914).
+
+        Each is moved to the completed log, ended at its last activity (its
+        start for a session written before ``last_activity`` existed), and
+        counted in the aggregated statistics, as :meth:`end_session` would.
+        Runs when a collector starts, so a store left behind by killed
+        processes is cleaned by the next one. Writes nothing if nothing is stale.
+
+        Returns:
+            How many sessions were closed.
+        """
+        cutoff = (now or datetime.now()) - STALE_SESSION_AGE
+
+        def last_seen(session: dict[str, Any]) -> str:
+            return str(session.get("last_activity") or session.get("start_time") or "")
+
+        def is_stale(session: dict[str, Any]) -> bool:
+            try:
+                return datetime.fromisoformat(last_seen(session)) < cutoff
+            except ValueError:
+                return False  # an unreadable timestamp is never pruned
+
+        if not any(is_stale(s) for s in self._read_json(self.active_sessions_file).values()):
+            return 0
+
+        closed: list[dict[str, Any]] = []
+
+        def take(data: dict[str, Any]) -> None:
+            for sid in [sid for sid, s in data.items() if is_stale(s)]:
+                session = data.pop(sid)
+                closed.append(self._finalised(session, last_seen(session)))
+
+        self._update_json_atomic(self.active_sessions_file, take)
+        for session in closed:
+            self._append_jsonl(self.completed_sessions_file, session)
+            self._update_aggregated_stats(session)
+        if closed:
+            logger.info("Closed %d stale metrics session(s)", len(closed))
+        return len(closed)
 
     def _update_aggregated_stats(self, session: dict[str, Any]) -> None:
         """Update aggregated statistics with completed session data."""

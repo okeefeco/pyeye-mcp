@@ -68,7 +68,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
-from pyeye._ast_targets import attr_target_position, find_function_def_at_line
+from pyeye._ast_targets import attr_target_position, find_function_def_at_line, unsubscripted
 from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
@@ -1245,12 +1245,21 @@ def superclass_bases(
     bases: list[tuple[str, tuple[Handle, Any] | None]] = []
     for base in class_node.bases:
         text = ast.unparse(base)
+        # A subscripted base names the class it subscripts (``Box[int]``, #921).
+        # Any other expression (a call, a conditional) has no static class: it
+        # is unresolved, never the function or variable it mentions (#922).
+        target = unsubscripted(base)
+        if not isinstance(target, ast.Name | ast.Attribute):
+            bases.append((text, None))
+            continue
         try:
-            base_line, base_col = attr_target_position(base)
+            base_line, base_col = attr_target_position(target)
         except Exception:
             bases.append((text, None))
             continue
         d = goto_target(script, base_line, base_col, prefer="class")
+        if d is not None and getattr(d, "type", None) != "class":
+            d = None  # resolved to a function or variable, not a class (#922)
         h = _handle_for_name(d, analyzer) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases
