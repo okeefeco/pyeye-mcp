@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import inspect
 import os
 from pathlib import Path
 from textwrap import dedent
@@ -12,7 +11,7 @@ import pytest
 
 import pyeye
 from pyeye import _jedi_project
-from pyeye.constants import CONFIG_FILE, METRICS_DIR
+from pyeye.constants import CONFIG_FILE
 from pyeye.docs_facts import registry
 from pyeye.docs_facts.extractors import security
 from pyeye.docs_facts.facts import ExtractionError
@@ -170,26 +169,21 @@ class TestFacts:
     def test_the_server_imports_no_networking_module(self, facts: dict[str, object]) -> None:
         assert facts["security.network_imports"].value == []  # type: ignore[attr-defined]
 
-    def test_metrics_inputs_are_the_recorders_parameters(self, facts: dict[str, object]) -> None:
-        from pyeye.unified_metrics import UnifiedMetricsCollector
-
-        params = list(inspect.signature(UnifiedMetricsCollector.record_mcp_operation).parameters)
-        assert facts["security.metrics_inputs"].value == params[1:]  # type: ignore[attr-defined]
-        assert "tool_name" in params and not {"args", "kwargs", "arguments"} & set(params)
+    def test_no_usage_metrics_are_written(self, facts: dict[str, object]) -> None:
+        """#943: the unified metrics store, and its facts, are gone."""
+        assert "security.metrics_inputs" not in facts
+        assert "security.writes.metrics" not in facts
 
     def test_the_known_writers_are_listed(self, facts: dict[str, object]) -> None:
         sites = facts["security.write_sites"].value  # type: ignore[attr-defined]
         assert "pyeye.config:ProjectConfig.save_config" in sites
         assert "pyeye.mcp.__main__:_configure_logging" in sites
-        assert any(s.startswith("pyeye.unified_metrics:") for s in sites)
+        assert not any(s.startswith("pyeye.unified_metrics:") for s in sites)  # #943
         assert sites == sorted(sites)
 
     def test_the_paths_come_from_the_constants(self, facts: dict[str, object]) -> None:
         assert facts["security.writes.config"].value == {  # type: ignore[attr-defined]
             "path": f"<project_path>/{CONFIG_FILE}"
-        }
-        assert facts["security.writes.metrics"].value == {  # type: ignore[attr-defined]
-            "path": f"~/{METRICS_DIR}/"
         }
 
     def test_path_checks_match_what_validate_path_rejects(self, facts: dict[str, object]) -> None:
@@ -198,10 +192,7 @@ class TestFacts:
             assert described in rejected
             with pytest.raises(ValidationError, match=described):
                 PathValidator.validate_path(f"a{sequence}b")
-        components = facts["security.path_checks.components"].value  # type: ignore[attr-defined]
-        for component in components:
-            with pytest.raises(ValidationError, match="suspicious component"):
-                PathValidator.validate_path(f"/tmp{component}x")
+        assert "security.path_checks.components" not in facts  # retired with the check (#939)
         targets = facts["security.path_checks.targets"].value  # type: ignore[attr-defined]
         assert targets == list(PathValidator.RESTRICTED_TARGETS)
 

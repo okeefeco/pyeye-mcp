@@ -34,43 +34,6 @@ class _InertObserver:
         pass
 
 
-_METRICS_ENV = "PYEYE_METRICS_DIR"
-_saved_metrics_env: list[str | None] = []
-
-
-def pytest_configure() -> None:
-    """Store unified metrics in a temporary directory for the whole run (#914).
-
-    Every MCP operation records into the unified metrics store, and a test run
-    never ends its session, so runs filled the developer's
-    ``~/.pyeye/metrics/active_sessions.json`` (1.29 MB in one day, which made
-    each MCP call rewrite that file). Set through the environment, so a server or
-    script a test launches as a subprocess inherits it too.
-    """
-    import os
-
-    import pyeye.unified_metrics as unified_metrics
-
-    _saved_metrics_env.append(os.environ.get(_METRICS_ENV))
-    os.environ[_METRICS_ENV] = tempfile.mkdtemp(prefix="pyeye-test-metrics-")
-    unified_metrics._collector = None  # built lazily, now under the temporary store
-
-
-def pytest_unconfigure() -> None:
-    """Remove the temporary metrics store and restore the environment (#914)."""
-    import os
-    import shutil
-
-    if not _saved_metrics_env:
-        return
-    store = os.environ.pop(_METRICS_ENV, None)
-    previous = _saved_metrics_env.pop()
-    if previous is not None:
-        os.environ[_METRICS_ENV] = previous
-    if store:
-        shutil.rmtree(store, ignore_errors=True)
-
-
 def pytest_sessionfinish(session: pytest.Session) -> None:
     """Fail the run if a real observer outlived its test (#807).
 

@@ -15,6 +15,8 @@ DEPRECATED_ENV_VARS: dict[str, str] = {
     "PYEYE_ENABLE_CONNECTION_POOLING": "the connection pool was removed (#628)",
     "PYEYE_POOL_MAX_CONNECTIONS": "the connection pool was removed (#628)",
     "PYEYE_POOL_TTL": "the connection pool was removed (#628)",
+    "PYEYE_ISSUE": "accepted and ignored; nothing records sessions any more (#943)",
+    "PYEYE_PARENT_SESSION": "accepted and ignored; nothing records sessions any more (#943)",
 }
 
 
@@ -120,6 +122,11 @@ class PerformanceSettings:
             "PYEYE_ENABLE_MEMORY_PROFILING", False
         )
 
+        # Deprecated, no effect (DEPRECATED_ENV_VARS): labels for the removed
+        # unified metrics sessions (#943)
+        self.metrics_issue: str | None = self._get_str_env("PYEYE_ISSUE", None)
+        self.metrics_parent_session: str | None = self._get_str_env("PYEYE_PARENT_SESSION", None)
+
         # Performance monitoring
         self.enable_performance_metrics: bool = self._get_bool_env(
             "PYEYE_ENABLE_PERFORMANCE_METRICS", False
@@ -214,6 +221,10 @@ class PerformanceSettings:
         except ValueError:
             logger.warning(f"Invalid value for {key}, using default {default}")
             return default
+
+    def _get_str_env(self, key: str, default: str | None) -> str | None:
+        """Get a string value from an environment variable, or *default* if unset."""
+        return os.getenv(key, default)
 
     def _get_bool_env(self, key: str, default: bool) -> bool:
         """Get boolean value from environment variable.

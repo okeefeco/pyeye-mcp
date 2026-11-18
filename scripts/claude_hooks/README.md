@@ -15,11 +15,20 @@ source ~/.claude/mcp_monitoring/aliases.sh
 mcp-report
 ```
 
+### Updating an existing setup
+
+The setup script copies the hook matchers from `hooks.json` into your
+`~/.claude/settings.json`, so a change to them reaches you only when you re-run
+it. If you set up monitoring before the plugin's tool names were matched
+(#965), re-run `bash scripts/claude_hooks/setup_mcp_monitoring.sh` once; it
+backs up your settings first. The tracking scripts themselves run from this
+repository, so changes to them need nothing.
+
 ## 📊 What Gets Tracked
 
 The monitoring system automatically tracks:
 
-- **MCP Tool Calls**: Every `mcp__pyeye__*` tool invocation
+- **MCP Tool Calls**: Every pyeye tool invocation, under either name Claude Code gives it: `mcp__pyeye__*` (added with `claude mcp add`) or `mcp__plugin_pyeye_pyeye__*` (the Claude Code plugin). Both are recorded under the tool's own name, such as `resolve`.
 - **Grep Usage**: Detection of grep/rg/find in Bash commands
 - **Direct Grep Tool**: Usage of Claude's Grep tool
 - **Sessions**: Start/end of Claude Code sessions

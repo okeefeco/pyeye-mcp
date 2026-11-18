@@ -301,8 +301,11 @@
     },
     "env.PYEYE_ISSUE": {
       "default": null,
-      "source": "pyeye/metrics_hook.py",
-      "status": "live",
+      "deprecated": "accepted and ignored; nothing records sessions any more (#943)",
+      "max": null,
+      "min": null,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
       "type": "str"
     },
     "env.PYEYE_LOG_FILE": {
@@ -343,16 +346,13 @@
       "status": "deprecated",
       "type": "int"
     },
-    "env.PYEYE_METRICS_DIR": {
-      "default": null,
-      "source": "pyeye/unified_metrics.py",
-      "status": "live",
-      "type": "str"
-    },
     "env.PYEYE_PARENT_SESSION": {
       "default": null,
-      "source": "pyeye/metrics_hook.py",
-      "status": "live",
+      "deprecated": "accepted and ignored; nothing records sessions any more (#943)",
+      "max": null,
+      "min": null,
+      "source": "pyeye/settings.py",
+      "status": "deprecated",
       "type": "str"
     },
     "env.PYEYE_PARSO_CACHE_MAX_ENTRIES": {
@@ -673,21 +673,37 @@
       "syntax": "standalone"
     },
     "security.jedi_unsafe_extensions": false,
-    "security.metrics_inputs": [
-      "tool_name",
-      "session_id",
-      "success",
-      "duration_ms"
-    ],
     "security.network_imports": [],
-    "security.path_checks.components": [
-      "/etc/",
-      "/root/",
-      "/proc/",
-      "/sys/",
-      "/dev/"
+    "security.path_checks.ancestors": [
+      "/",
+      "/private",
+      "/private/var",
+      "/private/var/run",
+      "/run",
+      "/var",
+      "/var/run"
+    ],
+    "security.path_checks.credentials": [
+      ".ssh",
+      ".aws",
+      ".gnupg",
+      ".config/gcloud",
+      ".azure",
+      ".kube",
+      ".docker",
+      ".config/gh",
+      ".netrc",
+      ".pypirc",
+      ".pgpass",
+      ".git-credentials",
+      ".npmrc"
     ],
     "security.path_checks.forms": "the deny-list checks the target's lexical and resolved forms.",
+    "security.path_checks.homes": [
+      "^/home/[^/]+/",
+      "^/Users/[^/]+/",
+      "^/root/"
+    ],
     "security.path_checks.rejected": [
       "null bytes",
       "suspicious triple dots"
@@ -699,25 +715,21 @@
       "^/proc/",
       "^/sys/",
       "^/dev/",
-      "/etc/",
-      "/root/"
+      "^/boot/",
+      "^/run/secrets/",
+      "^/var/run/secrets/",
+      "^/private/var/run/secrets/",
+      "^/var/root/",
+      "^/private/var/root/"
     ],
     "security.subprocesses": [],
     "security.write_sites": [
       "pyeye.config:ProjectConfig.save_config",
       "pyeye.config:create_example_config",
-      "pyeye.mcp.__main__:_configure_logging",
-      "pyeye.unified_metrics:UnifiedMetricsCollector.__init__",
-      "pyeye.unified_metrics:UnifiedMetricsCollector._append_jsonl",
-      "pyeye.unified_metrics:UnifiedMetricsCollector._write_json",
-      "pyeye.unified_metrics:UnifiedMetricsCollector.cleanup_old_sessions",
-      "pyeye.unified_metrics:UnifiedMetricsCollector.export_metrics"
+      "pyeye.mcp.__main__:_configure_logging"
     ],
     "security.writes.config": {
       "path": "<project_path>/.pyeye.json"
-    },
-    "security.writes.metrics": {
-      "path": "~/.pyeye/metrics/"
     },
     "tool.configure_packages": {
       "group": "core",

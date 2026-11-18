@@ -29,13 +29,34 @@ class TestDjangoPlugin:
         """Test plugin name."""
         assert django_plugin.name() == "Django"
 
-    def test_detect_with_manage_py(self, temp_project):
-        """Test detection with manage.py file."""
-        manage_py = temp_project / "manage.py"
-        manage_py.write_text("#!/usr/bin/env python\n")
+    def test_a_bare_manage_py_is_not_django(self, temp_project):
+        """A manage.py alone is not evidence of Django (#940)."""
+        (temp_project / "manage.py").write_text("#!/usr/bin/env python\n")
 
-        plugin = DjangoPlugin(temp_project)
-        assert plugin.detect() is True
+        assert DjangoPlugin(temp_project).detect() is False
+
+    def test_a_flask_script_manage_py_is_not_django(self, temp_project):
+        """Flask-Script projects have a manage.py too (#940)."""
+        (temp_project / "manage.py").write_text(
+            "from flask_script import Manager\n" "from app import app\n" "manager = Manager(app)\n"
+        )
+        (temp_project / "requirements.txt").write_text("flask\nflask-script\n")
+
+        assert DjangoPlugin(temp_project).detect() is False
+
+    def test_djangos_generated_manage_py_is_django(self, temp_project):
+        """The manage.py ``startproject`` writes imports Django, so it is found."""
+        (temp_project / "manage.py").write_text(
+            "import os\nimport sys\n\n\ndef main():\n"
+            "    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'site.settings')\n"
+            "    try:\n"
+            "        from django.core.management import execute_from_command_line\n"
+            "    except ImportError as exc:\n"
+            "        raise ImportError('no Django') from exc\n"
+            "    execute_from_command_line(sys.argv)\n"
+        )
+
+        assert DjangoPlugin(temp_project).detect() is True
 
     def test_detect_with_requirements_txt(self, temp_project):
         """Test detection with Django in requirements.txt."""
@@ -70,6 +91,41 @@ class TestDjangoPlugin:
 
         plugin = DjangoPlugin(temp_project)
         assert plugin.detect() is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "django\n",
+            "Django==4.2.0\n",
+            "django>=3.2,<5\n",
+            "  django ~= 4.2  # web framework\n",
+            "django[argon2]>=4.2\n",
+            "requests\ndjango; python_version >= '3.10'\n",
+            '[packages]\ndjango = "*"\n',
+            '[packages]\n"Django" = {version = ">=4.2"}\n',
+        ],
+    )
+    def test_a_django_requirement_is_detected(self, temp_project, text):
+        (temp_project / "requirements.txt").write_text(text)
+
+        assert DjangoPlugin(temp_project).detect() is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "django-environ==0.11\n",
+            "djangorestframework>=3.14\n",
+            "# django is not used here\nflask\n",
+            "flask  # not django\n",
+            "my-django-tools\n",
+            '[packages]\ndjango-cors-headers = "*"\n',
+        ],
+    )
+    def test_a_name_that_only_mentions_django_is_not(self, temp_project, text):
+        """A bare substring used to count: any mention of 'django' matched (#940)."""
+        (temp_project / "Pipfile").write_text(text)
+
+        assert DjangoPlugin(temp_project).detect() is False
 
     def test_detect_no_django(self, temp_project):
         """Test detection returns False when Django not found."""
@@ -271,8 +327,7 @@ class Migration(migrations.Migration):
     @patch("pyeye.plugins.django.logger")
     def test_logging_on_detection(self, mock_logger, temp_project):
         """Test that detection logs appropriately."""
-        manage_py = temp_project / "manage.py"
-        manage_py.write_text("#!/usr/bin/env python\n")
+        (temp_project / "requirements.txt").write_text("django\n")
 
         plugin = DjangoPlugin(temp_project)
         plugin.detect()

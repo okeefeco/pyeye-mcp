@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Every caller-supplied path is checked in the form the tool finally uses (#856)"
 issues: [856, 852, 842, 843, 568, 714, 717]
 anchors: ["pyeye.validation.PathValidator.validate_final", "pyeye.validation.PathValidator.check_forms", "pyeye.validation.validate_mcp_inputs", "pyeye.mcp.operations.resolve._resolve_identifier", "pyeye.scope_utils.package_scope_path", "pyeye.config.ProjectConfig.get_namespaces", "pyeye.config.ProjectConfig.get_standalone_paths", "pyeye.validation.PathValidator.validate_scan_root", "pyeye.validation.restricted_dir", "pyeye.async_utils.pruned_walk", "tests/test_final_form_path_checks.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-842-relative-caller-paths-anchor-on-project-path-missing-package-is-unsearched.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-872-namespace-globs-expand-to-sorted-matches-through-the-package-helper.md", "2026-11-18-939-the-deny-list-is-anchored-patterns-only-matched-ignoring-case.md", "2026-11-19-909-deny-list-adds-boot-and-secrets-dirs-and-home-credential-stores.md"]
 superseded_by: []
 ---
 

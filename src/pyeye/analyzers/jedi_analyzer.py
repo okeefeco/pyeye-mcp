@@ -176,6 +176,9 @@ class JediAnalyzer:
         # containment enumerator relies on this being a stable, list-derived
         # source. Populated below before jedi.Project is constructed (#423).
         self.added_sys_path: list[Path] = []
+        # The roots __init__ puts first on Jedi's sys_path (config packages or
+        # src/), before additional and namespace roots (:meth:`_jedi_roots`).
+        self._base_sys_path: list[str] = []
         self._additional_projects: dict[Path, jedi.Project] = {}  # Cached Jedi projects
         self.config = config
 
@@ -235,25 +238,20 @@ class JediAnalyzer:
                     self.source_roots = [src]
                     logger.info(f"Adding {src.as_posix()} to Jedi sys path (src layout)")
 
-            # Add namespace repo roots to Jedi's sys_path so full_name values
-            # include the namespace prefix from the first query.
-            for ns_paths in self.namespace_paths.values():
-                for ns_path in ns_paths:
-                    resolved = normalize_path(ns_path)
-                    if resolved.exists() and resolved.as_posix() not in added_sys_path:
-                        added_sys_path.append(resolved.as_posix())
-                        logger.info(f"Adding namespace root {resolved.as_posix()} to Jedi sys path")
-
-            # Store the FINAL merged list (src-layout + namespace roots) as the
-            # public attribute, typed as Path, in the same sys.path-precedence
-            # order that is handed to jedi.Project (#423).  Jedi gets RESOLVED
-            # paths: it resolves the module paths it compares them with, so a
-            # symlinked or short-name spelling would never match (#714).  The
-            # caller's spelling stays in project_path / source_roots, for
-            # display and for the file <-> module mapper.
-            jedi_sys_path = list(
+            # Namespace repo roots follow (:meth:`_jedi_roots`), so full_name
+            # values include the namespace prefix from the first query.
+            #
+            # Store the FINAL merged list as the public attribute, typed as Path,
+            # in the same sys.path-precedence order that is handed to
+            # jedi.Project (#423).  Jedi gets RESOLVED paths: it resolves the
+            # module paths it compares them with, so a symlinked or short-name
+            # spelling would never match (#714).  The caller's spelling stays in
+            # project_path / source_roots, for display and for the file <->
+            # module mapper.
+            self._base_sys_path = list(
                 dict.fromkeys(normalize_path(p).as_posix() for p in added_sys_path)
             )
+            jedi_sys_path = self._jedi_roots()
             self.added_sys_path = [Path(p) for p in jedi_sys_path]
 
             # When the project_path IS a Python package (has __init__.py),
@@ -294,11 +292,52 @@ class JediAnalyzer:
     def set_additional_paths(self, paths: list[Path]) -> None:
         """Set additional paths from ProjectManager.
 
+        Each existing path also goes on Jedi's ``sys_path``, after the roots
+        already there, as a package read from the config does in ``__init__``
+        (#858). Only that route reached Jedi before: a package registered
+        through ``ProjectManager.register_project`` (``configure_packages``
+        with ``save=False``) was searched by pyeye but invisible to Jedi, so
+        imports of it were unresolved, and Jedi named a nested one from the
+        project root (``.hidden.upstream.pkg``), which the file <-> module
+        mapper (#625) does not.
+
         Args:
             paths: List of additional package paths to include in analysis
         """
         self.additional_paths = paths
         logger.info(f"Set {len(paths)} additional paths for {self.project_path}")
+        self._refresh_jedi_project()
+
+    def _jedi_roots(self) -> list[str]:
+        """Jedi's added ``sys_path``, resolved, in ONE fixed order (#858, #962).
+
+        The constructor's roots (config packages or ``src/``), then the
+        additional paths, then the namespace repo roots, each existing and
+        deduped in that order. Computed from the layout, never merged from the
+        previous list, so the order (which decides import precedence between
+        roots, #419) doesn't depend on which setter ran last.
+        """
+        resolved_project = normalize_path(self.project_path)
+        roots = list(self._base_sys_path)
+        for path in self.additional_paths:
+            root = normalize_path(path)
+            if root != resolved_project and root.exists():
+                roots.append(root.as_posix())
+        for ns_paths in self.namespace_paths.values():
+            for ns_path in ns_paths:
+                root = normalize_path(ns_path)
+                if root.exists():
+                    roots.append(root.as_posix())
+        return list(dict.fromkeys(roots))
+
+    def _refresh_jedi_project(self) -> None:
+        """Rebuild the Jedi project when :meth:`_jedi_roots` changed."""
+        roots = self._jedi_roots()
+        if roots == [p.as_posix() for p in self.added_sys_path]:
+            return
+        self.added_sys_path = [Path(p) for p in roots]
+        self.project = make_project(self.project.path, added_sys_path=_jedi_sys_path(roots))
+        logger.info(f"Jedi sys_path for {self.project_path.as_posix()} is now {len(roots)} root(s)")
 
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:
         """Set namespace package mappings.
@@ -322,20 +361,8 @@ class JediAnalyzer:
         # "aac": ["../aac-catalog"], the path ../aac-catalog/ contains aac/ as
         # a subdirectory.  Adding aac-catalog/ to sys_path lets Jedi resolve
         # "aac.logical.patterns.X" instead of just "logical.patterns.X".
-        ns_sys_paths: set[str] = set()
-        for ns_paths in self.namespace_paths.values():
-            for ns_path in ns_paths:
-                resolved = normalize_path(ns_path)
-                if resolved.exists():
-                    ns_sys_paths.add(resolved.as_posix())
-
-        if ns_sys_paths:
-            # Merge with existing added_sys_path and recreate the Jedi project
-            existing = list(self.project.added_sys_path or [])
-            merged = _jedi_sys_path(set(existing) | ns_sys_paths)
-            jedi_root = self.project.path
-            self.project = make_project(jedi_root, added_sys_path=merged)
-            logger.info(f"Updated Jedi sys_path with {len(ns_sys_paths)} namespace parent dirs")
+        # In the one fixed order (#962): a set() merge here made it arbitrary.
+        self._refresh_jedi_project()
 
     def set_standalone_paths(self, paths: list[Path]) -> None:
         """Set standalone script directories.

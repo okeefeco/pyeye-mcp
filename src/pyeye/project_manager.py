@@ -14,7 +14,7 @@ from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
 from .path_utils import normalize_path, path_to_key
-from .validation import unwalkable_root
+from .validation import PathValidator, unwalkable_root
 
 logger = logging.getLogger(__name__)
 
@@ -238,10 +238,18 @@ class ProjectManager:
         Returns:
             Configured JediAnalyzer instance (cached on repeated calls with
             the same resolved path until explicitly invalidated or evicted).
+
+        Raises:
+            ValidationError: If *project_path* lands in a restricted location.
+                The tools check it first (``validate_mcp_inputs``); this guard
+                keeps an internal caller that skips them from rooting an
+                analyzer in ``/etc`` (#909, #949 review). An ancestor such as
+                "/" stays allowed here, as for ``project_path`` itself (#856).
         """
         # Import here to avoid circular imports
         from .config import ProjectConfig
 
+        PathValidator.validate_final(project_path, ".")
         path_key = normalize_path(project_path)
 
         # --- Cache hit: return the existing analyzer ---
