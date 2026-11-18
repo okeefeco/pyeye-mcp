@@ -27,16 +27,31 @@ def _str_value(node: ast.AST) -> str | None:
 # A handler may be ``async def`` (Flask 2.0+); both are scanned (#873).
 _FUNCTION_DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
+# Flask 2.0's route shortcuts: ``@app.get(path)`` is ``route(path, methods=["GET"])`` (#905).
+_ROUTE_SHORTCUTS = frozenset({"get", "post", "put", "delete", "patch"})
+
+_BLUEPRINT = frozenset({"Blueprint"})
+# What a route shortcut's receiver must be bound to, in the same file (#905).
+_FLASK_ROUTE_OWNERS = frozenset({"Flask", "Blueprint"})
+
+
+def _may_declare_routes(content: str) -> bool:
+    """Cheap text pre-filter: could *content* hold a route decorator?"""
+    return "route" in content or any(f".{m}(" in content for m in _ROUTE_SHORTCUTS)
+
+
 # Config files: at a scope root or one directory below it (#873).
 _CONFIG_FILE_PATTERNS = ("config.py", "settings.py", "*/config.py", "*/settings.py")
 
 
-def _blueprint_assignment(node: ast.AST) -> tuple[str, ast.Call, int] | None:
-    """``(target, call, line)`` when *node* binds a name to a ``Blueprint(...)`` call.
+def _constructor_assignment(
+    node: ast.AST, classes: frozenset[str]
+) -> tuple[str, ast.Call, int] | None:
+    """``(target, call, line)`` when *node* binds a name to a call of one of *classes*.
 
     Accepts ``bp = Blueprint(...)``, ``bp = <module>.Blueprint(...)`` (such as
     ``flask.Blueprint`` or an aliased import) and the annotated forms of both
-    (#873). An annotation with no value binds nothing and is not a blueprint.
+    (#873). An annotation with no value binds nothing and is not a match.
     """
     if isinstance(node, ast.Assign) and node.targets:
         target, value = node.targets[0], node.value
@@ -47,11 +62,25 @@ def _blueprint_assignment(node: ast.AST) -> tuple[str, ast.Call, int] | None:
     if not (isinstance(target, ast.Name) and isinstance(value, ast.Call)):
         return None
     func = value.func
-    if (isinstance(func, ast.Name) and func.id == "Blueprint") or (
-        isinstance(func, ast.Attribute) and func.attr == "Blueprint"
+    if (isinstance(func, ast.Name) and func.id in classes) or (
+        isinstance(func, ast.Attribute) and func.attr in classes
     ):
         return target.id, value, target.lineno
     return None
+
+
+def _flask_route_owners(tree: ast.AST) -> set[str]:
+    """Names this file binds, anywhere, to a ``Flask(...)`` or ``Blueprint(...)`` call.
+
+    Covers module-level objects and the app factory's local ``app``. A
+    blueprint or app imported from another module is not among them (#905).
+    """
+    owners = set()
+    for node in ast.walk(tree):
+        found = _constructor_assignment(node, _FLASK_ROUTE_OWNERS)
+        if found is not None:
+            owners.add(found[0])
+    return owners
 
 
 def _template_name(template_file: Path, template_dir: Path) -> str:
@@ -134,9 +163,10 @@ class FlaskPlugin(AnalyzerPlugin):
         py_files = await self.get_project_files("*.py", scope)
         for py_file in py_files:
             content = await self._read_source(py_file)
-            if content is not None and "@" in content and "route" in content:
+            if content is not None and "@" in content and _may_declare_routes(content):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
+                    owners = _flask_route_owners(tree)
                     for node in ast.walk(tree):
                         if isinstance(node, _FUNCTION_DEFS):
                             # Check for route decorators
@@ -164,6 +194,22 @@ class FlaskPlugin(AnalyzerPlugin):
                                                 method = _str_value(elt)
                                                 if method is not None:
                                                     methods.append(method)
+
+                                # @app.get("/p"), .post, .put, .delete, .patch (#905):
+                                # route() with one fixed method. Only on a receiver
+                                # this file binds to Flask(...) or Blueprint(...),
+                                # so FastAPI's @router.get or @cache.get("k") is not
+                                # a route; and the path must be a string literal.
+                                elif (
+                                    isinstance(decorator, ast.Call)
+                                    and isinstance(decorator.func, ast.Attribute)
+                                    and decorator.func.attr in _ROUTE_SHORTCUTS
+                                    and isinstance(decorator.func.value, ast.Name)
+                                    and decorator.func.value.id in owners
+                                    and decorator.args
+                                ):
+                                    route_path = _str_value(decorator.args[0])
+                                    methods = [decorator.func.attr.upper()]
 
                                 if route_path:
                                     routes.append(
@@ -199,7 +245,7 @@ class FlaskPlugin(AnalyzerPlugin):
                 tree = self._parse_source(py_file, content)
                 if tree is not None:
                     for node in ast.walk(tree):
-                        found = _blueprint_assignment(node)
+                        found = _constructor_assignment(node, _BLUEPRINT)
                         if found is not None:
                             target, call, line = found
                             bp_name = _str_value(call.args[0]) if call.args else None

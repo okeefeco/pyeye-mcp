@@ -7,6 +7,8 @@
   every push to ``main``; its one ``python-version: [...]`` list). Every other
   ``python-version`` in ``ci.yml`` (the PR matrix's ``include`` entries, the
   lint job) must be one of these, or extraction fails.
+- ``ci.uv_sync_flags``: the flags every ``uv sync`` in ``ci.yml`` passes (#830,
+  C17). A ``uv sync`` without them fails extraction: CI installs one way.
 - ``project.python_versions`` / ``project.requires_python``: the trove
   classifiers and ``requires-python`` in ``pyproject.toml``. The matrix must
   equal the classifiers, and ``requires-python`` must be ``>=`` the oldest of
@@ -33,6 +35,8 @@ CI_WORKFLOW = ".github/workflows/ci.yml"
 _FAIL_UNDER = re.compile(r"--cov-fail-under=(\d+)")
 _MATRIX = re.compile(r"^\s*python-version:\s*\[([^\]]*)\]", re.MULTILINE)
 _SINGLE = re.compile(r"^\s*(?:-\s+)?python-version:\s*['\"]?(3\.\d+)['\"]?\s*$", re.MULTILINE)
+_UV_SYNC = re.compile(r"\buv sync((?:\s+--?[A-Za-z][\w-]*(?:[ =][^\s#-][^\s#]*)?)*)")
+_FLAG = re.compile(r"--?[A-Za-z][\w-]*")
 _CLASSIFIER = re.compile(r"Programming Language :: Python :: (3\.\d+)$")
 
 
@@ -78,6 +82,18 @@ def extract(root: Path) -> Iterator[Bindable]:
         )
 
     yield Fact("ci.coverage_threshold", threshold, f"{threshold}%")
+    yield _uv_sync_flags(workflow)
     yield Fact("ci.python_versions", versions, ", ".join(versions))
     yield Fact("project.python_versions", classifiers, ", ".join(classifiers))
     yield Fact("project.requires_python", requires, f"`{requires}`")
+
+
+def _uv_sync_flags(workflow: str) -> Fact:
+    """The flags every ``uv sync`` in *workflow* passes; others (``--group``) vary by job."""
+    syncs = [set(_FLAG.findall(m.group(1))) for m in _UV_SYNC.finditer(workflow)]
+    if not syncs:
+        raise ExtractionError(f"{CI_WORKFLOW} runs no `uv sync`")
+    common = sorted(set.intersection(*syncs))
+    if not common:
+        raise ExtractionError(f"{CI_WORKFLOW}'s `uv sync` steps share no flag")
+    return Fact("ci.uv_sync_flags", common, " ".join(f"`{f}`" for f in common))

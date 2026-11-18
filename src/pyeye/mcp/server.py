@@ -1067,7 +1067,7 @@ async def expand(
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
-          "unparseable_files": [file, ...],  # subclasses / imported_by / re_exports ONLY (#729); [] when all parsed
+          "unparseable_files": [file, ...],  # <<fact:edges.unparseable>> ONLY (#729); [] when all parsed
           "transitive_hint": str,        # subclasses ONLY: the trace call for the full tree
           "truncated": True,             # these three only when max_stubs cut the list;
           "truncation_reasons": ["max_stubs"],  # absent otherwise
@@ -1187,7 +1187,7 @@ async def trace(
           "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
-          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by/re_exports walked
+          "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff one of <<fact:edges.unparseable>> walked
           "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
           "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 

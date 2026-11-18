@@ -1,24 +1,26 @@
 # Pydantic Tools
 
 Tools for finding Pydantic models and what shapes them: fields, validators,
-computed fields and model configuration. They're available once Pydantic is
-detected in the project or in one of its configured packages.
+computed fields and model configuration.
 
-- **Parameters:** every tool takes `scope`, `envelope` and `project_path`
-  ([Every plugin tool](README.md#every-plugin-tool)); `get_model_schema` and
-  `trace_model_inheritance` also take the `model_name` to look up. The exact
-  parameters and defaults are generated in
-  [MCP tools](../reference/tools.md#pydantic).
-- **Examples:** each example below runs in CI against a small project with one
-  model, `User`, and its output is checked against the real response (`…` marks
-  what's left out). A record that names a symbol carries a `handle` you can pass
-  to `inspect`, `outline`, `expand` or `trace`.
+The [plugin tools overview](README.md) says when these tools are available and
+what every plugin tool shares: its parameters, its records and how the examples
+work. Each tool's exact parameters are in
+[MCP tools](../reference/tools.md#pydantic). `get_model_schema` and `trace_model_inheritance` also take the `model_name` to
+look up. The examples below run against a small project with one model, `User`.
 
 The tools: <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->.
 
 Two fields of `trace_model_inheritance`'s result are known to come back empty
 when they shouldn't (#870): `mro` and `fields_inherited`. The examples leave
 them out.
+
+A model's configuration (`config` on a model or schema, `settings` from
+`find_model_config`) is reported only when its `model_config` can be read in
+full from source: a dict literal or a `ConfigDict(...)` /
+`SettingsConfigDict(...)` call whose entries all have plain keys. When it can't
+(a function call, a name, a `**` splat), the key is left out rather than shown
+empty or partial (#870). A model with no configuration at all has `{}`.
 
 ## find_pydantic_models
 

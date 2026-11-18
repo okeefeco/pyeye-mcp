@@ -160,10 +160,12 @@ The server can be configured to analyze packages in other locations. Create a `.
 
 Configuration is loaded in the following order (later sources override earlier ones):
 
-1. **Global Config**: `~/.config/pyeye/config.json` or `~/.pyeye.json` - User defaults
-2. **Project Config**: `.pyeye.json` in project root or `[tool.pyeye]` in `pyproject.toml`
-3. **Override File**: `.pyeye.override.json` - Local development overrides (keep it out of git)
+1. **Global Config**: the first of <!-- fact:begin config.files.global -->`~/.config/pyeye/config.json`, `~/.pyeye.json`<!-- fact:end --> that exists - User defaults
+2. **Project Config**: the first of <!-- fact:begin config.files.project -->`.pyeye.json`, `.pyeye.yaml`, `.pyeye.yml`, `pyproject.toml`, `.claude/pyeye.json`<!-- fact:end --> in the project root (in `pyproject.toml`, the `[tool.pyeye]` section)
+3. **Override File**: <!-- fact:begin config.files.override -->`.pyeye.override.json`<!-- fact:end --> - Local development overrides (keep it out of git)
 4. **Auto-Discovery**: Automatically detects source layouts and sibling packages if no packages configured
+
+The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`<!-- fact:end -->.
 
 ### Using Override Files
 

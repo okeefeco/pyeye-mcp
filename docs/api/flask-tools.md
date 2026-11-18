@@ -2,16 +2,11 @@
 
 Tools for finding the parts of a Flask application: routes, blueprints, views,
 templates, extensions, configuration files, error handlers and CLI commands.
-They're available once Flask is detected in the project or in one of its
-configured packages.
 
-- **Parameters:** every tool takes `scope`, `envelope` and `project_path`
-  ([Every plugin tool](README.md#every-plugin-tool)); the exact parameters and
-  defaults are generated in [MCP tools](../reference/tools.md#flask).
-- **Examples:** each example below runs in CI against a small Flask app, and its
-  output is checked against the real response (`…` marks what's left out).
-  A record that names a symbol carries a `handle` you can pass to `inspect`,
-  `outline`, `expand` or `trace`.
+The [plugin tools overview](README.md) says when these tools are available and
+what every plugin tool shares: its parameters, its records and how the examples
+work. Each tool's exact parameters are in
+[MCP tools](../reference/tools.md#flask). The examples below run against a small Flask app.
 
 The tools: <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_error_handlers`, `find_flask_blueprints`, `find_flask_config`, `find_flask_extensions`, `find_flask_routes`, `find_flask_templates`, `find_flask_views`<!-- fact:end -->.
 
