@@ -195,9 +195,17 @@ class TestSymlinkThenDotDot:
         monkeypatch.chdir(tmp_path)  # the reviewer's set-up: cwd at proj's parent
         return proj
 
-    @pytest.mark.usefixtures("proj")
     @pytest.mark.parametrize("tail", ["etc", "proc/self"])
-    def test_a_relative_project_path(self, tail: str) -> None:
+    def test_a_relative_project_path(self, proj: Path, tail: str) -> None:
+        from pyeye.path_utils import normalize_path
+        from pyeye.validation import restricted_dir
+
+        # Expect what the OS makes of it: on macOS /tmp is /private/tmp, so
+        # l_tmp/../proc/self is /private/proc/self, which isn't restricted (and
+        # doesn't exist: macOS has no /proc). No restricted dir is reached there.
+        target = normalize_path(proj / "l_tmp" / ".." / tail)
+        if not restricted_dir(target):
+            pytest.skip(f"l_tmp/../{tail} resolves to {target.as_posix()}, not restricted here")
         for tool, args in [
             ("resolve", {"identifier": "sitecustomize"}),
             ("outline", {"handle": "sitecustomize"}),
