@@ -86,11 +86,27 @@ class TestExpansion:
 
         assert config.get_namespaces() == {"co": [(repos / "co-a").as_posix()]}
 
-    def test_question_mark_and_brackets_are_literal(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("name", "as_glob_matches"),
+        [
+            ("co[1]", "co1"),
+            pytest.param(
+                "co?",
+                "cox",
+                marks=pytest.mark.skipif(
+                    os.name == "nt", reason="Windows forbids '?' in file names"
+                ),
+            ),
+        ],
+        ids=["brackets", "question-mark"],
+    )
+    def test_question_mark_and_brackets_are_literal(
+        self, tmp_path: Path, name: str, as_glob_matches: str
+    ) -> None:
         """Only ``*`` expands: a path containing ``?`` or ``[`` keeps its meaning."""
-        literal = tmp_path / "repos" / "co[1]?"
+        literal = tmp_path / "repos" / name
         literal.mkdir(parents=True)
-        (tmp_path / "repos" / "co1x").mkdir()  # what "co[1]?" would match as a glob
+        (tmp_path / "repos" / as_glob_matches).mkdir()  # what *name* would match as a glob
 
         config = _config(tmp_path, {"co": [literal.as_posix()]})
 
