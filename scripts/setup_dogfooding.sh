@@ -13,8 +13,10 @@ echo ""
 # Check prerequisites
 echo "📋 Checking prerequisites..."
 
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is required but not installed"
+# The metrics script imports click and pyeye, which live only in the uv
+# environment, so every call goes through uv run (#879).
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is required but not installed (https://docs.astral.sh/uv/)"
     exit 1
 fi
 
@@ -59,7 +61,7 @@ echo ""
 echo "🧪 Testing setup..."
 
 # Test metrics script
-if python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" --help &> /dev/null; then
+if uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" --help &> /dev/null; then
     echo "✅ Dogfooding metrics script works"
 else
     echo "❌ Dogfooding metrics script failed"
@@ -104,6 +106,6 @@ echo "   mcp-saved 10 'reason'  # Log time saved"
 echo "   mcp-bug 'description'  # Log prevented bug"
 echo ""
 echo "📈 To see your metrics:"
-echo "   python scripts/dogfooding_metrics.py report --days 7"
+echo "   uv run --frozen python scripts/dogfooding_metrics.py report --days 7"
 echo ""
 echo "Happy dogfooding! 🐕‍🦺"

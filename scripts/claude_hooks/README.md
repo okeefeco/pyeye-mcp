@@ -105,10 +105,10 @@ This system complements the existing dogfooding metrics:
 
 ```python
 # Sync MCP monitoring data with dogfooding session
-python scripts/dogfooding_metrics.py sync
+uv run --frozen python scripts/dogfooding_metrics.py sync
 
 # Combined report
-python scripts/dogfooding_metrics.py report --include-hooks
+uv run --frozen python scripts/dogfooding_metrics.py report --include-hooks
 ```
 
 ## 🛠️ Manual Installation

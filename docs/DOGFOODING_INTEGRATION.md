@@ -73,21 +73,21 @@ rates = integration.get_mcp_adoption_rate()
 
 ```bash
 # Start session with MCP metrics baseline
-python scripts/dogfooding_metrics.py start --issue 170
+uv run --frozen python scripts/dogfooding_metrics.py start --issue 170
 
 # Sync current MCP metrics to active session
-python scripts/dogfooding_metrics.py sync
+uv run --frozen python scripts/dogfooding_metrics.py sync
 
 # Manual logging
-python scripts/dogfooding_metrics.py grep
-python scripts/dogfooding_metrics.py saved 10 "Found refs instantly"
-python scripts/dogfooding_metrics.py bug "Prevented circular import"
+uv run --frozen python scripts/dogfooding_metrics.py grep
+uv run --frozen python scripts/dogfooding_metrics.py saved 10 "Found refs instantly"
+uv run --frozen python scripts/dogfooding_metrics.py bug "Prevented circular import"
 
 # End session with final metrics delta
-python scripts/dogfooding_metrics.py end
+uv run --frozen python scripts/dogfooding_metrics.py end
 
 # Generate report with real MCP adoption rates
-python scripts/dogfooding_metrics.py report --days 7
+uv run --frozen python scripts/dogfooding_metrics.py report --days 7
 ```
 
 ## Setup Instructions
@@ -106,9 +106,9 @@ bash scripts/setup_dogfooding.sh
 bash scripts/setup_grep_tracking.sh
 
 # Test MCP integration
-python scripts/dogfooding_metrics.py start --issue test
-python scripts/dogfooding_metrics.py sync
-python scripts/dogfooding_metrics.py end
+uv run --frozen python scripts/dogfooding_metrics.py start --issue test
+uv run --frozen python scripts/dogfooding_metrics.py sync
+uv run --frozen python scripts/dogfooding_metrics.py end
 ```
 
 ## Metrics Data Structure
@@ -171,7 +171,7 @@ uv run pytest tests/test_dogfooding_integration.py::test_export_mcp_metrics_for_
 
 This typically means:
 
-1. No active dogfooding session - run `python scripts/dogfooding_metrics.py start --issue <num>`
+1. No active dogfooding session - run `uv run --frozen python scripts/dogfooding_metrics.py start --issue <num>`
 2. MCP server instance isolation - the metrics are in a different server instance
 3. Import path issues - ensure `src/` is in PYTHONPATH
 
