@@ -86,7 +86,18 @@ _BOTH_MODES = ("bare", "get_analyzer")
 
 KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # == 1. round trip: none since #623 slice 5 (#602) and #674 (#626),
-    #    including the opt-in self-dogfood corpus (src/pyeye) ================
+    #    including the opt-in self-dogfood corpus (src/pyeye), except: =======
+    # A stub-only module (#933): Jedi follows the .pyi, so expand(imports)
+    # emits pkg.stubonly.S / .f, but resolve and inspect read .py sources only.
+    # #933 option A (approved, post-v2.2.0) makes these resolve; this test then
+    # fails until the entries are deleted.
+    **_round_trip(
+        "stub_only",
+        "#933: stub-only module handles are emitted but not resolvable",
+        _MISS,
+        "pkg.stubonly.S",
+        "pkg.stubonly.f",
+    ),
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
     # == 4. trace vs expand: none since #621.
@@ -155,6 +166,9 @@ _SWEEP_CORPORA: dict[str, Path] = {
         "subclasses_resolution",
         "lookup_project",
         "determinism_subclasses",
+        # A module that exists only as a .pyi stub (#933): edges emit its
+        # handles, which nothing else accepts yet (see KNOWN_GAPS).
+        "stub_only",
     )
 }
 #: A project plus a configured PEP 420 namespace repo OUTSIDE its root

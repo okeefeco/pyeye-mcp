@@ -1,0 +1,6 @@
+"""Declared only: no ``stubonly.py`` beside this stub (#933)."""
+
+class S:
+    def m(self) -> int: ...
+
+def f(x: int) -> S: ...
