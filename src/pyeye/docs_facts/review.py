@@ -22,10 +22,13 @@ Pure apart from :func:`load` / :func:`save`. No clock: dates are caller-supplied
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -56,6 +59,8 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "D12-comparison": "an implied comparison with no record behind it",
         "D12-projection": "a projection or target stated as fact",
         "D12-measurement": "a plain measurement or measurement table with no record behind it",
+        "D12-volatile": "a status that goes stale (now, currently, as of, a coverage figure)",
+        "D12-number": "a bare number with no fact or record behind it (a limit, a percentage)",
     },
     "audience_rule": {
         "human-explains": "human docs explain, with no enforcement language",
@@ -63,6 +68,8 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "bridge-problem-fix": "bridge docs give the problem and an executable fix",
         "right-audience": "content belongs to another audience's docs",
         "link-not-restate": "reference material is linked, not restated",
+        "contradictory-directive": "two directives that can't both be followed (always needs a "
+        "decision: which one wins)",
     },
     "style_rule": {
         "invalid-example": "a copyable example that doesn't work as written",
@@ -71,7 +78,8 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "missing-prerequisite": "a step that assumes setup the page never gives",
         "imprecise-limit": "a configurable default stated as a fixed limit",
         "dated-claim": "an external fact that may be stale and needs checking",
-        "duplication": "content repeated from another page",
+        "duplicated-prose": "prose repeating another registered page; replace it with a "
+        "one-line pointer and a link to the page that owns the subject",
         "restated-example": "prose describing an executed example's output, not what it demonstrates",
         "restated-code": "prose stating what the code does or exposes, which belongs in a bound "
         "fact or an executed example (C15)",
@@ -80,8 +88,15 @@ RULE_IDS: dict[str, dict[str, str]] = {
 }
 #: ``symbol`` is a code symbol by its canonical pyeye handle (``pkg.mod.func``),
 #: never ``path:line``, so it is stable under unrelated edits; ``validate`` checks
-#: it resolves, in the project, to exactly that handle.
-ANCHOR_KINDS = ("fact", "symbol", *RULE_IDS)
+#: it resolves, in the project, to exactly that handle. ``literal`` is a runtime
+#: string (an error message, a log line) by its exact text; ``validate`` checks it
+#: is a whole string literal in ``src/`` (C17).
+ANCHOR_KINDS = ("fact", "symbol", "literal", *RULE_IDS)
+
+#: The section of a page-level finding (C17): a defect that is genuinely
+#: page-wide. Clear-fix fact findings can't use it.
+PAGE = "*"
+_NO_PAGE_LEVEL = ("fact_drift", "uncovered_fact")
 
 #: The anchor kinds whose findings name their ``subject``: the exact text of the
 #: page they are about. It is part of a dismissal's identity (C15), so dismissing
@@ -105,15 +120,18 @@ class Symbols(Protocol):
     def edge(self, handle: str, edge: str) -> list[str] | None:
         """The handles ``expand(handle, edge)`` lists, or ``None`` if it can't."""
 
+    def has_literal(self, text: str) -> bool:
+        """Whether *text* is a whole string literal (or f-string constant part) in ``src/``."""
+
 
 #: The anchor kind each category rests on.
-CATEGORY_ANCHOR = {
-    "fact_drift": "fact",
-    "uncovered_fact": "fact",
-    "code_contradiction": "symbol",
-    "honest_claims": "claims_rule",
-    "audience": "audience_rule",
-    "style": "style_rule",
+CATEGORY_ANCHOR: dict[str, tuple[str, ...]] = {
+    "fact_drift": ("fact",),
+    "uncovered_fact": ("fact",),
+    "code_contradiction": ("symbol", "literal"),
+    "honest_claims": ("claims_rule",),
+    "audience": ("audience_rule",),
+    "style": ("style_rule",),
 }
 
 #: The fields only a needs-decision finding may carry.
@@ -169,6 +187,13 @@ def _anchor_problems(
         if canonical != anchor_id:
             return [f"{where} must use the canonical handle {canonical!r}, not {anchor_id!r}"]
         return []
+    if kind == "literal":
+        if symbols is not None and not symbols.has_literal(str(anchor_id)):
+            return [
+                f"{where} quotes {anchor_id!r}, which isn't a whole string literal in src/: "
+                "quote the error or log text exactly as the code writes it"
+            ]
+        return []
     known = RULE_IDS[kind]
     if anchor_id not in known:
         listed = sorted(known) or "none yet (#830)"
@@ -181,10 +206,12 @@ def _flat(text: str) -> str:
 
 
 def section_text(root: Path, page: str, section_slug: str) -> str | None:
-    """The text of *page*'s section *section_slug*, or ``None`` if either is gone."""
+    """The text of *page*'s section *section_slug* (``"*"``: the whole page), or ``None``."""
     path = root / page
     if not path.is_file():
         return None
+    if section_slug == PAGE:
+        return path.read_text(encoding="utf-8")
     for found in sections(path.read_text(encoding="utf-8")):
         if found.slug == section_slug:
             return found.text
@@ -212,7 +239,7 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
             f"{current!r}): its sections and lines may be stale; re-run scope for {page}"
         ]
     slugs = [s.slug for s in sections(path.read_text(encoding="utf-8"))]
-    if section not in slugs:
+    if section not in slugs and section != PAGE:
         return [f"{page} has no section {section!r}; its sections: {slugs}"]
     subject = finding.get("subject")
     if _text(subject):
@@ -230,7 +257,7 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
 #: How a code_contradiction is fixed, in preference order (C15 as revised): prose
 #: must not state code facts, so the claim becomes a bound fact (from an
 #: extractor) or an executed example, and only when neither can work, wording.
-ROUTES = ("fact", "example", "wording")
+ROUTES = ("fact", "example", "link", "delete", "code_bug", "wording")
 
 
 def _example_problems(finding: Mapping[str, Any], root: Path | None) -> list[str]:
@@ -258,7 +285,13 @@ def _example_problems(finding: Mapping[str, Any], root: Path | None) -> list[str
 
 
 def _route_problems(finding: Mapping[str, Any], root: Path | None = None) -> list[str]:
-    """The route a code_contradiction takes, and why when it falls back to wording."""
+    """The route a code_contradiction takes, and why when it falls back to wording.
+
+    ``fact`` (with its extractor) and ``example`` come first. ``link`` points at
+    the repo file that already says it; ``delete`` drops a dead passage;
+    ``code_bug`` is for docs that are right about code that is wrong, with the
+    issue it's tracked in; ``wording`` is the last resort, with its reason.
+    """
     route = finding.get("route")
     if route not in ROUTES:
         return [
@@ -275,6 +308,19 @@ def _route_problems(finding: Mapping[str, Any], root: Path | None = None) -> lis
             return [f"a fact route names its extractor: one of {names}, or 'new: <what it reads>'"]
     if route == "example":
         return _example_problems(finding, root)
+    if route == "link":
+        target = finding.get("link")
+        if not _text(target):
+            return ["a link route names its `link`: the repo file or page to link to instead"]
+        if root is not None and not (root / str(target).split("#", 1)[0]).exists():
+            return [f"link target {target!r} doesn't exist in the repo"]
+    if route == "code_bug":
+        blocked = finding.get("blocked_by")
+        if not (isinstance(blocked, str) and re.fullmatch(r"#\d+", blocked)):
+            return [
+                "a code_bug route names the issue the code fix is tracked in: `blocked_by: '#N'` "
+                "(the human files or approves it)"
+            ]
     if route == "wording" and not _text(finding.get("route_reason")):
         return ["a wording route must say why neither a fact nor an executed example can work"]
     return []
@@ -410,6 +456,9 @@ class _ProjectSymbols:
             return None
         return {"signature": node.get("signature") or "", "docstring": node.get("docstring") or ""}
 
+    def has_literal(self, text: str) -> bool:
+        return text in src_literals(self._root)
+
     def edge(self, handle: str, edge: str) -> list[str] | None:
         import asyncio
 
@@ -419,6 +468,28 @@ class _ProjectSymbols:
         if not result.get("found") or "stubs" not in result:
             return None
         return [stub["handle"] for stub in result["stubs"]]
+
+
+@functools.cache
+def src_literals(root: Path) -> frozenset[str]:
+    """Every string literal in ``src/``, and every constant part of an f-string (C17).
+
+    Parsed with ``ast``, so a comment, a docstring's fragment or a partial match
+    can't satisfy a ``literal`` anchor: it must be the whole literal the code
+    writes. A file that doesn't parse is skipped.
+    """
+    import ast
+
+    found: set[str] = set()
+    for path in sorted((root / "src").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                found.add(node.value)
+    return frozenset(found)
 
 
 def project_symbols(root: Path) -> Symbols:
@@ -569,7 +640,8 @@ def finding_problems(
                 "a code_contradiction is a clear fix: route it to a fact, an example or wording"
             )
         problems.extend(_route_problems(finding, root))
-        problems.extend(_evidence_problems(finding, symbols))
+        if (finding.get("anchor") or {}).get("kind") == "symbol":
+            problems.extend(_evidence_problems(finding, symbols))
     if isinstance(anchor, dict) and anchor.get("kind") in SUBJECT_KINDS:
         if not _text(finding.get("subject")):
             problems.append(
@@ -577,8 +649,18 @@ def finding_problems(
             )
     if category in CATEGORY_ANCHOR and isinstance(anchor, dict):
         expected = CATEGORY_ANCHOR[category]
-        if anchor.get("kind") in ANCHOR_KINDS and anchor.get("kind") != expected:
-            problems.append(f"a {category} finding rests on a {expected} anchor")
+        if anchor.get("kind") in ANCHOR_KINDS and anchor.get("kind") not in expected:
+            problems.append(f"a {category} finding rests on a {' or '.join(expected)} anchor")
+    if finding.get("section") == PAGE and category in _NO_PAGE_LEVEL:
+        problems.append(
+            f"a {category} finding is a clear fix in one section; '{PAGE}' is for page-wide defects"
+        )
+    if (
+        isinstance(anchor, dict)
+        and anchor.get("id") == "contradictory-directive"
+        and finding.get("needs_decision") is not True
+    ):
+        problems.append("a contradictory-directive finding needs a decision: which directive wins")
     if root is not None and not problems:
         problems.extend(_location_problems(finding, root))
     problems.extend(proposal_problems(finding, facts, root))
@@ -874,8 +956,50 @@ def dismiss_finding(
     entry["anchor"] = {"kind": anchor["kind"], "id": anchor["id"]}
     if subject is not None:
         entry["subject"] = subject
+    if finding.get("route") == "code_bug" and finding.get("blocked_by"):
+        entry["blocked_by"] = finding["blocked_by"]
     _replace(state, entry)
     return entry
+
+
+def lift_blocked(
+    state: dict[str, Any], is_closed: Callable[[int], bool | None]
+) -> list[dict[str, Any]]:
+    """Lift every code_bug dismissal whose blocking issue is closed (C17).
+
+    *is_closed* answers for one issue number: ``True`` closed, ``False`` open,
+    ``None`` unknown (offline). Only a closed issue lifts its dismissal, so the
+    finding resurfaces on the next review; an offline run leaves everything alone.
+    """
+    lifted, kept = [], []
+    for entry in state.get("confirmed_non_issues", []):
+        blocked = entry.get("blocked_by")
+        if _ours(entry) and isinstance(blocked, str) and is_closed(int(blocked[1:])) is True:
+            lifted.append(entry)
+        else:
+            kept.append(entry)
+    if lifted:
+        state["confirmed_non_issues"] = kept
+    return lifted
+
+
+def gh_issue_closed(number: int) -> bool | None:
+    """Whether GitHub issue *number* is closed, by ``gh``; ``None`` when ``gh`` can't say."""
+    import subprocess  # nosec B404 - runs gh with a fixed argument list
+
+    try:
+        result = subprocess.run(  # nosec B603 B607 - fixed gh command, no shell
+            ["gh", "issue", "view", str(number), "--json", "state", "-q", ".state"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() == "CLOSED"
 
 
 def dismiss_uncovered(
@@ -974,6 +1098,11 @@ def _orphan_reason(
             f"names symbol {anchor_id!r}, which no longer resolves in the project",
             "<new canonical handle>",
         )
+    if kind == "literal" and symbols is not None and not symbols.has_literal(str(anchor_id)):
+        return (
+            f"quotes the runtime string {anchor_id!r}, which is no longer a literal in src/",
+            '"<the new string>"',
+        )
     return None
 
 
@@ -1059,13 +1188,13 @@ def move(
     old = _find(state, key)
     anchor = old.get("anchor") or {}
     kind = anchor.get("kind")
-    if kind not in ("fact", "symbol", *SUBJECT_KINDS):
+    if kind not in ("fact", "symbol", "literal", *SUBJECT_KINDS):
         raise ValueError(f"dismissal {key} has no anchor that can move")
     if _orphan_reason(old, facts, root, symbols) is None and not subject_lapsed(old, root):
         if kind in SUBJECT_KINDS and root is None:
             raise ValueError("moving a subject needs the repo root to read the section")
-        if kind == "symbol" and symbols is None:
-            raise ValueError("moving a symbol needs pyeye (symbols) to resolve it")
+        if kind in ("symbol", "literal") and symbols is None:
+            raise ValueError(f"moving a {kind} needs pyeye (symbols) to check it")
         raise ValueError(
             f"dismissal {key}'s anchor still exists: only a dismissal whose anchor was "
             "removed, renamed or reworded can move"
@@ -1078,6 +1207,12 @@ def move(
             raise ValueError(f"no fact {new!r} to move the dismissal to")
         new_anchor_id = new
         fact = f"{_FACT_PREFIX}{category}:fact:{new}:{pin}"
+    elif kind == "literal":
+        assert symbols is not None  # nosec B101 - the orphan check above needs it
+        if not symbols.has_literal(new):
+            raise ValueError(f"{new!r} isn't a whole string literal in src/")
+        new_anchor_id = new
+        fact = f"{_FACT_PREFIX}{category}:literal:{new}:-"
     elif kind == "symbol":
         assert symbols is not None  # orphaned above needs it  # nosec B101
         if symbols.canonical(new) != new:
@@ -1118,6 +1253,8 @@ def prune(state: dict[str, Any], root: Path) -> list[str]:
 
     def exists(handle: str) -> bool:
         page, _, slug_ = handle.partition("#")
+        if slug_ == PAGE:
+            return (root / page).is_file()
         if page not in live:
             path = root / page
             live[page] = (
@@ -1264,6 +1401,7 @@ def packet(
         "kind": entry.kind,
         "facts": {i: facts[i].markdown for i in fact_ids},
         "mentioned": {i: facts[i].markdown for i in mentioned_facts(text, facts, fact_ids)},
+        "views": _bound_views(text, facts),
         "changed": changed_here,
         "sections": found,
     }
@@ -1292,6 +1430,14 @@ def mentioned_facts(text: str, facts: Facts, shown: Iterable[str]) -> list[str]:
         if any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w])", text) for n in names):
             found.append(fact_id)
     return sorted(found)
+
+
+def _bound_views(text: str, facts: Facts) -> list[str]:
+    """The view IDs the page's blocks bind (``….default``, ``edges.table``), also anchorable."""
+    from . import binding
+
+    blocks, _ = binding.parse(text)
+    return sorted({b.fact_id for b in blocks if isinstance(facts.get(b.fact_id), View)})
 
 
 def _reviewable(path: str, entry: Any) -> bool:
@@ -1407,9 +1553,6 @@ def _read_findings(path: Path) -> list[dict[str, Any]]:
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     """Entry point for ``scripts/docs_review.py``; prints JSON for the skill to read."""
     import argparse
-    import sys
-
-    from .registry import build
 
     parser = argparse.ArgumentParser(prog="docs_review", description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=root or Path.cwd())
@@ -1440,12 +1583,26 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     )
     p_move.add_argument("key")
     p_move.add_argument("new", help="the new fact ID, canonical handle or reworded subject")
+    sub.add_parser("lift-blocked", help="lift code_bug dismissals whose issue is closed (needs gh)")
     p_unc = sub.add_parser("dismiss-uncovered", help="record a fact as deliberately not covered")
     p_unc.add_argument("fact")
     p_unc.add_argument("--reason", required=True, help="why it is deliberately not covered")
     p_unc.add_argument("--date", required=True)
     args = parser.parse_args(argv)
     base: Path = args.root
+    # stdout is JSON only: anything the work prints (a Jedi or pyeye log line)
+    # goes to stderr, so the skill can always parse what comes back.
+    with contextlib.redirect_stdout(sys.stderr):
+        code, out = _run(args, base)
+    if out is not None:
+        print(json.dumps(out, indent=2, sort_keys=True, ensure_ascii=False))
+    return code
+
+
+def _run(args: Any, base: Path) -> tuple[int, Any]:
+    """Run one command: ``(exit code, JSON-able output or None)``."""
+    from .registry import build
+
     try:
         facts = build(base)
         symbols = project_symbols(base)
@@ -1460,11 +1617,15 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             }
             for index, found in batch_problems(findings).items():
                 problems.setdefault(index, []).extend(found)
+            counts = {"accepted": len(findings) - len(problems), "rejected": len(problems)}
             if problems:
-                print(json.dumps({"problems": problems}, indent=2))
-                return 1
+                return 1, {"ok": False, **counts, "problems": problems}
             shown = triage(findings, load(base), facts, args.today, symbols)
-            out = {"shown": [{"index": findings.index(f), "status": s} for f, s in shown]}
+            out = {
+                "ok": True,
+                **counts,
+                "shown": [{"index": findings.index(f), "status": s} for f, s in shown],
+            }
         elif args.command == "mark-fine":
             from . import docs
 
@@ -1504,6 +1665,15 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             out = {"moved": move(state, args.key, args.new, facts, base, symbols)}
             out = _with_pruned(out, prune(state, base))
             save(base, state)
+        elif args.command == "lift-blocked":
+            state = load(base)
+            lifted = lift_blocked(state, gh_issue_closed)
+            if lifted:
+                save(base, state)
+            out = {
+                "lifted": [{"key": e["key"], "blocked_by": e["blocked_by"]} for e in lifted],
+                "note": "an issue gh can't reach (offline) is left alone",
+            }
         else:
             state = load(base)
             out = dismiss_uncovered(state, args.fact, facts, args.reason, args.date)
@@ -1511,7 +1681,6 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             save(base, state)
             out["next"] = "run `uv run python scripts/docs_facts.py generate` to update the ledger"
     except (ValueError, IndexError, OSError) as exc:
-        print(f"docs_review: {exc}", file=sys.stderr)
-        return 2
-    print(json.dumps(out, indent=2, sort_keys=True, ensure_ascii=False))
-    return 0
+        print(f"docs_review: {exc}", file=sys.__stderr__)
+        return 2, None
+    return 0, out

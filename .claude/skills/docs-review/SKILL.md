@@ -59,13 +59,15 @@ All mechanics are in `scripts/docs_review.py` (logic in
 | `dismiss-uncovered FACT --reason TEXT --date D` | Records a fact as deliberately not covered. |
 | `move KEY NEW` | Carries an orphaned or lapsed dismissal over to its anchor's new form: the new fact ID, the new canonical handle, or the reworded subject. |
 | `forget KEY` | Deletes a dismissal, e.g. one whose fact was removed. |
+| `lift-blocked` | Lifts every `code_bug` dismissal whose blocking issue is now closed (needs `gh`; offline it changes nothing). |
 
 State lives in `docs/facts/review-state.json`. Commit it, so the whole team
 shares the verdicts. Dates are always supplied by the caller; nothing reads a clock.
 
 ## The Review Loop
 
-1. **Scope.** Run `scope` and read the packets. Skip sections whose
+1. **Scope.** Run `lift-blocked` first (a `code_bug` finding whose issue has
+   closed comes back for review), then `scope`, and read the packets. Skip sections whose
    `needs_review` is false: they were marked fine and neither their text nor
    their facts have changed since.
 2. **Dispatch the reviewer**, one fresh subagent per page, with
