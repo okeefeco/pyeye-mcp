@@ -50,5 +50,5 @@ From previous PRs without dogfooding:
 
 When you discover a pattern or time-saver:
 
-1. Log it: `python scripts/dogfooding_metrics.py saved <minutes> "<reason>"`
+1. Log it: `uv run --frozen python scripts/dogfooding_metrics.py saved <minutes> "<reason>"`
 2. Describe it in the issue or PR where you found it

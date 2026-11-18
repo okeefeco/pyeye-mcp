@@ -14,6 +14,7 @@ from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
 from .namespace_resolver import NamespaceResolver
 from .path_utils import normalize_path, path_to_key
+from .validation import unwalkable_root
 
 logger = logging.getLogger(__name__)
 
@@ -380,6 +381,13 @@ class ProjectManager:
     def _watch(self, root: Path, project: Path) -> None:
         """Watch *root* on behalf of *project*, starting at most one watcher per root."""
         root = normalize_path(root)
+        if unwalkable_root(root):
+            # A recursive watch can't be pruned: never watch a system directory or
+            # an ancestor of one ("/"); the scans from it are refused too (#856).
+            logger.warning(
+                f"Not watching {root.as_posix()}: it is or contains a restricted location"
+            )
+            return
         with self._watch_lock:
             self._watch_users.setdefault(root, set()).add(project)
             if root in self.watchers:

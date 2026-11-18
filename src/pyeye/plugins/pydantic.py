@@ -209,7 +209,7 @@ class PydanticPlugin(AnalyzerPlugin):
             "type": "pydantic_model",
             "fields": self._extract_fields(node),
             "validators": self._extract_validators(node),
-            "config": self._extract_config(node),
+            **self._config_entry(self._extract_config(node)),
             "base_classes": [self._get_base_name(base) for base in node.bases],
         }
 
@@ -257,7 +257,7 @@ class PydanticPlugin(AnalyzerPlugin):
             "optional": [],
             "validators": model["validators"],
             "computed_fields": await self._own_computed_fields(Path(model["file"]), model["line"]),
-            "config": model["config"],
+            **({"config": model["config"]} if "config" in model else {}),
         }
 
         # Categorize fields
@@ -368,7 +368,9 @@ class PydanticPlugin(AnalyzerPlugin):
                                     "model": node.name,
                                     "file": py_file.as_posix(),
                                     "line": item.lineno,
-                                    "settings": self._extract_config_dict(value),
+                                    **self._config_entry(
+                                        self._extract_config_dict(value), key="settings"
+                                    ),
                                 }
                             )
 
@@ -640,9 +642,13 @@ class PydanticPlugin(AnalyzerPlugin):
             return decorator.id == "computed_field"
         return isinstance(decorator, ast.Attribute) and decorator.attr == "computed_field"
 
-    def _extract_config(self, node: ast.ClassDef) -> dict[str, Any]:
-        """Extract Config class or model_config from a model."""
-        config = {}
+    def _extract_config(self, node: ast.ClassDef) -> dict[str, Any] | None:
+        """Extract Config class or model_config from a model.
+
+        ``{}`` when the model sets no config; ``None`` when its ``model_config``
+        can't be fully read (#870), so the record omits ``config``.
+        """
+        config: dict[str, Any] | None = {}
 
         for item in node.body:
             if isinstance(item, ast.ClassDef) and item.name == "Config":
@@ -681,28 +687,37 @@ class PydanticPlugin(AnalyzerPlugin):
 
         return settings
 
-    def _extract_config_dict(self, node: Any) -> dict[str, Any]:
-        """Extract settings from a ``model_config`` value.
+    def _extract_config_dict(self, node: Any) -> dict[str, Any] | None:
+        """The settings of a ``model_config`` value, or ``None`` if it can't be fully read.
 
-        Reads a dict literal and a ``ConfigDict(k=v, …)`` or
-        ``SettingsConfigDict(k=v, …)`` call, plain or module-qualified (#870).
-        Anything else, and a ``**`` spread, contributes no keys: the unreadable
-        case is open (#870's Q1).
+        Fully read (#870, the maintainer's ruling on Q1) means a dict literal or a
+        ``ConfigDict(…)`` / ``SettingsConfigDict(…)`` call, plain or
+        module-qualified, whose every entry has a plain key: a string-literal
+        dict key, or a keyword argument. A ``**`` splat, a non-literal or
+        non-string dict key, a positional argument, or any other expression (a
+        function call, a name, a subscript) is unread, and the caller omits the
+        config: a partial or empty dict would read as "these are all the
+        settings". Values are unparsed source text, as before.
         """
-        settings = {}
-
         if isinstance(node, ast.Call) and self._is_config_dict_call(node):
-            for keyword in node.keywords:
-                if keyword.arg is not None:
-                    settings[keyword.arg] = ast.unparse(keyword.value)
-        elif isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values, strict=False):
-                if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                    settings[key.value] = (
-                        ast.unparse(value) if hasattr(ast, "unparse") else str(value)
-                    )
+            if node.args or any(keyword.arg is None for keyword in node.keywords):
+                return None
+            return {
+                keyword.arg: ast.unparse(keyword.value) for keyword in node.keywords if keyword.arg
+            }
+        if isinstance(node, ast.Dict):
+            settings: dict[str, Any] = {}
+            for key, value in zip(node.keys, node.values, strict=True):
+                if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                    return None  # a ``**`` splat (key None) or a non-literal key
+                settings[key.value] = ast.unparse(value)
+            return settings
+        return None
 
-        return settings
+    @staticmethod
+    def _config_entry(config: dict[str, Any] | None, key: str = "config") -> dict[str, Any]:
+        """``{key: config}``, or ``{}`` when the config couldn't be fully read (#870)."""
+        return {} if config is None else {key: config}
 
     @staticmethod
     def _is_config_dict_call(node: ast.Call) -> bool:

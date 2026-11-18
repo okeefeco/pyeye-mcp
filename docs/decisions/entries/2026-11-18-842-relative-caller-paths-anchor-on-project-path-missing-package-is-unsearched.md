@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Relative caller paths anchor on project_path; a missing package: path is listed in unsearched_scopes (#842, #843)"
 issues: [842, 843, 594, 717, 714]
 anchors: ["pyeye.path_utils.anchor", "pyeye.scope_utils.package_scope_path", "pyeye.scope_utils.resolve_scope_paths", "pyeye.plugins.base.AnalyzerPlugin.describe_scope", "pyeye.mcp.operations.resolve.resolve_at", "tests/test_relative_paths_project_path.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-594-plugin-tools-take-an-opt-in-envelope-that-reports-searched.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-856-every-caller-path-is-checked-in-its-final-form.md"]
 superseded_by: []
 ---
 

@@ -235,13 +235,9 @@ class TestPluginScansUseTheSharedFilter:
 
 
 #: Direct recursive scans that are deliberately NOT whole-tree project scans.
+#: The venv ``site-packages`` search and the template walks, which skip the
+#: project exclusions on purpose, use ``async_utils.pruned_rglob`` (#856).
 _SUBTREE_SCANS = {
-    # ``.venv/lib`` is searched FOR site-packages, inside the excluded dir on purpose.
-    ("config.py", 'venv_path.rglob("site-packages")'),
-    # A templates directory one level below a root, found by a non-recursive glob.
-    ("django.py", 'template_dir.rglob("*.html")'),
-    ("flask.py", 'template_dir.rglob("*.html")'),
-    ("flask.py", 'template_dir.rglob("*.jinja2")'),
     # The rule's own home.
     ("async_utils.py", "path.rglob(pattern)"),
 }
