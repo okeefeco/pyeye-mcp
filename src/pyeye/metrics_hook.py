@@ -1,192 +1,102 @@
-"""Hook to integrate unified metrics with MCP server operations.
+"""Per-tool-call hook: connection diagnostics and error tracking for MCP operations.
 
-This module provides automatic metrics collection for all MCP operations
-by hooking into the server's execution flow.
+Every core MCP tool is wrapped by :func:`track_mcp_operation`. It logs the call
+to the connection diagnostics, notes a client cancellation there, and records
+the call's success or error in the error tracker. The
+``get_connection_diagnostics`` admin tool and the shutdown summary read both.
+
+It used to also write each call to a persistent "unified metrics" store under
+``~/.pyeye/metrics/``. Nothing shipped read that store, and the write cost every
+call a locked rewrite of a file, so it was removed (#943).
 """
 
 import asyncio
 import functools
 import inspect
 import logging
-import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
-try:
-    from pyeye.unified_metrics import get_unified_collector
-
-    METRICS_AVAILABLE = True
-except ImportError:
-    # Handle case where unified_metrics is not available
-    METRICS_AVAILABLE = False
-
-    def get_unified_collector() -> Any:  # type: ignore[misc]
-        """Dummy collector when metrics not available."""
-
-        class DummyCollector:
-            def record_mcp_operation(self, **kwargs):  # type: ignore[no-untyped-def]
-                _ = kwargs  # Mark as intentionally unused
-                pass
-
-            def start_session(self, **kwargs):  # type: ignore[no-untyped-def]
-                _ = kwargs  # Mark as intentionally unused
-                return "dummy_session"
-
-        return DummyCollector()
-
-
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def track_mcp_operation(tool_name: str | None = None) -> Callable[[F], F]:
-    """Decorator to automatically track MCP tool operations in unified metrics.
+def _log_call(tool_name: str) -> None:
+    """Log the call to the connection diagnostics."""
+    try:
+        from pyeye.mcp.connection_diagnostics import log_tool_call
 
-    Also integrates with connection diagnostics and error tracking to help
-    debug connection issues.
+        log_tool_call(tool_name)
+    except ImportError:
+        pass  # Connection diagnostics not available
+
+
+def _track_outcome(tool_name: str, error: Exception | None) -> None:
+    """Record the call's error, or its success, in the error tracker."""
+    try:
+        from pyeye.mcp.error_tracker import get_error_tracker
+
+        tracker = get_error_tracker()
+        if error:
+            tracker.record_error(tool_name, error)
+        else:
+            tracker.record_success(tool_name)
+    except ImportError:
+        pass  # Error tracker not available
+
+
+def track_mcp_operation(tool_name: str | None = None) -> Callable[[F], F]:
+    """Decorator feeding connection diagnostics and error tracking for an MCP tool.
 
     Args:
         tool_name: Optional tool name (defaults to function name)
 
     Returns:
-        Decorated function that tracks metrics
+        Decorated function
     """
 
     def decorator(func: F) -> F:
-
-        # Determine the actual tool name
         actual_tool_name = tool_name or func.__name__
 
         if inspect.iscoroutinefunction(func):  # not asyncio.*: deprecated in 3.14 (#763)
 
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                collector = get_unified_collector()
-                start = time.perf_counter()
-                success = True
                 error: Exception | None = None
-
-                # Log tool call to connection diagnostics
+                _log_call(actual_tool_name)
                 try:
-                    from pyeye.mcp.connection_diagnostics import log_tool_call
-
-                    log_tool_call(actual_tool_name)
-                except ImportError:
-                    pass  # Connection diagnostics not available
-
-                try:
-                    result = await func(*args, **kwargs)
-                    return result
+                    return await func(*args, **kwargs)
                 except asyncio.CancelledError:
                     # Log cancellation to diagnostics
                     try:
                         from pyeye.mcp.connection_diagnostics import get_diagnostics
 
-                        diagnostics = get_diagnostics()
-                        diagnostics.log_event("request_cancelled", actual_tool_name)
+                        get_diagnostics().log_event("request_cancelled", actual_tool_name)
                         logger.info(f"Tool '{actual_tool_name}' was cancelled by client")
                     except ImportError:
                         pass
-                    success = False
                     raise
                 except Exception as e:
-                    success = False
                     error = e
                     raise
                 finally:
-                    duration_ms = (time.perf_counter() - start) * 1000
-                    collector.record_mcp_operation(
-                        tool_name=actual_tool_name, success=success, duration_ms=duration_ms
-                    )
-
-                    # Track errors and successes
-                    try:
-                        from pyeye.mcp.error_tracker import get_error_tracker
-
-                        tracker = get_error_tracker()
-                        if error:
-                            tracker.record_error(actual_tool_name, error)
-                        else:
-                            tracker.record_success(actual_tool_name)
-                    except ImportError:
-                        pass  # Error tracker not available
+                    _track_outcome(actual_tool_name, error)
 
             return async_wrapper  # type: ignore
-        else:
 
-            @functools.wraps(func)
-            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-                collector = get_unified_collector()
-                start = time.perf_counter()
-                success = True
-                error: Exception | None = None
+        @functools.wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            error: Exception | None = None
+            _log_call(actual_tool_name)
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                error = e
+                raise
+            finally:
+                _track_outcome(actual_tool_name, error)
 
-                # Log tool call to connection diagnostics
-                try:
-                    from pyeye.mcp.connection_diagnostics import log_tool_call
-
-                    log_tool_call(actual_tool_name)
-                except ImportError:
-                    pass  # Connection diagnostics not available
-
-                try:
-                    result = func(*args, **kwargs)
-                    return result
-                except Exception as e:
-                    success = False
-                    error = e
-                    raise
-                finally:
-                    duration_ms = (time.perf_counter() - start) * 1000
-                    collector.record_mcp_operation(
-                        tool_name=actual_tool_name, success=success, duration_ms=duration_ms
-                    )
-
-                    # Track errors and successes
-                    try:
-                        from pyeye.mcp.error_tracker import get_error_tracker
-
-                        tracker = get_error_tracker()
-                        if error:
-                            tracker.record_error(actual_tool_name, error)
-                        else:
-                            tracker.record_success(actual_tool_name)
-                    except ImportError:
-                        pass  # Error tracker not available
-
-            return sync_wrapper  # type: ignore
+        return sync_wrapper  # type: ignore
 
     return decorator
-
-
-def auto_session_for_mcp() -> str:
-    """Create or get an auto-session for MCP server instance.
-
-    Returns:
-        Session ID
-    """
-    import os
-    from datetime import datetime
-
-    collector = get_unified_collector()
-
-    # Use process ID and timestamp for unique session ID
-    pid = os.getpid()
-    session_id = f"mcp_server_{pid}_{datetime.now().isoformat()}"
-
-    # Check if we're in a subagent context
-    parent_session = os.environ.get("PYEYE_PARENT_SESSION")
-    session_type = "subagent" if parent_session else "main"
-
-    # Get issue number from environment or git branch
-    metadata = {}
-    if issue_num := os.environ.get("PYEYE_ISSUE"):
-        metadata["issue"] = issue_num
-
-    return collector.start_session(
-        session_id=session_id,
-        session_type=session_type,
-        parent_session=parent_session,
-        metadata=metadata,
-    )

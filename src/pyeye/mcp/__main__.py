@@ -83,13 +83,6 @@ def _log_shutdown_diagnostics(logger: logging.Logger) -> None:
     logger.info("=" * 60)
 
 
-def _end_metrics_session() -> None:
-    """End the unified metrics session."""
-    from .server import get_unified_collector
-
-    get_unified_collector().end_session()
-
-
 def _shutdown_jedi_worker() -> None:
     """Stop the Jedi worker thread (#650) before tearing projects down."""
     from .jedi_worker import shutdown
@@ -116,13 +109,12 @@ def cleanup() -> None:
     """Clean up all projects and watchers on exit (registered with atexit).
 
     Each step runs independently: a failure is logged and the remaining steps
-    still run, so a broken metrics step can never skip the Jedi worker or
-    file-watcher teardown (#791).
+    still run, so a broken step can never skip the Jedi worker or file-watcher
+    teardown (#791).
     """
     logger = logging.getLogger(__name__)
     steps = (
         ("shutdown diagnostics", lambda: _log_shutdown_diagnostics(logger)),
-        ("metrics session", _end_metrics_session),
         ("Jedi worker", _shutdown_jedi_worker),
         ("projects and watchers", lambda: _cleanup_projects(logger)),
         ("connection end", _log_normal_shutdown),
@@ -156,10 +148,7 @@ def main() -> None:
     start_heartbeat_monitor(interval_seconds=30)
 
     # Import server
-    from .server import ensure_unified_session, initialize_plugins, mcp
-
-    # Initialize unified metrics session
-    ensure_unified_session()
+    from .server import initialize_plugins, mcp
 
     # Cleanup on exit
     atexit.register(cleanup)
