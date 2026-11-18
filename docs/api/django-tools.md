@@ -12,8 +12,11 @@ The tools: <!-- fact:begin tools.plugin.django -->`find_django_migrations`, `fin
 
 ## find_django_models
 
-The model classes, found in each app's `models.py`. Expand a model's handle to
-see its fields.
+The model classes in each `models.py` file: classes whose own base is written
+`Model` or `<module>.Model`, such as `models.Model`. A `models/` package isn't
+read, and a subclass of one of your own base models (`class Product(BaseModel)`,
+where `BaseModel(models.Model)`) isn't listed. Expand a model's handle to see its
+fields.
 
 ```json pyeye-example tool=find_django_models fixture=docs_examples_django
 {}
@@ -74,7 +77,9 @@ The URL configuration files. Each is a file record, so open the file, or
 
 ## find_django_templates
 
-The template files under the project's template directories.
+The `.html` files under a `templates/` directory at the root of each searched
+scope, or one level below it (an app's `templates/`). Directories listed in the
+settings' `TEMPLATES` `DIRS` aren't read.
 
 ```json pyeye-example tool=find_django_templates fixture=docs_examples_django
 {}

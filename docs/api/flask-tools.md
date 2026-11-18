@@ -18,9 +18,10 @@ blueprint's prefixes are applied the way Flask applies them (a registration's
 `url_prefix` overrides the blueprint's own; a nested blueprint adds its
 parent's). Use `urls` to see what an application serves, or to spot two
 handlers on one URL. `urls` is a list, because a blueprint registered twice
-serves each route twice. It is absent when a prefix isn't a literal, the
-blueprint isn't registered in the searched scope, or a registration can't be
-read (#952).
+serves each route twice. It is absent when a prefix isn't a literal (a `**`
+splat counts as not literal), a blueprint or a registration uses a `subdomain`,
+the blueprint isn't registered in the searched scope, its registrations form a
+cycle, or a registration can't be read (#952).
 
 ```json pyeye-example tool=find_flask_routes
 {}
@@ -112,7 +113,9 @@ its record has no `handle`.
 ## find_error_handlers
 
 The `errorhandler` functions, with the status code or exception each one
-handles.
+handles. `error_code` is read from the decorator's argument when it is a
+constant (`404`) or a bare name (`NotFound`); for a dotted name
+(`werkzeug.exceptions.NotFound`), or no argument, it is `null`.
 
 ```json pyeye-example tool=find_error_handlers
 {}
@@ -125,7 +128,10 @@ handles.
 
 ## find_cli_commands
 
-The application's CLI commands (`app.cli.command`).
+The CLI commands registered with `.cli.command` on an app or a blueprint, with
+or without parentheses (`@app.cli.command`, `@bp.cli.command("seed")`), and
+functions decorated with a bare `@command`. A command is named by the
+decorator's first argument when that is a string, otherwise by its function.
 
 ```json pyeye-example tool=find_cli_commands
 {}

@@ -260,7 +260,8 @@ sudo dnf install python3-devel
 1. Reduce cached projects, `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->):
 
    ```bash
-   export PYEYE_MAX_PROJECTS=5
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=5 -- python -m pyeye.mcp
    ```
 
 2. Cached results expire after `PYEYE_CACHE_TTL` seconds (default
@@ -299,7 +300,8 @@ sudo dnf install python3-devel
 2. Increase debounce time (default: <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s):
 
    ```bash
-   export PYEYE_WATCHER_DEBOUNCE=2
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=2 -- python -m pyeye.mcp
    ```
 
 ---
@@ -325,10 +327,12 @@ sudo dnf install python3-devel
 **Solution**:
 
 1. Add package locations to configuration
-2. Ensure PYTHONPATH includes necessary directories:
+2. Or put the directory on the server's `PYTHONPATH`, which pyeye's analysis
+   reads. Like every server variable, it goes on the client's server entry:
 
    ```bash
-   export PYTHONPATH="/path/to/lib:$PYTHONPATH"
+   claude mcp remove pyeye
+   claude mcp add pyeye -s user -e PYTHONPATH=/path/to/lib -- python -m pyeye.mcp
    ```
 
 3. Check virtual environment is activated
@@ -562,21 +566,26 @@ namespace path. Detection runs at server startup and again after
 [Environment variables](reference/env-vars.md) for every setting.
 
 Set these on the MCP client's server entry, not with a shell `export`; see the
-README's [Performance Settings](../README.md#performance-settings).
+README's [Performance Settings](../README.md#performance-settings). With Claude
+Code, remove the entry (`claude mcp remove pyeye`) and add it again with an `-e`
+for each variable, as below; other clients take the same variables in their
+config's `env` map. Restart the client afterwards.
 
-**For large codebases**:
+**For large codebases** (a 10-minute cache, fewer but larger projects, less
+file-watch overhead):
 
 ```bash
-export PYEYE_CACHE_TTL=600  # 10 minutes
-export PYEYE_MAX_PROJECTS=5  # Fewer but larger projects
-export PYEYE_WATCHER_DEBOUNCE=2.0   # Reduce file watch overhead
+claude mcp add pyeye -s user \
+  -e PYEYE_CACHE_TTL=600 -e PYEYE_MAX_PROJECTS=5 -e PYEYE_WATCHER_DEBOUNCE=2.0 \
+  -- python -m pyeye.mcp
 ```
 
-**For rapid development**:
+**For rapid development** (a 1-minute cache, faster updates):
 
 ```bash
-export PYEYE_CACHE_TTL=60   # 1 minute
-export PYEYE_WATCHER_DEBOUNCE=0.2   # Faster updates
+claude mcp add pyeye -s user \
+  -e PYEYE_CACHE_TTL=60 -e PYEYE_WATCHER_DEBOUNCE=0.2 \
+  -- python -m pyeye.mcp
 ```
 
 ### Debounce Settings
@@ -584,12 +593,12 @@ export PYEYE_WATCHER_DEBOUNCE=0.2   # Faster updates
 Control how quickly the server responds to file changes. The default is
 <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> seconds.
 
-```bash
-# For slower systems or network drives
-export PYEYE_WATCHER_DEBOUNCE=3.0
+For slower systems or network drives, raise it; for local SSDs with small
+projects, lower it. On the client's server entry:
 
-# For local SSDs with small projects
-export PYEYE_WATCHER_DEBOUNCE=0.2
+```bash
+claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=3.0 -- python -m pyeye.mcp  # slower systems
+claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=0.2 -- python -m pyeye.mcp  # local SSDs
 ```
 
 ### Project Limit Tuning

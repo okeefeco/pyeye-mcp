@@ -275,6 +275,29 @@ class _UrlRegistry:
         return sorted({_join(prefix, rule) for prefix in prefixes})
 
 
+def _cli_command_name(decorator: ast.expr, function: str) -> str | None:
+    """The CLI command *decorator* registers for *function*, or ``None`` if it isn't one.
+
+    Recognised: ``@<app or blueprint>.cli.command`` with or without a call
+    (#980), named by its first argument when that is a string literal, else by
+    the function; and a bare ``@command`` (Click's, imported by name).
+    """
+    call = decorator if isinstance(decorator, ast.Call) else None
+    target = call.func if call is not None else decorator
+    if (
+        isinstance(target, ast.Attribute)
+        and target.attr == "command"
+        and isinstance(target.value, ast.Attribute)
+        and target.value.attr == "cli"
+    ):
+        if call is not None and call.args:
+            return _str_value(call.args[0]) or function
+        return function
+    if call is None and isinstance(decorator, ast.Name) and decorator.id == "command":
+        return function
+    return None
+
+
 def _absolute_module(level: int, module: str, importer: str | None, is_package: bool) -> str | None:
     """The absolute module a ``from`` import of *level* names, or ``None`` if it can't be named."""
     if level == 0:
@@ -986,42 +1009,17 @@ class FlaskPlugin(AnalyzerPlugin):
                     for node in ast.walk(tree):
                         if isinstance(node, _FUNCTION_DEFS):
                             for decorator in node.decorator_list:
-                                # Check for @app.cli.command() or @click.command()
-                                if isinstance(decorator, ast.Call):
-                                    if isinstance(decorator.func, ast.Attribute):
-                                        if decorator.func.attr == "command":
-                                            # Check if it's app.cli.command
-                                            if isinstance(decorator.func.value, ast.Attribute):
-                                                if decorator.func.value.attr == "cli":
-                                                    command_name = node.name
-                                                    # Try to get custom command name
-                                                    if decorator.args:
-                                                        command_name = (
-                                                            _str_value(decorator.args[0])
-                                                            or command_name
-                                                        )
-
-                                                    commands.append(
-                                                        {
-                                                            "name": command_name,
-                                                            "function": node.name,
-                                                            "file": py_file.as_posix(),
-                                                            "line": node.lineno,
-                                                            "type": "cli_command",
-                                                        }
-                                                    )
-                                elif isinstance(decorator, ast.Name):
-                                    # Handle @click.command without parentheses
-                                    if decorator.id == "command":
-                                        commands.append(
-                                            {
-                                                "name": node.name,
-                                                "function": node.name,
-                                                "file": py_file.as_posix(),
-                                                "line": node.lineno,
-                                                "type": "cli_command",
-                                            }
-                                        )
+                                command_name = _cli_command_name(decorator, node.name)
+                                if command_name is not None:
+                                    commands.append(
+                                        {
+                                            "name": command_name,
+                                            "function": node.name,
+                                            "file": py_file.as_posix(),
+                                            "line": node.lineno,
+                                            "type": "cli_command",
+                                        }
+                                    )
 
         return commands
 
