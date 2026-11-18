@@ -672,7 +672,35 @@
       "duration_ms"
     ],
     "security.network_imports": [],
+    "security.path_checks.ancestors": [
+      "/",
+      "/private",
+      "/private/var",
+      "/run",
+      "/var",
+      "/var/run"
+    ],
+    "security.path_checks.credentials": [
+      ".ssh",
+      ".aws",
+      ".gnupg",
+      ".config/gcloud",
+      ".azure",
+      ".kube",
+      ".docker",
+      ".config/gh",
+      ".netrc",
+      ".pypirc",
+      ".pgpass",
+      ".git-credentials",
+      ".npmrc"
+    ],
     "security.path_checks.forms": "the deny-list checks the target's lexical and resolved forms.",
+    "security.path_checks.homes": [
+      "^/home/[^/]+/",
+      "^/Users/[^/]+/",
+      "^/root/"
+    ],
     "security.path_checks.rejected": [
       "null bytes",
       "suspicious triple dots"
@@ -683,7 +711,12 @@
       "^/root/",
       "^/proc/",
       "^/sys/",
-      "^/dev/"
+      "^/dev/",
+      "^/boot/",
+      "^/run/secrets/",
+      "^/var/run/secrets/",
+      "^/var/root/",
+      "^/private/var/root/"
     ],
     "security.subprocesses": [],
     "security.write_sites": [

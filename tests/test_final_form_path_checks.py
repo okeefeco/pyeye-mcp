@@ -450,7 +450,11 @@ class TestRulingAncestorScanRoots:
         assert "/private/etc" in validation._RESTRICTED_DIRS
         # The unanchored "/etc/" and "/root/" name no fixed directory.
         assert all(d.startswith("/") and "^" not in d for d in validation._RESTRICTED_DIRS)
-        assert {"/", "/private"} == validation._RESTRICTED_ANCESTORS
+        # /boot, /run/secrets, /var/run/secrets, /var/root and /private/var/root (#909)
+        # add /run, /var, /var/run and /private/var. Credential stores add none.
+        assert {"/", "/private", "/private/var", "/run", "/var", "/var/run"} == (
+            validation._RESTRICTED_ANCESTORS
+        )
 
     @pytest.mark.parametrize("scope", ["package:/", "package:root_lnk"])
     def test_a_package_scope_at_an_ancestor(self, project: Path, scope: str) -> None:

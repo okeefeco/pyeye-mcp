@@ -102,17 +102,28 @@ they can't drift from it.
 
   <!-- fact:begin security.path_checks -->
   - anywhere in the path: null bytes, suspicious triple dots;
-  - a target matching one of these anchored patterns, ignoring case: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`;
+  - a target matching one of these anchored patterns, ignoring case: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `^/boot/`, `^/run/secrets/`, `^/var/run/secrets/`, `^/var/root/`, `^/private/var/root/`;
+  - a credential store directly below a user home, or anything inside it, ignoring case: `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.azure`, `.kube`, `.docker`, `.config/gh`, `.netrc`, `.pypirc`, `.pgpass`, `.git-credentials`, `.npmrc`; a user home is one of `^/home/[^/]+/`, `^/Users/[^/]+/`, `^/root/`, or the server's own home;
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 
   A directory pyeye scans (a plugin scope, or a configured package, namespace
   or standalone directory) is also refused when it is an ancestor of one of the
-  anchored directories above: `/`, and `/private` on macOS. That includes the
+  anchored directories above:
+  <!-- fact:begin security.path_checks.ancestors -->`/`, `/private`, `/private/var`, `/run`, `/var`, `/var/run`<!-- fact:end -->. That includes the
   scan `project_path="/"` implies for scope `main`. `project_path` itself and
   single-file inputs are not affected. Every directory walk also skips a
   directory whose resolved form is one of them, so a symlink inside a scanned
   tree can't lead a walk into one.
+
+  The credential stores are different: they define no ancestors. A scan of
+  `~`, `/home` or `/Users` works and simply skips them. A project placed inside
+  one, such as a repository at `~/.config/gh/x`, is refused, as intended. A
+  user home is matched by pattern, so a home created after the server started
+  is covered too. The server's own home is read once, when the process starts:
+  a `$HOME` outside `/home`, `/Users` and `/root` (for example
+  `/var/lib/jenkins`) is covered for the server's own user, but other users'
+  homes there are not (#909).
 
   A directory merely named like one of these inside another path, such as
   `~/dev/proj`, `/srv/etc/lib` or a project's own `etc/` package, is not
