@@ -256,12 +256,15 @@ class MetricsCollector:
         # cap-thrashing run is visible (it is the cache that actually accelerates
         # navigation). Lazy import avoids any import-time coupling.
         from . import file_artifact_cache
+        from .mcp.operations.typeref import degraded_counts_snapshot
 
         return {
             "uptime_seconds": uptime_seconds,
             "memory": self.get_memory_stats(),
             "cache": self.cache_metrics.get_stats(),
             "artifact_cache": file_artifact_cache.stats(),
+            # Annotation shapes typeref degraded to {raw: ...}, by kind (#331).
+            "typeref_degraded": degraded_counts_snapshot(),
             "operations": {
                 "symbol_search": symbol_metrics,
                 "file_operations": file_metrics,
@@ -380,6 +383,16 @@ class MetricsCollector:
         )
         lines.append("# TYPE pyeye_artifact_cache_stale_evictions counter")
         lines.append(f"pyeye_artifact_cache_stale_evictions {artifact['stale_evictions']}")
+
+        # Annotation shapes typeref degraded to {raw: ...}, by kind (#331).
+        from .mcp.operations.typeref import degraded_counts_snapshot
+
+        lines.append(
+            "# HELP pyeye_typeref_degraded_total Annotations typeref degraded to raw, by shape"
+        )
+        lines.append("# TYPE pyeye_typeref_degraded_total counter")
+        for kind, count in sorted(degraded_counts_snapshot().items()):
+            lines.append(f'pyeye_typeref_degraded_total{{kind="{_label_value(kind)}"}} {count}')
 
         # Memory metrics
         memory = self.get_memory_stats()

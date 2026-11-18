@@ -31,6 +31,12 @@ empty or partial (#870). A model with no configuration at all has `{}`.
 Every model, with its fields, validators and base classes: the starting point
 for understanding a project's data shapes.
 
+A class whose base is an expression (`class M(make_base())`) can't be placed,
+so pyeye can't tell whether it's a model and doesn't list it. Call with
+`envelope=true` to see such classes: the envelope's `unplaced_classes` lists
+every one in the searched scope (#921). That list is capped by `max_unplaced`;
+`results` never is.
+
 ```json pyeye-example tool=find_pydantic_models
 {}
 ```

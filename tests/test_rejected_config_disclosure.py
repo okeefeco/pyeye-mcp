@@ -100,6 +100,7 @@ class TestEnvelope:
             "unsearched_scopes",
             "rejected_paths",
             "results",
+            "unplaced_classes",  # find_pydantic_models' own key, after the shared ones (#921)
         ]
 
     def test_rejected_entries_are_disclosed_with_a_reason(self, project: Path) -> None:
@@ -273,7 +274,13 @@ class TestNeverAnEmptyListForAnUnfinishedCheck:
         payload = _envelope(broken, "all")
 
         assert "rejected_paths" not in payload
-        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results"]
+        assert list(payload) == [
+            "scope",
+            "searched",
+            "unsearched_scopes",
+            "results",
+            "unplaced_classes",  # find_pydantic_models' own key (#921)
+        ]
 
     def test_configure_packages_omits_the_key(self, broken: Path) -> None:
         from pyeye.mcp.server import mcp

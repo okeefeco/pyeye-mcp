@@ -105,6 +105,13 @@ TRUNCATION_REASONS: dict[str, TruncationReason] = {
             "resolve",
         ),
         _reason(
+            "max_unplaced",
+            BUDGET,
+            "Pass a larger max_unplaced, or max_unplaced=None for every unplaced class; "
+            "results is never capped.",
+            "find_pydantic_models",
+        ),
+        _reason(
             "unparseable",
             UNMEASURED,
             "Read the file, or run pyeye on a newer Python; the server's interpreter "
@@ -121,10 +128,13 @@ SURVEY_LEAF = TRUNCATION_REASONS["survey_leaf"].name
 UNPARSEABLE = TRUNCATION_REASONS["unparseable"].name
 MAX_STUBS = TRUNCATION_REASONS["max_stubs"].name
 MAX_CANDIDATES = TRUNCATION_REASONS["max_candidates"].name
+MAX_UNPLACED = TRUNCATION_REASONS["max_unplaced"].name
 
 #: Default caps (#435 slice B, the user's decision): on by default, ``None`` lifts them.
 DEFAULT_MAX_STUBS: int = 200
 DEFAULT_MAX_CANDIDATES: int = 50
+#: ``find_pydantic_models``' envelope cap on ``unplaced_classes`` (#921).
+DEFAULT_MAX_UNPLACED: int = 50
 
 
 def reasons_emitted_by(tool: str) -> frozenset[str]:

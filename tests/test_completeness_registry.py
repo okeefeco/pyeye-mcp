@@ -34,7 +34,13 @@ def test_every_reason_is_well_formed() -> None:
         assert reason.name == name
         assert reason.cls in {BUDGET, BOUNDARY, UNMEASURED}, name
         assert reason.recovery.strip(), name
-        assert reason.emitted_by <= {"outline", "trace", "expand", "resolve"}, name
+        assert reason.emitted_by <= {
+            "outline",
+            "trace",
+            "expand",
+            "resolve",
+            "find_pydantic_models",
+        }, name
         assert reason.emitted_by, name
 
 
@@ -86,3 +92,13 @@ def test_skill_names_every_outline_reason() -> None:
     skill = _SKILL.read_text(encoding="utf-8")
     missing = [r for r in sorted(reasons_emitted_by("outline")) if r not in skill]
     assert not missing, f"python-explore SKILL.md omits truncation reasons {missing}"
+
+
+def test_find_pydantic_models_description_names_its_reason() -> None:
+    """The plugin tool's envelope cap is a registered budget reason (#921)."""
+    from pyeye.plugins.pydantic import PydanticPlugin
+
+    description = PydanticPlugin.find_models.__doc__ or ""
+    assert reasons_emitted_by("find_pydantic_models") == {"max_unplaced"}
+    assert TRUNCATION_REASONS["max_unplaced"].cls == BUDGET
+    assert '"max_unplaced"' in description

@@ -507,8 +507,11 @@ response stays conformant:
 
 The implementation tracks degraded-path categories via an in-process
 counter so future passes can be prioritised empirically rather than by
-guess. See `degraded_counts` and `get_and_reset_degraded_counts()` in
-`src/pyeye/mcp/operations/typeref.py`.
+guess. See `degraded_counts` in `src/pyeye/mcp/operations/typeref.py`.
+The `get_performance_metrics` admin tool reports the counts by shape: the
+`typeref_degraded` section of its report, and the
+`pyeye_typeref_degraded_total` counter in its Prometheus format. Reading
+them doesn't reset them (#331).
 
 ### Caching
 

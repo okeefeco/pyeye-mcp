@@ -116,9 +116,10 @@ directories for analysis, alongside the current project.
 - `project_path`: the project whose `.pyeye.json` is read and written.
 
 Calls are **additive**: `packages` and `standalone_dirs` are appended to what is
-already configured, and `namespaces` are merged by name. With `save=True`, the
-file is written only when at least one of `packages`, `namespaces`, or
-`standalone_dirs` is given.
+already configured, and `namespaces` are merged by name (a namespace you name
+again replaces its repositories). With `save=True`, the file is written when at
+least one of `packages`, `namespaces`, or `standalone_dirs` is given, or when
+the session holds unsaved entries, which are then written too.
 
 Changes take effect immediately, with no restart: the next `resolve`, `inspect`
 or other call on the project sees the added packages, and the project's active
@@ -147,8 +148,13 @@ project's starting point: the project itself is the first package.
 
 ```json pyeye-output
 {"packages": ["<omitted>"], "namespaces": {}, "standalone": {"dirs": []},
+ "unsaved": {"packages": [], "namespaces": {}, "standalone": {"dirs": []}},
  "rejected_paths": [], "config_file": "<omitted>"}
 ```
+
+`unsaved` lists the entries that live only in this session, not in a config
+file, in the same shape as `packages`, `namespaces` and `standalone`, so each
+compares with its counterpart. It is empty when everything is saved (#953).
 
 `rejected_paths` lists the config entries the path check refused and skipped,
 in the same shape as the plugin `envelope`'s, and is `[]` when there are none.
@@ -161,6 +167,27 @@ A call that names packages adds them, and with `save` left on, writes
 ```json
 {"packages": ["../temp-package"], "save": false}
 ```
+
+Unsaved calls accumulate for the session, like saved ones. Two `save=false`
+calls leave both packages configured, beside the project itself, and both
+listed under `unsaved`:
+
+```json pyeye-example tool=configure_packages
+[{"packages": ["myapp/db"], "save": false},
+ {"packages": ["myapp/templates"], "save": false}]
+```
+
+```json pyeye-output
+{"packages": ["<project>", "<project>/myapp/db", "<project>/myapp/templates"],
+ "unsaved": {"packages": ["<project>/myapp/db", "<project>/myapp/templates"],
+             "namespaces": {}, "standalone": {"dirs": []}},
+ "…": "<omitted>"}
+```
+
+This matters when you add several packages one at a time while exploring: each
+call keeps the earlier ones, so none silently drops out of the analysis.
+Unsaved entries last until the server restarts, or until a call with
+`save=true` writes them to `.pyeye.json` along with that call's own entries.
 
 ## ⚙️ Configuration Sources
 

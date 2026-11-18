@@ -84,6 +84,8 @@ def _call(project: Path, example: Example) -> Any:
         server = mcp if example.tool in core else _plugin_server(project)
         names = {t.name for t in await server.list_tools()}
         assert example.tool in names, f"no MCP tool named {example.tool!r}"
+        for earlier in example.before:  # a sequence's setup calls (#953)
+            await server.call_tool(example.tool, {**earlier, "project_path": project.as_posix()})
         args = {**example.args, "project_path": project.as_posix()}
         return await server.call_tool(example.tool, args)
 

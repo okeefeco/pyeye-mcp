@@ -58,6 +58,10 @@ class Example:
         fixture: The fixture project directory under ``tests/fixtures/``.
         args: The call's arguments (without ``project_path``).
         output: The shown output, or ``None`` when the example shows none.
+        before: Calls of the same tool, on the same project, that run first, in
+            order: a body that is a JSON ARRAY of argument objects is a
+            sequence, whose last object is :attr:`args` and whose shown output
+            is the last call's (#953: state that only accumulates over calls).
     """
 
     line: int
@@ -65,6 +69,7 @@ class Example:
     fixture: str
     args: dict[str, Any]
     output: Any = None
+    before: tuple[dict[str, Any], ...] = ()
 
     @property
     def shows_output(self) -> bool:
@@ -145,15 +150,25 @@ def parse_examples(text: str) -> tuple[list[Example], list[Problem]]:
             previous = None
             continue
         if kind == EXAMPLE_TAG:
-            if not isinstance(body, dict):
-                problems.append(Problem(fence.line, "an example's body must be a JSON object"))
-            elif "project_path" in body:
+            calls = body if isinstance(body, list) else [body]
+            if not calls or not all(isinstance(call, dict) for call in calls):
+                problems.append(
+                    Problem(
+                        fence.line,
+                        "an example's body must be a JSON object, or an array of them",
+                    )
+                )
+            elif any("project_path" in call for call in calls):
                 problems.append(
                     Problem(fence.line, "don't write project_path; the runner supplies it")
                 )
             else:
                 example = Example(
-                    fence.line, keys["tool"], keys.get("fixture", DEFAULT_FIXTURE), body
+                    fence.line,
+                    keys["tool"],
+                    keys.get("fixture", DEFAULT_FIXTURE),
+                    calls[-1],
+                    before=tuple(calls[:-1]),
                 )
                 examples.append(example)
                 previous = (example, fence.end_line or len(lines))

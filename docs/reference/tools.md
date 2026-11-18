@@ -238,6 +238,7 @@ Registered when the plugin's framework is detected in the project.
 | Parameter | Type | Default |
 |---|---|---|
 | `scope` | `str \| list[str] \| None` | `null` (omitted: `"main"` unless `scope_defaults` overrides it) |
+| `max_unplaced` | `int \| None` | `50` |
 | `envelope` | `bool` | `false` |
 | `project_path` | `str \| None` | `null` |
 

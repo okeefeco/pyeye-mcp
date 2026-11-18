@@ -84,6 +84,7 @@ class TestConfigurePackages:
         mock_config.config = config_dict
         mock_config.get_package_paths.return_value = ["../lib1", "../lib2"]
         mock_config.get_namespaces.return_value = {}
+        mock_config.get_standalone_config.return_value = {"dirs": []}
         mock_config.project_path = Path(".")
         # #856: new entries are checked as the config normalises them.
         mock_config._normalise_config_path.side_effect = lambda entry: entry
@@ -99,10 +100,12 @@ class TestConfigurePackages:
 
         result = await configure_packages(packages=["../lib1", "../lib2"], save=False)
 
-        # Check that packages were added to config (as resolved paths)
-        assert "packages" in config_dict
-        assert any("lib1" in p for p in config_dict["packages"])
-        assert any("lib2" in p for p in config_dict["packages"])
+        # save=False keeps them in the session overlay, applied by the reload (#953)
+        from pyeye import config as config_module
+
+        overlay = next(iter(config_module._UNSAVED.values()))
+        assert any("lib1" in p for p in overlay["packages"])
+        assert any("lib2" in p for p in overlay["packages"])
         # Check return value
         assert "packages" in result
         assert len(result["packages"]) == 2
@@ -119,6 +122,7 @@ class TestConfigurePackages:
         mock_config.config = config_dict
         mock_config.get_package_paths.return_value = []
         mock_config.get_namespaces.return_value = {"company": ["/repos/auth", "/repos/api"]}
+        mock_config.get_standalone_config.return_value = {"dirs": []}
         mock_config.project_path = Path(".")
         # #856: new entries are checked as the config normalises them.
         mock_config._normalise_config_path.side_effect = lambda entry: entry
@@ -135,8 +139,11 @@ class TestConfigurePackages:
             namespaces={"company": ["/repos/auth", "/repos/api"]}, save=False
         )
 
-        assert "namespaces" in config_dict
-        assert "company" in config_dict["namespaces"]
+        # save=False keeps them in the session overlay, applied by the reload (#953)
+        from pyeye import config as config_module
+
+        overlay = next(iter(config_module._UNSAVED.values()))
+        assert "company" in overlay["namespaces"]
 
     @patch("pyeye.mcp.server.get_project_manager")
     @patch("pyeye.mcp.server.ProjectConfig")
@@ -149,6 +156,7 @@ class TestConfigurePackages:
         mock_config.save_config = Mock()
         mock_config.get_package_paths.return_value = ["test"]
         mock_config.get_namespaces.return_value = {}
+        mock_config.get_standalone_config.return_value = {"dirs": []}
         mock_config.project_path = Path(".")
         # #856: new entries are checked as the config normalises them.
         mock_config._normalise_config_path.side_effect = lambda entry: entry
@@ -177,6 +185,7 @@ class TestConfigurePackages:
         mock_config.config = config_dict
         mock_config.get_package_paths.return_value = ["../lib1"]
         mock_config.get_namespaces.return_value = {}
+        mock_config.get_standalone_config.return_value = {"dirs": []}
         mock_config.project_path = Path(".")
         # #856: new entries are checked as the config normalises them.
         mock_config._normalise_config_path.side_effect = lambda entry: entry

@@ -1213,6 +1213,7 @@
       "group": "plugin",
       "params": [
         "tool.find_pydantic_models.param.scope",
+        "tool.find_pydantic_models.param.max_unplaced",
         "tool.find_pydantic_models.param.envelope",
         "tool.find_pydantic_models.param.project_path"
       ],
@@ -1222,6 +1223,11 @@
       "default": false,
       "required": false,
       "type": "bool"
+    },
+    "tool.find_pydantic_models.param.max_unplaced": {
+      "default": 50,
+      "required": false,
+      "type": "int | None"
     },
     "tool.find_pydantic_models.param.project_path": {
       "default": null,

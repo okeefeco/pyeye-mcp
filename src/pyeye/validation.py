@@ -575,7 +575,13 @@ def validate_mcp_inputs(func: Any) -> Any:
                             if param_name in ("packages", "standalone_dirs"):
                                 # Directories to scan (#856 ruling): not "/" either.
                                 PathValidator.validate_scan_root(item, project_root)
-                            validated_list.append(str(validated))
+                            # POSIX, never str(): native backslashes on Windows
+                            # would reach the config and the response (#717, #953).
+                            validated_list.append(
+                                validated.as_posix()
+                                if isinstance(validated, PurePath)
+                                else ensure_posix_path(str(validated))
+                            )
                         except ValidationError as e:
                             raise ValidationError(
                                 f"Invalid path at index {i} in {param_name}: {e}",

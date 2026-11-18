@@ -100,6 +100,11 @@ JSON object. Leave out `project_path`; the runner supplies it:
 ```
 ````
 
+An example whose result depends on earlier calls (state that accumulates over a
+session, #953) gives a JSON **array** of argument objects instead: the runner
+calls the tool with each in order, on the same project, and a shown output
+matches the last call's response.
+
 The `json pyeye-output` block is optional. It must come straight after its example,
 with only blank lines between them. `fixture=<name>` runs the example against
 `tests/fixtures/<name>/` instead of the default, `tests/fixtures/docs_examples/` (a
