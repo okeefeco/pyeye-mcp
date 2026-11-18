@@ -12,7 +12,7 @@ Map common requests to the right tool. Some operations use a subagent; most are 
 
 ### "Let's commit this" / "Commit these changes" / "Create a commit"
 
-→ **Use**: `Task tool with subagent_type="smart-commit"`
+→ **Use**: `Agent tool with subagent_type="smart-commit"`
 → **NOT**: manual `git status` / `git add` / `git commit`
 
 ## Cross-platform path checks (static script — no agent)
@@ -131,7 +131,7 @@ The remote branch is deleted automatically on merge (`delete_branch_on_merge`). 
 - **smart-commit**: git commit workflow with pre-commit validation
 - **general-purpose**: complex multi-step research
 
-Agents live in `.claude/agents/` and are available via the Task tool.
+Agents live in `.claude/agents/` and are available via the Agent tool.
 
 ## Why no pr-workflow agent
 

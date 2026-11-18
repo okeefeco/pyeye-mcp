@@ -57,7 +57,9 @@ Run it from the project root: locations are relative to `--root` (default: the
 current directory), and the state file's keys use them. A scope outside
 `--root` is rejected. A file that can't be parsed or decoded is skipped and
 listed as `unparseable`; its source is never printed. Bad arguments or a bad
-state file exit 2 with a one-line message, before anything is scanned.
+state file exit 2 with a one-line message, before anything is scanned. `dismiss`
+exits 1 when `--family` names no family in the scope, which is known only after
+the scan.
 
 Commands: <!-- fact:begin duplication.commands -->`review`, `dismiss`<!-- fact:end -->. Flags: <!-- fact:begin duplication.flags -->`--root`, `--min-tokens`, `--max-occurrences`, `--state`, `--today`, `--json`, `--family`, `--reason`, `--date`, `--review-after`<!-- fact:end -->.
 

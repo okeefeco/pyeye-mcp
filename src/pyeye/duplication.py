@@ -620,12 +620,14 @@ def build_families(sites: Sequence[Site], root: Path, facts: _Facts | None = Non
     """Connected components over site endpoints, longest family first.
 
     For a site between two *different classes*, each end is folded into its
-    class, so all the copies between two classes are one family. A site inside
-    one class keeps its method endpoints, unless one of them is also in a
-    cross-class site: then it joins that class's family too. A site with a
-    function or module-level end is never folded. Module-level ends are keyed
-    by their start line, so two unrelated module-level regions of one file are
-    not merged by their shared ``<module>`` name.
+    class, so all the copies between two classes are one family. Any other
+    site keeps its endpoints, with one exception: a method end that is also in
+    a cross-class site is folded into its class, so a location is only ever in
+    one family. That holds whatever the site's other end is, a method in the
+    same class, a function or module-level code. A function or module-level
+    end is itself never folded. Module-level ends are keyed by their start
+    line, so two unrelated module-level regions of one file are not merged by
+    their shared ``<module>`` name.
     """
     facts = facts if facts is not None else _Facts(root)
     parent: dict[str, str] = {}
@@ -973,7 +975,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for ``python -m pyeye.duplication``.
 
     Bad arguments or a bad state file exit 2 with a one-line message, before any
-    scanning; nothing prints a traceback or source text.
+    scanning. ``dismiss`` exits 1 when ``--family`` names no family in the
+    scope: family ids come from the scan, so that is known only after it.
+    Nothing prints a traceback or source text.
     """
     args = _parser().parse_args(argv)
     try:
