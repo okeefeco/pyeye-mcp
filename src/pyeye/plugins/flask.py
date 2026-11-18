@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..async_utils import filtered_rglob
+from ..async_utils import filtered_rglob, pruned_rglob
 from ..path_utils import path_to_key, relative_within
 from .base import AnalyzerPlugin, Scope
 
@@ -329,7 +329,7 @@ class FlaskPlugin(AnalyzerPlugin):
             for pattern in template_dirs:
                 for template_dir in root.glob(pattern):
                     if template_dir.is_dir():
-                        for template_file in template_dir.rglob("*.html"):
+                        for template_file in pruned_rglob("*.html", template_dir):
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),
@@ -337,7 +337,7 @@ class FlaskPlugin(AnalyzerPlugin):
                                     "type": "template",
                                 }
                             )
-                        for template_file in template_dir.rglob("*.jinja2"):
+                        for template_file in pruned_rglob("*.jinja2", template_dir):
                             templates.append(
                                 {
                                     "file": template_file.as_posix(),

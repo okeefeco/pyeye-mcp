@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .async_utils import pruned_rglob
 from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
@@ -401,7 +402,7 @@ class ProjectConfig:
 
         for venv_path in venv_paths:
             if venv_path.exists():
-                for site_packages in venv_path.rglob("site-packages"):
+                for site_packages in pruned_rglob("site-packages", venv_path):
                     potential_packages.append(str(site_packages))
 
         return potential_packages
@@ -441,9 +442,13 @@ class ProjectConfig:
                 expanded = glob(package)
                 for exp_path in expanded:
                     validated = PathValidator.validate_path(exp_path)
+                    # A directory to scan: not "/" (or another ancestor of /etc) either.
+                    PathValidator.validate_scan_root(exp_path, self.project_path)
                     paths.append(validated.as_posix())
             else:
                 validated = PathValidator.validate_path(package)
+                # A directory to scan: not "/" (or another ancestor of /etc) either.
+                PathValidator.validate_scan_root(package, self.project_path)
                 if validated.exists():
                     paths.append(validated.as_posix())
         except ValidationError as e:
@@ -471,9 +476,13 @@ class ProjectConfig:
                         expanded = glob(ns_path)
                         for exp_path in expanded:
                             validated = PathValidator.validate_path(exp_path)
+                            # A directory to scan: not "/" (or another ancestor of /etc) either.
+                            PathValidator.validate_scan_root(exp_path, self.project_path)
                             paths.append(validated.as_posix())
                     else:
                         validated = PathValidator.validate_path(ns_path)
+                        # A directory to scan: not "/" (or another ancestor of /etc) either.
+                        PathValidator.validate_scan_root(ns_path, self.project_path)
                         if validated.exists():
                             paths.append(validated.as_posix())
                 except ValidationError as e:
@@ -540,8 +549,27 @@ class ProjectConfig:
         # (or against the server's CWD), and "app/../repo" defeated the
         # file<->module mapper.
         return {
-            ns: [self._normalise_config_path(p) for p in paths] for ns, paths in namespaces.items()
+            ns: [
+                normalised
+                for p in paths
+                if self._passes_path_check(normalised := self._normalise_config_path(p), ns)
+            ]
+            for ns, paths in namespaces.items()
         }
+
+    def _passes_path_check(self, entry: str, what: str) -> bool:
+        """Whether a config path *entry* passes the input check in its final form (#856).
+
+        A refused entry is skipped with a warning, as package paths already are,
+        never an error: a bad ``.pyeye.json`` must not break every call.
+        """
+        try:
+            # A directory to scan: an ancestor of a restricted one is refused too.
+            PathValidator.validate_scan_root(entry, self.project_path)
+        except ValidationError as error:
+            logger.warning(f"Skipping config path {entry} ({what}): {error}")
+            return False
+        return True
 
     def _normalise_config_path(self, entry: str) -> str:
         """Return *entry* as an absolute, normalised POSIX path.
@@ -587,6 +615,8 @@ class ProjectConfig:
             resolved_path = Path(dir_path).expanduser()
             if not resolved_path.is_absolute():
                 resolved_path = self.project_path / resolved_path
+            if not self._passes_path_check(resolved_path.as_posix(), "standalone.dirs"):
+                continue
             if resolved_path.exists():
                 paths.append(resolved_path)
             else:

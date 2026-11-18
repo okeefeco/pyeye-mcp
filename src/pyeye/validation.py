@@ -1,7 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import re
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
 from .exceptions import ValidationError
@@ -37,6 +37,7 @@ class PathValidator:
     #: Checked against every form of the target (:meth:`check_forms`).
     RESTRICTED_TARGETS: tuple[str, ...] = (
         r"^/etc/",
+        r"^/private/etc/",  # macOS: /etc resolves here (#856 review)
         r"^/root/",
         r"^/proc/",
         r"^/sys/",
@@ -60,21 +61,105 @@ class PathValidator:
             if comp in path_lower:
                 raise ValidationError(f"Path contains suspicious component: {comp}")
 
+    @classmethod
+    def _check_targets(cls, forms: list[str]) -> None:
+        """Reject a target any of whose *forms* matches :data:`RESTRICTED_TARGETS`.
+
+        The system directory itself counts too: "/etc" (from "../../etc") must
+        not slip past "^/etc/" for lack of a trailing slash. Only for the
+        anchored patterns: a project dir that merely ENDS in "root" or "etc"
+        (/home/u/repos/root) is not a system directory.
+        """
+        for form in forms:
+            as_dir = form.rstrip("/") + "/"
+            for pattern in cls.RESTRICTED_TARGETS:
+                anchored = pattern.startswith("^")
+                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
+                    raise ValidationError(f"Path resolves to restricted location: {pattern}")
+
+    @classmethod
+    def validate_final(cls, path: str | Path, root: str | Path) -> Path:
+        """Check *path* in the form the tool will use it; return the caller's spelling (#856).
+
+        Unlike :meth:`validate_path`, a relative *path* is ALWAYS anchored on
+        *root* (``path_utils.anchor``, as the tool anchors it), with or without
+        ``..``, and both forms are checked: the lexical one (symlinks kept) and
+        the resolved one (symlinks followed), so a symlink inside the project
+        that points at a system directory is caught, while a project under a
+        symlinked root (macOS ``/tmp`` -> ``/private/tmp``) still passes.
+
+        Raises:
+            ValidationError: If the path is empty, spelled suspiciously, or any
+                form of it lands in a restricted location.
+        """
+        path_str, forms = cls._final_forms(path, root)
+        cls._check_targets(forms)
+        return Path(path_str)
+
+    @classmethod
+    def validate_scan_root(cls, path: str | Path, root: str | Path) -> Path:
+        """:meth:`validate_final` for a directory that will be WALKED (#856 ruling).
+
+        A scan root (a scope's directory, a package, a namespace or standalone
+        dir) is also refused when it is an ANCESTOR of a restricted directory
+        ("/", and "/private" on macOS): walking it would descend into one. The
+        walkers prune restricted directories too (:func:`restricted_dir`); this
+        refuses the scan up front, with a clear error.
+
+        Raises:
+            ValidationError: As :meth:`validate_final`, or if any form of *path*
+                is an ancestor of a restricted directory.
+        """
+        path_str, forms = cls._final_forms(path, root)
+        cls._check_targets(forms)
+        for form in forms:
+            if (form.rstrip("/") or "/") in _RESTRICTED_ANCESTORS:
+                raise ValidationError(
+                    f"Path is an ancestor of a restricted location: {form} "
+                    "(a scan from it would reach a system directory)"
+                )
+        return Path(path_str)
+
+    @classmethod
+    def _final_forms(cls, path: str | Path, root: str | Path) -> tuple[str, list[str]]:
+        """``(spelling, forms)``: *path* spell-checked, and its lexical and resolved forms."""
+        if not path:
+            raise ValidationError("Path cannot be empty")
+        path_str = Path(path).as_posix()
+        cls._check_spelling(path_str)
+        try:
+            given = Path(path_str)
+            lexical = absolute_path(anchor(given, root))
+            # Resolve the RAW join, not the lexical form: "l_tmp/../etc" with
+            # l_tmp -> /tmp is /etc on disk, though it collapses lexically to
+            # "<root>/etc" (#856 review). The OS follows the symlink first.
+            resolved = normalize_path(given if given.is_absolute() else Path(root) / given)
+        except (ValueError, RuntimeError, OSError) as e:
+            raise ValidationError(f"Invalid path: {e}") from e
+        return path_str, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
+
     @staticmethod
     def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
         """``(resolved, forms)``: the deny-list checks the target's lexical and resolved forms.
 
-        An absolute path, or a relative one containing ``..``, is checked both
-        **lexically** (anchored, ``..`` collapsed, symlinks kept) and
-        **resolved**. Either matching rejects it: on macOS ``/etc`` resolves to
-        ``/private/etc``, which the resolved form alone never matches. A relative
-        one is anchored on *anchor_root* (the call's project) when given, else
-        the cwd. Any other relative path is checked as given.
+        The target is checked both **lexically** (anchored, ``..`` collapsed,
+        symlinks kept) and **resolved** (symlinks followed). Either matching
+        rejects it: on macOS ``/etc`` resolves to ``/private/etc``, which the
+        resolved form alone never matches, and a symlink inside the project that
+        points at ``/etc`` is caught only by the resolved form.
+
+        - An absolute path: as given.
+        - A relative path with *anchor_root* (where the tool will anchor it):
+          ALWAYS anchored there, ``..`` or not (#856).
+        - A relative path without one: anchored on the cwd if it contains
+          ``..``; otherwise checked as written only.
         """
         if path.is_absolute():
             lexical = absolute_path(path)
+        elif anchor_root is not None:
+            lexical = absolute_path(anchor(path, anchor_root))
         elif ".." in path.as_posix():
-            lexical = absolute_path(anchor(path, anchor_root) if anchor_root is not None else path)
+            lexical = absolute_path(path)
         else:
             return path, [path.as_posix()]
         resolved = normalize_path(lexical)
@@ -126,16 +211,7 @@ class PathValidator:
         except (ValueError, RuntimeError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
 
-        # The system directory itself counts too: "/etc" (from "../../etc")
-        # must not slip past "^/etc/" for lack of a trailing slash. Only for the
-        # anchored patterns: a project dir that merely ENDS in "root" or "etc"
-        # (/home/u/repos/root) is not a system directory.
-        for form in forms:
-            as_dir = form.rstrip("/") + "/"
-            for pattern in cls.RESTRICTED_TARGETS:
-                anchored = pattern.startswith("^")
-                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
-                    raise ValidationError(f"Path resolves to restricted location: {pattern}")
+        cls._check_targets(forms)
 
         # If base_path is provided, ensure the path is within it
         if base_path:
@@ -167,6 +243,45 @@ class PathValidator:
         if path_obj.is_absolute():
             return absolute_path(path_str)
         return path_obj
+
+
+#: The restricted DIRECTORIES: the literal of each ANCHORED deny-list pattern
+#: ("^/private/etc/" -> "/private/etc"). Only anchored patterns name a
+#: directory: the unanchored "/etc/" and "/root/" match that component at any
+#: depth (/home/u/x/etc/...), so they have no fixed location, and no ancestors.
+_RESTRICTED_DIRS: tuple[str, ...] = tuple(
+    pattern[1:].rstrip("/")
+    for pattern in PathValidator.RESTRICTED_TARGETS
+    if pattern.startswith("^")
+)
+
+#: Every proper ancestor of a restricted directory: "/" and, for macOS's
+#: /private/etc, "/private". A scan rooted at one would walk into a restricted
+#: directory, so :meth:`PathValidator.validate_scan_root` refuses it.
+_RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
+    parent.as_posix() for d in _RESTRICTED_DIRS for parent in PurePosixPath(d).parents
+)
+
+
+def restricted_dir(resolved: str | Path) -> bool:
+    """Whether the RESOLVED directory *resolved* is, or is inside, a restricted directory.
+
+    The prune test every directory walk applies (#856 ruling): a route the
+    input checks miss (a symlinked parent, a new scope form) still can't
+    descend into a system directory. POSIX forms only, as the deny-list is.
+    """
+    form = Path(resolved).as_posix().rstrip("/") + "/"
+    return any(form.startswith(d + "/") for d in _RESTRICTED_DIRS)
+
+
+def unwalkable_root(resolved: str | Path) -> bool:
+    """Whether a walk rooted at the RESOLVED *resolved* can't be made safe by pruning.
+
+    True for a restricted directory and for an ancestor of one: the walkers
+    that take no prune hook (the recursive file watcher) must not start there.
+    """
+    form = Path(resolved).as_posix().rstrip("/") or "/"
+    return restricted_dir(form) or form in _RESTRICTED_ANCESTORS
 
 
 class InputValidator:
@@ -297,7 +412,7 @@ def validate_mcp_inputs(func: Any) -> Any:
                 try:
                     # A file is relative to the call's project; project_path
                     # itself is relative to the cwd (#842, #843).
-                    root = None if param_name == "project_path" else project_root
+                    root = "." if param_name == "project_path" else project_root
                     validated = PathValidator.validate_path(value, anchor_root=root)
                     # POSIX, never str(): str() gives native backslashes on
                     # Windows, and the value is echoed back to the agent (#717).
@@ -357,12 +472,36 @@ def validate_mcp_inputs(func: Any) -> Any:
                     ) from e
 
             # List validation for paths
-            elif param_name in ["paths", "repo_paths", "project_paths", "packages"]:
+            elif param_name == "namespaces" and isinstance(value, dict):
+                # configure_packages: each namespace's repo paths, checked where
+                # they will be anchored, and passed on as the caller wrote them (#856).
+                for namespace, ns_paths in value.items():
+                    for i, item in enumerate(ns_paths or []):
+                        try:
+                            PathValidator.validate_scan_root(item, project_root)
+                        except ValidationError as e:
+                            raise ValidationError(
+                                f"Invalid path at index {i} in namespaces[{namespace!r}]: {e}",
+                                parameter=param_name,
+                                value=str(item),
+                                index=i,
+                            ) from e
+
+            elif param_name in [
+                "paths",
+                "repo_paths",
+                "project_paths",
+                "packages",
+                "standalone_dirs",
+            ]:
                 if isinstance(value, list):
                     validated_list = []
                     for i, item in enumerate(value):
                         try:
                             validated = PathValidator.validate_path(item, anchor_root=project_root)
+                            if param_name in ("packages", "standalone_dirs"):
+                                # Directories to scan (#856 ruling): not "/" either.
+                                PathValidator.validate_scan_root(item, project_root)
                             validated_list.append(str(validated))
                         except ValidationError as e:
                             raise ValidationError(

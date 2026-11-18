@@ -12,8 +12,10 @@ from typing import Any
 
 from .async_utils import rglob_async
 from .config import ProjectConfig
+from .exceptions import ValidationError
 from .metrics import metrics
 from .path_utils import anchor, normalize_path
+from .validation import PathValidator
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +198,15 @@ def resolve_scope_paths(
                 logger.warning(f"{owner}Package path does not exist: {pkg_path.as_posix()}")
         elif warn:
             logger.warning(f"{owner}Unknown scope specification: {s}")
+    # Every directory a scope names is checked in its final form, whichever
+    # form produced it (main, packages, namespaces, aliases, package:), so no
+    # scope spelling can skip the check (#856 review). Each is a scan root, so an
+    # ancestor of a restricted directory ("/") is refused too (#856 ruling).
+    for path in paths:
+        try:
+            PathValidator.validate_scan_root(path, layout.project_path)
+        except ValidationError as error:
+            raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
     return paths
 
 
@@ -205,8 +216,18 @@ def package_scope_path(scope: str, layout: ScopeLayout) -> Path:
     A relative path is anchored on ``layout.project_path`` (the project the
     caller passed), an absolute one is used as given. The one place this is
     decided, so the search and the envelope's report can't disagree.
+
+    Raises:
+        ValidationError: If the path, in that final form, lands in a restricted
+            location (#856). A path that merely doesn't exist is not an error: the
+            envelope lists it in ``unsearched_scopes`` (#842).
     """
-    return anchor(scope[len("package:") :], layout.project_path)
+    raw = scope[len("package:") :]
+    try:
+        PathValidator.validate_scan_root(raw, layout.project_path)
+    except ValidationError as error:
+        raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
+    return anchor(raw, layout.project_path)
 
 
 def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:
@@ -215,6 +236,15 @@ def _namespace_scope_paths(namespace: str, layout: ScopeLayout) -> set[Path]:
     for ns_path in layout.namespace_paths.get(namespace, ()):
         paths.update(namespace_directory_structure(ns_path))
     parts = namespace.split(".")
+    # A sub-namespace is a dotted Python name: every part an identifier. Anything
+    # else ("ns./etc") would join onto the base as a path, and an absolute part
+    # replaces the base entirely (#856 review).
+    if not all(part.isidentifier() for part in parts[1:]):
+        raise ValidationError(
+            f"Invalid scope 'namespace:{namespace}': a sub-namespace must be a dotted "
+            "Python name",
+            parameter="scope",
+        )
     for i in range(len(parts)):
         parent_ns = ".".join(parts[: i + 1])
         sub_parts = parts[i + 1 :]
