@@ -44,9 +44,10 @@ not as a finding.
 - **Every claim is backed** (D12): a number, comparison, measurement or absolute
   is a bound fact, links a dated, reproducible record, or goes.
 - **Machine-readable repo config is a fact too** (C17): pre-commit hook IDs and
-  CI flags are facts, not prose. Until their extractor exists, route a
-  restatement of one to `fact` with `"extractor": "new: …"`. A how-to with no
-  config source ("use `uv sync --frozen` locally") stays prose.
+  CI flags are facts, not prose. Route a restatement of one to `fact`, with
+  `"extractor": "repo_config"` (hooks, the hooks' `uv run` flags, config keys and
+  files) or `"ci"` (CI's flags). A how-to with no config source ("use
+  `uv sync --frozen` locally") stays prose.
 - **Executed examples may live on any human or both prose page** (C17), not only
   docs/api, docs/reference and skills; history pages and `.claude/` excepted.
 - **Your proposed wording follows the same rules.** `validate` runs the
@@ -84,7 +85,8 @@ not as a finding.
    converting the claim:
    - `"route": "fact"`: bind a fact instead. `extractor` names the registered
      extractor that would produce it (`mcp_surface`, `edges`, `env`, `cli`,
-     `ci`, `review`, `duplication`, `scopes`, `security`, `resolver`), or
+     `ci`, `review`, `duplication`, `scopes`, `security`, `resolver`,
+     `repo_config`), or
      `"new: <what it would read>"` for one that doesn't exist yet. The
      replacement says what to bind.
    - `"route": "example"`: replace the claim with an executed example. Either

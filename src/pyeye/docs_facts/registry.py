@@ -19,6 +19,7 @@ from .extractors import (
     edges,
     env,
     mcp_surface,
+    repo_config,
     resolver,
     review,
     scopes,
@@ -53,6 +54,7 @@ EXTRACTORS: tuple[Extractor, ...] = (
     Extractor("scopes", scopes.PREFIXES, scopes.extract),
     Extractor("security", security.PREFIXES, security.extract),
     Extractor("resolver", resolver.PREFIXES, resolver.extract),
+    Extractor("repo_config", repo_config.PREFIXES, repo_config.extract),
 )
 
 

@@ -21,6 +21,10 @@ OVERRIDE_FILE = f".{PROJECT_NAME}.override.json"
 # Global config directory
 CONFIG_DIR = f".config/{PROJECT_NAME}"
 
+# Global config files, relative to the user's home, in the order they're tried:
+# the first that exists is loaded (docs fact config.files.global)
+GLOBAL_CONFIG_FILES = (f"{CONFIG_DIR}/config.json", f".{PROJECT_NAME}.json")
+
 # Metrics/data directory
 METRICS_DIR = f".{PROJECT_NAME}/metrics"
 
