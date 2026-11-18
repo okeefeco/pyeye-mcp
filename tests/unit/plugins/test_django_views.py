@@ -71,7 +71,8 @@ class TestClassViews:
         assert await _views(app) == [("Both", "class_view")]
 
     @pytest.mark.asyncio
-    async def test_a_base_not_from_django_is_not_a_view(self, app: Path) -> None:
+    async def test_a_base_not_from_a_framework_is_not_a_view(self, app: Path) -> None:
+        """Only an imported framework base counts; DRF's own APIView does since #947."""
         _write(
             app,
             "shop/views.py",
@@ -86,7 +87,7 @@ class TestClassViews:
             "class D(forms.Form):\n    pass\n",
         )
 
-        assert await _views(app) == []
+        assert await _views(app) == [("C", "class_view")]
 
     @pytest.mark.asyncio
     async def test_a_star_import_from_django_counts_unbound_names_only(self, app: Path) -> None:
@@ -310,6 +311,19 @@ class TestDefensiveBranches:
         monkeypatch.setattr(plugin, "_read_source", unreadable_shop)
 
         assert [v["name"] for v in await plugin.find_views()] == ["b"]
+
+    @pytest.mark.asyncio
+    async def test_an_unparseable_views_file_is_skipped(self, app: Path) -> None:
+        """Broken user code is skipped with a warning (#622), and the rest still counts."""
+        _write(app, "shop/views.py", "from django.http import HttpResponse\n\ndef broken(:\n")
+        _write(app, "blog/__init__.py", "")
+        _write(
+            app,
+            "blog/views.py",
+            "from django.http import HttpResponse\n\ndef ok(request):\n    pass\n",
+        )
+
+        assert await _views(app) == [("ok", "function_view")]
 
     def test_the_package_walk_stops_at_the_filesystem_root(
         self, monkeypatch: pytest.MonkeyPatch
