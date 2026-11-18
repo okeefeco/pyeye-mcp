@@ -13,6 +13,10 @@ LRU-bounded by `PYEYE_MAX_PROJECTS` (default <!-- fact:begin env.PYEYE_MAX_PROJE
 **Scoped cache.** Each analyzer's `ScopedCache` keeps the list of files each
 scope covers, separately per scope (`main`, `all`, `namespace:<name>`, ...).
 Entries live `PYEYE_CACHE_TTL` seconds (default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end -->).
+It also holds the `imports` edge's resolutions of targets outside the project,
+in an LRU of `PYEYE_RESOLVE_CACHE_MAX_ENTRIES` entries (#925). A miss or a
+project target is resolved every time, and a watcher event clears the lot, so a
+new project module that shadows a stdlib name is seen.
 
 **Parsed-file cache.** `pyeye.file_artifact_cache` keeps parsed ASTs and Jedi
 scripts process-wide, in one LRU of `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES` entries

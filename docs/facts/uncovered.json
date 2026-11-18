@@ -118,6 +118,10 @@
       "first_seen": "unreleased"
     },
     {
+      "fact_id": "env.PYEYE_RESOLVE_CACHE_MAX_ENTRIES",
+      "first_seen": "unreleased"
+    },
+    {
       "fact_id": "precommit.hook.black",
       "first_seen": "unreleased"
     },

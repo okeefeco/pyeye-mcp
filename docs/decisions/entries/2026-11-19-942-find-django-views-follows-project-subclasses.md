@@ -3,10 +3,10 @@ date: "2026-11-19"
 title: "find_django_views follows project subclasses of class views through the shared class graph (#942)"
 issues: [942, 941, 664, 397]
 anchors: ["pyeye.plugins.django.DjangoPlugin.find_views", "pyeye.plugins.django.DjangoPlugin._indirect_class_views", "tests/unit/plugins/test_django_views.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-941-a-django-view-base-must-come-from-django.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-947-find-django-views-reports-drf-views-with-a-framework-key.md"]
 superseded_by: []
 ---
 

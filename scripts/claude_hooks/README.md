@@ -15,13 +15,23 @@ source ~/.claude/mcp_monitoring/aliases.sh
 mcp-report
 ```
 
+### Updating an existing setup
+
+The setup script copies the hook matchers from `hooks.json` into your
+`~/.claude/settings.json`, so a change to them reaches you only when you re-run
+it. If you set up monitoring before the plugin's tool names were matched
+(#965), or before the Grep tool was counted (#970, which points the `Grep` hook
+at `track_grep_tool.py`), re-run `bash scripts/claude_hooks/setup_mcp_monitoring.sh`
+once; it backs up your settings first. The tracking scripts themselves run from this
+repository, so changes to them need nothing.
+
 ## 📊 What Gets Tracked
 
 The monitoring system automatically tracks:
 
-- **MCP Tool Calls**: Every `mcp__pyeye__*` tool invocation
+- **MCP Tool Calls**: Every pyeye tool invocation, under either name Claude Code gives it: `mcp__pyeye__*` (added with `claude mcp add`) or `mcp__plugin_pyeye_pyeye__*` (the Claude Code plugin). Both are recorded under the tool's own name, such as `resolve`.
 - **Grep Usage**: Detection of grep/rg/find in Bash commands
-- **Direct Grep Tool**: Usage of Claude's Grep tool
+- **Direct Grep Tool**: Usage of Claude's Grep tool (`track_grep_tool.py`), counted with grep usage in the report
 - **Sessions**: Start/end of Claude Code sessions
 - **Success Metrics**: Tool completion and response sizes
 
@@ -70,7 +80,7 @@ Claude Code's hook system intercepts tool calls:
 Monitoring data is stored in `~/.claude/mcp_monitoring/`:
 
 - `mcp_calls.jsonl` - Detailed MCP tool invocations
-- `grep_usage.jsonl` - Grep/find command usage
+- `grep_usage.jsonl` - Grep/find command usage, and Grep tool calls (tool `grep_tool`)
 - `mcp_success.jsonl` - Successful tool completions
 - `sessions.jsonl` - Session start/end events
 - `*.csv` - Simplified CSV versions for quick analysis
@@ -87,10 +97,10 @@ If you prefer manual setup:
 
    ```bash
    # Backup existing settings
-   cp ~/.config/claude/settings.json ~/.config/claude/settings.json.backup
+   cp ~/.claude/settings.json ~/.claude/settings.json.backup
 
    # Add hooks to settings.json (requires manual JSON merge)
-   # The hooks go inside ~/.config/claude/settings.json, not a separate file
+   # The hooks go inside ~/.claude/settings.json, not a separate file
    ```
 
 2. **Update paths in settings.json**:
@@ -132,8 +142,8 @@ tail ~/.claude/mcp_monitoring/mcp_calls.jsonl
 # Check for errors
 cat ~/.claude/mcp_monitoring/hook_errors.log
 
-# Verify hooks are installed
-cat ~/.claude/hooks.json
+# Verify hooks are installed (setup merges them into your settings)
+python3 -c "import json, pathlib; print(json.dumps(json.load(open(pathlib.Path.home() / '.claude/settings.json')).get('hooks', {}), indent=2))"
 ```
 
 ## 🤝 Contributing

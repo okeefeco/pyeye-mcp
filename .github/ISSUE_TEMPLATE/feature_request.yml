@@ -1,0 +1,43 @@
+name: Feature request
+description: Something pyeye should do, or do differently.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What you were trying to do, and what got in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What pyeye should do. For a tool, say which tool and what it should return.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core tools (resolve, inspect, outline, expand, trace)
+        - Framework plugins (Django, Flask, Pydantic)
+        - Configuration
+        - Docs and skills
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: contributing
+    attributes:
+      label: Contributing
+      description: >-
+        We don't accept unsolicited pull requests: a maintainer assigns the issue first
+        (see the [contribution policy](https://github.com/okeefeco/pyeye-mcp/blob/main/CONTRIBUTING.md#contribution-policy)).
+      options:
+        - label: I'd like to work on this, once it's assigned to me.

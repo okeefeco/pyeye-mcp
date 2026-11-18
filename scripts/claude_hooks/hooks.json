@@ -8,7 +8,7 @@
             "type": "command"
           }
         ],
-        "matcher": "mcp__pyeye__.*"
+        "matcher": "mcp__pyeye__.*|mcp__plugin_pyeye_pyeye__.*"
       }
     ],
     "PreToolUse": [
@@ -19,7 +19,7 @@
             "type": "command"
           }
         ],
-        "matcher": "mcp__pyeye__.*"
+        "matcher": "mcp__pyeye__.*|mcp__plugin_pyeye_pyeye__.*"
       },
       {
         "hooks": [
@@ -33,7 +33,7 @@
       {
         "hooks": [
           {
-            "command": "echo \"$(date +%Y-%m-%d_%H:%M:%S),grep_tool,direct\" >> ~/.claude/mcp_monitoring/grep_usage.csv",
+            "command": "python3 ~/GitHub/pyeye-mcp/scripts/claude_hooks/track_grep_tool.py",
             "type": "command"
           }
         ],
