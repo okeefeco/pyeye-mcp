@@ -1,5 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
+import contextlib
+import functools
 import re
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
@@ -44,7 +46,40 @@ class PathValidator:
         r"^/proc/",
         r"^/sys/",
         r"^/dev/",
+        r"^/boot/",  # #909
+        r"^/run/secrets/",  # container secrets (#909)
+        r"^/var/run/secrets/",  # Kubernetes service-account tokens (#909)
+        r"^/private/var/run/secrets/",  # ...as /var/run resolves on macOS (#909 review)
+        r"^/var/root/",  # macOS root's home (#909)
+        r"^/private/var/root/",  # ...as it resolves on macOS (#909)
     )
+
+    #: Credential stores, refused (and pruned in walks) directly below any user
+    #: home (:data:`USER_HOMES`), the entry itself or anything inside it (#909).
+    #: Unlike :data:`RESTRICTED_TARGETS` they define no ancestors: a scan of
+    #: ``~``, ``/home`` or ``/Users`` works and skips them. A project placed
+    #: INSIDE one (``~/.config/gh/x``) is refused, as intended.
+    CREDENTIAL_PATHS: tuple[str, ...] = (
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".config/gcloud",
+        ".azure",
+        ".kube",
+        ".docker",
+        ".config/gh",
+        ".netrc",
+        ".pypirc",
+        ".pgpass",
+        ".git-credentials",
+        ".npmrc",
+    )
+
+    #: Where a user home is, as anchored patterns: every one, including a home
+    #: created after the server started, since nothing is enumerated. The
+    #: server's own home (``Path.home()``, read once per process) is added at
+    #: use, for a ``$HOME`` outside these roots (#909).
+    USER_HOMES: tuple[str, ...] = (r"^/home/[^/]+/", r"^/Users/[^/]+/", r"^/root/")
 
     @classmethod
     def _check_spelling(cls, path_str: str) -> None:
@@ -72,6 +107,11 @@ class PathValidator:
             for pattern in cls.RESTRICTED_TARGETS:
                 if re.search(pattern, as_dir, re.IGNORECASE):
                     raise ValidationError(f"Path resolves to restricted location: {pattern}")
+            if (name := credential_path(form)) is not None:
+                raise ValidationError(
+                    f"Path resolves to restricted location: the credential store {name} "
+                    "in a user home"
+                )
 
     @classmethod
     def validate_final(cls, path: str | Path, root: str | Path) -> Path:
@@ -263,15 +303,46 @@ _RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
 )
 
 
+@functools.cache
+def _credential_pattern() -> re.Pattern[str]:
+    """Every user home followed by a credential store, as one pattern (#909).
+
+    Built once per process: :data:`PathValidator.USER_HOMES` plus the server's
+    own home, as spelled and resolved, whose ``$HOME`` can't move for a running
+    process.
+    """
+    homes = list(PathValidator.USER_HOMES)
+    # The home both as spelled ($HOME) and resolved: with a symlinked home
+    # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
+    # the resolved check see, names neither the spelling nor a fixed root
+    # (#909 review). No resolvable home: the fixed roots still apply.
+    with contextlib.suppress(RuntimeError, KeyError, OSError):
+        home = Path.home()
+        for spelling in dict.fromkeys([home.as_posix(), normalize_path(home).as_posix()]):
+            homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
+    stores = "|".join(re.escape(name) for name in PathValidator.CREDENTIAL_PATHS)
+    return re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
+
+
+def credential_path(form: str | Path) -> str | None:
+    """The credential store *form* is, or is inside, below a user home; else ``None`` (#909)."""
+    match = _credential_pattern().match(Path(form).as_posix().rstrip("/") + "/")
+    return match.group(1) if match else None
+
+
 def restricted_dir(resolved: str | Path) -> bool:
     """Whether the RESOLVED directory *resolved* is, or is inside, a restricted directory.
 
     The prune test every directory walk applies (#856 ruling): a route the
     input checks miss (a symlinked parent, a new scope form) still can't
-    descend into a system directory. POSIX forms only, as the deny-list is.
+    descend into a system directory or a credential store (#909). Case is
+    ignored, as in :meth:`PathValidator._check_targets` (#939). POSIX forms
+    only, as the deny-list is.
     """
-    form = Path(resolved).as_posix().rstrip("/") + "/"
-    return any(form.startswith(d + "/") for d in _RESTRICTED_DIRS)
+    form = Path(resolved).as_posix().rstrip("/").lower() + "/"
+    if any(form.startswith(d.lower() + "/") for d in _RESTRICTED_DIRS):
+        return True
+    return credential_path(form) is not None
 
 
 def unwalkable_root(resolved: str | Path) -> bool:
@@ -402,8 +473,10 @@ def validate_mcp_inputs(func: Any) -> Any:
         raw_project = bound.arguments.get("project_path")
         project_root = raw_project if isinstance(raw_project, str | Path) else "."
 
-        # Validate based on parameter names
-        for param_name, value in bound.arguments.items():
+        # Validate based on parameter names. project_path first: the others are
+        # anchored on it, so a refusal it causes must name it, not them (#949 review).
+        arguments = sorted(bound.arguments.items(), key=lambda item: item[0] != "project_path")
+        for param_name, value in arguments:
             if value is None:
                 continue
 

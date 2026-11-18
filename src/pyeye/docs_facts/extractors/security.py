@@ -277,14 +277,29 @@ def _path_checks() -> Iterator[Bindable]:
             f"{prefix!r}, so the checked forms can't be read from it"
         )
     forms = Fact("security.path_checks.forms", summary[len(prefix) :], text(summary[len(prefix) :]))
-    yield from (rejected, targets, forms)
+    credentials = Fact(
+        "security.path_checks.credentials",
+        list(PathValidator.CREDENTIAL_PATHS),
+        code_list(PathValidator.CREDENTIAL_PATHS),
+    )
+    homes = Fact(
+        "security.path_checks.homes",
+        list(PathValidator.USER_HOMES),
+        code_list(PathValidator.USER_HOMES),
+    )
+    from ...validation import _RESTRICTED_ANCESTORS
+
+    ancestors = sorted(_RESTRICTED_ANCESTORS)
+    yield Fact("security.path_checks.ancestors", ancestors, code_list(ancestors))
+    yield from (rejected, targets, credentials, homes, forms)
     yield view(
         "security.path_checks",
-        [rejected, targets, forms],
+        [rejected, targets, credentials, homes, forms],
         "\n".join(
             [
                 f"- anywhere in the path: {rejected.markdown};",
                 f"- a target matching one of these anchored patterns, ignoring case: {targets.markdown};",
+                f"- a credential store directly below a user home, or anything inside it, ignoring case: {credentials.markdown}; a user home is one of {homes.markdown}, or the server's own home;",
                 f"- forms checked: {forms.markdown}",
             ]
         ),
