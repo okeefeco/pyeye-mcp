@@ -126,20 +126,6 @@ _ENTRIES: tuple[DocEntry, ...] = (
         ".claude/instructions/03-mcp-dogfooding.md",
         _C,
         "prose",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'get_module_info' beside 'removed'",
-                    "names removed tool 'list_project_structure' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
-                )
-            }
-        ),
     ),
     DocEntry(
         ".claude/instructions/04-agent-triggers.md",

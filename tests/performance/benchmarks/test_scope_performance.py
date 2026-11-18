@@ -25,10 +25,11 @@ from tests.utils.performance import (
 class TestScopedCachePerformance:
     """Test scoped cache performance."""
 
-    # Pure-Python microbenchmark (100k lookups): under coverage the tracer's
-    # per-line cost dominates and the result depended on suite composition
-    # (#428), so coverage is switched off for it.
-    @pytest.mark.no_cover
+    # Pure-Python microbenchmark (100k lookups). No ``no_cover`` marker (#835):
+    # pytest-cov 7.1 crashes on it under --no-cov (it pauses a controller that
+    # doesn't exist), which the Windows 3.11 leg runs, and pausing barely helps
+    # anyway. Measured in-process: no coverage 120-127 ms, tracing 150-156 ms,
+    # tracing paused 148-166 ms.
     async def test_cache_hit_performance(self):
         """Test that cache hits are fast."""
         cache = ScopedCache(ttl_seconds=300)
@@ -48,7 +49,10 @@ class TestScopedCachePerformance:
 
         # Define thresholds for 100k cache lookups
         bulk_cache_threshold = PerformanceThresholds(
-            base=250.0,  # 250ms for local development (increased for variance)
+            # Local runs share dev01 with a second full suite (the machine rule
+            # allows two), which pushed this to ~336 ms under coverage (#835).
+            # Alone it takes 120-155 ms, so 400 still catches a ~3x regression.
+            base=400.0,
             linux_ci=500.0,  # 500ms for Linux CI (increased for slower runners)
             macos_ci=800.0,  # 800ms for macOS CI
             windows_ci=800.0,  # 800ms for Windows CI
@@ -425,3 +429,27 @@ class TestScopedCacheMetrics:
             hit_rate = (metrics.cache_metrics.hits - initial_hits) / total_operations
             # We had 1 hit and 4 misses, so hit rate should be 0.2 (20%)
             assert 0.15 < hit_rate < 0.25, f"Expected ~20% hit rate, got {hit_rate*100:.1f}%"
+
+
+def test_the_cache_benchmark_runs_without_coverage(tmp_path: Path) -> None:
+    """The Windows 3.11 leg runs with --no-cov (#892), so the benchmark must too (#835).
+
+    pytest-cov 7.1 crashes a ``no_cover``-marked test under --no-cov with
+    ``AttributeError: 'NoneType' object has no attribute 'pause'``. This runs just
+    the benchmark that way, in a subprocess, so the marker can't come back.
+    """
+    import subprocess  # nosec B404 - runs this interpreter's pytest, fixed arguments
+    import sys
+
+    node = f"{Path(__file__).as_posix()}::TestScopedCachePerformance::test_cache_hit_performance"
+    result = subprocess.run(  # nosec B603 - this interpreter, fixed arguments
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--no-cov", node],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert "AttributeError" not in output, output[-2000:]
+    assert result.returncode == 0, output[-2000:]
