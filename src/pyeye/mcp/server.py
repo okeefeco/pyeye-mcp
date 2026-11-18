@@ -21,37 +21,10 @@ from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig
 from ..constants import CONFIG_FILE
 from ..docs_facts.describe import described, fill
-from ..metrics import metrics
-from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
-
-# Import metrics_hook only if available (for optional unified metrics support)
-try:
-    from ..metrics_hook import auto_session_for_mcp, track_mcp_operation
-
-    UNIFIED_METRICS_AVAILABLE = True
-except ImportError:
-    # Fallback if unified metrics not available
-    UNIFIED_METRICS_AVAILABLE = False
-
-    def track_mcp_operation(tool_name: str | None = None) -> Any:  # type: ignore[misc]
-        """No-op decorator when unified metrics not available."""
-        _ = tool_name  # Mark as intentionally unused
-
-        def decorator(func):  # type: ignore[no-untyped-def]
-            # Preserve the original function without modification
-            # This is critical for maintaining async compatibility
-            import functools
-
-            return functools.wraps(func)(func)
-
-        return decorator
-
-    def auto_session_for_mcp() -> str:
-        """No-op when unified metrics not available."""
-        return "default_session"
-
-
 from ..exceptions import ValidationError
+from ..metrics import metrics
+from ..metrics_hook import track_mcp_operation
+from ..path_utils import absolute_path, normalize_path, paths_equal, respell_paths
 from ..plugins import handles as plugin_handles
 from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
@@ -82,17 +55,6 @@ logger = logging.getLogger(__name__)
 # so a positional instructions string would silently become the title (#538).
 # mcp 2.x reports an empty server version unless one is passed.
 mcp = MCPServer("PyEye", instructions=meta.server_instructions(), version=meta.version())
-
-# Initialize unified metrics session
-_unified_session_id = None
-
-
-def ensure_unified_session() -> None:
-    """Ensure unified metrics session is started."""
-    global _unified_session_id
-    if _unified_session_id is None:
-        _unified_session_id = auto_session_for_mcp()
-
 
 # Global plugin registry
 _plugins: list[Any] = []
@@ -1516,15 +1478,3 @@ def get_about() -> str:
         A JSON object with ``name``, ``version``, ``repository`` and ``issues``.
     """
     return json.dumps(meta.about())
-
-
-# Export for __main__.py
-def get_unified_collector() -> Any:
-    """Get the unified metrics collector.
-
-    Returns:
-        Unified metrics collector instance
-    """
-    from ..unified_metrics import get_unified_collector as _get_collector
-
-    return _get_collector()

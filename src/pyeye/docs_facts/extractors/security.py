@@ -10,12 +10,9 @@ SECURITY.md states these as facts, so they come from the code:
 - ``security.write_sites``: the call sites in those modules that write a file or
   create a directory;
 - ``security.network_imports``: the imports of a networking module in those modules;
-- ``security.metrics_inputs``: everything a tool call hands the usage-metrics
-  recorder, the parameters of
-  :meth:`pyeye.unified_metrics.UnifiedMetricsCollector.record_mcp_operation`;
-- ``security.writes.config`` and ``security.writes.metrics``: where the two
-  files the server keeps are written, from :data:`pyeye.constants.CONFIG_FILE`
-  and :data:`pyeye.constants.METRICS_DIR`;
+- ``security.writes.config``: where the project configuration the server keeps
+  is written, from :data:`pyeye.constants.CONFIG_FILE`. (The server no longer
+  writes usage metrics: the unified metrics store was removed, #943.)
 - ``security.path_checks.*``: what :meth:`pyeye.validation.PathValidator.validate_path`
   rejects, from its class constants, and which forms of a target it checks,
   from :meth:`~pyeye.validation.PathValidator.check_forms`' docstring;
@@ -37,9 +34,8 @@ import pyeye
 
 from ... import _jedi_project
 from ...async_utils import filtered_rglob
-from ...constants import CONFIG_FILE, METRICS_DIR
+from ...constants import CONFIG_FILE
 from ...path_utils import relative_within
-from ...unified_metrics import UnifiedMetricsCollector
 from ...validation import PathValidator
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, text, view
 
@@ -314,24 +310,13 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     yield Fact("security.write_sites", writes, _list(writes))
     networks = sorted(network)
     yield Fact("security.network_imports", networks, _list(networks))
-    recorded = [
-        name
-        for name in inspect.signature(UnifiedMetricsCollector.record_mcp_operation).parameters
-        if name != "self"
-    ]
-    yield Fact("security.metrics_inputs", recorded, code_list(recorded))
-
     config = Fact(
         "security.writes.config",
         {"path": f"<project_path>/{CONFIG_FILE}"},
         code(f"<project_path>/{CONFIG_FILE}"),
     )
-    metrics = Fact(
-        "security.writes.metrics", {"path": f"~/{METRICS_DIR}/"}, code(f"~/{METRICS_DIR}/")
-    )
     yield config
-    yield metrics
-    yield view("security.writes", [config, metrics], f"{config.markdown}, {metrics.markdown}")
+    yield view("security.writes", [config], config.markdown)
 
     yield from _path_checks()
 

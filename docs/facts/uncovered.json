@@ -7,11 +7,9 @@
     "env.PYEYE_ENABLE_CONNECTION_POOLING",
     "env.PYEYE_ENABLE_MEMORY_PROFILING",
     "env.PYEYE_ENABLE_PERFORMANCE_METRICS",
-    "env.PYEYE_ISSUE",
     "env.PYEYE_LOG_LEVEL",
     "env.PYEYE_MAX_FILE_SIZE",
     "env.PYEYE_MAX_WORKERS",
-    "env.PYEYE_PARENT_SESSION",
     "env.PYEYE_PARSO_CACHE_MAX_ENTRIES",
     "env.PYEYE_POOL_MAX_CONNECTIONS",
     "env.PYEYE_POOL_TTL",
@@ -112,7 +110,11 @@
   "dismissed": {},
   "new": [
     {
-      "fact_id": "env.PYEYE_METRICS_DIR",
+      "fact_id": "env.PYEYE_ISSUE",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "env.PYEYE_PARENT_SESSION",
       "first_seen": "unreleased"
     },
     {
