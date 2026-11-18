@@ -24,5 +24,6 @@ Every `PYEYE_*` variable pyeye reads, with its default and range. `unused` means
 | `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | 1-1000000 | live |
 | `PYEYE_POOL_MAX_CONNECTIONS` | 10 | 1-100 | deprecated, no effect: the connection pool was removed (#628) |
 | `PYEYE_POOL_TTL` | 3600 | 60-86400 | deprecated, no effect: the connection pool was removed (#628) |
+| `PYEYE_RESOLVE_CACHE_MAX_ENTRIES` | 1000 | 1-1000000 | live |
 | `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` | 200 | 1-1000000 | live |
 | `PYEYE_WATCHER_DEBOUNCE` | 0.5 | 0.0-10.0 | live |

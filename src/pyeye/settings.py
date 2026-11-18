@@ -80,6 +80,17 @@ class PerformanceSettings:
             max_val=1_000_000,
         )
 
+        # The imports edge's resolutions of EXTERNAL targets, per analyzer
+        # (#925): an LRU entry cap. Each entry keeps the Jedi Name it resolved
+        # to, and with it that name's inference state. Latency lever only: an
+        # evicted entry is resolved again on demand.
+        self.resolve_cache_max_entries: int = self._get_int_env(
+            "PYEYE_RESOLVE_CACHE_MAX_ENTRIES",
+            1000,
+            min_val=1,
+            max_val=1_000_000,
+        )
+
         # File watcher settings
         self.watcher_debounce: float = self._get_float_env(
             "PYEYE_WATCHER_DEBOUNCE", 0.5, min_val=0.0, max_val=10.0
